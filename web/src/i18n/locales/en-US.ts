@@ -76,7 +76,7 @@ export default {
         importFailed: "Import failed. Select a valid asset package.",
         deleted: "Asset deleted",
         packageName: "my-assets.zip",
-        kinds: { text: "Text", image: "Image", video: "Video" },
+        kinds: { text: "Text", image: "Image", video: "Video", character: "Character", scene: "Scene", prop: "Prop" },
         fields: {
             title: "Title",
             titleRequired: "Enter a title",

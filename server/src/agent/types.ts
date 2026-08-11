@@ -56,6 +56,7 @@ export type AgentMessageInput = {
     preferredSessionId?: string;
     attachmentFileIds?: string[];
     canvasReferences?: Array<{ projectId: string; nodeId: string }>;
+    assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string }>;
     skillId?: string;
 };
 

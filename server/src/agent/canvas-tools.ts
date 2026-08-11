@@ -3,8 +3,19 @@ import { z } from "zod";
 import { db, parseJson } from "../database.js";
 import { syncFileRefs } from "../file-store.js";
 import { createGeneration, generationResponse, getGenerationForAgent } from "../generation-service.js";
-import { listPublicModels } from "../provider-service.js";
+import { listModelDefaults, listPublicModels } from "../provider-service.js";
 import { publishAgentProject } from "./project-events.js";
+import {
+    buildCreativeAssetPrompt,
+    createCreativeAssetsBatch,
+    creativeAssetInputSchema,
+    deleteCreativeAsset,
+    getCreativeAsset,
+    listCreativeAssets,
+    placeCreativeAsset,
+    setCreativeAssetPrimary,
+    updateCreativeAsset,
+} from "../creative-assets.js";
 
 type ProjectRow = { id: string; user_id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type CanvasNode = { id: string; type?: string; title?: string; position?: { x?: number; y?: number }; metadata?: Record<string, unknown>; [key: string]: unknown };
@@ -34,6 +45,14 @@ export const canvasToolSchemas = {
     generation_get_status: z.object({ id: z.string().optional(), limit: z.number().int().min(1).max(100).optional() }),
     generation_list_models: z.object({ kind: z.enum(["text", "image", "video", "audio"]).optional() }),
     generation_create: z.object({ kind: z.enum(["text", "image", "video", "audio"]), model: z.string(), prompt: z.string(), projectId: z.string().optional(), nodeId: z.string().optional(), references: z.array(z.object({ fileId: z.string(), kind: z.enum(["image", "video", "audio"]).optional() })).optional() }),
+    creative_assets_list: z.object({ projectId: z.string().optional(), kind: z.enum(["character", "scene", "prop"]).optional() }),
+    creative_asset_get: z.object({ projectId: z.string().optional(), assetId: z.string() }),
+    creative_assets_create_batch: z.object({ projectId: z.string().optional(), sourceNodeId: z.string().optional(), items: z.array(creativeAssetInputSchema).min(1).max(200) }),
+    creative_asset_update: z.object({ projectId: z.string().optional(), assetId: z.string(), revision: z.number().int().positive(), patch: creativeAssetInputSchema.partial() }),
+    creative_asset_place: z.object({ projectId: z.string().optional(), assetId: z.string(), x: z.number().optional(), y: z.number().optional() }),
+    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), kind: z.enum(["image", "audio"]), prompt: z.string().optional(), model: z.string().optional(), label: z.string().optional(), usage: z.string().optional(), transcript: z.string().optional() }),
+    creative_asset_set_primary: z.object({ projectId: z.string().optional(), assetId: z.string(), variantId: z.string(), revision: z.number().int().positive() }),
+    creative_asset_delete: z.object({ projectId: z.string().optional(), assetId: z.string() }),
 };
 
 export function getCanvasState(userId: string, projectId: string) {
@@ -139,6 +158,63 @@ export function createAgentGeneration(userId: string, input: z.infer<typeof canv
     if (targetProjectId) projectRow(userId, targetProjectId);
     if (nodeId && !targetProjectId) throw agentToolError("PROJECT_REQUIRED", "关联节点前必须提供 projectId");
     return createGeneration(userId, { ...request, params: { __agentCanvas: targetProjectId ? { projectId: targetProjectId, nodeId: nodeId || null } : null } });
+}
+
+export function listAgentCreativeAssets(userId: string, projectId: string, kind?: "character" | "scene" | "prop") {
+    return listCreativeAssets(userId, projectId).filter((asset) => !kind || asset.kind === kind);
+}
+
+export function getAgentCreativeAsset(userId: string, projectId: string, assetId: string) {
+    const asset = getCreativeAsset(userId, assetId);
+    if (asset.projectId !== projectId) throw agentToolError("CREATIVE_ASSET_NOT_FOUND", "创作资产不存在或不属于当前画布");
+    return asset;
+}
+
+export function createAgentCreativeAssetBatch(userId: string, projectId: string, items: unknown, sourceNodeId?: string) {
+    return createCreativeAssetsBatch(userId, projectId, items, sourceNodeId);
+}
+
+export function updateAgentCreativeAsset(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_update>) {
+    const asset = getAgentCreativeAsset(userId, projectId, input.assetId);
+    return updateCreativeAsset(userId, asset.id, { ...input.patch, revision: input.revision }, true);
+}
+
+export function placeAgentCreativeAsset(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_place>) {
+    getAgentCreativeAsset(userId, projectId, input.assetId);
+    return placeCreativeAsset(userId, input.assetId, { x: input.x, y: input.y });
+}
+
+export function generateAgentCreativeAsset(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_generate>) {
+    const asset = getAgentCreativeAsset(userId, projectId, input.assetId);
+    const model = input.model || (input.kind === "image" ? asset.payload.imageModel : asset.payload.audioModel) || listModelDefaults()[input.kind];
+    const selected = listPublicModels().find((item) => item.value === model && item.output === input.kind);
+    if (!selected) throw agentToolError("AI_MODEL_NOT_AVAILABLE", `没有可用的${input.kind === "image" ? "图片" : "音频"}模型`);
+    const primaryImage = asset.payload.variants.find((item) => item.id === asset.payload.primaryImageId && item.kind === "image");
+    const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId && item.kind === "audio");
+    const referenceImages = asset.payload.variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
+    const referenceAudios = asset.payload.variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
+    const requestedReferences = input.kind === "image" ? referenceImages : referenceAudios;
+    if (requestedReferences.length && !selected.inputs.includes(input.kind)) throw agentToolError("AI_MODEL_REFERENCE_UNSUPPORTED", `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`);
+    const references = input.kind === "image"
+        ? [...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...(primaryImage && selected.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])]
+        : [...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...(primaryAudio && selected.inputs.includes("audio") ? [{ fileId: primaryAudio.fileId, kind: "audio" as const }] : [])];
+    const prompt = input.kind === "audio" && input.transcript?.trim() ? input.transcript.trim() : buildCreativeAssetPrompt(asset, input.kind, input.prompt);
+    const params = {
+        ...(input.kind === "image" ? { size: "16:9" } : {}),
+        ...(input.kind === "audio" && [asset.payload.voiceDescription, input.prompt].filter(Boolean).length ? { instructions: [asset.payload.voiceDescription, input.prompt].filter(Boolean).join("；") } : {}),
+        __creativeAsset: { projectId, assetId: asset.id, usage: input.usage || (input.kind === "image" ? "design_sheet" : "voice_reference"), label: input.label, transcript: input.transcript },
+    };
+    return createGeneration(userId, { kind: input.kind, model, prompt, references, params });
+}
+
+export function setAgentCreativeAssetPrimary(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_set_primary>) {
+    getAgentCreativeAsset(userId, projectId, input.assetId);
+    return setCreativeAssetPrimary(userId, input.assetId, input.variantId, input.revision, true);
+}
+
+export function deleteAgentCreativeAsset(userId: string, projectId: string, assetId: string) {
+    getAgentCreativeAsset(userId, projectId, assetId);
+    return deleteCreativeAsset(userId, assetId);
 }
 
 function projectRow(userId: string, projectId: string) {

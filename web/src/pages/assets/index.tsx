@@ -8,7 +8,7 @@ import { useCopyText } from "@/hooks/use-copy-text";
 import { formatBytes, readFileAsDataUrl } from "@/lib/image-utils";
 import { uploadImage } from "@/services/image-storage";
 import { cn } from "@/lib/utils";
-import { useAssetStore, type Asset, type AssetKind, type ImageAsset } from "@/stores/use-asset-store";
+import { useAssetStore, type Asset, type AssetKind, type CreativeAssetLibraryAsset, type ImageAsset } from "@/stores/use-asset-store";
 import { exportAssets, readAssetPackage } from "./asset-transfer";
 
 type AssetFormValues = {
@@ -23,7 +23,7 @@ type AssetFormValues = {
 
 type ImageDraft = ImageAsset["data"] | null;
 
-const kindOptions = ["all", "text", "image", "video"] as const;
+const kindOptions = ["all", "text", "image", "video", "character", "scene", "prop"] as const;
 
 export default function AssetsPage() {
     const { message } = App.useApp();
@@ -51,7 +51,7 @@ export default function AssetsPage() {
     const title = Form.useWatch("title", form) || "";
     const tags = Form.useWatch("tags", form) || [];
     const content = Form.useWatch("content", form) || "";
-    const validAssets = useMemo(() => assets.filter((asset) => asset.kind === "text" || asset.kind === "image" || asset.kind === "video"), [assets]);
+    const validAssets = assets;
 
     const filteredAssets = useMemo(() => {
         const query = keyword.trim().toLowerCase();
@@ -81,6 +81,10 @@ export default function AssetsPage() {
     };
 
     const openEdit = (asset: Asset) => {
+        if (isCreativeAsset(asset)) {
+            setPreviewAsset(asset);
+            return;
+        }
         setEditingAsset(asset);
         setFormKind(asset.kind);
         setImageDraft(asset.kind === "image" ? asset.data : null);
@@ -446,7 +450,7 @@ function AssetCard({ asset, onOpen, onEdit, onCopy, onDownload, onDelete }: { as
                 <Button size="small" onClick={onOpen}>
                     {t("common.view")}
                 </Button>
-                {asset.kind !== "video" ? (
+                {asset.kind === "text" || asset.kind === "image" ? (
                     <Button size="small" icon={<PencilLine className="size-3.5" />} onClick={onEdit}>
                         {t("common.edit")}
                     </Button>
@@ -500,6 +504,11 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | nu
                             <Typography.Paragraph className="mt-2 whitespace-pre-wrap">{asset.data.content}</Typography.Paragraph>
                         ) : asset.kind === "video" ? (
                             <video src={asset.data.url} controls className="mt-2 aspect-video w-full rounded-lg bg-black" />
+                        ) : isCreativeAsset(asset) ? (
+                            <div className="mt-2 space-y-3">
+                                <Typography.Paragraph className="!mb-0 whitespace-pre-wrap">{asset.data.snapshot.payload.description || asset.note || t("assets.noCover")}</Typography.Paragraph>
+                                {asset.kind === "character" && asset.data.snapshot.payload.voiceDescription ? <div className="rounded-md bg-stone-50 px-3 py-2 dark:bg-stone-900"><Typography.Text type="secondary" className="block text-[11px]">声音</Typography.Text><Typography.Text className="mt-1 block whitespace-pre-wrap text-sm">{asset.data.snapshot.payload.voiceDescription}</Typography.Text></div> : null}
+                            </div>
                         ) : (
                             <Typography.Text className="mt-2 block">
                                 {asset.data.width}x{asset.data.height} · {formatBytes(asset.data.bytes)} · {asset.data.mimeType}
@@ -532,9 +541,15 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | nu
 
 function assetSummary(asset: Asset) {
     if (asset.kind === "text") return asset.data.content;
+    if (isCreativeAsset(asset)) return asset.data.snapshot.payload.description;
     return `${asset.data.width}x${asset.data.height} · ${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
 }
 
 function assetSearchText(asset: Asset) {
-    return [asset.title, asset.source || "", asset.note || "", (asset.tags || []).join(" "), asset.kind === "text" ? asset.data.content : asset.data.mimeType].join(" ").toLowerCase();
+    const content = asset.kind === "text" ? asset.data.content : isCreativeAsset(asset) ? [asset.data.snapshot.payload.description, asset.data.snapshot.payload.voiceDescription].join(" ") : asset.data.mimeType;
+    return [asset.title, asset.source || "", asset.note || "", (asset.tags || []).join(" "), content].join(" ").toLowerCase();
+}
+
+function isCreativeAsset(asset: Asset): asset is CreativeAssetLibraryAsset {
+    return asset.kind === "character" || asset.kind === "scene" || asset.kind === "prop";
 }

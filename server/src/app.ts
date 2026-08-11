@@ -13,6 +13,16 @@ import { clearProviderCredentials, deleteProvider, discoverProviderModels, getAi
 import { agentAdminRouter, agentRouter } from "./agent/routes.js";
 import { handleAgentProviderProxy } from "./agent/provider-proxy.js";
 import { removeAgentWorkspace } from "./agent/service.js";
+import {
+    buildCreativeAssetPrompt,
+    createCreativeAsset,
+    deleteCreativeAsset,
+    getCreativeAsset,
+    listCreativeAssets,
+    placeCreativeAsset,
+    setCreativeAssetPrimary,
+    updateCreativeAsset,
+} from "./creative-assets.js";
 
 type ProjectRow = { id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type AssetRow = { id: string; kind: string; title: string; payload: string; created_at: string; updated_at: string };
@@ -21,7 +31,7 @@ type ComfyServerRow = { id: string; name: string; encrypted_url: string; enabled
 const idSchema = z.string().trim().min(1).max(128);
 const jsonRecord = z.record(z.string(), z.unknown());
 const projectSchema = z.object({ id: idSchema, title: z.string().trim().min(1).max(200) }).passthrough();
-const assetSchema = z.object({ id: idSchema, kind: z.enum(["text", "image", "video"]), title: z.string().trim().min(1).max(200) }).passthrough();
+const assetSchema = z.object({ id: idSchema, kind: z.enum(["text", "image", "video", "character", "scene", "prop"]), title: z.string().trim().min(1).max(200) }).passthrough();
 const settingsSchema = z.object({ config: jsonRecord, promptSources: jsonRecord.optional() });
 const comfyServerSchema = z.object({ name: z.string().trim().min(1).max(100), url: z.string().url(), enabled: z.boolean().default(true), models: z.array(z.enum(COMFY_MODELS)).min(1) });
 const generationParamsSchema = jsonRecord.superRefine((value, context) => {
@@ -117,6 +127,7 @@ api.delete("/projects/:id", route((req) => {
     if (db.prepare("SELECT 1 FROM agent_sessions WHERE user_id=? AND owner_type='project' AND owner_id=? AND status IN ('running','waiting_for_user')").get(req.user.id, req.params.id)) throw apiError(409, "PROJECT_AGENT_BUSY", "Agent 正在使用这个画布，请先停止任务");
     const sessions = db.prepare("SELECT id FROM agent_sessions WHERE user_id=? AND owner_type='project' AND owner_id=?").all(req.user.id, req.params.id) as Array<{ id: string }>;
     const result = db.transaction(() => {
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='creative_asset' AND owner_id IN (SELECT id FROM creative_assets WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, req.params.id);
         sessions.forEach((session) => db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_session' AND owner_id=?").run(req.user.id, session.id));
         db.prepare("DELETE FROM agent_sessions WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, req.params.id);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, req.params.id);
@@ -126,6 +137,15 @@ api.delete("/projects/:id", route((req) => {
     sessions.forEach((session) => removeAgentWorkspace(req.user.id, session.id));
     return result;
 }));
+
+api.get("/projects/:id/creative-assets", route((req) => listCreativeAssets(req.user.id, routeId(req))));
+api.post("/projects/:id/creative-assets", route((req) => createCreativeAsset(req.user.id, routeId(req), req.body), 201));
+api.get("/creative-assets/:id", route((req) => getCreativeAsset(req.user.id, routeId(req))));
+api.put("/creative-assets/:id", route((req) => updateCreativeAsset(req.user.id, routeId(req), req.body, true)));
+api.delete("/creative-assets/:id", route((req) => deleteCreativeAsset(req.user.id, routeId(req))));
+api.post("/creative-assets/:id/place", route((req) => placeCreativeAsset(req.user.id, routeId(req), z.object({ x: z.number().optional(), y: z.number().optional() }).parse(req.body || {})), 201));
+api.post("/creative-assets/:id/variants/:variantId/primary", route((req) => setCreativeAssetPrimary(req.user.id, routeId(req), routeParam(req, "variantId"), z.number().int().positive().parse(req.body?.revision), true)));
+api.post("/creative-assets/:id/generations", route((req) => createCreativeAssetGeneration(req), 201));
 
 api.get("/assets", (_req, res) => {
     const req = _req as Request;
@@ -306,6 +326,52 @@ function assertComfyServerIdle(id: string) {
 function routeId(req: Request) {
     const value = req.params.id;
     return Array.isArray(value) ? value[0] || "" : value;
+}
+
+function routeParam(req: Request, key: string) {
+    const value = req.params[key];
+    return Array.isArray(value) ? value[0] || "" : value;
+}
+
+function createCreativeAssetGeneration(req: Request) {
+    const asset = getCreativeAsset(req.user.id, routeId(req));
+    const value = z.object({
+        kind: z.enum(["image", "audio"]),
+        prompt: z.string().trim().max(200_000).optional(),
+        model: z.string().trim().min(3).optional(),
+        label: z.string().trim().max(200).optional(),
+        usage: z.string().trim().max(100).optional(),
+        transcript: z.string().max(20_000).optional(),
+        params: generationParamsSchema.optional(),
+    }).parse(req.body);
+    const model = value.model || (value.kind === "image" ? asset.payload.imageModel : asset.payload.audioModel) || listModelDefaults()[value.kind];
+    if (!model) throw apiError(409, "AI_MODEL_NOT_CONFIGURED", `管理员尚未配置默认${value.kind === "image" ? "图片" : "音频"}模型`);
+    const selectedModel = listPublicModels().find((item) => item.value === model && item.output === value.kind);
+    if (!selectedModel) throw apiError(400, "AI_MODEL_NOT_AVAILABLE", "所选模型不存在、未启用或能力不匹配");
+    const variants = asset.payload.variants;
+    const primaryImage = variants.find((item) => item.id === asset.payload.primaryImageId && item.kind === "image");
+    const primaryAudio = variants.find((item) => item.id === asset.payload.primaryAudioId && item.kind === "audio");
+    const referenceImages = variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
+    const referenceAudios = variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
+    const requestedReferences = value.kind === "image" ? referenceImages : referenceAudios;
+    if (requestedReferences.length && !selectedModel.inputs.includes(value.kind)) throw apiError(400, "AI_MODEL_REFERENCE_UNSUPPORTED", `所选模型不支持${value.kind === "image" ? "图片" : "音频"}参考，请更换模型或移除参考文件`);
+    const references = value.kind === "image"
+        ? [...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...(primaryImage && selectedModel.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])]
+        : [...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...(primaryAudio && selectedModel.inputs.includes("audio") ? [{ fileId: primaryAudio.fileId, kind: "audio" as const }] : [])];
+    const prompt = value.kind === "audio" && value.transcript?.trim() ? value.transcript.trim() : buildCreativeAssetPrompt(asset, value.kind, value.prompt);
+    const params = {
+        ...(value.params || {}),
+        ...(value.kind === "image" ? { size: "16:9" } : {}),
+        ...(value.kind === "audio" && [asset.payload.voiceDescription, value.prompt].filter(Boolean).length ? { instructions: [asset.payload.voiceDescription, value.prompt].filter(Boolean).join("；") } : {}),
+        __creativeAsset: { projectId: asset.projectId, assetId: asset.id, usage: value.usage || (value.kind === "image" ? "design_sheet" : "voice_reference"), label: value.label, transcript: value.transcript },
+    };
+    return createGeneration(req.user.id, {
+        kind: value.kind,
+        model,
+        prompt,
+        references,
+        params,
+    });
 }
 
 function importBrowserData(req: Request) {

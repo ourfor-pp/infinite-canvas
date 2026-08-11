@@ -194,6 +194,7 @@ applyVersionTwo();
 applyVersionThree();
 applyVersionFour();
 applyVersionFive();
+applyVersionSix();
 ensureAgentMetadata();
 
 function applyVersionTwo() {
@@ -263,6 +264,30 @@ function applyVersionFive() {
     db.transaction(() => {
         if (!columns.some((column) => column.name === "fork_pending")) db.exec("ALTER TABLE agent_sessions ADD COLUMN fork_pending INTEGER NOT NULL DEFAULT 0");
         db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(5, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionSix() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=6").get()) return;
+    db.transaction(() => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS creative_assets (
+              id TEXT NOT NULL,
+              user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              project_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              name TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft',
+              payload TEXT NOT NULL,
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (id, user_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_creative_assets_project ON creative_assets(user_id, project_id, kind, updated_at DESC);
+        `);
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(6, ?)").run(new Date().toISOString());
     })();
 }
 

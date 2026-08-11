@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentRef, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Button, Empty, Image, Input, Popconfirm, Tooltip } from "antd";
+import { Button, Checkbox, Empty, Image, Input, Popconfirm, Select, Tooltip } from "antd";
 import {
     Archive, ArrowDown, AtSign, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Download,
     Clock3, Copy, File, FileAudio, FileText, FileVideo, GitFork, History, ImageIcon,
@@ -65,7 +65,7 @@ export function AgentConversationFlow({
 
 function AgentEmpty({ ownerType, theme, onSuggestion }: { ownerType: "project" | "workspace"; theme: CanvasTheme; onSuggestion: (text: string) => void }) {
     const suggestions = ownerType === "project"
-        ? ["帮我梳理当前画布", "根据选中节点继续创作", "检查画布结构并给出建议"]
+        ? ["拆解小说中的角色、场景和道具", "根据选中节点继续创作", "检查画布结构并给出建议"]
         : ["帮我制定一个创作计划", "整理一段内容的结构", "调用 Skill 完成任务"];
     return (
         <div className="flex h-full min-h-[360px] items-center justify-center px-6 text-center">
@@ -91,6 +91,7 @@ const UserMessage = memo(function UserMessage({ event, theme }: { event: Project
     const visibleText = long && !expanded && text.length > 4_000 ? `${text.slice(0, 4_000)}\n…` : text;
     const attachments = arrayOf<Record<string, unknown>>(event.payload.attachments);
     const references = arrayOf<Record<string, unknown>>(event.payload.references);
+    const assetReferences = arrayOf<Record<string, unknown>>(event.payload.assetReferences);
     const skill = recordOf(event.payload.skill);
     const images = attachments.filter((item) => String(item.mimeType || "").startsWith("image/") && item.fileId);
     const files = attachments.filter((item) => !String(item.mimeType || "").startsWith("image/") || !item.fileId);
@@ -100,10 +101,11 @@ const UserMessage = memo(function UserMessage({ event, theme }: { event: Project
                 {text ? <div className={`whitespace-pre-wrap break-words ${long && !expanded ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_75%,transparent)]" : ""}`}>{visibleText}</div> : null}
                 {long ? <button type="button" className="mt-1 text-xs font-medium opacity-55 hover:opacity-80" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开全文"}</button> : null}
                 {images.length ? <Image.PreviewGroup><div className="mt-2 grid grid-cols-3 gap-1.5">{images.map((item, index) => <Image key={String(item.fileId || index)} src={fileUrl(String(item.fileId))} alt={String(item.name || "图片附件")} className="!h-20 !w-full rounded-lg object-cover" />)}</div></Image.PreviewGroup> : null}
-                {files.length || references.length || skill ? (
+                {files.length || references.length || assetReferences.length || skill ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                         {skill?.name ? <MetaChip icon={<Sparkles className="size-3" />} text={`/${skill.name}`} /> : null}
                         {references.map((item, index) => <MetaChip key={`r-${index}`} icon={<AtSign className="size-3" />} text={String(item.title || "画布节点")} />)}
+                        {assetReferences.map((item, index) => <MetaChip key={`a-${index}`} icon={<Sparkles className="size-3" />} text={String(item.name || "创作设定")} />)}
                         {files.map((item, index) => item.fileId ? <a key={`f-${index}`} href={fileUrl(String(item.fileId))} target="_blank" rel="noreferrer"><MetaChip icon={<File className="size-3" />} text={String(item.name || "附件")} /></a> : <MetaChip key={`f-${index}`} icon={<File className="size-3" />} text={String(item.name || "附件")} />)}
                     </div>
                 ) : null}
@@ -239,23 +241,62 @@ export function AgentDecisionCard({ pending, value, theme, busy, onChange, onDec
     theme: CanvasTheme;
     busy: boolean;
     onChange: (value: string) => void;
-    onDecide: (decision: "approved" | "rejected", scope?: "once" | "session" | "permanent") => void;
+    onDecide: (decision: "approved" | "rejected", scope?: "once" | "session" | "permanent", proposalEdits?: unknown) => void;
 }) {
     const question = pending.kind === "question";
+    const proposal = pending.toolName === "creative_assets_create_batch";
     const scopes = pending.scopes?.length ? pending.scopes : ["once", "session", "permanent"];
     return (
         <section className="mx-3 mb-2 overflow-hidden rounded-2xl border" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
             <div className="flex gap-3 p-3.5">
                 <span className="grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}><ShieldAlert className="size-4" /></span>
-                <div className="min-w-0 flex-1"><div className="text-sm font-medium">{question ? "Agent 需要你补充信息" : "Agent 请求执行高风险操作"}</div><p className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>{pending.content}</p>{pending.toolName ? <div className="mt-2 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]" style={{ borderColor: theme.node.stroke }}><Wrench className="size-3" />{toolLabel(pending.toolName)}</div> : null}</div>
+                <div className="min-w-0 flex-1"><div className="text-sm font-medium">{question ? "Agent 需要你补充信息" : proposal ? "检查小说拆解清单" : "Agent 请求执行高风险操作"}</div><p className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>{pending.content}</p>{pending.toolName ? <div className="mt-2 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]" style={{ borderColor: theme.node.stroke }}><Wrench className="size-3" />{toolLabel(pending.toolName)}</div> : null}</div>
             </div>
-            {question ? <div className="px-3.5 pb-3"><Input.TextArea value={value} onChange={(event) => onChange(event.target.value)} autoFocus autoSize={{ minRows: 2, maxRows: 6 }} placeholder="输入回复，Agent 会从这里继续" /></div> : null}
+            {question ? <div className="px-3.5 pb-3"><Input.TextArea value={value} onChange={(event) => onChange(event.target.value)} autoFocus autoSize={{ minRows: 2, maxRows: 6 }} placeholder="输入回复，Agent 会从这里继续" /></div> : proposal ? <CreativeAssetProposal pending={pending} theme={theme} busy={busy} onReject={() => onDecide("rejected")} onConfirm={(items) => onDecide("approved", "once", items)} /> : null}
+            {proposal ? null : (
             <div className="flex flex-wrap justify-end gap-1.5 border-t px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}>
                 <Button type="text" size="small" disabled={busy} onClick={() => onDecide("rejected")}>{question ? "拒绝并改方案" : "拒绝"}</Button>
                 {question ? <Button type="primary" size="small" disabled={!value.trim() || busy} onClick={() => onDecide("approved")}>提交回复</Button> : <>{scopes.includes("once") ? <Button size="small" disabled={busy} onClick={() => onDecide("approved", "once")}>允许一次</Button> : null}{scopes.includes("session") ? <Button size="small" disabled={busy} onClick={() => onDecide("approved", "session")}>本会话记住</Button> : null}{scopes.includes("permanent") ? <Button type="primary" size="small" disabled={busy} onClick={() => onDecide("approved", "permanent")}>永久允许</Button> : null}</>}
             </div>
+            )}
         </section>
     );
+}
+
+type ProposalItem = { included: boolean; kind: "character" | "scene" | "prop"; name: string; status: "draft"; payload: { description: string; voiceDescription: string; [key: string]: unknown } };
+function CreativeAssetProposal({ pending, theme, busy, onReject, onConfirm }: { pending: AgentPendingDecision; theme: CanvasTheme; busy: boolean; onReject: () => void; onConfirm: (items: unknown[]) => void }) {
+    const source = recordOf(pending.toolInput) || {};
+    const [items, setItems] = useState<ProposalItem[]>(() => arrayOf<Record<string, unknown>>(source.items).map(normalizeProposalItem));
+    useEffect(() => setItems(arrayOf<Record<string, unknown>>((recordOf(pending.toolInput) || {}).items).map(normalizeProposalItem)), [pending.id, pending.toolInput]);
+    const selected = items.filter((item) => item.included);
+    const update = (index: number, patch: Partial<ProposalItem>) => setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+    const mergePrevious = (index: number) => setItems((current) => {
+        const item = current[index];
+        let targetIndex = index - 1;
+        while (targetIndex >= 0 && current[targetIndex].kind !== item.kind) targetIndex -= 1;
+        if (targetIndex < 0) return current;
+        return current.map((value, itemIndex) => itemIndex === targetIndex ? { ...value, payload: { ...value.payload, description: [value.payload.description, item.payload.description].filter(Boolean).join("；") } } : value).filter((_value, itemIndex) => itemIndex !== index);
+    });
+    return <div className="border-t" style={{ borderColor: theme.node.stroke }}>
+        <div className="max-h-[48vh] space-y-4 overflow-y-auto px-3.5 py-3 thin-scrollbar">
+            {(["character", "scene", "prop"] as const).map((kind) => {
+                const rows = items.map((item, index) => ({ item, index })).filter(({ item }) => item.kind === kind);
+                if (!rows.length) return null;
+                return <section key={kind}><div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold opacity-55"><span>{kind === "character" ? "角色" : kind === "scene" ? "场景" : "道具"}</span><span>{rows.filter(({ item }) => item.included).length}/{rows.length}</span></div><div className="space-y-2">{rows.map(({ item, index }) => <div key={`${kind}-${index}`} className="rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}>
+                    <div className="flex items-center gap-2"><Checkbox checked={item.included} onChange={(event) => update(index, { included: event.target.checked })} /><Input size="small" value={item.name} onChange={(event) => update(index, { name: event.target.value })} /><Select size="small" value={item.kind} className="w-20" onChange={(value) => update(index, { kind: value })} options={[{ value: "character", label: "角色" }, { value: "scene", label: "场景" }, { value: "prop", label: "道具" }]} /></div>
+                    <Input.TextArea className="mt-2" value={item.payload.description} onChange={(event) => update(index, { payload: { ...item.payload, description: event.target.value } })} autoSize={{ minRows: 2, maxRows: 5 }} placeholder="完整视觉描述" />
+                    {item.kind === "character" ? <Input.TextArea className="mt-2" value={item.payload.voiceDescription} onChange={(event) => update(index, { payload: { ...item.payload, voiceDescription: event.target.value } })} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="声音描述（可选）" /> : null}
+                    <button type="button" className="mt-1.5 text-[10px] opacity-45 hover:opacity-80" onClick={() => mergePrevious(index)}>合并到上一项同类设定</button>
+                </div>)}</div></section>;
+            })}
+        </div>
+        <div className="flex items-center border-t px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}><span className="text-xs opacity-45">将在画布创建 {selected.length} 张独立业务卡片</span><Button className="ml-auto" type="text" size="small" disabled={busy} onClick={onReject}>拒绝</Button><Button type="primary" size="small" disabled={!selected.length || busy} onClick={() => onConfirm(selected.map(({ included: _included, ...item }) => item))}>确认创建</Button></div>
+    </div>;
+}
+
+function normalizeProposalItem(value: Record<string, unknown>): ProposalItem {
+    const payload = recordOf(value.payload) || {};
+    return { included: true, kind: value.kind === "scene" || value.kind === "prop" ? value.kind : "character", name: String(value.name || "未命名设定"), status: "draft", payload: { ...payload, description: String(payload.description || ""), voiceDescription: String(payload.voiceDescription || "") } };
 }
 
 export function AgentComposer({
@@ -536,6 +577,6 @@ function formatDuration(ms: number) { const seconds = Math.max(0, Math.floor(ms 
 function formatRelativeTime(value: string) { const delta = Date.now() - Date.parse(value); if (delta < 60_000) return "刚刚"; if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`; if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`; return new Date(value).toLocaleDateString("zh-CN"); }
 function statusText(status: AgentSession["status"]) { return ({ idle: "空闲", running: "运行中", waiting_for_user: "等待确认", completed: "已完成", failed: "失败", canceled: "已取消" } as const)[status]; }
 function statusDot(status: AgentSession["status"]) { return status === "running" ? "bg-blue-500" : status === "waiting_for_user" ? "bg-amber-500" : status === "failed" ? "bg-red-500" : status === "completed" ? "bg-emerald-500" : "bg-zinc-400"; }
-function toolLabel(name: string) { return ({ Read: "读取附件", canvas_list_projects: "查看画布列表", canvas_get_state: "读取画布", canvas_apply_ops: "修改画布", canvas_create_text_nodes: "创建文本节点", canvas_delete_nodes: "删除节点", canvas_connect_nodes: "连接节点", assets_list: "查看素材", assets_add: "新增素材", assets_delete: "删除素材", prompts_search: "搜索提示词", generation_list_models: "查看生成模型", generation_get_status: "查询生成任务", generation_create: "创建生成任务", site_navigate: "页面跳转", canvas_select_nodes: "选择节点", canvas_focus_nodes: "聚焦节点", workspace_write_text: "写入产物", artifact_publish: "发布产物", ask_user: "向用户追问" } as Record<string, string>)[name] || name; }
+function toolLabel(name: string) { return ({ Read: "读取附件", canvas_list_projects: "查看画布列表", canvas_get_state: "读取画布", canvas_apply_ops: "修改画布", canvas_create_text_nodes: "创建文本节点", canvas_delete_nodes: "删除节点", canvas_connect_nodes: "连接节点", assets_list: "查看素材", assets_add: "新增素材", assets_delete: "删除素材", prompts_search: "搜索提示词", generation_list_models: "查看生成模型", generation_get_status: "查询生成任务", generation_create: "创建生成任务", creative_assets_list: "查看创作设定", creative_asset_get: "读取创作设定", creative_assets_create_batch: "确认小说设定拆解", creative_asset_update: "更新创作设定", creative_asset_place: "放置创作设定", creative_asset_generate: "生成设定媒体", creative_asset_set_primary: "选择主版本", creative_asset_delete: "永久删除创作设定", site_navigate: "页面跳转", canvas_select_nodes: "选择节点", canvas_focus_nodes: "聚焦节点", workspace_write_text: "写入产物", artifact_publish: "发布产物", ask_user: "向用户追问" } as Record<string, string>)[name] || name; }
 function toolTarget(value: unknown) { const input = recordOf(value); if (!input) return ""; const candidate = input.title || input.name || input.path || input.nodeId || input.projectId || (Array.isArray(input.ids) ? `${input.ids.length} 个对象` : ""); return String(candidate || "").slice(0, 48); }
 function roundSignature(events: ProjectedEvent[]) { return events.map((event) => `${event.seq}:${event.kind}:${eventText(event).length}:${formatUnknown(event.payload.input).length}:${event.result?.seq || 0}:${event.payload.delta ? 1 : 0}`).join("|"); }

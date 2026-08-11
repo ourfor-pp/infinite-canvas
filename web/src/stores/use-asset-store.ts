@@ -2,12 +2,14 @@ import { create } from "zustand";
 import { nanoid } from "nanoid";
 
 import { serverApi } from "@/services/api/server";
+import type { CreativeAssetKind, CreativeAssetSnapshot } from "@/types/creative-asset";
 
-export type AssetKind = "text" | "image" | "video";
+export type AssetKind = "text" | "image" | "video" | CreativeAssetKind;
 export type TextAsset = AssetBase<"text"> & { data: { content: string } };
 export type ImageAsset = AssetBase<"image"> & { data: { dataUrl: string; storageKey?: string; width: number; height: number; bytes: number; mimeType: string } };
 export type VideoAsset = AssetBase<"video"> & { data: { url: string; storageKey?: string; width: number; height: number; bytes: number; mimeType: string } };
-export type Asset = TextAsset | ImageAsset | VideoAsset;
+export type CreativeAssetLibraryAsset = AssetBase<CreativeAssetKind> & { data: { snapshot: CreativeAssetSnapshot } };
+export type Asset = TextAsset | ImageAsset | VideoAsset | CreativeAssetLibraryAsset;
 
 type AssetBase<T extends AssetKind> = {
     id: string;

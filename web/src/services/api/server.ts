@@ -1,3 +1,5 @@
+import type { CreativeAsset } from "@/types/creative-asset";
+
 const apiBase = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/api`;
 
 export type ServerSession = {
@@ -93,6 +95,14 @@ export const serverApi = {
     createProject: (project: Record<string, unknown>) => serverRequest<Record<string, unknown>>("/projects", { method: "POST", body: JSON.stringify(project) }),
     updateProject: (id: string, project: Record<string, unknown>, force = false) => serverRequest<Record<string, unknown>>(`/projects/${encodeURIComponent(id)}${force ? "/force" : ""}`, { method: "PUT", body: JSON.stringify(project) }),
     deleteProject: (id: string) => serverRequest(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    creativeAssets: (projectId: string) => serverRequest<CreativeAsset[]>(`/projects/${encodeURIComponent(projectId)}/creative-assets`),
+    createCreativeAsset: (projectId: string, input: Record<string, unknown>) => serverRequest<CreativeAsset>(`/projects/${encodeURIComponent(projectId)}/creative-assets`, { method: "POST", body: JSON.stringify(input) }),
+    creativeAsset: (id: string) => serverRequest<CreativeAsset>(`/creative-assets/${encodeURIComponent(id)}`),
+    updateCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<CreativeAsset>(`/creative-assets/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+    deleteCreativeAsset: (id: string) => serverRequest(`/creative-assets/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    placeCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<{ nodeId: string; projectId: string }>(`/creative-assets/${encodeURIComponent(id)}/place`, { method: "POST", body: JSON.stringify(input) }),
+    generateCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<ServerGeneration>(`/creative-assets/${encodeURIComponent(id)}/generations`, { method: "POST", body: JSON.stringify(input) }),
+    setCreativeAssetPrimary: (id: string, variantId: string, revision: number) => serverRequest<CreativeAsset>(`/creative-assets/${encodeURIComponent(id)}/variants/${encodeURIComponent(variantId)}/primary`, { method: "POST", body: JSON.stringify({ revision }) }),
     assets: () => serverRequest<Array<Record<string, unknown>>>("/assets"),
     createAsset: (asset: Record<string, unknown>) => serverRequest<Record<string, unknown>>("/assets", { method: "POST", body: JSON.stringify(asset) }),
     updateAsset: (id: string, asset: Record<string, unknown>) => serverRequest<Record<string, unknown>>(`/assets/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(asset) }),
@@ -154,7 +164,7 @@ export function serverFileIdFromUrl(source: string) {
     }
 }
 
-export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void, onProject?: (project: Record<string, unknown>) => void) {
+export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void, onProject?: (project: Record<string, unknown>) => void, onCreativeAsset?: (asset: CreativeAsset | { id: string; projectId: string; deleted: true }) => void) {
     let socket: WebSocket | null = null;
     let retryTimer = 0;
     let stopped = false;
@@ -167,6 +177,7 @@ export function subscribeServerEvents(onGeneration: (generation: ServerGeneratio
                 if (message.type === "generation.updated" && message.data) onGeneration(message.data as ServerGeneration);
                 if (message.type === "generation.delta" && message.data) onDelta?.(message.data as { id: string; delta: string });
                 if (message.type === "project.updated" && message.data) onProject?.(message.data as Record<string, unknown>);
+                if (message.type === "creative_asset.updated" && message.data) onCreativeAsset?.(message.data as CreativeAsset | { id: string; projectId: string; deleted: true });
             } catch {
                 // Ignore malformed server events and keep the connection alive.
             }

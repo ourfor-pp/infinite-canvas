@@ -19,9 +19,17 @@ import {
     listAssets,
     listProjects,
     searchPrompts,
+    createAgentCreativeAssetBatch,
+    deleteAgentCreativeAsset,
+    generateAgentCreativeAsset,
+    getAgentCreativeAsset,
+    listAgentCreativeAssets,
+    placeAgentCreativeAsset,
+    setAgentCreativeAssetPrimary,
+    updateAgentCreativeAsset,
 } from "../canvas-tools.js";
 
-const toolNames = ["canvas_list_projects", "canvas_get_state", "canvas_apply_ops", "canvas_create_text_nodes", "canvas_delete_nodes", "canvas_connect_nodes", "assets_list", "assets_add", "assets_delete", "prompts_search", "generation_list_models", "generation_get_status", "generation_create", "site_navigate", "canvas_select_nodes", "canvas_focus_nodes", "workspace_write_text", "artifact_publish", "ask_user"] as const;
+const toolNames = ["canvas_list_projects", "canvas_get_state", "canvas_apply_ops", "canvas_create_text_nodes", "canvas_delete_nodes", "canvas_connect_nodes", "assets_list", "assets_add", "assets_delete", "prompts_search", "generation_list_models", "generation_get_status", "generation_create", "creative_assets_list", "creative_asset_get", "creative_assets_create_batch", "creative_asset_update", "creative_asset_place", "creative_asset_generate", "creative_asset_set_primary", "creative_asset_delete", "site_navigate", "canvas_select_nodes", "canvas_focus_nodes", "workspace_write_text", "artifact_publish", "ask_user"] as const;
 
 export const agentAllowedTools = [...toolNames.map((name) => `mcp__infinite_canvas__${name}`), "Read"];
 
@@ -29,7 +37,7 @@ type AgentMcpContext = {
     session: { id: string; ownerType: "project" | "workspace"; ownerId: string };
     run: { userId: string };
     appendEvent: (kind: "tool_call" | "tool_result" | "artifact", payload: Record<string, unknown>) => unknown;
-    requireDecision: (toolName: string, input: unknown, kind?: "approval" | "question") => Promise<{ comment?: string; answers?: Record<string, string> }>;
+    requireDecision: (toolName: string, input: unknown, kind?: "approval" | "question") => Promise<{ comment?: string; answers?: Record<string, string>; proposalEdits?: unknown }>;
     requestClientAction: (name: string, input: unknown) => Promise<unknown>;
     resolveWorkspacePath: (path: string) => string;
 };
@@ -75,6 +83,30 @@ export function buildAgentMcpServer(context: AgentMcpContext) {
         call("generation_list_models", "列出后端已启用且能力匹配的生成模型。", canvasToolSchemas.generation_list_models.shape, (input) => generationModels(input as z.infer<typeof canvasToolSchemas.generation_list_models>)),
         call("generation_get_status", "查询当前会话范围内的生成任务状态。", canvasToolSchemas.generation_get_status.shape, (input) => generationStatus(run.userId, input as z.infer<typeof canvasToolSchemas.generation_get_status>, projectId || undefined)),
         call("generation_create", "通过后端队列创建文本、图片、视频或音频生成任务；传 nodeId 可将状态和结果回写画布。", canvasToolSchemas.generation_create.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.generation_create>; return createAgentGeneration(run.userId, { ...value, ...(value.projectId || projectId ? { projectId: project(value) } : {}) }, projectId || undefined); }),
+        call("creative_assets_list", "列出当前项目的角色、场景和道具设定。", canvasToolSchemas.creative_assets_list.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_assets_list>; return listAgentCreativeAssets(run.userId, project(value), value.kind); }),
+        call("creative_asset_get", "读取一项创作资产的权威设定、revision 和媒体变体。", canvasToolSchemas.creative_asset_get.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_get>; return getAgentCreativeAsset(run.userId, project(value), value.assetId); }),
+        tool("creative_assets_create_batch", "把小说拆解候选提交为可编辑清单；用户确认后批量创建独立的角色、场景和道具业务卡片。", canvasToolSchemas.creative_assets_create_batch.shape, async (input) => {
+            const value = input as z.infer<typeof canvasToolSchemas.creative_assets_create_batch>;
+            const toolId = nanoid();
+            context.appendEvent("tool_call", { toolId, toolName: "creative_assets_create_batch", input: value, startedAt: new Date().toISOString() });
+            try {
+                const targetProjectId = project(value);
+                const decision = await context.requireDecision("creative_assets_create_batch", value);
+                const items = decision.proposalEdits || value.items;
+                const result = createAgentCreativeAssetBatch(run.userId, targetProjectId, items, value.sourceNodeId);
+                context.appendEvent("tool_result", { toolId, toolName: "creative_assets_create_batch", output: result, isError: false, finishedAt: new Date().toISOString() });
+                return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true, data: result }, null, 2) }] };
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                context.appendEvent("tool_result", { toolId, toolName: "creative_assets_create_batch", output: message, isError: true, finishedAt: new Date().toISOString() });
+                return { content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: message }) }], isError: true };
+            }
+        }),
+        call("creative_asset_update", "按 revision 更新角色、场景或道具的文字设定。已确认或锁定的设定会要求审批。", canvasToolSchemas.creative_asset_update.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_update>; return updateAgentCreativeAsset(run.userId, project(value), value); }, (input) => getAgentCreativeAsset(run.userId, project(input as { projectId?: string }), (input as { assetId: string }).assetId).status !== "draft"),
+        call("creative_asset_place", "把已有创作资产重新放到画布，不复制实体。", canvasToolSchemas.creative_asset_place.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_place>; return placeAgentCreativeAsset(run.userId, project(value), value); }),
+        call("creative_asset_generate", "为创作资产生成图片或声音，只追加媒体变体，不自动替换主版本。", canvasToolSchemas.creative_asset_generate.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_generate>; return generateAgentCreativeAsset(run.userId, project(value), value); }),
+        call("creative_asset_set_primary", "选择创作资产的主图片或主声音；已确认或锁定的设定需要审批。", canvasToolSchemas.creative_asset_set_primary.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_set_primary>; return setAgentCreativeAssetPrimary(run.userId, project(value), value); }, (input) => getAgentCreativeAsset(run.userId, project(input as { projectId?: string }), (input as { assetId: string }).assetId).status !== "draft"),
+        call("creative_asset_delete", "永久删除创作资产、全部画布视图和引用，必须审批。", canvasToolSchemas.creative_asset_delete.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_delete>; return deleteAgentCreativeAsset(run.userId, project(value), value.assetId); }, true),
         call("site_navigate", "让当前已登录页面跳转到非管理区的应用内路径；没有活动页面时返回 CLIENT_REQUIRED。", { path: z.string().max(500).regex(/^\/(?!\/|admin(?:\/|$))/, "只能跳转到非管理区的应用内路径") }, (input) => context.requestClientAction("site_navigate", input)),
         call("canvas_select_nodes", "在当前已打开画布页面选择节点。", { ids: z.array(z.string()).max(200) }, (input) => context.requestClientAction("canvas_select_nodes", input)),
         call("canvas_focus_nodes", "让当前已打开画布页面聚焦节点。", { ids: z.array(z.string()).min(1).max(200) }, (input) => context.requestClientAction("canvas_focus_nodes", input)),

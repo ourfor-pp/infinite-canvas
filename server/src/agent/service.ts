@@ -10,8 +10,9 @@ import { getStoredFile } from "../file-store.js";
 import { decryptCredentials, getProviderRow, resolveAgentModel, type AiModelDefinition } from "../provider-service.js";
 import { registerAgentProviderProxy } from "./provider-proxy.js";
 import { agentAllowedTools, buildAgentMcpServer } from "./mcp/index.js";
-import { getBuiltInAgentSkill, listBuiltInAgentSkills, type BuiltInAgentSkill } from "./skills/index.js";
+import { getBuiltInAgentSkill, listBuiltInAgentSkills, syncBuiltInAgentSkills, type BuiltInAgentSkill } from "./skill-registry.js";
 import { getCanvasState } from "./canvas-tools.js";
+import { creativeAssetInputSchema, getCreativeAsset } from "../creative-assets.js";
 import type { AgentEvent, AgentEventKind, AgentMessageInput, AgentOwnerType, AgentPendingDecision, AgentSession, AgentSessionStatus, AgentStreamEvent } from "./types.js";
 
 type SessionRow = {
@@ -21,7 +22,7 @@ type SessionRow = {
 };
 type RunRow = { id: string; session_id: string; user_id: string; status: string; model_ref: string; usage: string | null; error: string | null; error_code: string | null; started_at: string; finished_at: string | null };
 type AgentSettings = { modelRef: string; modelName?: string; providerName?: string; ready: boolean };
-type DecisionResult = { approved: boolean; scope: "once" | "session" | "permanent"; comment?: string; answers?: Record<string, string> };
+type DecisionResult = { approved: boolean; scope: "once" | "session" | "permanent"; comment?: string; answers?: Record<string, string>; proposalEdits?: unknown };
 
 type ConversationListener = { clientId: string; send: (event: AgentStreamEvent) => void };
 const conversationListeners = new Map<string, Set<ConversationListener>>();
@@ -197,18 +198,29 @@ export function sendMessage(userId: string, ownerType: AgentOwnerType, ownerId: 
         if (!node) throw agentError(404, "AGENT_REFERENCE_NOT_FOUND", `引用节点 ${reference.nodeId} 不存在`);
         return { projectId: reference.projectId, nodeId: reference.nodeId, node };
     });
+    const assetReferences = normalized.assetReferences.map((reference) => {
+        if (reference.projectId !== ownerId || ownerType !== "project") throw agentError(400, "AGENT_ASSET_REFERENCE_INVALID", "创作资产引用必须属于当前项目");
+        const asset = getCreativeAsset(userId, reference.assetId);
+        if (asset.projectId !== reference.projectId) throw agentError(404, "AGENT_ASSET_REFERENCE_NOT_FOUND", "创作资产不存在或不属于当前项目");
+        if (reference.nodeId) {
+            const state = getCanvasState(userId, reference.projectId);
+            const node = state.nodes.find((item) => item.id === reference.nodeId && item.metadata?.assetId === reference.assetId);
+            if (!node) throw agentError(404, "AGENT_ASSET_NODE_NOT_FOUND", "创作资产节点不存在");
+        }
+        return { ...reference, asset };
+    });
     const skill = normalized.skillId ? getEnabledSkill(normalized.skillId) : null;
     const runId = nanoid();
     const now = new Date().toISOString();
-    const displayText = normalized.text || (attachments.length ? `发送了 ${attachments.length} 个附件` : `引用了 ${references.length} 个画布节点`);
+    const displayText = normalized.text || (attachments.length ? `发送了 ${attachments.length} 个附件` : assetReferences.length ? `引用了 ${assetReferences.length} 个创作资产` : `引用了 ${references.length} 个画布节点`);
     db.transaction(() => {
         db.prepare("INSERT INTO agent_runs(id, session_id, user_id, status, model_ref, started_at) VALUES(?, ?, ?, 'queued', ?, ?)").run(runId, session!.id, userId, settings.modelRef, now);
         db.prepare("UPDATE agent_sessions SET status='running', current_run_id=?, last_error=NULL, last_error_code=NULL, title=CASE WHEN title='新对话' THEN ? ELSE title END, updated_at=? WHERE id=? AND user_id=?")
             .run(runId, displayText.slice(0, 80), now, session!.id, userId);
-        appendEvent(session!.id, runId, "user_text", { text: displayText, attachments: attachments.map(({ path: _path, ...item }) => item), references: references.map(({ node, ...item }) => ({ ...item, title: node.title, type: node.type })), skill: skill ? { id: skill.id, name: skill.name } : null });
+        appendEvent(session!.id, runId, "user_text", { text: displayText, attachments: attachments.map(({ path: _path, ...item }) => item), references: references.map(({ node, ...item }) => ({ ...item, title: node.title, type: node.type })), assetReferences: assetReferences.map(({ asset, ...item }) => ({ ...item, name: asset.name, kind: asset.kind })), skill: skill ? { id: skill.id, name: skill.name } : null });
         const addFileRef = db.prepare("INSERT OR IGNORE INTO file_refs(file_id, user_id, owner_type, owner_id) SELECT id, user_id, 'agent_session', ? FROM stored_files WHERE id=? AND user_id=?");
         normalized.attachmentFileIds.forEach((fileId) => addFileRef.run(session!.id, fileId, userId));
-        db.prepare("UPDATE agent_runs SET usage=? WHERE id=?").run(JSON.stringify({ input: normalized.text, attachments, references, skillId: skill?.id || null }), runId);
+        db.prepare("UPDATE agent_runs SET usage=? WHERE id=?").run(JSON.stringify({ input: normalized.text, attachments, references, assetReferences, skillId: skill?.id || null }), runId);
     })();
     schedulePump();
     return getConversation(userId, ownerType, ownerId);
@@ -232,13 +244,17 @@ export async function cancelSession(userId: string, sessionId: string) {
     return sessionResponse(requireSession(userId, sessionId), true);
 }
 
-export function respondDecision(userId: string, sessionId: string, input: { decision: "approved" | "rejected"; scope?: "once" | "session" | "permanent"; comment?: string; answers?: Record<string, string> }) {
+export function respondDecision(userId: string, sessionId: string, input: { decision: "approved" | "rejected"; scope?: "once" | "session" | "permanent"; comment?: string; answers?: Record<string, string>; proposalEdits?: unknown }) {
     const row = requireSession(userId, sessionId);
     const pending = parseJson<AgentPendingDecision | null>(row.pending_decision, null);
     if (!pending) throw agentError(409, "AGENT_DECISION_NOT_PENDING", "当前没有待处理的 Agent 请求");
     const waiter = decisions.get(pending.id);
     if (!waiter || waiter.sessionId !== sessionId) throw agentError(409, "AGENT_DECISION_INTERRUPTED", "审批对应的任务已经中断，请重新发起任务");
     const scope = input.scope || "once";
+    if (pending.scopes?.length && !pending.scopes.includes(scope)) throw agentError(400, "AGENT_DECISION_SCOPE_INVALID", "当前操作不支持该授权范围");
+    const proposalEdits = pending.toolName === "creative_assets_create_batch" && input.proposalEdits !== undefined
+        ? z.array(creativeAssetInputSchema).min(1).max(200).parse(input.proposalEdits)
+        : undefined;
     if (input.decision === "approved" && pending.kind === "approval" && pending.toolName) {
         if (scope === "session") {
             const rules = sessionRules.get(sessionId) || new Set<string>();
@@ -248,9 +264,9 @@ export function respondDecision(userId: string, sessionId: string, input: { deci
         if (scope === "permanent") db.prepare("INSERT OR IGNORE INTO agent_permission_rules(user_id, tool_name, created_at) VALUES(?, ?, ?)").run(userId, pending.toolName, new Date().toISOString());
     }
     db.prepare("UPDATE agent_sessions SET status='running', pending_decision=NULL, updated_at=? WHERE id=? AND user_id=?").run(new Date().toISOString(), sessionId, userId);
-    appendEvent(sessionId, pending.runId, pending.kind === "question" ? "question_response" : "approval_response", { decision: input.decision, scope, comment: input.comment || "", answers: input.answers || {} });
+    appendEvent(sessionId, pending.runId, pending.kind === "question" ? "question_response" : "approval_response", { decision: input.decision, scope, comment: input.comment || "", answers: input.answers || {}, ...(proposalEdits ? { proposalEdits } : {}) });
     decisions.delete(pending.id);
-    waiter.resolve({ approved: input.decision === "approved", scope, comment: input.comment, answers: input.answers });
+    waiter.resolve({ approved: input.decision === "approved", scope, comment: input.comment, answers: input.answers, proposalEdits });
     return sessionResponse(requireSession(userId, sessionId), true);
 }
 
@@ -330,10 +346,11 @@ async function executeRun(run: RunRow, controller: AbortController) {
     const session = requireSession(run.user_id, run.session_id);
     try {
         const selection = resolveAgentModel(run.model_ref);
-        const context = parseJson<{ input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; skillId?: string }>(run.usage, {});
+        const context = parseJson<{ input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; skillId?: string }>(run.usage, {});
         const skill = context.skillId ? getEnabledSkill(context.skillId) : null;
         const workspace = sessionWorkspace(run.user_id, session.id);
         mkdirSync(workspace, { recursive: true });
+        syncBuiltInAgentSkills(workspace);
         const prompt = buildPrompt(session, { ...context, attachments: stageAttachments(workspace, context.attachments || []) }, skill);
         const runtime = runtimeEnv(selection.provider, selection.provider.credentials, selection.model, resolve(workspace, ".claude"));
         const mcp = buildAgentMcpServer({
@@ -355,6 +372,8 @@ async function executeRun(run: RunRow, controller: AbortController) {
                 persistSession: true,
                 resume: session.sdk_session_id || undefined,
                 forkSession: Boolean(session.sdk_session_id && session.fork_pending),
+                settingSources: ["project"],
+                skills: "all",
                 tools: ["Read"],
                 mcpServers: { infinite_canvas: mcp },
                 allowedTools: agentAllowedTools,
@@ -413,12 +432,13 @@ async function requestClientAction(session: SessionRow, run: RunRow, name: strin
 }
 
 async function requireDecision(session: SessionRow, run: RunRow, toolName: string, input: unknown, kind: "approval" | "question" = "approval") {
-    if (kind === "approval") {
+    const alwaysAsk = ["creative_assets_create_batch", "creative_asset_update", "creative_asset_set_primary", "creative_asset_delete"].includes(toolName);
+    if (kind === "approval" && !alwaysAsk) {
         const permanent = db.prepare("SELECT 1 FROM agent_permission_rules WHERE user_id=? AND tool_name=?").get(run.user_id, toolName);
         if (permanent || sessionRules.get(session.id)?.has(toolName)) return { approved: true, scope: "session" as const };
     }
     const id = nanoid();
-    const pending: AgentPendingDecision = { id, kind, runId: run.id, content: kind === "question" ? String((input as { question?: string }).question || "Agent 正在等待回答") : `Agent 请求执行高风险操作：${toolName}`, toolName, toolInput: input, scopes: kind === "approval" ? ["once", "session", "permanent"] : undefined };
+    const pending: AgentPendingDecision = { id, kind, runId: run.id, content: kind === "question" ? String((input as { question?: string }).question || "Agent 正在等待回答") : toolName === "creative_assets_create_batch" ? "请检查 Agent 拆解出的角色、场景和道具，确认后将创建为独立业务卡片" : `Agent 请求执行高风险操作：${toolName}`, toolName, toolInput: input, scopes: kind === "approval" ? (alwaysAsk ? ["once"] : ["once", "session", "permanent"]) : undefined };
     db.prepare("UPDATE agent_sessions SET status='waiting_for_user', pending_decision=?, updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(pending), new Date().toISOString(), session.id, run.user_id);
     db.prepare("UPDATE agent_runs SET status='waiting_for_user' WHERE id=?").run(run.id);
     appendEvent(session.id, run.id, kind === "question" ? "question_request" : "approval_request", pending as unknown as Record<string, unknown>);
@@ -503,10 +523,11 @@ function runtimeEnv(row: ProviderNonNull, credentials: ReturnType<typeof decrypt
 
 type ProviderNonNull = NonNullable<ReturnType<typeof getProviderRow>>;
 
-function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }> }, skill: BuiltInAgentSkill | null) {
+function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }> }, skill: BuiltInAgentSkill | null) {
     const sections = [context.input || "请处理本次请求。"];
-    if (skill) sections.unshift(`## 本次 Skill\n名称：${skill.name}\n说明：${skill.description}\n\n${skill.instructions}`);
+    if (skill) sections.unshift(`请调用并遵循内置 Skill“${skill.id}”（${skill.name}）完成本次请求。`);
     if (context.references?.length) sections.push(`## 本次画布引用\n${JSON.stringify(context.references, null, 2)}`);
+    if (context.assetReferences?.length) sections.push(`## 本次创作资产引用\n${JSON.stringify(context.assetReferences, null, 2)}\n修改前读取最新 revision；不要把新增媒体静默设为主版本。`);
     const readableAttachments = context.attachments?.filter((file) => isAgentContextFile(file.mimeType)) || [];
     const savedOnlyAttachments = context.attachments?.filter((file) => !isAgentContextFile(file.mimeType)) || [];
     if (readableAttachments.length) sections.push(`## 本次附件\n${readableAttachments.map((file) => `- ${file.name} (${file.mimeType})：${file.path}`).join("\n")}\n只允许通过受控上下文使用这些文件。`);
@@ -516,7 +537,7 @@ function buildPrompt(session: SessionRow, context: { input?: string; attachments
 }
 
 function systemPrompt(session: SessionRow) {
-    return `你是 Infinite Canvas 内置 Agent。你只能使用 infinite_canvas MCP 工具操作当前用户的数据。优先理解用户目标并直接完成任务；修改画布前先读取最新状态；不要编造工具结果；删除等高风险操作必须等待工具内审批。禁止尝试 Shell、宿主文件系统、管理员接口、渠道凭据和任意外部 URL。${session.owner_type === "project" ? ` 当前会话绑定项目 ${session.owner_id}。` : " 当前是用户级通用会话。"}`;
+    return `你是 Infinite Canvas 内置 Agent。你只能使用 infinite_canvas MCP 工具操作当前用户的数据。优先理解用户目标并直接完成任务；修改画布或创作资产前先读取最新 revision；小说拆解应先调用 creative_assets_create_batch 提交角色、场景、道具候选清单供用户确认，单项角色也使用规范字段；工具成功返回即代表创建完成，后续回复不得再声称仍在等待确认；新增媒体只追加变体，不擅自替换主版本；不要编造工具结果；删除等高风险操作必须等待工具内审批。禁止尝试 Shell、宿主文件系统、管理员接口、渠道凭据和任意外部 URL。${session.owner_type === "project" ? ` 当前会话绑定项目 ${session.owner_id}。` : " 当前是用户级通用会话。"}`;
 }
 
 function sessionWorkspace(userId: string, sessionId: string) {
@@ -549,12 +570,23 @@ function workspaceReadHooks(workspace: string): NonNullable<Options["hooks"]> {
         const event = value && typeof value === "object" ? value as { tool_name?: string; tool_input?: { file_path?: string } } : {};
         if (event.tool_name !== "Read") return {};
         try {
-            safeWorkspacePath(workspace, String(event.tool_input?.file_path || ""));
+            safeWorkspaceReadPath(workspace, String(event.tool_input?.file_path || ""));
             return {};
         } catch (error) {
             return { continue: true, suppressOutput: false, decision: "approve", hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: error instanceof Error ? error.message : "禁止读取会话沙箱外的文件" } };
         }
     }] }] };
+}
+
+function safeWorkspaceReadPath(workspace: string, value: string) {
+    if (!value || value.includes("\0")) throw agentError(400, "AGENT_PATH_INVALID", "读取路径无效");
+    const target = resolve(workspace, value);
+    if (target !== workspace && !target.startsWith(`${workspace}${sep}`)) throw agentError(403, "AGENT_PATH_FORBIDDEN", "不能读取会话沙箱外的文件");
+    const local = relative(workspace, target);
+    if ((local === ".claude" || local.startsWith(`.claude${sep}`)) && local !== `.claude${sep}skills` && !local.startsWith(`.claude${sep}skills${sep}`)) {
+        throw agentError(403, "AGENT_PATH_FORBIDDEN", "不能读取 Agent 的内部配置目录");
+    }
+    return target;
 }
 
 function isAgentContextFile(mimeType: string) {
@@ -581,9 +613,10 @@ function validateMessageInput(input: AgentMessageInput) {
         preferredSessionId: z.string().max(128).optional(),
         attachmentFileIds: z.array(z.string().max(128)).max(20).optional().default([]),
         canvasReferences: z.array(z.object({ projectId: z.string().max(128), nodeId: z.string().max(128) })).max(50).optional().default([]),
+        assetReferences: z.array(z.object({ projectId: z.string().max(128), assetId: z.string().max(128), nodeId: z.string().max(128).optional() })).max(50).optional().default([]),
         skillId: z.string().max(128).optional(),
     }).superRefine((value, issue) => {
-        if (!value.text.trim() && !value.attachmentFileIds.length && !value.canvasReferences.length) issue.addIssue({ code: "custom", path: ["text"], message: "消息、附件或画布引用至少需要一项" });
+        if (!value.text.trim() && !value.attachmentFileIds.length && !value.canvasReferences.length && !value.assetReferences.length) issue.addIssue({ code: "custom", path: ["text"], message: "消息、附件、画布引用或创作资产引用至少需要一项" });
     }).parse(input);
 }
 

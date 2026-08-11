@@ -116,6 +116,7 @@ export type CanvasNodeDefinition = {
     interactionToggle?: boolean;
     // With interactionToggle, true forces interactive content, ignores metadata.interactive, and hides the toggle.
     forceInteractive?: (node: CanvasNodeData) => boolean;
+    resizable?: boolean; // Defaults to true; fixed business cards can opt out.
     keepAspectRatio?: (node: CanvasNodeData) => boolean;
     resource?: (node: CanvasNodeData) => CanvasNodeResource | null;
     // Built-ins use canvas-node's internal renderer and may omit Content.

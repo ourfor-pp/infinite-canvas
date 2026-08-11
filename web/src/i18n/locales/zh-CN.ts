@@ -76,7 +76,7 @@ export default {
         importFailed: "导入失败，请选择有效的资产压缩包",
         deleted: "资产已删除",
         packageName: "我的资产.zip",
-        kinds: { text: "文本", image: "图片", video: "视频" },
+        kinds: { text: "文本", image: "图片", video: "视频", character: "角色", scene: "场景", prop: "道具" },
         fields: {
             title: "标题",
             titleRequired: "请输入标题",

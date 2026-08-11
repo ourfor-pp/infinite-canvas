@@ -60,7 +60,7 @@ agentRouter.post("/sessions/:id/activate", route((req) => activateSession(req.us
 agentRouter.post("/sessions/:id/fork", route((req) => forkSession(req.user.id, routeParam(req, "id")), 201));
 agentRouter.delete("/sessions/:id", route((req) => deleteSession(req.user.id, routeParam(req, "id"))));
 agentRouter.post("/sessions/:id/cancel", asyncRoute((req) => cancelSession(req.user.id, routeParam(req, "id"))));
-agentRouter.post("/sessions/:id/approval", route((req) => respondDecision(req.user.id, routeParam(req, "id"), z.object({ decision: z.enum(["approved", "rejected"]), scope: z.enum(["once", "session", "permanent"]).optional(), comment: z.string().max(20_000).optional(), answers: z.record(z.string(), z.string()).optional() }).parse(req.body))));
+agentRouter.post("/sessions/:id/approval", route((req) => respondDecision(req.user.id, routeParam(req, "id"), z.object({ decision: z.enum(["approved", "rejected"]), scope: z.enum(["once", "session", "permanent"]).optional(), comment: z.string().max(20_000).optional(), answers: z.record(z.string(), z.string()).optional(), proposalEdits: z.unknown().optional() }).parse(req.body))));
 agentRouter.post("/sessions/:id/client-result", route((req) => respondClientAction(req.user.id, routeParam(req, "id"), z.object({ actionId: z.string(), ok: z.boolean(), data: z.unknown().optional(), error: z.string().max(2000).optional() }).parse(req.body))));
 
 agentAdminRouter.get("/ai/agent", requireAdmin, route(() => getAgentSettings()));

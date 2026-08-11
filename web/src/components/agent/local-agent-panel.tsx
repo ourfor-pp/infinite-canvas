@@ -230,11 +230,11 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
         finally { setUploading(false); }
     };
 
-    const decide = async (decision: "approved" | "rejected", scope: "once" | "session" | "permanent" = "once") => {
+    const decide = async (decision: "approved" | "rejected", scope: "once" | "session" | "permanent" = "once", proposalEdits?: unknown) => {
         if (!session) return;
         setDecisionBusy(true);
         try {
-            const next = await agentApi.decide(session.id, { decision, scope, comment: answer });
+            const next = await agentApi.decide(session.id, { decision, scope, comment: answer, ...(proposalEdits === undefined ? {} : { proposalEdits }) });
             setSession(next);
             setAnswer("");
         } catch (error) { message.error(error instanceof Error ? error.message : "提交失败"); }
@@ -316,7 +316,7 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
             <ScrollToBottomButton visible={showScrollBottom} unread={unreadCount} bottom={inputDockHeight + 12} onClick={() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); atBottomRef.current = true; setUnreadCount(0); setShowScrollBottom(false); }} />
 
             <div ref={inputDockRef} className="shrink-0">
-                {session?.pendingDecision ? <AgentDecisionCard pending={session.pendingDecision} value={answer} theme={theme} busy={decisionBusy} onChange={setAnswer} onDecide={(decision, scope) => void decide(decision, scope)} /> : null}
+                {session?.pendingDecision ? <AgentDecisionCard pending={session.pendingDecision} value={answer} theme={theme} busy={decisionBusy} onChange={setAnswer} onDecide={(decision, scope, proposalEdits) => void decide(decision, scope, proposalEdits)} /> : null}
 
                 {session?.pendingDecision?.kind !== "question" ? <AgentComposer
                     value={draft}

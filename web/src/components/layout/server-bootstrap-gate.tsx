@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { App, Button, Modal, Result, Spin } from "antd";
 import { Database, HardDriveUpload } from "lucide-react";
 
 import { bootstrapServerState, hydrateFromServer, importLegacyData, markLegacyMigrationSkipped } from "@/services/server-bootstrap";
 import { subscribeServerEvents } from "@/services/api/server";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
 
 type LegacyData = Awaited<ReturnType<typeof bootstrapServerState>>["legacy"];
 let bootstrapPromise: ReturnType<typeof bootstrapServerState> | null = null;
@@ -16,6 +17,7 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
     const [legacy, setLegacy] = useState<LegacyData>(null);
     const [error, setError] = useState("");
     const [migrating, setMigrating] = useState(false);
+    const conflictOpenRef = useRef(new Set<string>());
 
     const connect = () => {
         setStatus("loading");
@@ -49,6 +51,8 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
         const onError = (event: Event) => message.error((event as CustomEvent<string>).detail || "服务保存失败");
         const onConflict = (event: Event) => {
             const id = (event as CustomEvent<{ id: string }>).detail.id;
+            if (conflictOpenRef.current.has(id)) return;
+            conflictOpenRef.current.add(id);
             modal.confirm({
                 title: "画布已在其他页面更新",
                 content: "重新加载会放弃当前页面尚未保存的修改；覆盖保存会以当前页面内容为准。",
@@ -57,6 +61,7 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
                 keyboard: false,
                 onOk: () => useCanvasStore.getState().resolveConflict(id, "reload"),
                 onCancel: () => useCanvasStore.getState().resolveConflict(id, "overwrite"),
+                afterClose: () => conflictOpenRef.current.delete(id),
             });
         };
         window.addEventListener("infinite-canvas:server-error", onError);
@@ -68,13 +73,17 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
     }, [message, modal]);
 
     useEffect(() => subscribeServerEvents(
-        (generation) => window.dispatchEvent(new CustomEvent("infinite-canvas:generation-updated", { detail: generation })),
+        (generation) => {
+            useCreativeAssetStore.getState().applyGeneration(generation);
+            window.dispatchEvent(new CustomEvent("infinite-canvas:generation-updated", { detail: generation }));
+        },
         (delta) => window.dispatchEvent(new CustomEvent("infinite-canvas:generation-delta", { detail: delta })),
         (project) => {
             if (useCanvasStore.getState().applyServerProject(project as unknown as import("@/stores/canvas/use-canvas-store").CanvasProject)) {
                 window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: project }));
             }
         },
+        (asset) => useCreativeAssetStore.getState().apply(asset),
     ), []);
 
     const migrate = async () => {

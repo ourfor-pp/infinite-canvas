@@ -1,13 +1,14 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, Info, Moon, MousePointer2, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { Box, CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, Info, MapPinned, Moon, MousePointer2, Music2, Palette, Puzzle, Redo2, Settings2, Shapes, Square, Sun, Trash2, Type, Undo2, Upload, UserRound, Video } from "lucide-react";
 
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
 import { getNodePluginId, listNodeDefinitions, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { useTranslation } from "react-i18next";
+import type { CreativeAssetKind } from "@/types/creative-asset";
 
 export function CanvasToolbar({
     selectedCount,
@@ -22,6 +23,7 @@ export function CanvasToolbar({
     onAddText,
     onAddConfig,
     onAddGroup,
+    onAddCreativeAsset,
     onAddExtensionNode,
     onUndo,
     onRedo,
@@ -44,6 +46,7 @@ export function CanvasToolbar({
     onAddText: () => void;
     onAddConfig: () => void;
     onAddGroup: () => void;
+    onAddCreativeAsset: (kind: CreativeAssetKind) => void;
     onAddExtensionNode: (type: string) => void;
     onUndo: () => void;
     onRedo: () => void;
@@ -66,6 +69,8 @@ export function CanvasToolbar({
     const [panelX, setPanelX] = useState(0);
     const [extensionsOpen, setExtensionsOpen] = useState(false);
     const [extPanelX, setExtPanelX] = useState(0);
+    const [creativeOpen, setCreativeOpen] = useState(false);
+    const [creativePanelX, setCreativePanelX] = useState(0);
     // Keep extension plugin nodes synchronized with registry changes.
     useNodeRegistryVersion();
     const extensionDefs = listNodeDefinitions().filter((def) => def.showInCreateMenu !== false && getNodePluginId(def.type) !== "builtin");
@@ -76,16 +81,17 @@ export function CanvasToolbar({
 
     // Close extension-node and canvas-appearance popovers when clicking outside the toolbar and its panels.
     useEffect(() => {
-        if (!extensionsOpen && !appearanceOpen) return;
+        if (!extensionsOpen && !appearanceOpen && !creativeOpen) return;
         const handlePointerDown = (event: PointerEvent) => {
             if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
                 setExtensionsOpen(false);
                 setAppearanceOpen(false);
+                setCreativeOpen(false);
             }
         };
         document.addEventListener("pointerdown", handlePointerDown, true);
         return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-    }, [extensionsOpen, appearanceOpen]);
+    }, [extensionsOpen, appearanceOpen, creativeOpen]);
 
     return (
         <div ref={rootRef} className="pointer-events-none absolute bottom-5 left-4 right-4 z-50 flex justify-center">
@@ -101,6 +107,25 @@ export function CanvasToolbar({
                     <Redo2 className="size-4.5" />
                 </ToolbarButton>
                 <Divider theme={theme} />
+                <ToolbarButton
+                    id="tool-creative"
+                    label="业务设定"
+                    active={creativeOpen}
+                    hovered={hovered}
+                    activeStyle={activeStyle}
+                    hoverStyle={hoverStyle}
+                    wrapRef={wrapRef}
+                    onTipX={setTipX}
+                    onHover={setHovered}
+                    onClick={(event) => {
+                        setCreativePanelX(getTipX(wrapRef.current, event.currentTarget));
+                        setExtensionsOpen(false);
+                        setAppearanceOpen(false);
+                        setCreativeOpen((value) => !value);
+                    }}
+                >
+                    <Shapes className="size-4.5" />
+                </ToolbarButton>
                 <ToolbarButton id="tool-text" label={t("canvas.toolbar.text")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddText}>
                     <Type className="size-4.5" />
                 </ToolbarButton>
@@ -133,6 +158,7 @@ export function CanvasToolbar({
                         onClick={(event) => {
                             setExtPanelX(getTipX(wrapRef.current, event.currentTarget));
                             setAppearanceOpen(false);
+                            setCreativeOpen(false);
                             setExtensionsOpen((value) => !value);
                         }}
                     >
@@ -156,6 +182,7 @@ export function CanvasToolbar({
                     onClick={(event) => {
                         setPanelX(getTipX(wrapRef.current, event.currentTarget));
                         setExtensionsOpen(false);
+                        setCreativeOpen(false);
                         setAppearanceOpen((value) => !value);
                     }}
                 >
@@ -201,6 +228,19 @@ export function CanvasToolbar({
                                 <span className="min-w-0 flex-1 truncate">{def.title}</span>
                             </button>
                         ))}
+                    </div>
+                </div>
+            ) : null}
+
+            {creativeOpen ? (
+                <div className="pointer-events-auto absolute bottom-[72px] z-30 w-[286px] -translate-x-1/2 rounded-xl border p-2 shadow-xl backdrop-blur" style={{ left: creativePanelX || "50%", background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item }}>
+                    <div className="px-1.5 pb-2 pt-0.5"><p className="text-[11px] font-semibold">新建业务节点</p><p className="mt-0.5 text-[9px] opacity-45">直接落到画布，完整设定可稍后完善</p></div>
+                    <div className="grid grid-cols-3 gap-1">
+                        {([
+                            { kind: "character", label: "角色", caption: "人物档案", icon: UserRound, color: "#c8654a" },
+                            { kind: "scene", label: "场景", caption: "空间场记", icon: MapPinned, color: "#267b70" },
+                            { kind: "prop", label: "道具", caption: "物件标本", icon: Box, color: "#a5792d" },
+                        ] as const).map((item) => <button key={item.kind} type="button" className="group flex flex-col items-center rounded-lg px-2 py-3 text-center transition hover:bg-black/5 dark:hover:bg-white/10" onClick={() => { onAddCreativeAsset(item.kind); setCreativeOpen(false); }}><item.icon className="size-5" style={{ color: item.color }} /><span className="mt-1.5 text-xs font-semibold">{item.label}</span><span className="mt-0.5 text-[9px] opacity-40">{item.caption}</span></button>)}
                     </div>
                 </div>
             ) : null}
@@ -356,6 +396,7 @@ function toolLabel(id: string, t: (key: string) => string) {
     if (id === "tool-pan") return t("canvas.toolbar.pan");
     if (id === "tool-undo") return t("canvas.undo");
     if (id === "tool-redo") return t("canvas.redo");
+    if (id === "tool-creative") return "业务设定";
     if (id === "tool-text") return t("canvas.toolbar.text");
     if (id === "tool-image") return t("canvas.toolbar.image");
     if (id === "tool-video") return t("canvas.toolbar.video");

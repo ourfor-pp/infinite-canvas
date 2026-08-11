@@ -9,6 +9,7 @@ import { buildComfyWorkflow } from "./comfy-workflows.js";
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
 import { decryptCredentials, getProviderRow, resolveProviderModel, type MediaKind } from "./provider-service.js";
 import { syncAgentGenerationCanvas } from "./agent/generation-canvas.js";
+import { syncCreativeAssetGeneration } from "./creative-assets.js";
 
 export type GenerationRow = {
     id: string;
@@ -323,6 +324,7 @@ function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["s
     if (updated) {
         emitEvent(row.user_id, "generation.updated", generationResponse(updated));
         syncAgentGenerationCanvas(updated);
+        syncCreativeAssetGeneration(updated);
     }
 }
 

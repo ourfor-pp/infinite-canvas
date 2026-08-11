@@ -10,6 +10,7 @@ import { resumeGenerations, setGenerationEmitter } from "./generation-service.js
 import { cleanupUnreferencedFiles } from "./file-store.js";
 import { recoverAgentRuns } from "./agent/service.js";
 import { setAgentProjectEmitter } from "./agent/project-events.js";
+import { setCreativeAssetEmitter } from "./creative-assets.js";
 
 const server = config.socketPath
     ? (() => {
@@ -57,6 +58,12 @@ setGenerationEmitter((userId, type, data) => {
 });
 setAgentProjectEmitter((userId, project) => {
     const message = JSON.stringify({ type: "project.updated", data: project });
+    clients.get(userId)?.forEach((client) => {
+        if (client.readyState === WebSocketClient.OPEN) client.send(message);
+    });
+});
+setCreativeAssetEmitter((userId, asset) => {
+    const message = JSON.stringify({ type: "creative_asset.updated", data: asset });
     clients.get(userId)?.forEach((client) => {
         if (client.readyState === WebSocketClient.OPEN) client.send(message);
     });

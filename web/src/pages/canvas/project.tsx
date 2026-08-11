@@ -41,7 +41,8 @@ import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/a
 import { CanvasSidePanel } from "@/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
 import { useAgentStore } from "@/stores/use-agent-store";
-import { useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
+import { cancelProjectServerMutation, prepareProjectServerMutation, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
+import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -89,6 +90,8 @@ import {
 } from "@/types/canvas";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio } from "@/types/media";
+import { serverApi } from "@/services/api/server";
+import { CREATIVE_ASSET_NODE_LAYOUT, isCreativeAssetNodeType, type CreativeAssetKind, type CreativeAssetSnapshot } from "@/types/creative-asset";
 
 // Register built-in nodes in the shared registry once when the module loads.
 registerBuiltinNodes();
@@ -148,9 +151,6 @@ function InfiniteCanvasPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const projectId = params.id || "";
-    const localAgentConnected = useAgentStore((state) => state.connected);
-    const localAgentActivity = useAgentStore((state) => state.activity);
-    const localAgentEnabled = useAgentStore((state) => state.enabled);
     const agentPanelOpen = useAgentStore((state) => state.panelOpen);
     const toggleAgentPanel = useAgentStore((state) => state.togglePanel);
     const openAgentPanel = useAgentStore((state) => state.openPanel);
@@ -252,6 +252,10 @@ function InfiniteCanvasPage() {
     const selectionBoxRef = useRef(selectionBox);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
+
+    useEffect(() => {
+        if (projectId) void useCreativeAssetStore.getState().load(projectId);
+    }, [projectId]);
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -362,10 +366,12 @@ function InfiniteCanvasPage() {
             if (!projectLoaded || project.id !== projectId) return;
             applyingHistoryRef.current = true;
             void Promise.all([hydrateCanvasImages(resetInterruptedGeneration(project.nodes)), hydrateAssistantImages(project.chatSessions || [])]).then(([restoredNodes, restoredSessions]) => {
+                const availableNodeIds = new Set(restoredNodes.map((node) => node.id));
+                const preservedSelection = new Set(Array.from(selectedNodeIdsRef.current).filter((id) => availableNodeIds.has(id)));
                 nodesRef.current = restoredNodes;
                 connectionsRef.current = project.connections;
                 viewportRef.current = project.viewport;
-                selectedNodeIdsRef.current = new Set();
+                selectedNodeIdsRef.current = preservedSelection;
                 setNodes(restoredNodes);
                 setConnections(project.connections);
                 setChatSessions(restoredSessions);
@@ -373,7 +379,7 @@ function InfiniteCanvasPage() {
                 setBackgroundMode(project.backgroundMode);
                 setShowImageInfo(project.showImageInfo || false);
                 setViewport(project.viewport);
-                setSelectedNodeIds(new Set());
+                setSelectedNodeIds(preservedSelection);
                 setSelectedConnectionId(null);
                 historyRef.current = { past: [], future: [] };
                 lastHistoryRef.current = { nodes: restoredNodes, connections: project.connections, chatSessions: restoredSessions, activeChatId: project.activeChatId || null, backgroundMode: project.backgroundMode, showImageInfo: project.showImageInfo || false };
@@ -724,19 +730,41 @@ function InfiniteCanvasPage() {
         [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
     );
 
+    const createCreativeAssetNode = useCallback(async (kind: CreativeAssetKind, snapshot?: CreativeAssetSnapshot, topLeft?: Position) => {
+        const center = getCanvasCenter();
+        const layout = CREATIVE_ASSET_NODE_LAYOUT[kind];
+        const name = snapshot?.name || (kind === "character" ? "未命名角色" : kind === "scene" ? "未命名场景" : "未命名道具");
+        try {
+            const asset = await serverApi.createCreativeAsset(projectId, { kind, name, status: "draft", payload: snapshot?.payload || {} });
+            useCreativeAssetStore.getState().apply(asset);
+            const placed = await serverApi.placeCreativeAsset(asset.id, topLeft || { x: center.x - layout.width / 2, y: center.y - layout.height / 2 });
+            window.setTimeout(() => { setSelectedNodeIds(new Set([placed.nodeId])); setSelectedConnectionId(null); }, 120);
+        } catch (error) { message.error(error instanceof Error ? error.message : `创建${layout.title}节点失败`); }
+    }, [getCanvasCenter, message, projectId]);
+
     const deleteNodes = useCallback(
         (ids: Set<string>) => {
             if (!ids.size) return;
             const allIds = new Set(ids);
-            setNodes((prev) => {
-                const next = prev.filter((node) => !allIds.has(node.id));
+            const creativeNodes = nodesRef.current.filter((node) => allIds.has(node.id) && isCreativeAssetNodeType(node.type) && node.metadata?.assetId);
+            const creativeNodeIds = new Set(creativeNodes.map((node) => node.id));
+            const creativeAssetIds = Array.from(new Set(creativeNodes.map((node) => node.metadata!.assetId!)));
+            const localIds = new Set(Array.from(allIds).filter((id) => !creativeNodeIds.has(id)));
+            if (creativeAssetIds.length) void (async () => {
+                for (const assetId of creativeAssetIds) {
+                    try { await prepareProjectServerMutation(projectId); await useCreativeAssetStore.getState().remove(assetId); }
+                    catch (error) { cancelProjectServerMutation(projectId); message.error(error instanceof Error ? error.message : "删除业务节点失败"); }
+                }
+            })();
+            if (localIds.size) setNodes((prev) => {
+                const next = prev.filter((node) => !localIds.has(node.id));
                 return next.map((node) => {
                     const groupId = node.metadata?.groupId;
-                    if (groupId && allIds.has(groupId)) return { ...node, metadata: { ...node.metadata, groupId: undefined } };
+                    if (groupId && localIds.has(groupId)) return { ...node, metadata: { ...node.metadata, groupId: undefined } };
                     return node;
                 });
             });
-            setConnections((prev) => prev.filter((conn) => !allIds.has(conn.fromNodeId) && !allIds.has(conn.toNodeId)));
+            if (localIds.size) setConnections((prev) => prev.filter((conn) => !localIds.has(conn.fromNodeId) && !localIds.has(conn.toNodeId)));
             setSelectedNodeIds(new Set());
             setSelectedConnectionId(null);
             setHoveredNodeId((current) => (current && allIds.has(current) ? null : current));
@@ -750,9 +778,9 @@ function InfiniteCanvasPage() {
             setPreviewNodeId((current) => (current && allIds.has(current) ? null : current));
             setRunningNodeId((current) => (current && allIds.has(current) ? null : current));
             setContextMenu((current) => (current?.type === "node" && allIds.has(current.nodeId) ? null : current));
-            cleanupCanvasFiles({ projectId, nodes: nodesRef.current.filter((node) => !allIds.has(node.id)), chatSessions });
+            if (localIds.size) cleanupCanvasFiles({ projectId, nodes: nodesRef.current.filter((node) => !localIds.has(node.id)), chatSessions });
         },
-        [chatSessions, cleanupCanvasFiles, projectId],
+        [chatSessions, cleanupCanvasFiles, message, projectId],
     );
 
     const deleteConnection = useCallback((connectionId: string) => {
@@ -775,8 +803,15 @@ function InfiniteCanvasPage() {
     }, [cancelPendingConnectionCreate]);
 
     const clearCanvas = useCallback(() => {
-        setNodes([]);
-        setConnections([]);
+        const creativeAssetIds = Array.from(new Set(nodesRef.current.filter((node) => isCreativeAssetNodeType(node.type) && node.metadata?.assetId).map((node) => node.metadata!.assetId!)));
+        void (async () => {
+            for (const assetId of creativeAssetIds) {
+                try { await prepareProjectServerMutation(projectId); await useCreativeAssetStore.getState().remove(assetId); }
+                catch (error) { cancelProjectServerMutation(projectId); message.error(error instanceof Error ? error.message : "删除业务节点失败"); return; }
+            }
+            setNodes([]);
+            setConnections([]);
+        })();
         setInfoNodeId(null);
         setCropNodeId(null);
         setMaskEditNodeId(null);
@@ -786,11 +821,16 @@ function InfiniteCanvasPage() {
         deselectCanvas();
         setClearConfirmOpen(false);
         cleanupCanvasFiles({ projectId, nodes: [], chatSessions: [] });
-    }, [cleanupCanvasFiles, deselectCanvas, projectId]);
+    }, [cleanupCanvasFiles, deselectCanvas, message, projectId]);
 
     const duplicateNode = useCallback((nodeId: string) => {
         const source = nodesRef.current.find((node) => node.id === nodeId);
         if (!source) return;
+        if (isCreativeAssetNodeType(source.type) && source.metadata?.assetId) {
+            const asset = useCreativeAssetStore.getState().assets.find((item) => item.id === source.metadata?.assetId);
+            if (asset) void createCreativeAssetNode(source.type, { kind: asset.kind, name: `${asset.name} 副本`, status: "draft", payload: structuredClone(asset.payload) }, { x: source.position.x + 36, y: source.position.y + 36 });
+            return;
+        }
 
         const id = `${source.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const next: CanvasNodeData = {
@@ -804,14 +844,14 @@ function InfiniteCanvasPage() {
         setSelectedNodeIds(new Set([id]));
         setSelectedConnectionId(null);
         if (next.type !== CanvasNodeType.Group) setDialogNodeId(id);
-    }, []);
+    }, [createCreativeAssetNode]);
 
     const copySelectedNodes = useCallback(() => {
         const selectedIds = selectedNodeIdsRef.current;
         if (!selectedIds.size) return;
 
         const copiedNodes = nodesRef.current
-            .filter((node) => selectedIds.has(node.id))
+            .filter((node) => selectedIds.has(node.id) && !isCreativeAssetNodeType(node.type))
             .map((node) => ({
                 ...node,
                 position: { ...node.position },
@@ -1479,8 +1519,12 @@ function InfiniteCanvasPage() {
     }, []);
 
     const handleNodeTitleChange = useCallback((nodeId: string, title: string) => {
+        const node = nodesRef.current.find((item) => item.id === nodeId);
+        if (node && isCreativeAssetNodeType(node.type) && node.metadata?.assetId) {
+            void useCreativeAssetStore.getState().update(node.metadata.assetId, { name: title }).catch((error) => message.error(error instanceof Error ? error.message : "重命名业务节点失败"));
+        }
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, title } : node)));
-    }, []);
+    }, [message]);
 
     const toggleBatchExpanded = useCallback((nodeId: string) => {
         setExpandedImageNodeId((current) => (current === nodeId ? null : nodeId));
@@ -2681,7 +2725,9 @@ function InfiniteCanvasPage() {
 
     const handleAssetInsert = useCallback(
         (payload: InsertAssetPayload) => {
-            if (payload.kind === "text") {
+            if (payload.kind === "creative") {
+                void createCreativeAssetNode(payload.snapshot.kind, payload.snapshot);
+            } else if (payload.kind === "text") {
                 insertAssistantText(payload.content, payload.title);
             } else if (payload.kind === "video") {
                 const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Video];
@@ -2706,7 +2752,7 @@ function InfiniteCanvasPage() {
             }
             setAssetPickerOpen(false);
         },
-        [insertAssistantImage, insertAssistantText, screenToCanvas, size.height, size.width],
+        [createCreativeAssetNode, insertAssistantImage, insertAssistantText, screenToCanvas, size.height, size.width],
     );
 
     // Memoize every callback and render function passed to CanvasNode.
@@ -2801,7 +2847,6 @@ function InfiniteCanvasPage() {
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
                     agentOpen={agentPanelOpen}
-                    compactAgentStatus={{ connected: localAgentConnected, enabled: localAgentEnabled, activity: localAgentActivity }}
                     onToggleAgent={toggleAgentPanel}
                 />
 
@@ -2964,6 +3009,7 @@ function InfiniteCanvasPage() {
                     onAddText={() => createNode(CanvasNodeType.Text)}
                     onAddConfig={() => createNode(CanvasNodeType.Config)}
                     onAddGroup={() => createNode(CanvasNodeType.Group)}
+                    onAddCreativeAsset={(kind) => void createCreativeAssetNode(kind)}
                     onAddExtensionNode={(type) => createNode(type)}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}

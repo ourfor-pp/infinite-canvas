@@ -41,6 +41,7 @@ export const config = {
     agentMaxConcurrency: Math.max(1, Number(process.env.AGENT_MAX_CONCURRENCY) || 2),
     agentUserConcurrency: Math.max(1, Number(process.env.AGENT_USER_CONCURRENCY) || 1),
     agentRoot: resolve(dataDir, "agent"),
+    agentSkillsDir: resolve(process.env.AGENT_SKILLS_DIR || "./src/agent/skills"),
 };
 
 mkdirSync(config.filesDir, { recursive: true });
