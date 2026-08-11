@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { HIDREAM_O1_SCRIPT, MINIMAX_H3_SCRIPT, VOXCPM2_SCRIPT } from "@/lib/local-comfyui";
 
 export type ApiCallFormat = "openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -67,6 +68,31 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+const LOCAL_COMFYUI_CHANNEL_ID = "local-comfyui";
+const LOCAL_COMFYUI_BASE_URL = (import.meta.env.VITE_LOCAL_COMFYUI_URL || "").trim().replace(/\/+$/, "");
+const PREFER_LOCAL_COMFYUI = LOCAL_COMFYUI_BASE_URL !== "" && import.meta.env.VITE_LOCAL_COMFYUI_DEFAULT === "true";
+const LOCAL_IMAGE_MODEL = `${LOCAL_COMFYUI_CHANNEL_ID}${CHANNEL_MODEL_SEPARATOR}hidream-o1-full-fp8-local`;
+const LOCAL_VIDEO_MODEL = `${LOCAL_COMFYUI_CHANNEL_ID}${CHANNEL_MODEL_SEPARATOR}minimax-h3-fl2va-local`;
+const LOCAL_AUDIO_MODEL = `${LOCAL_COMFYUI_CHANNEL_ID}${CHANNEL_MODEL_SEPARATOR}voxcpm2-local`;
+
+function createLocalComfyUIChannel(): ModelChannel | null {
+    if (!LOCAL_COMFYUI_BASE_URL) return null;
+    return {
+        id: LOCAL_COMFYUI_CHANNEL_ID,
+        name: "本地 ComfyUI",
+        baseUrl: LOCAL_COMFYUI_BASE_URL,
+        apiKey: "local-no-auth",
+        apiFormat: "openai",
+        models: [
+            { name: "hidream-o1-full-fp8-local", capability: "image", script: HIDREAM_O1_SCRIPT },
+            { name: "minimax-h3-fl2va-local", capability: "video", script: MINIMAX_H3_SCRIPT },
+            { name: "minimax-h3-ref2va-local", capability: "video", script: MINIMAX_H3_SCRIPT },
+            { name: "voxcpm2-local", capability: "audio", script: VOXCPM2_SCRIPT },
+        ],
+    };
+}
+
+const localComfyUIChannel = createLocalComfyUIChannel();
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -87,12 +113,13 @@ export const defaultConfig: AiConfig = {
                 { name: "gpt-4o-mini-tts", capability: "audio" },
             ],
         },
+        ...(localComfyUIChannel ? [localComfyUIChannel] : []),
     ],
-    model: "default::gpt-image-2",
-    imageModel: "default::gpt-image-2",
-    videoModel: "default::grok-imagine-video",
+    model: PREFER_LOCAL_COMFYUI ? LOCAL_IMAGE_MODEL : "default::gpt-image-2",
+    imageModel: PREFER_LOCAL_COMFYUI ? LOCAL_IMAGE_MODEL : "default::gpt-image-2",
+    videoModel: PREFER_LOCAL_COMFYUI ? LOCAL_VIDEO_MODEL : "default::grok-imagine-video",
     textModel: "default::gpt-5.5",
-    audioModel: "default::gpt-4o-mini-tts",
+    audioModel: PREFER_LOCAL_COMFYUI ? LOCAL_AUDIO_MODEL : "default::gpt-4o-mini-tts",
     audioVoice: "alloy",
     audioFormat: "mp3",
     audioSpeed: "1",
@@ -103,9 +130,15 @@ export const defaultConfig: AiConfig = {
     videoWatermark: "false",
     systemPrompt: "",
     reasoningEffort: "auto",
-    models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
+    models: [
+        "default::gpt-image-2",
+        "default::grok-imagine-video",
+        "default::gpt-5.5",
+        "default::gpt-4o-mini-tts",
+        ...(localComfyUIChannel ? localComfyUIChannel.models.map((model) => `${LOCAL_COMFYUI_CHANNEL_ID}${CHANNEL_MODEL_SEPARATOR}${model.name}`) : []),
+    ],
     quality: "auto",
-    size: "1:1",
+    size: PREFER_LOCAL_COMFYUI ? "16:9" : "1:1",
     background: "",
     count: "1",
     canvasImageCount: "3",
@@ -221,6 +254,10 @@ export const useConfigStore = create<ConfigStore>()(
                 const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
                 const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
                 const config = { ...defaultConfig, ...persistedConfig };
+                const preferLocalImage = PREFER_LOCAL_COMFYUI && (!persistedConfig.imageModel || modelOptionName(persistedConfig.imageModel) === "gpt-image-2");
+                const preferLocalVideo = PREFER_LOCAL_COMFYUI && (!persistedConfig.videoModel || modelOptionName(persistedConfig.videoModel) === "grok-imagine-video");
+                const preferLocalAudio = PREFER_LOCAL_COMFYUI && (!persistedConfig.audioModel || modelOptionName(persistedConfig.audioModel) === "gpt-4o-mini-tts");
+                const preferLocalCurrent = PREFER_LOCAL_COMFYUI && (!persistedConfig.model || modelOptionName(persistedConfig.model) === "gpt-image-2");
                 if (!Array.isArray(persistedConfig.channels)) config.channels = [];
                 const channels = normalizeChannels(config);
                 const models = modelOptionsFromChannels(channels);
@@ -233,10 +270,11 @@ export const useConfigStore = create<ConfigStore>()(
                         apiFormat: normalizeApiFormat(config.apiFormat),
                         channels,
                         models,
-                        imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
-                        videoModel: normalizeModelOptionValue(config.videoModel, channels),
+                        model: preferLocalCurrent ? LOCAL_IMAGE_MODEL : normalizeModelOptionValue(config.model, channels),
+                        imageModel: preferLocalImage ? LOCAL_IMAGE_MODEL : normalizeModelOptionValue(config.imageModel || config.model, channels),
+                        videoModel: preferLocalVideo ? LOCAL_VIDEO_MODEL : normalizeModelOptionValue(config.videoModel, channels),
                         textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
-                        audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
+                        audioModel: preferLocalAudio ? LOCAL_AUDIO_MODEL : normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
                         audioVoice: config.audioVoice || defaultConfig.audioVoice,
                         audioFormat: config.audioFormat || defaultConfig.audioFormat,
                         audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
@@ -247,6 +285,7 @@ export const useConfigStore = create<ConfigStore>()(
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
                         canvasImageCount: config.canvasImageCount || "3",
+                        size: preferLocalImage ? "16:9" : config.size,
                     },
                 };
             },
@@ -355,6 +394,11 @@ function normalizeChannels(config: AiConfig) {
             models: normalizeChannelModels(channel.models),
         }),
     );
+    if (localComfyUIChannel) {
+        const existing = channels.findIndex((channel) => channel.id === LOCAL_COMFYUI_CHANNEL_ID);
+        if (existing >= 0) channels.splice(existing, 1, localComfyUIChannel);
+        else channels.push(localComfyUIChannel);
+    }
     if (!channels.length) {
         channels.push(
             createModelChannel({
