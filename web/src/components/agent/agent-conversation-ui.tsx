@@ -22,7 +22,6 @@ type ConversationItem =
 export function AgentConversationFlow({
     events,
     loading,
-    ownerType,
     theme,
     canLoadEarlier,
     loadingEarlier,
@@ -32,7 +31,6 @@ export function AgentConversationFlow({
 }: {
     events: AgentEvent[];
     loading: boolean;
-    ownerType: "project" | "workspace";
     theme: CanvasTheme;
     canLoadEarlier: boolean;
     loadingEarlier: boolean;
@@ -46,7 +44,7 @@ export function AgentConversationFlow({
         return undefined;
     }, [items]);
     if (loading) return <div className="grid h-full place-items-center"><LoaderCircle className="size-5 animate-spin opacity-45" /></div>;
-    if (!items.length) return <AgentEmpty ownerType={ownerType} theme={theme} onSuggestion={onSuggestion} />;
+    if (!items.length) return <AgentEmpty theme={theme} onSuggestion={onSuggestion} />;
     return (
         <div className="space-y-4">
             {canLoadEarlier ? (
@@ -63,17 +61,15 @@ export function AgentConversationFlow({
     );
 }
 
-function AgentEmpty({ ownerType, theme, onSuggestion }: { ownerType: "project" | "workspace"; theme: CanvasTheme; onSuggestion: (text: string) => void }) {
-    const suggestions = ownerType === "project"
-        ? ["拆解小说中的角色、场景和道具", "根据选中节点继续创作", "检查画布结构并给出建议"]
-        : ["帮我制定一个创作计划", "整理一段内容的结构", "调用 Skill 完成任务"];
+function AgentEmpty({ theme, onSuggestion }: { theme: CanvasTheme; onSuggestion: (text: string) => void }) {
+    const suggestions = ["拆解小说中的角色、场景和道具", "根据选中节点继续创作", "检查画布结构并给出建议"];
     return (
         <div className="flex h-full min-h-[360px] items-center justify-center px-6 text-center">
             <div className="max-w-sm">
                 <div className="mx-auto grid size-12 place-items-center rounded-2xl" style={{ background: theme.toolbar.itemHover }}><Sparkles className="size-5" /></div>
-                <h3 className="mt-4 text-base font-medium">{ownerType === "project" ? "和画布一起思考" : "开始一个新任务"}</h3>
+                <h3 className="mt-4 text-base font-medium">和画布一起思考</h3>
                 <p className="mt-2 text-sm leading-6" style={{ color: theme.node.muted }}>
-                    {ownerType === "project" ? "Agent 已绑定当前项目，可以理解节点、修改画布并调用生成任务。" : "通用会话不会混入画布项目上下文。"}
+                    Agent 已绑定当前项目，可以理解节点、修改画布并调用生成任务。
                 </p>
                 <div className="mt-5 flex flex-wrap justify-center gap-2">
                     {suggestions.map((item) => <button key={item} type="button" onClick={() => onSuggestion(item)} className="rounded-full border px-3 py-1.5 text-xs transition hover:bg-black/5 dark:hover:bg-white/10" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>{item}</button>)}
@@ -241,22 +237,22 @@ export function AgentDecisionCard({ pending, value, theme, busy, onChange, onDec
     theme: CanvasTheme;
     busy: boolean;
     onChange: (value: string) => void;
-    onDecide: (decision: "approved" | "rejected", scope?: "once" | "session" | "permanent", proposalEdits?: unknown) => void;
+    onDecide: (decision: "approved" | "rejected", scope?: "once" | "session" | "project", proposalEdits?: unknown) => void;
 }) {
     const question = pending.kind === "question";
     const proposal = pending.toolName === "creative_assets_create_batch";
-    const scopes = pending.scopes?.length ? pending.scopes : ["once", "session", "permanent"];
+    const scopes = pending.scopes?.length ? pending.scopes : ["once"];
     return (
         <section className="mx-3 mb-2 overflow-hidden rounded-2xl border" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
             <div className="flex gap-3 p-3.5">
                 <span className="grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}><ShieldAlert className="size-4" /></span>
-                <div className="min-w-0 flex-1"><div className="text-sm font-medium">{question ? "Agent 需要你补充信息" : proposal ? "检查小说拆解清单" : "Agent 请求执行高风险操作"}</div><p className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>{pending.content}</p>{pending.toolName ? <div className="mt-2 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]" style={{ borderColor: theme.node.stroke }}><Wrench className="size-3" />{toolLabel(pending.toolName)}</div> : null}</div>
+                <div className="min-w-0 flex-1"><div className="text-sm font-medium">{question ? "Agent 需要你补充信息" : proposal ? "检查小说拆解清单" : "Agent 请求确认权限"}</div><p className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>{pending.content}</p>{pending.toolName ? <div className="mt-2 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]" style={{ borderColor: theme.node.stroke }}><Wrench className="size-3" />{toolLabel(pending.toolName)}</div> : null}{pending.rulePreview?.length ? <div className="mt-2 space-y-1 text-[11px] opacity-55">{pending.rulePreview.map((rule, index) => <div key={`${rule}-${index}`} className="truncate">规则：{rule}</div>)}</div> : null}</div>
             </div>
             {question ? <div className="px-3.5 pb-3"><Input.TextArea value={value} onChange={(event) => onChange(event.target.value)} autoFocus autoSize={{ minRows: 2, maxRows: 6 }} placeholder="输入回复，Agent 会从这里继续" /></div> : proposal ? <CreativeAssetProposal pending={pending} theme={theme} busy={busy} onReject={() => onDecide("rejected")} onConfirm={(items) => onDecide("approved", "once", items)} /> : null}
             {proposal ? null : (
             <div className="flex flex-wrap justify-end gap-1.5 border-t px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}>
                 <Button type="text" size="small" disabled={busy} onClick={() => onDecide("rejected")}>{question ? "拒绝并改方案" : "拒绝"}</Button>
-                {question ? <Button type="primary" size="small" disabled={!value.trim() || busy} onClick={() => onDecide("approved")}>提交回复</Button> : <>{scopes.includes("once") ? <Button size="small" disabled={busy} onClick={() => onDecide("approved", "once")}>允许一次</Button> : null}{scopes.includes("session") ? <Button size="small" disabled={busy} onClick={() => onDecide("approved", "session")}>本会话记住</Button> : null}{scopes.includes("permanent") ? <Button type="primary" size="small" disabled={busy} onClick={() => onDecide("approved", "permanent")}>永久允许</Button> : null}</>}
+                {question ? <Button type="primary" size="small" disabled={!value.trim() || busy} onClick={() => onDecide("approved")}>提交回复</Button> : <>{scopes.includes("once") ? <Button size="small" disabled={busy} onClick={() => onDecide("approved", "once")}>允许一次</Button> : null}{scopes.includes("session") ? <Button size="small" disabled={busy} onClick={() => onDecide("approved", "session")}>本会话记住</Button> : null}{scopes.includes("project") ? <Button type="primary" size="small" disabled={busy} onClick={() => onDecide("approved", "project")}>此项目允许</Button> : null}</>}
             </div>
             )}
         </section>
@@ -432,12 +428,12 @@ function SuggestionMenu({ suggestion, activeIndex, theme, onPick }: { suggestion
     </div>;
 }
 
-export function AgentHistoryList({ sessions, activeId, query, theme, onQuery, onActivate, onDelete, onFork }: {
-    sessions: AgentSession[]; activeId?: string; query: string; theme: CanvasTheme;
+export function AgentHistoryList({ sessions, activeId, unread, query, theme, onQuery, onActivate, onDelete, onFork }: {
+    sessions: AgentSession[]; activeId?: string; unread?: Record<string, number>; query: string; theme: CanvasTheme;
     onQuery: (value: string) => void; onActivate: (id: string) => void; onDelete: (id: string) => void; onFork: (id: string) => void;
 }) {
     const filtered = sessions.filter((session) => session.title.toLowerCase().includes(query.trim().toLowerCase()));
-    return <div><Input prefix={<Search className="size-3.5 opacity-45" />} value={query} onChange={(event) => onQuery(event.target.value)} allowClear placeholder="搜索历史会话" /><div className="mt-3 space-y-1">{filtered.map((session) => <div key={session.id} role="button" tabIndex={0} className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 dark:hover:bg-white/5" style={{ background: session.id === activeId ? theme.toolbar.itemHover : undefined }} onClick={() => onActivate(session.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onActivate(session.id); } }}><span className="relative grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}><History className="size-3.5 opacity-55" /><i className={`absolute bottom-0.5 right-0.5 size-1.5 rounded-full ${statusDot(session.status)}`} /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{session.title || "新会话"}</span><span className="mt-0.5 flex items-center gap-1 text-[11px] opacity-45"><Clock3 className="size-3" />{formatRelativeTime(session.updatedAt)} · {statusText(session.status)}</span></span><span className="flex opacity-0 transition group-hover:opacity-60 group-focus-visible:opacity-60"><Tooltip title="从这里分叉"><button type="button" className="grid size-7 place-items-center rounded-md hover:bg-black/10 dark:hover:bg-white/10" onClick={(event) => { event.stopPropagation(); onFork(session.id); }}><GitFork className="size-3.5" /></button></Tooltip>{session.id !== activeId && !["running", "waiting_for_user"].includes(session.status) ? <Popconfirm title="删除这段会话？" onConfirm={() => onDelete(session.id)}><button type="button" className="grid size-7 place-items-center rounded-md hover:bg-red-500/10 hover:text-red-500" onClick={(event) => event.stopPropagation()}><Trash2 className="size-3.5" /></button></Popconfirm> : null}</span></div>)}{!filtered.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? "没有匹配的会话" : "暂无历史会话"} /> : null}</div></div>;
+    return <div><Input prefix={<Search className="size-3.5 opacity-45" />} value={query} onChange={(event) => onQuery(event.target.value)} allowClear placeholder="搜索历史会话" /><div className="mt-3 space-y-1">{filtered.map((session) => <div key={session.id} role="button" tabIndex={0} className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 dark:hover:bg-white/5" style={{ background: session.id === activeId ? theme.toolbar.itemHover : undefined }} onClick={() => onActivate(session.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onActivate(session.id); } }}><span className="relative grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}><History className="size-3.5 opacity-55" /><i className={`absolute bottom-0.5 right-0.5 size-1.5 rounded-full ${statusDot(session.status)}`} /></span><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="block min-w-0 flex-1 truncate text-sm font-medium">{session.title || "新会话"}</span>{unread?.[session.id] ? <span className="rounded-full bg-blue-500 px-1.5 text-[10px] text-white">{unread[session.id]}</span> : null}</span><span className="mt-0.5 flex items-center gap-1 text-[11px] opacity-45"><Clock3 className="size-3" />{formatRelativeTime(session.updatedAt)} · {statusText(session.status)}</span></span><span className="flex opacity-0 transition group-hover:opacity-60 group-focus-visible:opacity-60"><Tooltip title="从这里分叉"><button type="button" className="grid size-7 place-items-center rounded-md hover:bg-black/10 dark:hover:bg-white/10" onClick={(event) => { event.stopPropagation(); onFork(session.id); }}><GitFork className="size-3.5" /></button></Tooltip>{session.id !== activeId && !["running", "waiting_for_user"].includes(session.status) ? <Popconfirm title="删除这段会话？" onConfirm={() => onDelete(session.id)}><button type="button" className="grid size-7 place-items-center rounded-md hover:bg-red-500/10 hover:text-red-500" onClick={(event) => event.stopPropagation()}><Trash2 className="size-3.5" /></button></Popconfirm> : null}</span></div>)}{!filtered.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? "没有匹配的会话" : "暂无历史会话"} /> : null}</div></div>;
 }
 
 export function AgentSkillList({ skills, query, theme, onQuery, onSelect }: { skills: AgentSkill[]; query: string; theme: CanvasTheme; onQuery: (value: string) => void; onSelect: (skill: AgentSkill) => void }) {
@@ -577,6 +573,6 @@ function formatDuration(ms: number) { const seconds = Math.max(0, Math.floor(ms 
 function formatRelativeTime(value: string) { const delta = Date.now() - Date.parse(value); if (delta < 60_000) return "刚刚"; if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`; if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`; return new Date(value).toLocaleDateString("zh-CN"); }
 function statusText(status: AgentSession["status"]) { return ({ idle: "空闲", running: "运行中", waiting_for_user: "等待确认", completed: "已完成", failed: "失败", canceled: "已取消" } as const)[status]; }
 function statusDot(status: AgentSession["status"]) { return status === "running" ? "bg-blue-500" : status === "waiting_for_user" ? "bg-amber-500" : status === "failed" ? "bg-red-500" : status === "completed" ? "bg-emerald-500" : "bg-zinc-400"; }
-function toolLabel(name: string) { return ({ Read: "读取附件", canvas_list_projects: "查看画布列表", canvas_get_state: "读取画布", canvas_apply_ops: "修改画布", canvas_create_text_nodes: "创建文本节点", canvas_delete_nodes: "删除节点", canvas_connect_nodes: "连接节点", assets_list: "查看素材", assets_add: "新增素材", assets_delete: "删除素材", prompts_search: "搜索提示词", generation_list_models: "查看生成模型", generation_get_status: "查询生成任务", generation_create: "创建生成任务", creative_assets_list: "查看创作设定", creative_asset_get: "读取创作设定", creative_assets_create_batch: "确认小说设定拆解", creative_asset_update: "更新创作设定", creative_asset_place: "放置创作设定", creative_asset_generate: "生成设定媒体", creative_asset_set_primary: "选择主版本", creative_asset_delete: "永久删除创作设定", site_navigate: "页面跳转", canvas_select_nodes: "选择节点", canvas_focus_nodes: "聚焦节点", workspace_write_text: "写入产物", artifact_publish: "发布产物", ask_user: "向用户追问" } as Record<string, string>)[name] || name; }
+function toolLabel(name: string) { const key = name.replace(/^mcp__infinite_canvas__/, ""); return ({ Read: "读取附件", canvas_list_projects: "查看画布列表", canvas_get_state: "读取画布", canvas_apply_ops: "修改画布", canvas_create_text_nodes: "创建文本节点", canvas_delete_nodes: "删除节点", canvas_delete_connections: "删除连线", canvas_connect_nodes: "连接节点", assets_list: "查看素材", assets_add: "新增素材", assets_delete: "删除素材", prompts_search: "搜索提示词", generation_list_models: "查看生成模型", generation_get_status: "查询生成任务", generation_create: "创建生成任务", creative_assets_list: "查看创作设定", creative_asset_get: "读取创作设定", creative_assets_create_batch: "确认小说设定拆解", creative_asset_update: "更新创作设定", creative_asset_place: "放置创作设定", creative_asset_generate: "生成设定媒体", creative_asset_set_primary: "选择主版本", creative_asset_delete: "永久删除创作设定", site_navigate: "页面跳转", canvas_select_nodes: "选择节点", canvas_focus_nodes: "聚焦节点", workspace_write_text: "写入产物", artifact_publish: "发布产物", ask_user: "向用户追问" } as Record<string, string>)[key] || key; }
 function toolTarget(value: unknown) { const input = recordOf(value); if (!input) return ""; const candidate = input.title || input.name || input.path || input.nodeId || input.projectId || (Array.isArray(input.ids) ? `${input.ids.length} 个对象` : ""); return String(candidate || "").slice(0, 48); }
 function roundSignature(events: ProjectedEvent[]) { return events.map((event) => `${event.seq}:${event.kind}:${eventText(event).length}:${formatUnknown(event.payload.input).length}:${event.result?.seq || 0}:${event.payload.delta ? 1 : 0}`).join("|"); }

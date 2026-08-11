@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Drawer, Tooltip } from "antd";
 import { Bot, GitFork, History, Plus, Sparkles, X } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { buildCanvasResourceReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -19,19 +19,17 @@ import {
     ScrollToBottomButton,
 } from "./agent-conversation-ui";
 
-export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
+export function LocalAgentPanel({ projectId, embedded = false }: { projectId: string; embedded?: boolean }) {
     const { message } = App.useApp();
-    const { pathname } = useLocation();
     const navigate = useNavigate();
-    const projectMatch = pathname.match(/^\/canvas\/([^/]+)/);
-    const ownerType = projectMatch ? "project" as const : "workspace" as const;
-    const ownerId = projectMatch ? decodeURIComponent(projectMatch[1]) : "default";
-    const ownerKey = `${ownerType}:${ownerId}`;
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const closePanel = useAgentStore((state) => state.closePanel);
     const canvasContext = useAgentStore((state) => state.canvasContext);
-    const draft = useAgentStore((state) => state.drafts[ownerKey] || "");
+    const draft = useAgentStore((state) => state.drafts[projectId] || "");
+    const savedSessionId = useAgentStore((state) => state.currentSessionIds[projectId]);
     const setDraft = useAgentStore((state) => state.setDraft);
+    const setCurrentSession = useAgentStore((state) => state.setCurrentSession);
+    const markSessionSeen = useAgentStore((state) => state.markSessionSeen);
     const setAgentState = useAgentStore((state) => state.setAgentState);
     const [conversation, setConversation] = useState<AgentConversation | null>(null);
     const [session, setSession] = useState<AgentSession | null>(null);
@@ -47,6 +45,7 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
     const [olderLoading, setOlderLoading] = useState(false);
     const [showScrollBottom, setShowScrollBottom] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
+    const [backgroundUnread, setBackgroundUnread] = useState<Record<string, number>>({});
     const [historyOpen, setHistoryOpen] = useState(false);
     const [skillsOpen, setSkillsOpen] = useState(false);
     const [historyQuery, setHistoryQuery] = useState("");
@@ -62,6 +61,7 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
     const olderLoadingRef = useRef(false);
     const atBottomRef = useRef(true);
     const handledClientActionsRef = useRef(new Set<string>());
+    const backgroundEventsRef = useRef(new Map<string, AgentEvent[]>());
 
     const nodes = useMemo(() => canvasContext ? buildCanvasResourceReferences(canvasContext.snapshot.nodes) : [], [canvasContext]);
     const busy = session?.status === "running" || session?.status === "waiting_for_user";
@@ -80,16 +80,24 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
         atBottomRef.current = true;
         setShowScrollBottom(false);
         setUnreadCount(0);
-        Promise.all([agentApi.config(), agentApi.skills(), agentApi.conversation(ownerType, ownerId)])
+        Promise.all([agentApi.config(), agentApi.skills(), agentApi.conversation(projectId, savedSessionId).catch(() => agentApi.conversation(projectId))])
             .then(async ([config, nextSkills, nextConversation]) => {
+                if (config.protocolVersion !== 2) throw new Error(`不支持的 Agent 通信协议版本：${config.protocolVersion}`);
+                if (config.storageVersion !== 2) throw new Error(`不支持的 Agent 存储版本：${config.storageVersion}`);
                 if (!nextConversation.session) {
-                    const created = await agentApi.createSession(ownerType, ownerId);
+                    const created = await agentApi.createSession(projectId);
                     nextConversation = { ...nextConversation, sessions: [created, ...nextConversation.sessions], session: created };
                 }
                 if (!active) return;
                 setModel(config);
                 setSkills(nextSkills);
                 applyConversation(nextConversation);
+                if (nextConversation.session) {
+                    setCurrentSession(projectId, nextConversation.session.id);
+                    markSessionSeen(nextConversation.session.id, nextConversation.session.eventSeq);
+                }
+                const seen = useAgentStore.getState().seenEventSeqs;
+                setBackgroundUnread(Object.fromEntries(nextConversation.sessions.filter((item) => item.id !== nextConversation.session?.id && item.eventSeq > (seen[item.id] || 0)).map((item) => [item.id, Math.min(99, item.eventSeq - (seen[item.id] || 0))])));
                 setAgentState({ connected: true, enabled: true, activity: config.ready ? config.modelName : "等待管理员配置" });
                 setStreamVersion((value) => value + 1);
             })
@@ -100,21 +108,38 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
             })
             .finally(() => active && setLoading(false));
         return () => { active = false; };
-    }, [ownerKey]);
+    }, [projectId]);
 
     useEffect(() => {
         if (!session?.id) return;
-        return subscribeAgent(ownerType, ownerId, (event) => {
-            const incomingSession = event.type === "snapshot" ? event.session : event.sessionPatch;
-            const incomingSessionId = event.type === "snapshot" ? event.session.id : session.id;
-            event.events.filter((item) => item.kind === "client_action").forEach((item) => void runClientAction(incomingSessionId, item));
-            if (event.type === "delta" && !atBottomRef.current && event.events.some((item) => item.kind === "artifact" || item.kind === "error" || item.kind === "user_text" || (item.kind === "assistant_text" && !item.payload.delta) || (item.kind === "run_state" && item.payload.state !== "running"))) setUnreadCount((count) => Math.min(100, count + 1));
-            setSession((current) => ({ ...(current || incomingSession), ...incomingSession } as AgentSession));
-            setEvents((current) => mergeEvents(event.type === "snapshot" ? [] : current, event.events));
-            setConversation((current) => current ? { ...current, session: { ...(current.session || incomingSession), ...incomingSession } as AgentSession, sessions: upsertSession(current.sessions, incomingSession as AgentSession) } : current);
-            setAgentState({ connected: true, activity: event.type === "snapshot" ? "已同步" : statusLabel(incomingSession.status) });
+        return subscribeAgent(projectId, (event) => {
+            if (event.type === "snapshot") {
+                setConversation((current) => current ? { ...current, sessions: event.sessions } : current);
+                setSession((current) => current ? event.sessions.find((item) => item.id === current.id) || current : current);
+                const seen = useAgentStore.getState().seenEventSeqs;
+                setBackgroundUnread(Object.fromEntries(event.sessions.filter((item) => item.id !== session.id && item.eventSeq > (seen[item.id] || 0)).map((item) => [item.id, Math.min(99, item.eventSeq - (seen[item.id] || 0))])));
+                const selected = event.sessions.find((item) => item.id === session.id);
+                if (selected && selected.eventSeq > session.eventSeq) void agentApi.conversation(projectId, session.id).then((next) => {
+                    applyConversation(next);
+                    if (next.session) markSessionSeen(next.session.id, next.session.eventSeq);
+                }).catch(() => undefined);
+                setAgentState({ connected: true, activity: "已同步" });
+                return;
+            }
+            event.events.filter((item) => item.kind === "client_action").forEach((item) => void runClientAction(event.session.id, item));
+            setConversation((current) => current ? { ...current, sessions: upsertSession(current.sessions, event.session), ...(current.session?.id === event.session.id ? { session: event.session } : {}) } : current);
+            if (event.session.id === session.id) {
+                if (!atBottomRef.current && event.events.some((item) => item.kind === "artifact" || item.kind === "error" || item.kind === "user_text" || (item.kind === "assistant_text" && !item.payload.delta) || (item.kind === "run_state" && item.payload.state !== "running"))) setUnreadCount((count) => Math.min(100, count + 1));
+                setSession(event.session);
+                setEvents((current) => mergeEvents(current, event.events));
+                markSessionSeen(event.session.id, event.session.eventSeq);
+            } else if (event.events.length) {
+                backgroundEventsRef.current.set(event.session.id, mergeEvents(backgroundEventsRef.current.get(event.session.id) || [], event.events));
+                setBackgroundUnread((current) => ({ ...current, [event.session.id]: Math.min(99, (current[event.session.id] || 0) + 1) }));
+            }
+            setAgentState({ connected: true, activity: statusLabel(event.session.status) });
         });
-    }, [ownerKey, session?.id, streamVersion]);
+    }, [projectId, session?.id, streamVersion]);
 
     const runClientAction = async (sessionId: string, event: AgentEvent) => {
         const actionId = String(event.payload.actionId || "");
@@ -152,7 +177,7 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
         dockObserver.observe(dock);
         setInputDockHeight(dock.offsetHeight);
         return () => { contentObserver.disconnect(); dockObserver.disconnect(); };
-    }, [ownerKey]);
+    }, [projectId]);
 
     const applyConversation = (next: AgentConversation) => {
         setConversation(next);
@@ -168,15 +193,16 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
         setShowScrollBottom(false);
         setUnreadCount(0);
         try {
-            const next = await agentApi.send(ownerType, ownerId, {
+            const next = await agentApi.send(projectId, {
                 text,
-                preferredSessionId: session?.id,
+                sessionId: session?.id,
                 attachmentFileIds: attachments.map((file) => file.id),
-                canvasReferences: references.map((item) => ({ projectId: ownerId, nodeId: item.nodeId })),
+                canvasReferences: references.map((item) => ({ projectId, nodeId: item.nodeId })),
                 skillId: selectedSkill?.id,
             });
             applyConversation(next);
-            setDraft(ownerKey, "");
+            if (next.session) markSessionSeen(next.session.id, next.session.eventSeq);
+            setDraft(projectId, "");
             setAttachments([]);
             setReferences([]);
             setSelectedSkill(null);
@@ -190,9 +216,11 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
 
     const newSession = async () => {
         try {
-            const created = await agentApi.createSession(ownerType, ownerId);
+            const created = await agentApi.createSession(projectId);
             setConversation((current) => current ? { ...current, sessions: [created, ...current.sessions], session: created } : current);
             setSession(created);
+            setCurrentSession(projectId, created.id);
+            markSessionSeen(created.id, created.eventSeq);
             setEvents([]);
             setStreamVersion((value) => value + 1);
         } catch (error) { message.error(error instanceof Error ? error.message : "新建会话失败"); }
@@ -200,9 +228,13 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
 
     const activate = async (id: string) => {
         try {
-            await agentApi.activate(id);
-            const next = await agentApi.conversation(ownerType, ownerId);
+            const next = await agentApi.conversation(projectId, id);
+            if (next.session) next.session.events = mergeEvents(next.session.events || [], backgroundEventsRef.current.get(id) || []);
+            backgroundEventsRef.current.delete(id);
             applyConversation(next);
+            setCurrentSession(projectId, id);
+            if (next.session) markSessionSeen(id, next.session.eventSeq);
+            setBackgroundUnread((current) => ({ ...current, [id]: 0 }));
             setHistoryOpen(false);
             setStreamVersion((value) => value + 1);
         } catch (error) { message.error(error instanceof Error ? error.message : "切换会话失败"); }
@@ -214,6 +246,8 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
             const created = await agentApi.fork(source.id);
             setConversation((current) => current ? { ...current, sessions: [created, ...current.sessions], session: created } : current);
             setSession(created);
+            setCurrentSession(projectId, created.id);
+            markSessionSeen(created.id, created.eventSeq);
             setEvents(created.events || []);
             setHistoryOpen(false);
             setStreamVersion((value) => value + 1);
@@ -230,7 +264,7 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
         finally { setUploading(false); }
     };
 
-    const decide = async (decision: "approved" | "rejected", scope: "once" | "session" | "permanent" = "once", proposalEdits?: unknown) => {
+    const decide = async (decision: "approved" | "rejected", scope: "once" | "session" | "project" = "once", proposalEdits?: unknown) => {
         if (!session) return;
         setDecisionBusy(true);
         try {
@@ -289,7 +323,7 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
                 <Tooltip title="分叉当前会话"><Button type="text" shape="circle" icon={<GitFork className="size-4" />} onClick={() => void forkSession()} disabled={!session || busy} /></Tooltip>
                 <Tooltip title="历史会话"><Button type="text" shape="circle" icon={<History className="size-4" />} onClick={() => setHistoryOpen(true)} /></Tooltip>
                 <Tooltip title="Skill"><Button type="text" shape="circle" icon={<Sparkles className="size-4" />} onClick={() => setSkillsOpen(true)} /></Tooltip>
-                {embedded ? <Tooltip title="关闭"><Button type="text" shape="circle" icon={<X className="size-4" />} onClick={closePanel} /></Tooltip> : null}
+                {embedded ? <Tooltip title="关闭"><Button type="text" shape="circle" icon={<X className="size-4" />} onClick={() => closePanel(projectId)} /></Tooltip> : null}
             </header>
 
             <div
@@ -301,13 +335,12 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
                     <AgentConversationFlow
                         events={events}
                         loading={loading}
-                        ownerType={ownerType}
                         theme={theme}
                         status={session?.status}
                         canLoadEarlier={Boolean(events[0]?.seq && events[0].seq > 1)}
                         loadingEarlier={olderLoading}
                         onLoadEarlier={() => void loadEarlier()}
-                        onSuggestion={(text) => { setDraft(ownerKey, text); setComposerFocusRequest((value) => value + 1); }}
+                        onSuggestion={(text) => { setDraft(projectId, text); setComposerFocusRequest((value) => value + 1); }}
                     />
                 </div>
             </div>
@@ -327,11 +360,11 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
                     uploading={uploading}
                     focusRequest={composerFocusRequest}
                     skills={skills}
-                    nodes={ownerType === "project" ? nodes : []}
+                    nodes={nodes}
                     skill={selectedSkill}
                     references={references}
                     attachments={attachments}
-                    onChange={(value) => setDraft(ownerKey, value)}
+                    onChange={(value) => setDraft(projectId, value)}
                     onSend={() => void send()}
                     onCancel={() => void cancel()}
                     onUpload={(files) => void upload(files)}
@@ -343,7 +376,7 @@ export function LocalAgentPanel({ embedded = false }: { embedded?: boolean }) {
             </div>
 
             <Drawer title="历史会话" placement="right" width={Math.min(430, window.innerWidth)} open={historyOpen} onClose={() => setHistoryOpen(false)}>
-                <AgentHistoryList sessions={conversation?.sessions || []} activeId={session?.id} query={historyQuery} theme={theme} onQuery={setHistoryQuery} onActivate={(id) => void activate(id)} onDelete={(id) => void removeSession(id)} onFork={(id) => { const source = conversation?.sessions.find((item) => item.id === id); if (source) void forkSession(source); }} />
+                <AgentHistoryList sessions={conversation?.sessions || []} activeId={session?.id} unread={backgroundUnread} query={historyQuery} theme={theme} onQuery={setHistoryQuery} onActivate={(id) => void activate(id)} onDelete={(id) => void removeSession(id)} onFork={(id) => { const source = conversation?.sessions.find((item) => item.id === id); if (source) void forkSession(source); }} />
             </Drawer>
 
             <Drawer title="可用 Skill" placement="right" width={Math.min(430, window.innerWidth)} open={skillsOpen} onClose={() => setSkillsOpen(false)}>

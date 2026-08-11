@@ -1,4 +1,5 @@
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../config.js";
 
@@ -21,17 +22,39 @@ export function getBuiltInAgentSkill(id: string) {
 export function syncBuiltInAgentSkills(workspace: string) {
     const skills = readSourceSkills();
     const targetRoot = resolve(workspace, ".claude", "skills");
-    const expected = new Set(skills.map((skill) => skill.id));
-    mkdirSync(targetRoot, { recursive: true });
-    for (const entry of readdirSync(targetRoot, { withFileTypes: true })) {
-        if (entry.isDirectory() && !expected.has(entry.name)) rmSync(resolve(targetRoot, entry.name), { recursive: true, force: true });
-    }
+    const digest = createHash("sha256");
+    skills.forEach((skill) => hashDirectory(digest, skill.directory));
+    const hash = digest.digest("hex");
+    if (existsSync(resolve(targetRoot, ".content-hash")) && readFileSync(resolve(targetRoot, ".content-hash"), "utf8") === hash) return skills.map((skill) => skill.id);
+    const parent = resolve(targetRoot, "..");
+    const temporary = resolve(parent, `.skills-next-${randomUUID()}`);
+    const previous = resolve(parent, `.skills-previous-${randomUUID()}`);
+    mkdirSync(temporary, { recursive: true });
     for (const skill of skills) {
-        const target = resolve(targetRoot, skill.id);
-        rmSync(target, { recursive: true, force: true });
-        cpSync(skill.directory, target, { recursive: true, force: true, dereference: true });
+        cpSync(skill.directory, resolve(temporary, skill.id), { recursive: true, force: true, dereference: true });
+    }
+    writeFileSync(resolve(temporary, ".content-hash"), hash, "utf8");
+    try {
+        if (existsSync(targetRoot)) renameSync(targetRoot, previous);
+        renameSync(temporary, targetRoot);
+        rmSync(previous, { recursive: true, force: true });
+    } catch (error) {
+        if (!existsSync(targetRoot) && existsSync(previous)) renameSync(previous, targetRoot);
+        throw error;
+    } finally {
+        rmSync(temporary, { recursive: true, force: true });
     }
     return skills.map((skill) => skill.id);
+}
+
+function hashDirectory(hash: ReturnType<typeof createHash>, directory: string, prefix = "") {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+        const path = resolve(directory, entry.name);
+        const name = `${prefix}/${entry.name}`;
+        hash.update(name);
+        if (entry.isDirectory()) hashDirectory(hash, path, name);
+        else if (statSync(path).isFile()) hash.update(readFileSync(path));
+    }
 }
 
 function readSourceSkills(): SourceSkill[] {

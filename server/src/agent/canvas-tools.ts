@@ -29,13 +29,19 @@ const canvasOp = z.discriminatedUnion("type", [
     z.object({ type: z.literal("delete_connections"), id: z.string().optional(), ids: z.array(z.string()).optional(), all: z.boolean().optional() }).passthrough(),
     z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), toNodeId: z.string() }).passthrough(),
 ]);
+const canvasSafeOp = z.discriminatedUnion("type", [
+    z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: z.string().optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().optional(), height: z.number().optional(), metadata: record.optional() }).passthrough(),
+    z.object({ type: z.literal("update_node"), id: z.string(), patch: record.optional(), metadata: record.optional() }).passthrough(),
+    z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), toNodeId: z.string() }).passthrough(),
+]);
 
 export const canvasToolSchemas = {
     canvas_get_state: z.object({ projectId: z.string().optional() }),
     canvas_get_selection: z.object({ projectId: z.string().optional() }),
-    canvas_apply_ops: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ops: z.array(canvasOp).min(1) }),
+    canvas_apply_ops: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ops: z.array(canvasSafeOp).min(1) }),
     canvas_create_text_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), items: z.array(z.object({ text: z.string(), title: z.string().optional(), x: z.number().optional(), y: z.number().optional() })).min(1) }),
     canvas_delete_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ids: z.array(z.string()).min(1) }),
+    canvas_delete_connections: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ids: z.array(z.string()).min(1) }),
     canvas_connect_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), connections: z.array(z.object({ fromNodeId: z.string(), toNodeId: z.string() })).min(1) }),
     canvas_list_projects: z.object({ keyword: z.string().optional(), limit: z.number().int().min(1).max(100).optional() }),
     assets_list: z.object({ kind: z.enum(["all", "text", "image", "video"]).optional(), keyword: z.string().optional(), limit: z.number().int().min(1).max(100).optional() }),

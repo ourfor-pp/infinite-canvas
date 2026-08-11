@@ -40,6 +40,7 @@ import { CanvasToolbar } from "@/components/canvas/canvas-toolbar";
 import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
 import { CanvasSidePanel } from "@/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
+import { AgentPanel } from "@/components/agent/agent-panel";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { cancelProjectServerMutation, prepareProjectServerMutation, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
@@ -151,7 +152,7 @@ function InfiniteCanvasPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const projectId = params.id || "";
-    const agentPanelOpen = useAgentStore((state) => state.panelOpen);
+    const agentPanelOpen = useAgentStore((state) => Boolean(state.panelOpen[projectId]));
     const toggleAgentPanel = useAgentStore((state) => state.togglePanel);
     const openAgentPanel = useAgentStore((state) => state.openPanel);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -393,8 +394,8 @@ function InfiniteCanvasPage() {
 
     useEffect(() => {
         if (!projectLoaded || !["new", "recent", "choose"].includes(searchParams.get("mode") || "")) return;
-        openAgentPanel();
-    }, [openAgentPanel, projectLoaded, searchParams]);
+        openAgentPanel(projectId);
+    }, [openAgentPanel, projectId, projectLoaded, searchParams]);
 
     useEffect(() => {
         if (!projectLoaded || applyingHistoryRef.current || historyPausedRef.current) return;
@@ -2826,6 +2827,7 @@ function InfiniteCanvasPage() {
 
     return (
         <main className="flex h-full min-h-0 overflow-hidden" style={{ background: theme.canvas.background, color: theme.node.text }}>
+            <AgentPanel projectId={projectId} />
             <section className="relative min-w-0 flex-1 overflow-hidden">
                 <CanvasTopBar
                     title={currentProject?.title || t("canvas.projectPage.untitledCanvas")}
@@ -2847,7 +2849,7 @@ function InfiniteCanvasPage() {
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
                     agentOpen={agentPanelOpen}
-                    onToggleAgent={toggleAgentPanel}
+                    onToggleAgent={() => toggleAgentPanel(projectId)}
                 />
 
                 <InfiniteCanvas

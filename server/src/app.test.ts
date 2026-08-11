@@ -208,13 +208,17 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     assert.equal((await api("/admin/ai/agent", userTwo)).response.status, 403);
     assert.equal((await api("/admin/ai/agent", userOne, { method: "PUT", body: JSON.stringify({ modelRef }) })).response.status, 200);
     const publicConfig = await api("/agent/config", userTwo);
-    assert.deepEqual(publicConfig.body.data, { ready: true, modelName: "Agent 测试模型", providerName: "Agent 测试渠道", protocolVersion: 1, storageVersion: 1 });
+    assert.deepEqual(publicConfig.body.data, { ready: true, modelName: "Agent 测试模型", providerName: "Agent 测试渠道", protocolVersion: 2, storageVersion: 2 });
     assert.equal(JSON.stringify(publicConfig.body).includes(modelRef), false);
 
-    assert.equal((await api("/agent/conversations/project/project-1", userTwo)).response.status, 404);
-    const session = await api("/agent/conversations/project/project-1/sessions", userOne, { method: "POST", body: "{}" });
+    assert.equal((await api("/agent/projects/project-1/conversation", userTwo)).response.status, 404);
+    const session = await api("/agent/projects/project-1/sessions", userOne, { method: "POST", body: "{}" });
     assert.equal(session.response.status, 201);
-    assert.equal((await api(`/agent/sessions/${session.body.data.id}/activate`, userTwo, { method: "POST" })).response.status, 404);
+    const second = await api("/agent/projects/project-1/sessions", userOne, { method: "POST", body: "{}" });
+    const conversation = await api(`/agent/projects/project-1/conversation?sessionId=${session.body.data.id}`, userOne);
+    assert.equal(conversation.body.data.session.id, session.body.data.id);
+    assert.deepEqual(new Set(conversation.body.data.sessions.map((item: { id: string }) => item.id)), new Set([session.body.data.id, second.body.data.id]));
+    assert.equal((await api(`/agent/sessions/${session.body.data.id}/fork`, userTwo, { method: "POST" })).response.status, 404);
 
     assert.equal((await api("/agent/skills", userTwo)).response.status, 200);
 });

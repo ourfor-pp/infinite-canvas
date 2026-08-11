@@ -12,7 +12,7 @@ import { createBackup, getBackupSettings, listBackups, restoreBackup, saveBackup
 import { clearProviderCredentials, deleteProvider, discoverProviderModels, getAiGlobalSettings, listAdminProviders, listModelDefaults, listModelEndpoints, listPublicModels, providerInputSchema, pruneModelDefaults, saveAiGlobalSettings, saveModelDefaults, saveProvider, testProvider } from "./provider-service.js";
 import { agentAdminRouter, agentRouter } from "./agent/routes.js";
 import { handleAgentProviderProxy } from "./agent/provider-proxy.js";
-import { removeAgentWorkspace } from "./agent/service.js";
+import { removeAgentProjectWorkspace } from "./agent/service.js";
 import {
     buildCreativeAssetPrompt,
     createCreativeAsset,
@@ -124,17 +124,16 @@ api.put("/projects/:id/force", route((req) => {
 }));
 
 api.delete("/projects/:id", route((req) => {
-    if (db.prepare("SELECT 1 FROM agent_sessions WHERE user_id=? AND owner_type='project' AND owner_id=? AND status IN ('running','waiting_for_user')").get(req.user.id, req.params.id)) throw apiError(409, "PROJECT_AGENT_BUSY", "Agent 正在使用这个画布，请先停止任务");
-    const sessions = db.prepare("SELECT id FROM agent_sessions WHERE user_id=? AND owner_type='project' AND owner_id=?").all(req.user.id, req.params.id) as Array<{ id: string }>;
+    if (db.prepare("SELECT 1 FROM agent_sessions WHERE user_id=? AND project_id=? AND status IN ('running','waiting_for_user')").get(req.user.id, req.params.id)) throw apiError(409, "PROJECT_AGENT_BUSY", "Agent 正在使用这个画布，请先停止任务");
     const result = db.transaction(() => {
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='creative_asset' AND owner_id IN (SELECT id FROM creative_assets WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, req.params.id);
-        sessions.forEach((session) => db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_session' AND owner_id=?").run(req.user.id, session.id));
-        db.prepare("DELETE FROM agent_sessions WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, req.params.id);
+        db.prepare("DELETE FROM agent_sessions WHERE user_id=? AND project_id=?").run(req.user.id, req.params.id);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, req.params.id);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_project' AND owner_id=?").run(req.user.id, req.params.id);
         db.prepare("DELETE FROM projects WHERE id=? AND user_id=?").run(req.params.id, req.user.id);
         return { id: req.params.id };
     })();
-    sessions.forEach((session) => removeAgentWorkspace(req.user.id, session.id));
+    removeAgentProjectWorkspace(req.user.id, req.params.id);
     return result;
 }));
 

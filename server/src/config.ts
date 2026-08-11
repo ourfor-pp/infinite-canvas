@@ -39,7 +39,7 @@ export const config = {
     aiMaxConcurrency: Math.max(1, Number(process.env.AI_MAX_CONCURRENCY) || 4),
     aiUserConcurrency: Math.max(1, Number(process.env.AI_USER_CONCURRENCY) || 2),
     agentMaxConcurrency: Math.max(1, Number(process.env.AGENT_MAX_CONCURRENCY) || 2),
-    agentUserConcurrency: Math.max(1, Number(process.env.AGENT_USER_CONCURRENCY) || 1),
+    agentUserConcurrency: Math.max(1, Number(process.env.AGENT_USER_CONCURRENCY) || 2),
     agentRoot: resolve(dataDir, "agent"),
     agentSkillsDir: resolve(process.env.AGENT_SKILLS_DIR || "./src/agent/skills"),
 };

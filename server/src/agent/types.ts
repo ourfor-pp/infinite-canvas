@@ -1,4 +1,3 @@
-export type AgentOwnerType = "project" | "workspace";
 export type AgentSessionStatus = "idle" | "running" | "waiting_for_user" | "completed" | "failed" | "canceled";
 export type AgentEventKind =
     | "user_text"
@@ -26,18 +25,20 @@ export type AgentEvent = {
 
 export type AgentPendingDecision = {
     id: string;
-    kind: "approval" | "question";
+    kind: "approval" | "question" | "proposal";
+    source: "policy" | "ask_user" | "proposal";
     runId: string;
     content: string;
     toolName?: string;
     toolInput?: unknown;
-    scopes?: Array<"once" | "session" | "permanent">;
+    scopes?: Array<"once" | "session" | "project">;
+    permissionSuggestions?: unknown;
+    rulePreview?: string[];
 };
 
 export type AgentSession = {
     id: string;
-    ownerType: AgentOwnerType;
-    ownerId: string;
+    projectId: string;
     sdkSessionId: string | null;
     title: string;
     status: AgentSessionStatus;
@@ -53,7 +54,7 @@ export type AgentSession = {
 
 export type AgentMessageInput = {
     text?: string;
-    preferredSessionId?: string;
+    sessionId?: string;
     attachmentFileIds?: string[];
     canvasReferences?: Array<{ projectId: string; nodeId: string }>;
     assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string }>;
@@ -61,5 +62,5 @@ export type AgentMessageInput = {
 };
 
 export type AgentStreamEvent =
-    | { type: "snapshot"; cursor: number; session: AgentSession; events: AgentEvent[] }
-    | { type: "delta"; cursor: number; sessionPatch: Partial<AgentSession>; events: AgentEvent[] };
+    | { type: "snapshot"; cursor: number; sessions: AgentSession[] }
+    | { type: "delta"; cursor: number; session: AgentSession; events: AgentEvent[] };

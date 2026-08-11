@@ -104,9 +104,9 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
         if (!await save(false)) return;
         setBusy("agent");
         try {
-            await agentApi.send("project", asset.projectId, { text: agentText.trim(), assetReferences: [{ projectId: asset.projectId, assetId: asset.id, nodeId: ctx.node.id }] });
+            await agentApi.send(asset.projectId, { text: agentText.trim(), sessionId: useAgentStore.getState().currentSessionIds[asset.projectId], assetReferences: [{ projectId: asset.projectId, assetId: asset.id, nodeId: ctx.node.id }] });
             setAgentText("");
-            openAgent();
+            openAgent(asset.projectId);
             message.success("已交给 Agent");
         } catch (error) { message.error(error instanceof Error ? error.message : "提交 Agent 失败"); }
         finally { setBusy(""); }
