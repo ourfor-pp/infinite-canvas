@@ -1,7 +1,6 @@
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Music2, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Input, Modal, Tag, Typography } from "antd";
-import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { saveAs } from "file-saver";
 import { useTranslation } from "react-i18next";
@@ -18,6 +17,7 @@ import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
+import { createServerGenerationStore } from "@/services/server-generation-store";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ReferenceImage } from "@/types/image";
@@ -67,8 +67,7 @@ type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vqu
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
-const LOG_STORE_KEY = "infinite-canvas:video_generation_logs";
-const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
+const logStore = createServerGenerationStore<GenerationLog>("video");
 
 export default function VideoPage() {
     const { message } = App.useApp();
@@ -117,6 +116,11 @@ export default function VideoPage() {
 
     useEffect(() => {
         void refreshLogs();
+        const refresh = (event: Event) => {
+            if ((event as CustomEvent<{ kind?: string }>).detail?.kind === "video") void refreshLogs(false);
+        };
+        window.addEventListener("infinite-canvas:generation-updated", refresh);
+        return () => window.removeEventListener("infinite-canvas:generation-updated", refresh);
     }, []);
 
     const addReferences = async (files?: FileList | null) => {
@@ -892,7 +896,7 @@ function buildLog({ prompt, model, config, references, videoReferences, audioRef
         videoWatermark: config.videoWatermark,
     };
     return {
-        id: nanoid(),
+        id: task?.id || nanoid(),
         createdAt: Date.now(),
         title: prompt.slice(0, 12) || i18n.t("workbench.untitled"),
         prompt,

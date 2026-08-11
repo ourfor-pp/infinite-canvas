@@ -1,9 +1,8 @@
 import { create } from "zustand";
-import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
-
 import { nanoid } from "nanoid";
+
 import i18n from "@/i18n";
-import { localForageStorage } from "@/lib/localforage-storage";
+import { ServerApiError, serverApi } from "@/services/api/server";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
 
@@ -12,6 +11,7 @@ export type CanvasProject = {
     title: string;
     createdAt: string;
     updatedAt: string;
+    revision: number;
     nodes: CanvasNodeData[];
     connections: CanvasConnection[];
     chatSessions: CanvasAssistantSession[];
@@ -24,112 +24,131 @@ export type CanvasProject = {
 type CanvasStore = {
     hydrated: boolean;
     projects: CanvasProject[];
+    setHydrated: (hydrated: boolean) => void;
     createProject: (title?: string) => string;
     importProject: (project: Partial<CanvasProject>) => string;
     openProject: (id: string) => CanvasProject | null;
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[]) => void;
+    resolveConflict: (id: string, strategy: "reload" | "overwrite") => Promise<void>;
     updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
-const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
-type PersistedCanvasState = Pick<CanvasStore, "projects">;
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let queuedPersistState: PersistedCanvasState | null = null;
+const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-const canvasStorage: PersistStorage<CanvasStore> = {
-    getItem: async (name) => {
-        const value = await localForageStorage.getItem(name);
-        if (!value) return null;
-        const parsed = JSON.parse(value) as StorageValue<CanvasStore>;
-        queuedPersistState = parsed.state as PersistedCanvasState;
-        return parsed;
+export const useCanvasStore = create<CanvasStore>()((set, get) => ({
+    hydrated: false,
+    projects: [],
+    setHydrated: (hydrated) => set({ hydrated }),
+    createProject: (title = i18n.t("canvas.project.untitled")) => {
+        const now = new Date().toISOString();
+        const project: CanvasProject = {
+            id: nanoid(),
+            title,
+            createdAt: now,
+            updatedAt: now,
+            revision: 1,
+            nodes: [],
+            connections: [],
+            chatSessions: [],
+            activeChatId: null,
+            backgroundMode: "lines",
+            showImageInfo: false,
+            viewport: initialViewport,
+        };
+        set((state) => ({ projects: [project, ...state.projects] }));
+        void serverApi.createProject(project as unknown as Record<string, unknown>).then((saved) => mergeSavedProject(saved as unknown as CanvasProject, project.updatedAt)).catch(reportServerError);
+        return project.id;
     },
-    setItem: (name, value) => {
-        const nextState = value.state as PersistedCanvasState;
-        if (queuedPersistState && queuedPersistState.projects === nextState.projects) return;
-        queuedPersistState = nextState;
-        if (saveTimer) clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => {
-            saveTimer = null;
-            void localForageStorage.setItem(name, JSON.stringify(value));
-        }, 400);
+    importProject: (source) => {
+        const now = new Date().toISOString();
+        const project: CanvasProject = {
+            id: nanoid(),
+            title: source.title || i18n.t("canvas.project.imported"),
+            createdAt: source.createdAt || now,
+            updatedAt: now,
+            revision: 1,
+            nodes: source.nodes || [],
+            connections: source.connections || [],
+            chatSessions: source.chatSessions || [],
+            activeChatId: source.activeChatId || null,
+            backgroundMode: source.backgroundMode || "lines",
+            showImageInfo: source.showImageInfo || false,
+            viewport: source.viewport || initialViewport,
+        };
+        set((state) => ({ projects: [project, ...state.projects] }));
+        void serverApi.createProject(project as unknown as Record<string, unknown>).then((saved) => mergeSavedProject(saved as unknown as CanvasProject, project.updatedAt)).catch(reportServerError);
+        return project.id;
     },
-    removeItem: (name) => localForageStorage.removeItem(name),
-};
+    openProject: (id) => get().projects.find((item) => item.id === id) || null,
+    renameProject: (id, title) => {
+        set((state) => ({ projects: state.projects.map((project) => (project.id === id ? { ...project, title: title.trim() || project.title, updatedAt: new Date().toISOString() } : project)) }));
+        queueProjectSave(id);
+    },
+    deleteProjects: (ids) => {
+        ids.forEach((id) => {
+            const timer = saveTimers.get(id);
+            if (timer) clearTimeout(timer);
+            saveTimers.delete(id);
+        });
+        set((state) => ({ projects: state.projects.filter((project) => !ids.includes(project.id)) }));
+        void Promise.all(ids.map((id) => serverApi.deleteProject(id))).catch(reportServerError);
+    },
+    replaceProjects: (projects) => set({ projects }),
+    resolveConflict: async (id, strategy) => {
+        if (strategy === "reload") {
+            const current = (await serverApi.project(id)) as unknown as CanvasProject;
+            replaceSavedProject(current);
+            return;
+        }
+        const project = get().projects.find((item) => item.id === id);
+        if (!project) return;
+        replaceSavedProject((await serverApi.updateProject(id, project as unknown as Record<string, unknown>, true)) as unknown as CanvasProject);
+    },
+    updateProject: (id, patch) => {
+        set((state) => ({ projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)) }));
+        queueProjectSave(id);
+    },
+}));
 
-export const useCanvasStore = create<CanvasStore>()(
-    persist(
-        (set, get) => ({
-            hydrated: false,
-            projects: [],
-            createProject: (title = i18n.t("canvas.project.untitled")) => {
-                const now = new Date().toISOString();
-                const id = nanoid();
-                const project: CanvasProject = {
-                    id,
-                    title,
-                    createdAt: now,
-                    updatedAt: now,
-                    nodes: [],
-                    connections: [],
-                    chatSessions: [],
-                    activeChatId: null,
-                    backgroundMode: "lines",
-                    showImageInfo: false,
-                    viewport: initialViewport,
-                };
-                set((state) => ({ projects: [project, ...state.projects] }));
-                return id;
-            },
-            importProject: (source) => {
-                const now = new Date().toISOString();
-                const project: CanvasProject = {
-                    id: nanoid(),
-                    title: source.title || i18n.t("canvas.project.imported"),
-                    createdAt: source.createdAt || now,
-                    updatedAt: now,
-                    nodes: source.nodes || [],
-                    connections: source.connections || [],
-                    chatSessions: source.chatSessions || [],
-                    activeChatId: source.activeChatId || null,
-                    backgroundMode: source.backgroundMode || "lines",
-                    showImageInfo: source.showImageInfo || false,
-                    viewport: source.viewport || initialViewport,
-                };
-                set((state) => ({ projects: [project, ...state.projects] }));
-                return project.id;
-            },
-            openProject: (id) => {
-                return get().projects.find((item) => item.id === id) || null;
-            },
-            renameProject: (id, title) =>
-                set((state) => ({
-                    projects: state.projects.map((project) => (project.id === id ? { ...project, title: title.trim() || project.title, updatedAt: new Date().toISOString() } : project)),
-                })),
-            deleteProjects: (ids) =>
-                set((state) => {
-                    const projects = state.projects.filter((project) => !ids.includes(project.id));
-                    return { projects };
-                }),
-            replaceProjects: (projects) => set({ projects }),
-            updateProject: (id, patch) =>
-                set((state) => ({
-                    projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)),
-                })),
-        }),
-        {
-            name: CANVAS_STORE_KEY,
-            storage: canvasStorage,
-            partialize: (state) =>
-                ({
-                    projects: state.projects,
-                }) as StorageValue<CanvasStore>["state"],
-            onRehydrateStorage: () => () => {
-                useCanvasStore.setState({ hydrated: true });
-            },
-        },
-    ),
-);
+function queueProjectSave(id: string) {
+    const current = saveTimers.get(id);
+    if (current) clearTimeout(current);
+    saveTimers.set(
+        id,
+        setTimeout(async () => {
+            saveTimers.delete(id);
+            const project = useCanvasStore.getState().projects.find((item) => item.id === id);
+            if (!project) return;
+            try {
+                mergeSavedProject((await serverApi.updateProject(id, project as unknown as Record<string, unknown>)) as unknown as CanvasProject, project.updatedAt);
+            } catch (error) {
+                if (error instanceof ServerApiError && error.code === "PROJECT_CONFLICT") {
+                    window.dispatchEvent(new CustomEvent("infinite-canvas:project-conflict", { detail: { id } }));
+                    return;
+                }
+                reportServerError(error);
+            }
+        }, 500),
+    );
+}
+
+function replaceSavedProject(project: CanvasProject) {
+    useCanvasStore.setState((state) => ({ projects: state.projects.map((item) => (item.id === project.id ? project : item)) }));
+}
+
+function mergeSavedProject(project: CanvasProject, submittedUpdatedAt: string) {
+    const current = useCanvasStore.getState().projects.find((item) => item.id === project.id);
+    if (!current || current.updatedAt === submittedUpdatedAt) {
+        replaceSavedProject(project);
+        return;
+    }
+    useCanvasStore.setState((state) => ({ projects: state.projects.map((item) => (item.id === project.id ? { ...item, revision: project.revision } : item)) }));
+    queueProjectSave(project.id);
+}
+
+function reportServerError(error: unknown) {
+    window.dispatchEvent(new CustomEvent("infinite-canvas:server-error", { detail: error instanceof Error ? error.message : "服务保存失败" }));
+}

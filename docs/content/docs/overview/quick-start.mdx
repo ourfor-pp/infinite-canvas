@@ -5,34 +5,29 @@ description: Run Infinite Canvas in a few steps
 
 # Quick Start
 
-To try the project, deploy or start the `web/` frontend.
-
-## Deploy with Vercel
-
-Import the repository into Vercel. The root `vercel.json` builds `web/`. AI requests are sent directly from the browser to your OpenAI-compatible endpoint, so no additional application server is required.
+This development milestone requires both `server/` and `web/`. Existing Docker, Render, and Vercel paths are not maintained until the production backend package is completed.
 
 ## Run locally
 
 ```bash
 git clone git@github.com:basketikun/infinite-canvas.git
-cd infinite-canvas/web
-bun install
-bun run dev
+cd infinite-canvas
+./dev.sh
 ```
 
 Open `http://localhost:3000`.
 
-## Run with Docker
+To run without the machine-specific ComfyUI helper, start both packages in separate terminals:
 
 ```bash
-docker build -t infinite-canvas .
-docker run --rm -p 3000:3000 infinite-canvas
+(cd server && bun install && AUTH_MODE=dev DATA_DIR=../data bun run dev)
+(cd web && bun install && bun run dev)
 ```
 
 ## First-time setup
 
-- Open Settings and enter your `Base URL`, `API Key`, and model names.
+- Development users are administrators by default. Open AI Services to configure shared providers, encrypted credentials, and model capabilities.
 - Open `/prompts` to fetch prompt repositories directly from the browser and cache them in IndexedDB.
-- Configure WebDAV if you want to synchronize canvases, assets, and generation history across devices.
+- Administrators manage public providers and ComfyUI nodes under AI Services, and WebDAV snapshots under Services and backups.
 
-Canvas projects and My Assets are primarily stored in the browser. The API key is also stored locally and used by the browser to call OpenAI-compatible endpoints directly.
+Canvas projects, assets, media, records, settings, and every AI generation task are backend-owned. The browser contacts only the same-origin application API and never receives provider credentials or internal ComfyUI addresses.

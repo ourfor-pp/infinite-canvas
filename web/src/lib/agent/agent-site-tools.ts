@@ -12,7 +12,7 @@ import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectabl
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 
 // Execute site-level Agent tools in the browser, including canvas lists, workbench generation, prompt search, and asset operations.
-// Their data lives locally in the browser through localforage and Zustand, so this module accesses the relevant stores directly.
+// Zustand mirrors backend-owned projects, assets, models, and generation records for tool reads and UI dispatch.
 
 export const SITE_TOOL_NAMES = [
     "canvas_list_projects",
@@ -161,7 +161,7 @@ function runImageWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     const configStore = useConfigStore.getState();
     const applied: Record<string, unknown> = {};
     if (typeof input.model === "string" && input.model.trim()) {
-        const value = normalizeModelOptionValue(input.model, configStore.config.channels) || input.model;
+        const value = normalizeModelOptionValue(input.model) || input.model;
         configStore.updateConfig("imageModel", value);
         applied.model = value;
     }
@@ -209,7 +209,7 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     const configStore = useConfigStore.getState();
     const applied: Record<string, unknown> = {};
     if (typeof input.model === "string" && input.model.trim()) {
-        const value = normalizeModelOptionValue(input.model, configStore.config.channels) || input.model;
+        const value = normalizeModelOptionValue(input.model) || input.model;
         configStore.updateConfig("videoModel", value);
         applied.model = value;
     }

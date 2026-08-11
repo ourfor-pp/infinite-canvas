@@ -1,0 +1,174 @@
+const apiBase = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/api`;
+
+export type ServerSession = {
+    user: { id: string; username: string; isAdmin: boolean };
+    counts: { projects: number; assets: number; generations: number; settings: number };
+    authMode: "dev" | "fnos";
+};
+
+export type ServerFile = {
+    id: string;
+    fileId: string;
+    name: string;
+    mimeType: string;
+    bytes: number;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+    url: string;
+};
+
+export type ServerGeneration = {
+    id: string;
+    kind: "image" | "video" | "audio" | "text";
+    status: "queued" | "running" | "succeeded" | "failed" | "canceled";
+    providerId: string | null;
+    modelId: string;
+    request: Record<string, unknown>;
+    result: Record<string, unknown> | null;
+    error: string | null;
+    errorCode: string | null;
+    progress: number;
+    usage: Record<string, unknown> | null;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type ComfyServer = { id: string; name: string; url: string; enabled: boolean; models: string[]; createdAt: string; updatedAt: string };
+export type AiModelDefinition = { id: string; name: string; output: "text" | "image" | "video" | "audio"; inputs: Array<"text" | "image" | "video" | "audio">; enabled: boolean };
+export type PublicAiModel = AiModelDefinition & { value: string; providerId: string; providerName: string };
+export type AiProvider = {
+    id: string;
+    name: string;
+    type: "openai" | "openai-compatible" | "anthropic" | "gemini" | "ark";
+    baseUrl: string;
+    enabled: boolean;
+    models: AiModelDefinition[];
+    concurrency: number;
+    credentialConfigured: boolean;
+    credentialType: "apiKey" | "authToken";
+    createdAt: string;
+    updatedAt: string;
+};
+export type AdminGeneration = Omit<ServerGeneration, "request" | "result"> & { user: { id: string; username: string }; request?: undefined; result?: undefined };
+export type BackupSettings = { url: string; username: string; directory: string; passwordConfigured: boolean; updatedAt: string };
+export type BackupSnapshot = { id: string; createdAt: string; files: number; bytes: number };
+
+export class ServerApiError extends Error {
+    constructor(
+        message: string,
+        readonly code: string,
+        readonly status: number,
+        readonly details?: unknown,
+    ) {
+        super(message);
+    }
+}
+
+export function serverApiUrl(path: string) {
+    return `${apiBase}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+export async function serverRequest<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers);
+    if (init?.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    let response: Response;
+    try {
+        response = await fetch(serverApiUrl(path), { ...init, headers });
+    } catch {
+        throw new ServerApiError("无法连接无限画布服务，请确认后端已经启动", "SERVER_OFFLINE", 0);
+    }
+    const body = (await response.json().catch(() => null)) as { data?: T; error?: { code?: string; message?: string; details?: unknown } } | null;
+    if (!response.ok) throw new ServerApiError(body?.error?.message || `服务请求失败（${response.status}）`, body?.error?.code || "REQUEST_FAILED", response.status, body?.error?.details);
+    return body?.data as T;
+}
+
+export const serverApi = {
+    session: () => serverRequest<ServerSession>("/session"),
+    projects: () => serverRequest<Array<Record<string, unknown>>>("/projects"),
+    project: (id: string) => serverRequest<Record<string, unknown>>(`/projects/${encodeURIComponent(id)}`),
+    createProject: (project: Record<string, unknown>) => serverRequest<Record<string, unknown>>("/projects", { method: "POST", body: JSON.stringify(project) }),
+    updateProject: (id: string, project: Record<string, unknown>, force = false) => serverRequest<Record<string, unknown>>(`/projects/${encodeURIComponent(id)}${force ? "/force" : ""}`, { method: "PUT", body: JSON.stringify(project) }),
+    deleteProject: (id: string) => serverRequest(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    assets: () => serverRequest<Array<Record<string, unknown>>>("/assets"),
+    createAsset: (asset: Record<string, unknown>) => serverRequest<Record<string, unknown>>("/assets", { method: "POST", body: JSON.stringify(asset) }),
+    updateAsset: (id: string, asset: Record<string, unknown>) => serverRequest<Record<string, unknown>>(`/assets/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(asset) }),
+    deleteAsset: (id: string) => serverRequest(`/assets/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    file: (id: string) => serverRequest<ServerFile>(`/files/${encodeURIComponent(id)}`),
+    settings: () => serverRequest<{ config: Record<string, unknown>; promptSources?: Record<string, unknown> } | null>("/settings"),
+    updateSettings: (settings: Record<string, unknown>) => serverRequest("/settings", { method: "PUT", body: JSON.stringify(settings) }),
+    generations: () => serverRequest<ServerGeneration[]>("/generations"),
+    generation: (id: string) => serverRequest<ServerGeneration>(`/generations/${encodeURIComponent(id)}`),
+    createGeneration: (input: Record<string, unknown>) => serverRequest<ServerGeneration>("/generations", { method: "POST", body: JSON.stringify(input) }),
+    deleteGeneration: (id: string) => serverRequest(`/generations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    cancelGeneration: (id: string) => serverRequest<ServerGeneration>(`/generations/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+    aiModels: () => serverRequest<PublicAiModel[]>("/ai/models"),
+    aiProviders: () => serverRequest<AiProvider[]>("/admin/ai/providers"),
+    createAiProvider: (input: Record<string, unknown>) => serverRequest<AiProvider>("/admin/ai/providers", { method: "POST", body: JSON.stringify(input) }),
+    updateAiProvider: (id: string, input: Record<string, unknown>) => serverRequest<AiProvider>(`/admin/ai/providers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+    deleteAiProvider: (id: string) => serverRequest(`/admin/ai/providers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    testAiProvider: (id: string) => serverRequest<{ available: boolean; models: number }>(`/admin/ai/providers/${encodeURIComponent(id)}/test`, { method: "POST" }),
+    discoverAiProviderModels: (id: string) => serverRequest<{ models: string[] }>(`/admin/ai/providers/${encodeURIComponent(id)}/models/discover`, { method: "POST" }),
+    clearAiProviderCredentials: (id: string) => serverRequest<AiProvider>(`/admin/ai/providers/${encodeURIComponent(id)}/credentials/clear`, { method: "POST" }),
+    adminGenerations: () => serverRequest<AdminGeneration[]>("/admin/ai/generations"),
+    adminCancelGeneration: (id: string) => serverRequest<ServerGeneration>(`/admin/ai/generations/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+    importBrowser: (input: Record<string, unknown>) => serverRequest("/imports/browser", { method: "POST", body: JSON.stringify(input) }),
+    comfyServers: () => serverRequest<ComfyServer[]>("/admin/comfyui/servers"),
+    createComfyServer: (input: Record<string, unknown>) => serverRequest<ComfyServer>("/admin/comfyui/servers", { method: "POST", body: JSON.stringify(input) }),
+    updateComfyServer: (id: string, input: Record<string, unknown>) => serverRequest<ComfyServer>(`/admin/comfyui/servers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+    deleteComfyServer: (id: string) => serverRequest(`/admin/comfyui/servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    testComfyServer: (id: string) => serverRequest(`/admin/comfyui/servers/${encodeURIComponent(id)}/test`, { method: "POST" }),
+    backupSettings: () => serverRequest<BackupSettings | null>("/admin/backups/settings"),
+    updateBackupSettings: (input: Record<string, unknown>) => serverRequest<BackupSettings>("/admin/backups/settings", { method: "PUT", body: JSON.stringify(input) }),
+    testBackup: () => serverRequest<{ available: boolean }>("/admin/backups/test", { method: "POST" }),
+    createBackup: () => serverRequest<BackupSnapshot>("/admin/backups", { method: "POST" }),
+    backups: () => serverRequest<BackupSnapshot[]>("/admin/backups"),
+    restoreBackup: (id: string) => serverRequest<{ restored: boolean; safetyId: string; restartRequired: boolean }>(`/admin/backups/${encodeURIComponent(id)}/restore`, { method: "POST" }),
+};
+
+export async function uploadServerFile(file: Blob, name = "file") {
+    const form = new FormData();
+    form.set("file", file, name);
+    return serverRequest<ServerFile>("/files", { method: "POST", body: form });
+}
+
+export function serverFileUrl(storageKey?: string, fallback = "") {
+    if (!storageKey?.startsWith("server:")) return fallback;
+    return serverApiUrl(`/files/${encodeURIComponent(storageKey.slice(7))}/content`);
+}
+
+export function serverFileIdFromUrl(source: string) {
+    try {
+        const match = new URL(source, window.location.href).pathname.match(/\/api\/files\/([^/]+)\/content$/);
+        return match ? decodeURIComponent(match[1]) : "";
+    } catch {
+        return "";
+    }
+}
+
+export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void) {
+    let socket: WebSocket | null = null;
+    let retryTimer = 0;
+    let stopped = false;
+    const connect = () => {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        socket = new WebSocket(`${protocol}//${window.location.host}${apiBase}/events`);
+        socket.addEventListener("message", (event) => {
+            try {
+                const message = JSON.parse(event.data) as { type?: string; data?: ServerGeneration | { id: string; delta: string } };
+                if (message.type === "generation.updated" && message.data) onGeneration(message.data as ServerGeneration);
+                if (message.type === "generation.delta" && message.data) onDelta?.(message.data as { id: string; delta: string });
+            } catch {
+                // Ignore malformed server events and keep the connection alive.
+            }
+        });
+        socket.addEventListener("close", () => {
+            if (!stopped) retryTimer = window.setTimeout(connect, 2000);
+        });
+    };
+    connect();
+    return () => {
+        stopped = true;
+        window.clearTimeout(retryTimer);
+        socket?.close();
+    };
+}

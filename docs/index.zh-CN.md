@@ -16,6 +16,7 @@
 ## 开发与数据
 
 - [本地开发](/zh-CN/docs/development/local-development)
+- [fnOS 原生应用部署与统一网关](/zh-CN/docs/development/fnos-application-deployment)
 - [画布数据结构](/zh-CN/docs/development/canvas-data-structure)
 
 ## 商务合作
@@ -36,8 +37,9 @@
 
 ## 说明
 
-- 当前画布项目和“我的素材”主要保存在浏览器本地，跨设备可自行配置 WebDAV 同步。
-- AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
+- 画布项目、“我的素材”、生成记录、媒体和模型设置现由 Express 后端保存；浏览器 IndexedDB 只作为旧数据导入源，并继续保存界面、插件与远程提示词缓存。
+- 内网 ComfyUI 调用与 WebDAV 完整快照均由后端执行。本开发里程碑中的公网 OpenAI 兼容渠道仍由浏览器请求，但 API Key 会由后端加密落盘。
+- 新后端架构的 Docker、Render、Vercel 与 fnOS 打包属于后续工作，v0.17.0 开发版暂不维护这些生产部署方式。
 
 ## 原理说明
 

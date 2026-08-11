@@ -1,0 +1,389 @@
+---
+title: fnOS Application Deployment and Unified Gateway
+description: Package web projects as fnOS FPK applications that reuse the system entry point, session, and gateway
+---
+
+# fnOS Application Deployment and Unified Gateway
+
+> The v0.17.0 development milestone provides Unix sockets, gateway headers, per-user isolation, and backend AI services. FPK packaging, production static serving, and on-device gateway acceptance remain follow-up work; this page is an implementation reference, not a currently published package.
+
+This guide explains how to ship a web project as a first-class fnOS application. The resulting app can be installed and managed from App Center, opened from the fnOS desktop, served through the existing fnOS domain and ports, and protected by the current NAS login session without exposing another host TCP port.
+
+The supported architecture is **FPK package + unified gateway + Unix socket**. Do not patch the system Nginx configuration, edit the App Center database, or reuse reserved paths owned by built-in applications.
+
+## Requirements
+
+The unified gateway requires fnOS `1.1.3102` or later. The fnOS Open API separately requires system `1.2.0401` or later and mobile app `1.34.0` or later. The Open API version requirement does not affect basic gateway session validation.
+
+The main tools are:
+
+- `fnpack` to create a project and build an `.fpk` package;
+- `appcenter-cli` for scripted installation and lifecycle testing on fnOS;
+- manual installation in App Center for interactive administrator testing.
+
+Check the [official update log](https://developer.fnnas.com/docs/update-log/) and [fnpack documentation](https://developer.fnnas.com/docs/cli/fnpack/) before packaging. The `fnpack` binary bundled with a device may be older than the version documented by the platform.
+
+## Choose an access model
+
+| Model | Reuses fnOS host and ports | Validates NAS session | WebSocket | Best use |
+| --- | --- | --- | --- | --- |
+| `index.cgi` | Yes | Before invoking CGI | No | Small static pages and legacy packages |
+| Unified gateway | Yes | Before proxying, with user headers | Yes | SPAs, APIs, long-running services, streaming, WebSocket |
+| Dedicated port | No | Independent from NAS session | Yes | Standalone services with their own authentication |
+
+Use the unified gateway for modern web applications. CGI starts a process per request and is harder to operate correctly for a routed SPA.
+
+## Request flow
+
+```text
+Browser
+  │  https://nas.example/app/myapp/
+  ▼
+fnOS main web service
+  │  validates the NAS session
+  │  adds trusted X-Trim-* user headers
+  ▼
+/var/apps/myapp/target/app.sock
+  │  HTTP or WebSocket over a Unix socket
+  ▼
+Application service
+```
+
+`gatewaySocket` contains only the socket filename. The application must create that socket in its installed `target` directory.
+
+## FPK layout
+
+Create a native project:
+
+```bash
+fnpack create myapp
+```
+
+Or a Docker-backed project:
+
+```bash
+fnpack create myapp --template docker
+```
+
+Typical layout:
+
+```text
+myapp/
+├── app/
+│   ├── ui/
+│   │   ├── config
+│   │   └── images/
+│   └── docker/
+│       └── docker-compose.yaml
+├── cmd/
+├── config/
+│   ├── privilege
+│   └── resource
+├── wizard/
+├── manifest
+├── ICON.PNG
+└── ICON_256.PNG
+```
+
+Important runtime paths:
+
+| Variable | Purpose |
+| --- | --- |
+| `TRIM_APPDEST` | Installed files, runtime assets, and gateway socket |
+| `TRIM_PKGETC` | Application configuration |
+| `TRIM_PKGVAR` | Persistent runtime data and logs |
+| `TRIM_PKGTMP` | Temporary data |
+| `TRIM_PKGHOME` | Package-user home data |
+
+Use these variables in lifecycle scripts and Compose files. Do not hard-code `/var/apps/myapp`, volume numbers, or user directories.
+
+## Manifest
+
+An application that is available only through the unified gateway can use:
+
+```ini title="manifest"
+appname=myapp
+version=1.0.0
+display_name=My App
+desc=My fnOS application.
+source=thirdparty
+platform=all
+maintainer=Your Name
+maintainer_url=https://example.com
+os_min_version=1.1.3102
+desktop_uidir=ui
+desktop_applaunchname=myapp.main
+ctl_stop=true
+checkport=false
+```
+
+- Keep `appname` stable after release.
+- Third-party packages use `source=thirdparty`.
+- Use `platform=all` only when packaged binaries and container images really support every declared architecture.
+- Omit `service_port` and set `checkport=false` when no host TCP port is used.
+- Use `ctl_stop=true` for a long-running service and `false` for a static CGI package.
+- Do not set `install_type=root` unless installation on the system partition is genuinely required.
+
+See the [official Manifest reference](https://developer.fnnas.com/docs/core-concepts/manifest/).
+
+## Least privilege
+
+Run native lifecycle and service processes as a dedicated package user by default:
+
+```json title="config/privilege"
+{
+  "defaults": {
+    "run-as": "package"
+  },
+  "username": "myapp",
+  "groupname": "myapp"
+}
+```
+
+Add groups such as `video` or `render` only for hardware that the application actually needs. Do not run a long-lived web service as root. Access to user files should be obtained through resource declarations and user authorization.
+
+`config/privilege` controls native FPK scripts and processes; it does not automatically change the user inside a container. Configure a non-root container user and the required file permissions separately.
+
+## Desktop entry and gateway registration
+
+```json title="app/ui/config"
+{
+  ".url": {
+    "myapp.main": {
+      "title": "My App",
+      "icon": "images/icon_{0}.png",
+      "type": "iframe",
+      "protocol": "",
+      "gatewayPrefix": "/app/myapp",
+      "gatewaySocket": "app.sock",
+      "url": "/app/myapp/",
+      "allUsers": true
+    }
+  }
+}
+```
+
+Keep the entry ID consistent with `desktop_applaunchname`. Use `/app/{appname}` for `gatewayPrefix`, specify only a filename for `gatewaySocket`, and keep the trailing slash in `url`. Gateway entries ignore `protocol` and `port`. Use `iframe` for an fnOS desktop window or `url` when a full browser context is required.
+
+`allUsers=true` controls visibility for signed-in users; it is not an application authorization policy. Administrator-only operations still require a server-side administrator check.
+
+## Docker FPK over a Unix socket
+
+Docker can be an internal implementation detail of an FPK. App Center, lifecycle management, the desktop entry, authentication, and the public URL are still managed by fnOS.
+
+Declare the Compose project:
+
+```json title="config/resource"
+{
+  "docker-project": {
+    "projects": [
+      {
+        "name": "myapp",
+        "path": "docker"
+      }
+    ]
+  }
+}
+```
+
+Mount the application target directory and do not publish a host port:
+
+```yaml title="app/docker/docker-compose.yaml"
+services:
+  web:
+    image: ghcr.io/example/myapp:1.0.0
+    container_name: myapp-web
+    restart: unless-stopped
+    volumes:
+      - "${TRIM_APPDEST}:/app/target:rw"
+    environment:
+      GATEWAY_SOCKET: /app/target/app.sock
+```
+
+The container creates `/app/target/app.sock`, visible on the host as `/var/apps/myapp/target/app.sock`. Do not add `ports`; that would provide a route that bypasses the fnOS gateway. Remove only this application's stale socket before binding, and verify the least socket permission that works on the target device instead of defaulting to world-writable mode.
+
+An Nginx-hosted SPA can listen directly on the socket:
+
+```nginx title="default.conf"
+server {
+    listen unix:/app/target/app.sock;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location = /app/myapp {
+        return 308 /app/myapp/;
+    }
+
+    location /app/myapp/ {
+        rewrite ^/app/myapp/(.*)$ /$1 break;
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+Prefer a service's native socket option when available. If it supports only TCP, keep TCP private inside the container and place a Unix-socket proxy in front of it; do not map that port to the host.
+
+Docker project start and stop are handled through the declared resource, but `cmd/main status` should still return `0` when the representative service is running, `3` when stopped, and `1` for other failures. Write actionable errors to `TRIM_TEMP_LOGFILE`.
+
+## Native FPK over a Unix socket
+
+A native package can carry a Go, Rust, or other Linux binary, or declare an official runtime dependency such as:
+
+```ini
+install_dep_apps=nodejs_v22
+```
+
+The service listens on `${TRIM_APPDEST}/app.sock`. `cmd/main` must implement idempotent `start`, targeted `stop`, and accurate `status`. Store PID files and logs in `TRIM_PKGVAR`; verify the process identity before terminating a recorded PID and avoid broad `pkill` patterns. See the [runtime documentation](https://developer.fnnas.com/docs/core-concepts/runtime/).
+
+## SPA base-path support
+
+The gateway does not repair root-relative application URLs. When the public entry is `/app/myapp/`, all assets, router paths, API calls, plugins, redirects, and WebSocket URLs must understand that prefix.
+
+Vite:
+
+```ts title="vite.config.ts"
+export default defineConfig({
+  base: process.env.VITE_BASE || "/",
+});
+```
+
+Build for fnOS:
+
+```bash
+VITE_BASE=/app/myapp/ npm run build
+```
+
+React Router:
+
+```ts title="router.tsx"
+const basename = import.meta.env.BASE_URL.replace(/\/$/, "");
+export const router = createBrowserRouter(routes, { basename });
+```
+
+Assets and APIs:
+
+```ts
+const base = import.meta.env.BASE_URL;
+fetch(`${base}api/session`);
+fetch(`${base}plugins/index.json`);
+```
+
+WebSocket:
+
+```ts
+const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+const socket = new WebSocket(
+  `${protocol}//${window.location.host}${import.meta.env.BASE_URL}ws`,
+);
+```
+
+Also audit root-relative paths in HTML and CSS and redirects generated by the server. A small path-rewriting proxy may be necessary for legacy services without configurable base-path support.
+
+## Session identity and application authorization
+
+After validating the NAS session, the gateway forwards:
+
+| Header | Meaning |
+| --- | --- |
+| `X-Trim-Userid` | Current user UID |
+| `X-Trim-Username` | Current username |
+| `X-Trim-Isadmin` | Whether the current user is an administrator |
+
+The application remains responsible for row-, file-, and operation-level authorization. Bind a WebSocket connection to the UID received during the handshake and never trust a user ID sent in the message body.
+
+Treat these headers as trusted only when the service is reachable exclusively through the gateway socket. A simultaneously exposed TCP port lets a client bypass fnOS and forge similarly named headers.
+
+A static application may ignore the headers and still benefit from gateway login protection. Request headers are not automatically visible to browser JavaScript; provide a gateway-protected session endpoint if the frontend needs the current UID or username.
+
+Browser storage is isolated by Origin, not by fnOS user. The v0.17.0 development milestone moves projects, assets, media, generation records, encrypted settings, and AI tasks to the backend and scopes queries by the trusted UID. Browser storage remains for UI preferences, caches, Canvas Agent configuration, and the one-time legacy import source.
+
+## Gateway authentication versus Open API authorization
+
+The unified gateway answers who may reach the application and who the current user is. It does not grant access to NAS files or other fnOS services.
+
+Use the fnOS Open API only when those capabilities are needed:
+
+- declare the required resources or `api-scope` entries;
+- use the official JS SDK in the frontend;
+- use `TRIM_API_TOKEN` in the backend;
+- obtain shared or per-user file authorization;
+- perform file ACL checks on the server.
+
+See [Calling the Open API](https://developer.fnnas.com/api/calling/) and [Authorization and files](https://developer.fnnas.com/api/authorization/overview/).
+
+## Build, install, and update
+
+Build the package:
+
+```bash
+fnpack build
+```
+
+Install the resulting `.fpk` manually from App Center, or use the CLI on a test device with the required administrative permission:
+
+```bash
+appcenter-cli install-fpk myapp.fpk
+appcenter-cli install-fpk myapp.fpk --env config.env
+```
+
+Never commit passwords, tokens, or keys from an installer environment file. If CLI permissions are unavailable, use the administrator-facing manual installation flow rather than changing system RPC or database permissions.
+
+For an update, increment `manifest.version`, preserve stable IDs and paths, implement necessary upgrade callbacks, rebuild the package, and verify that user-selected persistent data is preserved.
+
+## Verification checklist
+
+- App Center can install, start, stop, update, and uninstall the package.
+- The desktop icon opens `/app/myapp/`.
+- HTTP, HTTPS, and supported FN Connect entry points work.
+- fnOS blocks unauthenticated requests.
+- Compose has no host `ports` mapping.
+- The socket is created in `TRIM_APPDEST` after every start.
+- Refreshing a deep SPA route does not return 404.
+- Assets, APIs, and WebSocket paths retain the gateway prefix.
+- Regular users cannot call administrator operations or access another user's data.
+- Native processes run as the package user, container processes use an explicit non-root user, and both receive only declared resources.
+- HTTPS pages do not call HTTP resources that the browser blocks as mixed content.
+- Package and image architecture declarations match the actual artifacts.
+
+## Troubleshooting
+
+| Symptom | Check first |
+| --- | --- |
+| `/app/myapp` returns 404 | fnOS version, `desktop_uidir`, entry ID, `gatewayPrefix`, and whether the new FPK was reinstalled |
+| 502 or connection failure | Service state, socket existence, path, permissions, and stale socket files |
+| Page opens but assets return 404 | Build base path, HTML root paths, Nginx rewrite, and trailing slash |
+| SPA route refresh returns 404 | `index.html` fallback and router `basename` |
+| WebSocket fails | `ws/wss`, retained prefix, and Upgrade handling |
+| Login redirect loops | Current fnOS host, cookie domain/protocol, and accidental dedicated-port access |
+| Docker port works but gateway fails | Writable `TRIM_APPDEST` mount and host-visible socket creation |
+| Users share browser data | UID-based IndexedDB/localStorage namespacing |
+| External API is blocked | CORS for the new fnOS Origin and HTTPS-to-HTTP mixed content |
+
+Inspect the application state, logs, and socket before changing anything. Do not fix registration failures by editing the App Center database or system gateway configuration.
+
+## Infinite Canvas notes
+
+Infinite Canvas now combines a Vite SPA with an Express service. Projects, assets, media, records, settings, and all AI model calls are server-authoritative; the browser contacts only the same-origin application API.
+
+The recommended fnOS package should:
+
+- use a Docker-backed FPK without the existing `3000:3000` host mapping;
+- make Express listen on `app.sock` through `SOCKET_PATH` and serve the frontend from the same production package;
+- build with `/app/infinite-canvas/` as the Vite and router base;
+- remove root-relative assumptions such as `/config.js` and `/plugins/index.json`;
+- keep shared AI endpoints and credentials in administrator-owned backend configuration;
+- verify that HTTPS access does not block explicitly retained browser connections such as Canvas Agent;
+- set `AUTH_MODE=fnos`, trust `X-Trim-*` headers only on the gateway socket, and expose no bypass TCP listener where those headers could be forged.
+
+## Official references
+
+- [fnOS application platform](https://developer.fnnas.com/docs/guide/)
+- [Application framework](https://developer.fnnas.com/docs/core-concepts/framework/)
+- [Unified gateway](https://developer.fnnas.com/docs/core-concepts/gateway-registration/)
+- [Application entry](https://developer.fnnas.com/docs/core-concepts/app-entry/)
+- [Application privileges](https://developer.fnnas.com/docs/core-concepts/privilege/)
+- [Application resources](https://developer.fnnas.com/docs/core-concepts/resource/)
+- [Docker application example](https://developer.fnnas.com/docs/examples/docker/)
+- [Testing an application](https://developer.fnnas.com/docs/quick-started/test-application/)
+- [appcenter-cli](https://developer.fnnas.com/docs/cli/appcentercli/)

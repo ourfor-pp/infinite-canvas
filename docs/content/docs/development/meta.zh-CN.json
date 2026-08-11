@@ -4,6 +4,7 @@
   "defaultOpen": true,
   "pages": [
     "local-development",
+    "fnos-application-deployment",
     "canvas-data-structure",
     "local-codex-canvas"
   ]

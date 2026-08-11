@@ -1,0 +1,70 @@
+import { chmodSync, existsSync, lstatSync, unlinkSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
+import { WebSocket as WebSocketClient, WebSocketServer, type WebSocket } from "ws";
+import { app } from "./app.js";
+import { parseGatewayUser } from "./auth.js";
+import { config } from "./config.js";
+import { encryptJson } from "./crypto.js";
+import { db } from "./database.js";
+import { resumeGenerations, setGenerationEmitter } from "./generation-service.js";
+import { cleanupUnreferencedFiles } from "./file-store.js";
+
+const server = config.socketPath
+    ? (() => {
+          if (existsSync(config.socketPath) && !lstatSync(config.socketPath).isSocket()) throw new Error(`SOCKET_PATH 已存在且不是 Unix Socket：${config.socketPath}`);
+          if (existsSync(config.socketPath)) unlinkSync(config.socketPath);
+          return app.listen(config.socketPath);
+      })()
+    : app.listen(config.port, "127.0.0.1");
+
+if (config.defaultComfyUrl && !(db.prepare("SELECT 1 FROM comfy_servers LIMIT 1").get())) {
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO comfy_servers(id, name, encrypted_url, enabled, models, created_at, updated_at) VALUES('development', '开发机 ComfyUI', ?, 1, ?, ?, ?)").run(
+        encryptJson({ url: config.defaultComfyUrl }, config.appSecret),
+        JSON.stringify(["hidream-o1-full-fp8-local", "minimax-h3-fl2va-local", "minimax-h3-ref2va-local", "voxcpm2-local"]),
+        now,
+        now,
+    );
+}
+
+const clients = new Map<string, Set<WebSocket>>();
+const wss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url || "/", "http://localhost");
+    if (url.pathname !== `${config.basePath}/api/events`) return socket.destroy();
+    const user = websocketUser(request);
+    if (!user) return socket.destroy();
+    wss.handleUpgrade(request, socket, head, (client) => {
+        let userClients = clients.get(user.id);
+        if (!userClients) clients.set(user.id, (userClients = new Set()));
+        userClients.add(client);
+        client.on("close", () => {
+            userClients?.delete(client);
+            if (!userClients?.size) clients.delete(user.id);
+        });
+        client.send(JSON.stringify({ type: "connected" }));
+    });
+});
+
+setGenerationEmitter((userId, type, data) => {
+    const message = JSON.stringify({ type, data });
+    clients.get(userId)?.forEach((client) => {
+        if (client.readyState === WebSocketClient.OPEN) client.send(message);
+    });
+});
+
+resumeGenerations();
+cleanupUnreferencedFiles();
+setInterval(cleanupUnreferencedFiles, 60 * 60 * 1000).unref();
+
+server.on("listening", () => {
+    if (config.socketPath) chmodSync(config.socketPath, 0o660);
+    const target = config.socketPath || `http://127.0.0.1:${config.port}`;
+    process.stdout.write(`Infinite Canvas server listening on ${target}${config.basePath}\n`);
+});
+
+function websocketUser(request: IncomingMessage) {
+    if (config.authMode === "dev") return { id: config.devUserId, username: config.devUsername, isAdmin: true };
+    return parseGatewayUser(request.headers);
+}

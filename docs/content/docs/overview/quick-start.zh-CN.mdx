@@ -5,20 +5,14 @@ description: 用最少步骤把无限画布跑起来
 
 # 快速开始
 
-如果你只是想先把项目跑起来，优先部署或启动 `web/` 前端。
-
-## Vercel 部署
-
-在 Vercel 中导入仓库即可，根目录 `vercel.json` 会构建 `web/`。当前版本的 AI 请求由浏览器前台直连用户自己的 OpenAI 兼容地址，不需要额外配置服务端。
+当前开发里程碑需要同时启动 `server/` 和 `web/`。生产后端包完成前，原有 Docker、Render 和 Vercel 链路暂不维护。
 
 ## 本地启动
 
 ```bash
 git clone git@github.com:basketikun/infinite-canvas.git
 cd infinite-canvas
-cd web
-bun install
-bun run dev
+./dev.sh
 ```
 
 启动后访问：
@@ -27,22 +21,20 @@ bun run dev
 http://localhost:3000
 ```
 
-## Docker 启动
-
-如果你需要基于当前源码构建镜像：
+如果不使用当前机器专用的 ComfyUI 启动辅助，可在两个终端分别启动：
 
 ```bash
-docker build -t infinite-canvas .
-docker run --rm -p 3000:3000 infinite-canvas
+(cd server && bun install && AUTH_MODE=dev DATA_DIR=../data bun run dev)
+(cd web && bun install && bun run dev)
 ```
 
 ## 首次使用建议
 
-- 先打开右上角配置弹窗，填入自己的 `Base URL`、`API Key` 和模型名。
+- 开发模式用户默认是管理员，先打开右上角「AI 服务」，配置共享渠道、加密凭据和模型能力。
 - 如果需要提示词仓库内容，打开 `/prompts` 会由浏览器前端直连拉取并缓存到 IndexedDB。
-- 如果需要跨设备同步画布、素材和生成记录，可在配置弹窗中填写 WebDAV。
+- 管理员在「AI 服务」中配置共享公网渠道与 ComfyUI 节点，在「服务与备份」中管理 WebDAV 完整快照。
 
 ## 说明
 
-- 当前画布项目和“我的素材”主要保存在浏览器本地，WebDAV 同步需要用户自行配置。
-- AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
+- 画布、素材、媒体、生成记录和设置由后端保存。
+- 文本、图片、视频和音频模型全部由后端调用；浏览器只访问同源 `/api`，不接收供应商地址或密钥。

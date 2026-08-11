@@ -1,5 +1,6 @@
 import localforage from "localforage";
 import { nanoid } from "nanoid";
+import { serverApi, serverFileIdFromUrl, serverFileUrl, uploadServerFile } from "@/services/api/server";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 
@@ -7,17 +8,27 @@ const store = localforage.createInstance({ name: "infinite-canvas", storeName: "
 const objectUrls = new Map<string, string>();
 
 export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {
+    if (typeof input === "string") {
+        const fileId = serverFileIdFromUrl(input);
+        if (fileId) {
+            const stored = await serverApi.file(fileId);
+            const url = serverFileUrl(`server:${fileId}`, stored.url);
+            const meta = stored.mimeType.startsWith("video/") ? await readVideoMeta(url) : stored.mimeType.startsWith("audio/") ? await readAudioMeta(url) : {};
+            return { url, storageKey: `server:${fileId}`, bytes: stored.bytes, mimeType: stored.mimeType, ...meta };
+        }
+    }
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
-    const storageKey = `${prefix}:${nanoid()}`;
-    await store.setItem(storageKey, blob);
-    const url = URL.createObjectURL(blob);
+    const uploaded = await uploadServerFile(blob, `${prefix}-${nanoid()}.${blob.type.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin"}`);
+    const storageKey = `server:${uploaded.fileId}`;
+    const url = uploaded.url;
     objectUrls.set(storageKey, url);
     const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : blob.type.startsWith("audio/") ? await readAudioMeta(url) : {};
-    return { url, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta };
+    return { url, storageKey, bytes: uploaded.bytes, mimeType: uploaded.mimeType || "application/octet-stream", ...meta };
 }
 
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
+    if (storageKey.startsWith("server:")) return serverFileUrl(storageKey, fallback);
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
     const blob = await store.getItem<Blob>(storageKey);
@@ -28,10 +39,12 @@ export async function resolveMediaUrl(storageKey?: string, fallback = "") {
 }
 
 export async function getMediaBlob(storageKey: string) {
+    if (storageKey.startsWith("server:")) return fetch(serverFileUrl(storageKey)).then((response) => (response.ok ? response.blob() : null));
     return store.getItem<Blob>(storageKey);
 }
 
 export async function setMediaBlob(storageKey: string, blob: Blob) {
+    if (storageKey.startsWith("server:")) return serverFileUrl(storageKey);
     await store.setItem(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
@@ -41,6 +54,7 @@ export async function setMediaBlob(storageKey: string, blob: Blob) {
 export async function deleteStoredMedia(keys: Iterable<string>) {
     await Promise.all(
         Array.from(new Set(keys)).map(async (key) => {
+            if (key.startsWith("server:")) return;
             const url = objectUrls.get(key);
             if (url) URL.revokeObjectURL(url);
             objectUrls.delete(key);

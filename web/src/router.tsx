@@ -11,6 +11,7 @@ import ImagePage from "@/pages/image";
 import NotFound from "@/pages/not-found";
 import PromptsPage from "@/pages/prompts";
 import VideoPage from "@/pages/video";
+import AdminAiPage from "@/pages/admin/ai";
 
 export const router = createBrowserRouter([
     {
@@ -29,7 +30,8 @@ export const router = createBrowserRouter([
             { path: "/canvas", element: <CanvasPage /> },
             { path: "/canvas/:id", element: <CanvasProjectPage /> },
             { path: "/config", element: <ConfigPage /> },
+            { path: "/admin/ai", element: <AdminAiPage /> },
         ],
     },
     { path: "*", element: <NotFound /> },
-]);
+], { basename: import.meta.env.BASE_URL });

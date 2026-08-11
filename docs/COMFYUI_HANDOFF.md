@@ -8,7 +8,7 @@
 - 当前已跑通三个模型家族：HiDream-O1 图片、MiniMax H3 音视频、VoxCPM2 TTS。
 - H3 和 HiDream 已使用工作流级 SageAttention；VoxCPM2 保持普通推理，未默认启用 `torch.compile`。
 - 三个模型共享一张 RTX 5090 32 GB，不能由 Infinite Canvas 自行并发提交。应复用 ArcReel 的队列、显存判断和切模逻辑，或者将该逻辑抽成独立本地网关。
-- ComfyUI 当前允许可信局域网访问，但没有鉴权，也没有开启浏览器 CORS。不要直接暴露到公网。
+- `./dev.sh` 会把 ComfyUI 仅绑定到 `127.0.0.1`，由 Infinite Canvas 后端调用；浏览器和公网都不应直接访问它。
 
 ## 2. 部署清单
 
@@ -24,7 +24,7 @@
 | 输出目录 | `/home/cec/ComfyUI-H3/output` |
 | 日志 | `/home/cec/ComfyUI-H3/comfyui-8189.log` |
 | 本机 API | `http://127.0.0.1:8189` |
-| 可信局域网 API/UI | `http://192.168.3.55:8189` |
+| 浏览器访问 | 禁止，由 Express 后端代理任务 |
 | systemd 用户服务 | `arcreel-comfyui-8189.service` |
 
 服务当前是 transient user unit，不是开机永久 unit。运行中可检查：
@@ -46,7 +46,7 @@ systemd-run --user \
   --property=StandardOutput=append:/home/cec/ComfyUI-H3/comfyui-8189.log \
   --property=StandardError=append:/home/cec/ComfyUI-H3/comfyui-8189.log \
   /home/cec/ComfyUI-H3/.venv/bin/python main.py \
-  --listen 0.0.0.0 \
+  --listen 127.0.0.1 \
   --port 8189 \
   --models-directory /data/sas/ComfyUI/models \
   --reserve-vram 2 \
@@ -246,31 +246,27 @@ RunningHub_VoxCPM_LoadModel(optimize=false)
 
 ## 8. Infinite Canvas 的接入边界
 
-Infinite Canvas 当前具备图片、视频、音频模型能力和“自定义调用脚本”，前端会直接请求用户配置的 Base URL。相关入口：
+v0.17.0 开发版把四个本地模型接入与公网供应商共用的 Express 持久任务系统。浏览器只提交同源生成任务，不再接收或访问 ComfyUI 地址。相关入口：
 
 ```text
-web/src/services/api/model-plugin.ts
-web/src/services/api/image.ts
-web/src/services/api/video.ts
-web/src/services/api/audio.ts
-web/src/stores/use-config-store.ts
+server/src/comfy-workflows.ts
+server/src/generation-service.ts
+server/src/file-store.ts
+web/src/services/api/ai-generation.ts
 ```
 
-自定义脚本可以使用 `request`、`poll`、`Blob`、`FormData` 和 `fetch`，技术上足以直接实现 ComfyUI `/upload/image -> /prompt -> /history -> /view`。但当前不建议直接这样上线，原因有两个：
-
-1. ComfyUI 启动时没有 `--enable-cors-header`；带 `Origin: http://192.168.3.55:3000` 的请求当前返回 403。
-2. 浏览器直连会绕过 ArcReel 的 GPU 协调器，可能在切模或手工任务期间错误调用 `/free`，也无法可靠串行多个模型。
+后端负责 `/upload/image -> /prompt -> /history -> /view` 全链路，并把 `prompt_id`、任务状态和结果文件写入 SQLite。这样解决了浏览器跨域和页面关闭中断的问题，但共享 GPU 的跨产品协调仍需后续统一。
 
 ### 推荐架构
 
 ```text
-Infinite Canvas
-  -> 本机同源 ComfyUI adapter（媒体级 API）
-       -> 共享 GPU coordinator
-            -> ComfyUI :8189
+Browser
+  -> Express /api（身份、任务、文件）
+       -> 固定工作流与持久任务
+            -> ComfyUI 127.0.0.1:8189
 ```
 
-adapter 最少应提供：
+当前后端已提供：
 
 - 图片：文生图、多参考图生图。
 - 视频：FL2VA 首尾帧、Ref2VA 多模态参考。
@@ -279,34 +275,21 @@ adapter 最少应提供：
 - 返回浏览器能持久化的 Blob 或同源下载 URL。
 - 取消时停止前端等待；只有确认该 prompt 可中断时才操作 ComfyUI 队列。
 
-画布端可以继续复用现有 custom script 返回约定：
+前端统一使用 `providerId::modelId` 模型标识和同一生成客户端；ComfyUI 由正式 `comfyui` adapter type 路由，不再存在脚本哨兵或用户 JavaScript。
 
-- 图片返回 URL/data URL 数组。
-- 视频返回 `{ url }` 或 `{ blob }`。
-- 音频返回 `Blob`、URL、data URL 或 base64。
+### 不再使用浏览器直连
 
-### 仅开发态直连备选
-
-如果只是短期验证画布交互，可以维护重启 ComfyUI，并把启动命令增加精确源站：
-
-```text
---enable-cors-header http://192.168.3.55:3000
-```
-
-不要使用无范围的 `--enable-cors-header`，因为该形式等价于允许 `*`。即使开启 CORS，画布脚本也只能提交和轮询任务，不应调用 `/free`；跨产品显存协调仍未解决。
+`./dev.sh` 会把 ComfyUI 绑定到回环地址且不启用 CORS。不要重新加入浏览器直连脚本或把 8189 暴露到局域网/公网。
 
 ## 9. 建议实施顺序
 
-1. 先在 Infinite Canvas 中新增一个本地 ComfyUI channel/provider，模型 ID 使用本文档列出的四个名称。
-2. 先接 HiDream 文生图，验证 prompt、Blob 下载和画布节点落图。
-3. 接 HiDream 多参考图，验证浏览器上传到 adapter 后的文件生命周期。
-4. 接 H3 FL2VA 的首帧图生视频，再接 Ref2VA 的多模态参考。
-5. 接 VoxCPM2 声音设计和参考音频克隆。
-6. 最后把三个能力统一纳入共享 GPU coordinator，并覆盖跨模型、手工 ComfyUI 队列和 OOM 重试测试。
+1. 人工验证四个固定工作流与参考素材上限。
+2. 验证关闭页面、断线重连、取消和服务重启恢复。
+3. 后续把 Infinite Canvas 与 ArcReel 统一接入共享 GPU coordinator，并覆盖跨模型、手工 ComfyUI 队列和 OOM 重试测试。
 
 ## 10. 已知限制
 
-- 8189 当前无鉴权，只适用于可信局域网。
+- 8189 当前无鉴权，因此只允许绑定回环地址并由后端访问。
 - ComfyUI 队列只能反映已经提交的任务，不能替代 ArcReel workload 级别的互斥。
 - 当前协调锁不是跨进程锁；若 adapter 单独部署，需要把协调器迁到共同进程，或升级成跨进程租约。
 - H3 的 480p/768p、时长和参考数量限制应在提交工作流前校验，避免让 ComfyUI 运行很久后才失败。
@@ -321,4 +304,4 @@ adapter 最少应提供：
 - 用该图片作为 H3 首帧生成 5 秒 480p 视频，确认 MP4 同时包含视频和 AAC 音轨。
 - 用 VoxCPM2 生成中文声音设计音频，并把结果作为音频节点插回画布。
 - 连续执行 HiDream -> H3 -> Vox -> H3，检查没有并发任务、误清显存或第二个 ComfyUI 进程。
-- 生成期间从 `http://192.168.3.55:8189` 手工提交任务，确认 adapter 能观察 `/queue`，且不会在队列忙时调用 `/free`。
+- 关闭浏览器等待任务完成后重新打开，确认任务和结果可从后端恢复，且浏览器响应中没有 8189 地址。

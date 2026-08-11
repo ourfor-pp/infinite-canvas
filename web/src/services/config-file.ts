@@ -1,16 +1,16 @@
 import { saveAs } from "file-saver";
 
 import i18n from "@/i18n";
-import { useConfigStore, type AiConfig, type WebdavSyncConfig } from "@/stores/use-config-store";
+import { useConfigStore, type AiConfig } from "@/stores/use-config-store";
+import { scheduleServerSettingsSave } from "@/services/server-settings";
 import { usePromptSourceStore, type PromptSourceSchedule } from "@/stores/use-prompt-source-store";
 import type { PromptSource } from "@/services/api/prompt-source-presets";
 
 type AppConfigFile = {
     app: "infinite-canvas";
-    version: 1;
+    version: 3;
     exportedAt: string;
-    config: AiConfig;
-    webdav: WebdavSyncConfig;
+    config: Omit<AiConfig, "models">;
     promptSources: {
         sources: PromptSource[];
         schedule: PromptSourceSchedule;
@@ -18,9 +18,10 @@ type AppConfigFile = {
 };
 
 export function exportAppConfig() {
-    const { config, webdav } = useConfigStore.getState();
+    const { config } = useConfigStore.getState();
     const { sources, schedule } = usePromptSourceStore.getState();
-    const data: AppConfigFile = { app: "infinite-canvas", version: 1, exportedAt: new Date().toISOString(), config, webdav, promptSources: { sources, schedule } };
+    const { models: _models, ...preferences } = config;
+    const data: AppConfigFile = { app: "infinite-canvas", version: 3, exportedAt: new Date().toISOString(), config: preferences, promptSources: { sources, schedule } };
     saveAs(new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" }), "infinite-canvas-config.json");
 }
 
@@ -31,7 +32,8 @@ export async function importAppConfig(file: File) {
     } catch {
         throw new Error(i18n.t("config.invalidFile"));
     }
-    if (data.app !== "infinite-canvas" || data.version !== 1 || !data.config || !data.webdav || !data.promptSources) throw new Error(i18n.t("config.invalidFile"));
-    useConfigStore.setState({ config: data.config, webdav: data.webdav });
+    if (data.app !== "infinite-canvas" || data.version !== 3 || !data.config || !data.promptSources) throw new Error(i18n.t("config.invalidFile"));
+    useConfigStore.setState((state) => ({ config: { ...state.config, ...data.config, models: state.config.models } }));
     usePromptSourceStore.setState(data.promptSources);
+    scheduleServerSettingsSave();
 }

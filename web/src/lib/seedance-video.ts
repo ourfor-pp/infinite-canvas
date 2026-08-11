@@ -1,5 +1,5 @@
 import i18n from "@/i18n";
-import { resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { getAvailableModel, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -58,9 +58,8 @@ const seedancePixels = {
     },
 } as const;
 
-export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel" | "apiFormat">) {
-    const requestConfig = "channels" in config ? resolveModelRequestConfig(config, config.model || config.videoModel) : config;
-    return requestConfig.apiFormat === "ark";
+export function isSeedanceVideoConfig(config: Pick<AiConfig, "model" | "videoModel">) {
+    return getAvailableModel(config.model || config.videoModel)?.id.toLowerCase().includes("seedance") === true;
 }
 
 export function normalizeSeedanceResolution(value: string) {

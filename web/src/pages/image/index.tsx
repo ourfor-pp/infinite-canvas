@@ -1,7 +1,6 @@
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, ImagePlus, LoaderCircle, PenLine, Plus, SlidersHorizontal, Sparkles, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Image, Input, Modal, Tag, Tooltip, Typography } from "antd";
-import localforage from "localforage";
 import { saveAs } from "file-saver";
 import { useTranslation } from "react-i18next";
 
@@ -19,6 +18,7 @@ import { requestEdit, requestGeneration } from "@/services/api/image";
 import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
+import { createServerGenerationStore } from "@/services/server-generation-store";
 import type { ReferenceImage } from "@/types/image";
 import i18n from "@/i18n";
 
@@ -64,9 +64,8 @@ type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
-const LOG_STORE_KEY = "infinite-canvas:image_generation_logs";
 const RESULT_ACTION_BUTTON_CLASS = "min-w-0 px-1.5 [&_.ant-btn-icon]:shrink-0 [&>span:last-child]:min-w-0 [&>span:last-child]:truncate";
-const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_generation_logs" });
+const logStore = createServerGenerationStore<GenerationLog>("image");
 
 export default function ImagePage() {
     const { message } = App.useApp();
@@ -113,6 +112,11 @@ export default function ImagePage() {
 
     useEffect(() => {
         void refreshLogs();
+        const refresh = (event: Event) => {
+            if ((event as CustomEvent<{ kind?: string }>).detail?.kind === "image") void refreshLogs();
+        };
+        window.addEventListener("infinite-canvas:generation-updated", refresh);
+        return () => window.removeEventListener("infinite-canvas:generation-updated", refresh);
     }, []);
 
     const addReferences = async (files?: FileList | null) => {
@@ -194,8 +198,7 @@ export default function ImagePage() {
                     return { ...image, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
                 }),
             );
-            saveLog(
-                buildLog({
+            const log = buildLog({
                     prompt: text,
                     model,
                     config: { ...snapshot.config, count: String(generationCount) },
@@ -205,8 +208,8 @@ export default function ImagePage() {
                     failCount,
                     status: successCount ? "success" : "failed",
                     images: logImages,
-                }),
-            );
+                });
+            saveLog(log);
             successCount ? message.success(t("imageWorkbench.generated")) : message.error(failed?.reason instanceof Error ? failed.reason.message : t("workbench.generationFailed"));
         } finally {
             setRunning(false);
@@ -798,10 +801,11 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
         })),
     );
     const images = await Promise.all(
-        (log.images || []).map(async (item) => ({
-            ...item,
-            dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl),
-        })),
+        (log.images || []).map(async (item) => {
+            const dataUrl = await resolveImageUrl(item.storageKey, item.dataUrl);
+            const meta = !item.width || !item.height ? await readImageMeta(dataUrl) : null;
+            return { ...item, dataUrl, width: item.width || meta?.width || 0, height: item.height || meta?.height || 0, mimeType: item.mimeType || meta?.mimeType };
+        }),
     );
     const config = normalizeLogConfig(log);
     return {
