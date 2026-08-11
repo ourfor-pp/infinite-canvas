@@ -8,6 +8,8 @@ import { encryptJson } from "./crypto.js";
 import { db } from "./database.js";
 import { resumeGenerations, setGenerationEmitter } from "./generation-service.js";
 import { cleanupUnreferencedFiles } from "./file-store.js";
+import { recoverAgentRuns } from "./agent/service.js";
+import { setAgentProjectEmitter } from "./agent/project-events.js";
 
 const server = config.socketPath
     ? (() => {
@@ -53,8 +55,15 @@ setGenerationEmitter((userId, type, data) => {
         if (client.readyState === WebSocketClient.OPEN) client.send(message);
     });
 });
+setAgentProjectEmitter((userId, project) => {
+    const message = JSON.stringify({ type: "project.updated", data: project });
+    clients.get(userId)?.forEach((client) => {
+        if (client.readyState === WebSocketClient.OPEN) client.send(message);
+    });
+});
 
 resumeGenerations();
+recoverAgentRuns();
 cleanupUnreferencedFiles();
 setInterval(cleanupUnreferencedFiles, 60 * 60 * 1000).unref();
 

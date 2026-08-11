@@ -34,8 +34,12 @@ export type ServerGeneration = {
 };
 
 export type ComfyServer = { id: string; name: string; url: string; enabled: boolean; models: string[]; createdAt: string; updatedAt: string };
-export type AiModelDefinition = { id: string; name: string; output: "text" | "image" | "video" | "audio"; inputs: Array<"text" | "image" | "video" | "audio">; enabled: boolean };
-export type PublicAiModel = AiModelDefinition & { value: string; providerId: string; providerName: string };
+export type ModelCapability = "text" | "image" | "video" | "audio";
+export type ModelEndpoint = "openai-chat" | "anthropic-messages" | "gemini-generate" | "openai-images" | "openai-images-generations" | "openai-images-edits" | "gemini-image" | "ark-image" | "openai-video" | "ark-seedance" | "gemini-video" | "openai-tts" | "gemini-audio";
+export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: ModelCapability; inputs: ModelCapability[]; method: "POST"; path: string; agent: boolean };
+export type AiGlobalSettings = { config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string }; promptSources: { sources: Array<Record<string, unknown>>; schedule: Record<string, unknown> } };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: ModelCapability; inputs: ModelCapability[]; enabled: boolean; agentEnabled?: boolean };
+export type PublicAiModel = Omit<AiModelDefinition, "endpoint" | "agentEnabled"> & { value: string; providerId: string; providerName: string };
 export type AiProvider = {
     id: string;
     name: string;
@@ -102,7 +106,12 @@ export const serverApi = {
     deleteGeneration: (id: string) => serverRequest(`/generations/${encodeURIComponent(id)}`, { method: "DELETE" }),
     cancelGeneration: (id: string) => serverRequest<ServerGeneration>(`/generations/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
     aiModels: () => serverRequest<PublicAiModel[]>("/ai/models"),
+    aiModelDefaults: () => serverRequest<Record<ModelCapability, string>>("/ai/model-defaults"),
+    aiGlobalSettings: () => serverRequest<AiGlobalSettings>("/ai/config"),
     aiProviders: () => serverRequest<AiProvider[]>("/admin/ai/providers"),
+    aiModelEndpoints: () => serverRequest<ModelEndpointDefinition[]>("/admin/ai/model-endpoints"),
+    updateAiModelDefaults: (input: Record<ModelCapability, string>) => serverRequest<Record<ModelCapability, string>>("/admin/ai/model-defaults", { method: "PUT", body: JSON.stringify(input) }),
+    updateAiGlobalSettings: (input: Partial<AiGlobalSettings>) => serverRequest<AiGlobalSettings>("/admin/ai/config", { method: "PUT", body: JSON.stringify(input) }),
     createAiProvider: (input: Record<string, unknown>) => serverRequest<AiProvider>("/admin/ai/providers", { method: "POST", body: JSON.stringify(input) }),
     updateAiProvider: (id: string, input: Record<string, unknown>) => serverRequest<AiProvider>(`/admin/ai/providers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
     deleteAiProvider: (id: string) => serverRequest(`/admin/ai/providers/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -145,7 +154,7 @@ export function serverFileIdFromUrl(source: string) {
     }
 }
 
-export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void) {
+export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void, onProject?: (project: Record<string, unknown>) => void) {
     let socket: WebSocket | null = null;
     let retryTimer = 0;
     let stopped = false;
@@ -154,9 +163,10 @@ export function subscribeServerEvents(onGeneration: (generation: ServerGeneratio
         socket = new WebSocket(`${protocol}//${window.location.host}${apiBase}/events`);
         socket.addEventListener("message", (event) => {
             try {
-                const message = JSON.parse(event.data) as { type?: string; data?: ServerGeneration | { id: string; delta: string } };
+                const message = JSON.parse(event.data) as { type?: string; data?: ServerGeneration | { id: string; delta: string } | Record<string, unknown> };
                 if (message.type === "generation.updated" && message.data) onGeneration(message.data as ServerGeneration);
                 if (message.type === "generation.delta" && message.data) onDelta?.(message.data as { id: string; delta: string });
+                if (message.type === "project.updated" && message.data) onProject?.(message.data as Record<string, unknown>);
             } catch {
                 // Ignore malformed server events and keep the connection alive.
             }

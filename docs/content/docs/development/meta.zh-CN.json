@@ -5,7 +5,6 @@
   "pages": [
     "local-development",
     "fnos-application-deployment",
-    "canvas-data-structure",
-    "local-codex-canvas"
+    "canvas-data-structure"
   ]
 }

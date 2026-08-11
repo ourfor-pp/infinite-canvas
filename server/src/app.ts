@@ -9,7 +9,10 @@ import { COMFY_MODELS } from "./comfy-workflows.js";
 import { getStoredFile, receiveUpload, sendStoredFile, storedFileResponse, syncFileRefs } from "./file-store.js";
 import { cancelGeneration, cancelGenerationByAdmin, createGeneration, generationResponse, type GenerationRow } from "./generation-service.js";
 import { createBackup, getBackupSettings, listBackups, restoreBackup, saveBackupSettings, testBackupConnection } from "./backup-service.js";
-import { clearProviderCredentials, deleteProvider, discoverProviderModels, listAdminProviders, listPublicModels, providerInputSchema, saveProvider, testProvider } from "./provider-service.js";
+import { clearProviderCredentials, deleteProvider, discoverProviderModels, getAiGlobalSettings, listAdminProviders, listModelDefaults, listModelEndpoints, listPublicModels, providerInputSchema, pruneModelDefaults, saveAiGlobalSettings, saveModelDefaults, saveProvider, testProvider } from "./provider-service.js";
+import { agentAdminRouter, agentRouter } from "./agent/routes.js";
+import { handleAgentProviderProxy } from "./agent/provider-proxy.js";
+import { removeAgentWorkspace } from "./agent/service.js";
 
 type ProjectRow = { id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type AssetRow = { id: string; kind: string; title: string; payload: string; created_at: string; updated_at: string };
@@ -41,9 +44,12 @@ const generationSchema = z.object({
 export const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "25mb" }));
+app.post(`${config.basePath}/api/agent/provider-proxy/v1/messages`, (req, res, next) => void handleAgentProviderProxy(req, res).catch(next));
 
 const api = express.Router();
 api.use(authenticate);
+api.use("/agent", agentRouter);
+api.use("/admin", agentAdminRouter);
 
 api.get("/session", (req, res) => {
     const counts = {
@@ -108,11 +114,17 @@ api.put("/projects/:id/force", route((req) => {
 }));
 
 api.delete("/projects/:id", route((req) => {
-    return db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM agent_sessions WHERE user_id=? AND owner_type='project' AND owner_id=? AND status IN ('running','waiting_for_user')").get(req.user.id, req.params.id)) throw apiError(409, "PROJECT_AGENT_BUSY", "Agent 正在使用这个画布，请先停止任务");
+    const sessions = db.prepare("SELECT id FROM agent_sessions WHERE user_id=? AND owner_type='project' AND owner_id=?").all(req.user.id, req.params.id) as Array<{ id: string }>;
+    const result = db.transaction(() => {
+        sessions.forEach((session) => db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_session' AND owner_id=?").run(req.user.id, session.id));
+        db.prepare("DELETE FROM agent_sessions WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, req.params.id);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, req.params.id);
         db.prepare("DELETE FROM projects WHERE id=? AND user_id=?").run(req.params.id, req.user.id);
         return { id: req.params.id };
     })();
+    sessions.forEach((session) => removeAgentWorkspace(req.user.id, session.id));
+    return result;
 }));
 
 api.get("/assets", (_req, res) => {
@@ -156,10 +168,21 @@ api.put("/settings", route((req) => {
 api.get("/ai/models", (_req, res) => {
     res.json({ data: listPublicModels() });
 });
+api.get("/ai/model-defaults", (_req, res) => {
+    res.json({ data: listModelDefaults() });
+});
+api.get("/ai/config", (_req, res) => {
+    res.json({ data: getAiGlobalSettings() });
+});
 
 api.get("/admin/ai/providers", requireAdmin, (_req, res) => {
     res.json({ data: listAdminProviders() });
 });
+api.get("/admin/ai/model-endpoints", requireAdmin, (_req, res) => {
+    res.json({ data: listModelEndpoints() });
+});
+api.put("/admin/ai/model-defaults", requireAdmin, route((req) => saveModelDefaults(req.body)));
+api.put("/admin/ai/config", requireAdmin, route((req) => saveAiGlobalSettings(req.body)));
 api.post("/admin/ai/providers", requireAdmin, route((req) => saveProvider(providerInputSchema.parse(req.body)), 201));
 api.put("/admin/ai/providers/:id", requireAdmin, route((req) => saveProvider(providerInputSchema.parse(req.body), routeId(req))));
 api.delete("/admin/ai/providers/:id", requireAdmin, route((req) => deleteProvider(routeId(req))));
@@ -176,6 +199,7 @@ api.put("/admin/comfyui/servers/:id", requireAdmin, route((req) => saveComfyServ
 api.delete("/admin/comfyui/servers/:id", requireAdmin, route((req) => {
     assertComfyServerIdle(routeId(req));
     db.prepare("DELETE FROM comfy_servers WHERE id=?").run(req.params.id);
+    pruneModelDefaults();
     return { id: req.params.id };
 }));
 api.post("/admin/comfyui/servers/:id/test", requireAdmin, asyncRoute(async (req) => {
@@ -270,6 +294,7 @@ function saveComfyServer(req: Request, update: boolean) {
     } else {
         db.prepare("INSERT INTO comfy_servers(id, name, encrypted_url, enabled, models, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?)").run(id, value.name, encryptJson({ url }, config.appSecret), Number(value.enabled), JSON.stringify(value.models), now, now);
     }
+    pruneModelDefaults();
     return adminComfyResponse(db.prepare("SELECT * FROM comfy_servers WHERE id=?").get(id) as ComfyServerRow);
 }
 

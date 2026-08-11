@@ -1,6 +1,6 @@
 import Busboy from "busboy";
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { copyFileSync, createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { extname, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { once } from "node:events";
@@ -98,6 +98,22 @@ export async function storeRemoteFile(userId: string, response: globalThis.Respo
     const now = new Date().toISOString();
     db.prepare("INSERT INTO stored_files(id, user_id, path, original_name, mime_type, bytes, metadata, created_at) VALUES(?, ?, ?, ?, ?, ?, '{}', ?)").run(id, userId, relative(config.dataDir, finalPath), originalName, mimeType, bytes, now);
     return fileResponse(id, originalName, mimeType, bytes, {}, now);
+}
+
+export function storeLocalFile(userId: string, sourcePath: string, originalName: string, mimeType = "application/octet-stream") {
+    const source = resolve(sourcePath);
+    const stats = statSync(source);
+    if (!stats.isFile()) throw apiFileError(400, "FILE_TYPE", "只能导入普通文件");
+    if (stats.size > config.maxUploadBytes) throw apiFileError(413, "UPLOAD_TOO_LARGE", "产物超过大小限制");
+    const id = nanoid();
+    const userDir = userDirectory(userId);
+    mkdirSync(userDir, { recursive: true });
+    const finalPath = resolve(userDir, `${id}${safeExtension(originalName, mimeType)}`);
+    copyFileSync(source, finalPath);
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO stored_files(id, user_id, path, original_name, mime_type, bytes, metadata, created_at) VALUES(?, ?, ?, ?, ?, ?, '{}', ?)")
+        .run(id, userId, relative(config.dataDir, finalPath), originalName, mimeType, stats.size, now);
+    return fileResponse(id, originalName, mimeType, stats.size, {}, now);
 }
 
 export function sendStoredFile(req: Request, res: Response) {

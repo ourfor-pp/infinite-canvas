@@ -31,6 +31,7 @@ type CanvasStore = {
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[]) => void;
+    applyServerProject: (project: CanvasProject) => boolean;
     resolveConflict: (id: string, strategy: "reload" | "overwrite") => Promise<void>;
     updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
 };
@@ -97,6 +98,16 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
         void Promise.all(ids.map((id) => serverApi.deleteProject(id))).catch(reportServerError);
     },
     replaceProjects: (projects) => set({ projects }),
+    applyServerProject: (project) => {
+        const current = get().projects.find((item) => item.id === project.id);
+        if (current && current.revision >= project.revision) return false;
+        if (saveTimers.has(project.id)) {
+            window.dispatchEvent(new CustomEvent("infinite-canvas:project-conflict", { detail: { id: project.id } }));
+            return false;
+        }
+        replaceSavedProject(project);
+        return true;
+    },
     resolveConflict: async (id, strategy) => {
         if (strategy === "reload") {
             const current = (await serverApi.project(id)) as unknown as CanvasProject;

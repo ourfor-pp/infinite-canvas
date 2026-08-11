@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/content/docs/overview/quick-start.mdx">快速开始</a> · <a href="docs/content/docs/overview/features.mdx">功能介绍</a> · <a href="docs/content/docs/canvas/canvas-node-manual.mdx">画布节点操作手册</a> · <a href="docs/content/docs/canvas/canvas-shortcuts.mdx">画布快捷键</a> · <a href="SECURITY.md">漏洞提交</a> · <a href="docs/content/docs/progress/todo.mdx">待办事项</a> · <a href="canvas-agent/README.md">本地 Canvas Agent</a> · <a href="plugins/infinite-canvas">Codex app 插件</a>
+  <a href="docs/content/docs/overview/quick-start.mdx">快速开始</a> · <a href="docs/content/docs/overview/features.mdx">功能介绍</a> · <a href="docs/content/docs/canvas/canvas-node-manual.mdx">画布节点操作手册</a> · <a href="docs/content/docs/canvas/canvas-shortcuts.mdx">画布快捷键</a> · <a href="SECURITY.md">漏洞提交</a> · <a href="docs/content/docs/progress/todo.mdx">待办事项</a>
 </p>
 
 无限画布是一款面向图片创作的开源工作台。它把画布编排、AI 图片生成、参考图编辑、对话助手、提示词库和素材沉淀放在同一个界面里，适合用来探索视觉方案并连续迭代图片结果。
@@ -54,8 +54,7 @@
 - 无限画布：多画布项目、节点拖拽缩放、连线、小地图、撤销重做、导入导出。
 - AI 创作：OpenAI、OpenAI-compatible、Anthropic、Gemini、火山方舟和内网 ComfyUI 全部由后端适配器与持久任务队列调用。
 - 画布助手：围绕选中节点和上游节点对话、生图，并把结果插回画布。
-- 本地 Agent：通过本机 Canvas Agent 连接 Codex / Claude Code，让 Agent 通过 MCP 操作当前画布；
-- Codex App 插件：提供 Codex app 插件，安装后会自动注册 MCP 并尝试拉起本地 Agent。
+- 内置 Canvas Agent：由 Express 后端运行 Claude Agent SDK，按项目隔离会话，并通过受控 MCP 工具理解画布、修改节点和调用生成任务。
 - 插件系统：支持通过 URL 动态安装 / 启用 / 更新 / 卸载远程节点插件，并提供 TypeScript SDK 自行开发画布节点插件。
 - 管理员 AI 服务：集中配置共享渠道、加密密钥、模型能力、ComfyUI 节点和运行任务。
 - 提示词库：浏览器前端直连多个 GitHub 开源项目，并缓存到 IndexedDB。
@@ -87,7 +86,7 @@ cd infinite-canvas
 
 后端默认监听 `127.0.0.1:3001`，Vite 默认监听 `0.0.0.0:3000`，访问 `http://localhost:3000`。
 
-开发模式用户默认是管理员。首次打开后进入右上角「AI 服务」，配置共享渠道、凭据和模型；普通配置页只保存默认模型与生成偏好。
+开发模式用户默认是管理员。首次打开后进入右上角「AI 服务」，配置共享渠道、凭据和模型；需要使用 Agent 时，再为兼容的文本模型启用 Agent 能力，并在「Agent」标签中选为全局模型。普通配置页只保存默认模型与生成偏好。
 
 ## 效果展示
 

@@ -38,9 +38,5 @@
 ## 说明
 
 - 画布项目、“我的素材”、生成记录、媒体和模型设置现由 Express 后端保存；浏览器 IndexedDB 只作为旧数据导入源，并继续保存界面、插件与远程提示词缓存。
-- 内网 ComfyUI 调用与 WebDAV 完整快照均由后端执行。本开发里程碑中的公网 OpenAI 兼容渠道仍由浏览器请求，但 API Key 会由后端加密落盘。
-- 新后端架构的 Docker、Render、Vercel 与 fnOS 打包属于后续工作，v0.17.0 开发版暂不维护这些生产部署方式。
-
-## 原理说明
-
-- [本地 Codex 连接画布原理](/zh-CN/docs/development/local-codex-canvas)
+- 所有 AI 渠道调用、内网 ComfyUI、内置 Canvas Agent 与 WebDAV 完整快照均由后端执行，供应商地址和凭据不会下发给浏览器。
+- 新后端架构的 Docker、Render、Vercel 与 fnOS 打包属于后续工作，本开发里程碑暂不维护这些生产部署方式。

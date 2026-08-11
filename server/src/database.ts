@@ -108,6 +108,16 @@ CREATE TABLE IF NOT EXISTS ai_providers (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ai_model_defaults (
+  kind TEXT PRIMARY KEY,
+  model_ref TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ai_global_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  encrypted_payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS backup_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   encrypted_payload TEXT NOT NULL,
@@ -119,11 +129,72 @@ CREATE TABLE IF NOT EXISTS browser_imports (
   imported_at TEXT NOT NULL,
   PRIMARY KEY (user_id, import_id)
 );
+CREATE TABLE IF NOT EXISTS agent_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  model_ref TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  sdk_session_id TEXT,
+  fork_pending INTEGER NOT NULL DEFAULT 0,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL,
+  event_seq INTEGER NOT NULL DEFAULT 0,
+  current_run_id TEXT,
+  pending_decision TEXT,
+  last_error TEXT,
+  last_error_code TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_owner ON agent_sessions(user_id, owner_type, owner_id, is_active, updated_at DESC);
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  model_ref TEXT NOT NULL,
+  usage TEXT,
+  error TEXT,
+  error_code TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_user ON agent_runs(user_id, started_at DESC);
+CREATE TABLE IF NOT EXISTS agent_events (
+  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  run_id TEXT,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, seq)
+);
+CREATE TABLE IF NOT EXISTS agent_permission_rules (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tool_name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, tool_name)
+);
+CREATE TABLE IF NOT EXISTS agent_metadata (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  protocol_version INTEGER NOT NULL,
+  storage_version INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `);
 
 db.prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(1, ?)").run(new Date().toISOString());
 applyVersionTwo();
 applyVersionThree();
+applyVersionFour();
+applyVersionFive();
+ensureAgentMetadata();
 
 function applyVersionTwo() {
     if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=2").get()) return;
@@ -173,6 +244,33 @@ function applyVersionThree() {
         }
         db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(3, ?)").run(new Date().toISOString());
     })();
+}
+
+function applyVersionFour() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=4").get()) return;
+    const now = new Date().toISOString();
+    db.transaction(() => {
+        db.prepare("INSERT OR IGNORE INTO agent_settings(id, model_ref, updated_at) VALUES(1, '', ?)").run(now);
+        db.prepare("UPDATE agent_sessions SET status='failed', current_run_id=NULL, pending_decision=NULL, last_error='服务重启中断，当前任务无法安全恢复', last_error_code='SERVICE_RESTART_INTERRUPTED', updated_at=? WHERE status IN ('running','waiting_for_user')").run(now);
+        db.prepare("UPDATE agent_runs SET status='failed', error='服务重启中断，当前任务无法安全恢复', error_code='SERVICE_RESTART_INTERRUPTED', finished_at=? WHERE status IN ('queued','running','waiting_for_user')").run(now);
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(4, ?)").run(now);
+    })();
+}
+
+function applyVersionFive() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=5").get()) return;
+    const columns = db.prepare("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
+    db.transaction(() => {
+        if (!columns.some((column) => column.name === "fork_pending")) db.exec("ALTER TABLE agent_sessions ADD COLUMN fork_pending INTEGER NOT NULL DEFAULT 0");
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(5, ?)").run(new Date().toISOString());
+    })();
+}
+
+function ensureAgentMetadata() {
+    const now = new Date().toISOString();
+    db.prepare("INSERT OR IGNORE INTO agent_metadata(id, protocol_version, storage_version, updated_at) VALUES(1, 1, 1, ?)").run(now);
+    const row = db.prepare("SELECT protocol_version, storage_version FROM agent_metadata WHERE id=1").get() as { protocol_version: number; storage_version: number };
+    if (row.protocol_version !== 1 || row.storage_version !== 1) throw new Error(`不支持的 Agent 数据版本：protocol=${row.protocol_version}, storage=${row.storage_version}`);
 }
 
 export function upsertUser(user: { id: string; username: string; isAdmin: boolean }) {

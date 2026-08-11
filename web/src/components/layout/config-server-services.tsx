@@ -76,7 +76,7 @@ export function ConfigServerServices() {
 
     return (
         <section>
-            <div className="mb-3"><div className="flex items-center gap-2 text-sm font-semibold"><DatabaseBackup className="size-4" />WebDAV 完整快照</div><div className="mt-1 text-xs text-stone-500">AI 渠道与 ComfyUI 已迁至“AI 服务”管理页；这里仅管理 SQLite 与媒体完整快照。</div></div>
+            <div className="mb-3"><div className="flex items-center gap-2 text-sm font-semibold"><DatabaseBackup className="size-4" />WebDAV 完整快照</div><div className="mt-1 text-xs text-stone-500">供应商与 ComfyUI 在“供应商”中管理；这里仅管理 SQLite 与媒体完整快照。</div></div>
             <Form form={form} layout="vertical" initialValues={{ url: "", username: "", password: "", directory: "infinite-canvas" }}>
                 <div className="grid gap-4 md:grid-cols-2"><Form.Item name="url" label="WebDAV 地址" rules={[{ required: true, type: "url" }]}><Input placeholder="https://nas.example.com/dav" /></Form.Item><Form.Item name="directory" label="备份目录" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="username" label="用户名"><Input autoComplete="username" /></Form.Item><Form.Item name="password" label="密码" extra="留空表示沿用服务端已保存的密码"><Input.Password autoComplete="current-password" /></Form.Item></div>
                 <div className="flex flex-wrap gap-2"><Button onClick={() => void save()} loading={busy === "save"}>保存配置</Button><Button icon={<Wifi className="size-4" />} onClick={() => void run("test")} loading={busy === "test"}>测试连接</Button><Button type="primary" icon={<DatabaseBackup className="size-4" />} onClick={() => void run("create")} loading={busy === "create"}>创建完整快照</Button><Button icon={<RefreshCw className="size-4" />} onClick={() => void load()}>刷新列表</Button></div>

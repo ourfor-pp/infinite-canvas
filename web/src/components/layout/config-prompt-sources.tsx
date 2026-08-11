@@ -9,6 +9,7 @@ import { PromptSourceContentModal } from "./prompt-source-content-modal";
 import { fetchPromptSourceStatuses, refreshAllSources, refreshSource } from "@/services/api/prompts";
 import { PROMPT_SOURCE_INTERVALS, usePromptSourceStore } from "@/stores/use-prompt-source-store";
 import type { PromptSource } from "@/services/api/prompt-source-presets";
+import { serverApi } from "@/services/api/server";
 
 const STATUS_QUERY_KEY = ["prompt-source-statuses"];
 
@@ -31,6 +32,11 @@ export function ConfigPromptSources() {
     const [refreshingAll, setRefreshingAll] = useState(false);
     const viewingSource = sources.find((item) => item.id === viewingId) || null;
     const intervalOptions = PROMPT_SOURCE_INTERVALS.map((value) => ({ value, label: t(`config.promptSources.intervals.${intervalKey(value)}`) }));
+    const saveGlobalSources = async () => {
+        const { sources: currentSources, schedule: currentSchedule } = usePromptSourceStore.getState();
+        try { await serverApi.updateAiGlobalSettings({ promptSources: { sources: currentSources as unknown as Array<Record<string, unknown>>, schedule: currentSchedule as unknown as Record<string, unknown> } }); }
+        catch (error) { message.error(error instanceof Error ? error.message : "提示词来源保存失败"); }
+    };
 
     const invalidatePrompts = async () => {
         await Promise.all([
@@ -42,6 +48,7 @@ export function ConfigPromptSources() {
 
     const handleSave = (source: PromptSource) => {
         saveSource(source);
+        void saveGlobalSources();
         void invalidatePrompts();
     };
 
@@ -54,6 +61,7 @@ export function ConfigPromptSources() {
             cancelText: t("common.cancel"),
             onOk: async () => {
                 removeSource(source.id);
+                await saveGlobalSources();
                 await invalidatePrompts();
             },
         });
@@ -78,6 +86,7 @@ export function ConfigPromptSources() {
         try {
             const result = await refreshAllSources();
             updateSchedule("lastFetchedAt", new Date().toISOString());
+            await saveGlobalSources();
             await invalidatePrompts();
             if (result.failureCount) message.warning(t("config.promptSources.refreshPartial", { success: result.successCount, failed: result.failureCount }));
             else message.success(t("config.promptSources.refreshAllSuccess", { sources: result.successCount, total: result.total }));
@@ -101,7 +110,7 @@ export function ConfigPromptSources() {
                     const status = statusQuery.data?.[source.id];
                     return (
                         <div key={source.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-stone-200 px-4 py-3 dark:border-stone-800">
-                            <Switch size="small" checked={source.enabled} onChange={(checked) => { toggleSource(source.id, checked); void invalidatePrompts(); }} />
+                            <Switch size="small" checked={source.enabled} onChange={(checked) => { toggleSource(source.id, checked); void saveGlobalSources(); void invalidatePrompts(); }} />
                             <div className="min-w-[220px] flex-1">
                                 <div className="flex min-w-0 items-center gap-2">
                                     <span className="truncate text-sm font-semibold">{source.name}</span>
@@ -136,7 +145,7 @@ export function ConfigPromptSources() {
                 <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-2">
                         <span className="text-xs text-stone-500">{t("config.promptSources.interval")}</span>
-                        <Select size="small" className="w-36" value={schedule.intervalMinutes} options={intervalOptions} onChange={(value) => updateSchedule("intervalMinutes", value)} />
+                        <Select size="small" className="w-36" value={schedule.intervalMinutes} options={intervalOptions} onChange={(value) => { updateSchedule("intervalMinutes", value); void saveGlobalSources(); }} />
                     </div>
                     <Button size="small" type="primary" icon={<RefreshCw className="size-3.5" />} loading={refreshingAll} onClick={() => void handleRefreshAll()}>
                         {t("config.promptSources.refreshAll")}

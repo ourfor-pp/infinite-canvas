@@ -18,7 +18,6 @@
 - [Local Development](/docs/development/local-development)
 - [fnOS Application Deployment and Unified Gateway](/docs/development/fnos-application-deployment)
 - [Canvas Data Structure](/docs/development/canvas-data-structure)
-- [How the Local Codex Connection Works](/docs/development/local-codex-canvas)
 - [Local ComfyUI Integration Handoff](./COMFYUI_HANDOFF.md)
 
 ## Business
@@ -40,5 +39,5 @@
 ## Notes
 
 - Canvas projects, My Assets, generation records, media, and model settings are now stored by the Express backend. Browser IndexedDB remains only as an import source and for UI/plugin/remote-prompt caches.
-- Internal ComfyUI calls and WebDAV snapshots run on the backend. Public OpenAI-compatible providers still run in the browser in this milestone, although their settings are encrypted at rest by the backend.
-- Docker, Render, Vercel, and fnOS packaging are follow-up work for the new backend architecture and are not maintained by v0.17.0 development yet.
+- All AI provider calls, internal ComfyUI work, the built-in Canvas Agent, and WebDAV snapshots run on the backend; provider credentials never reach the browser.
+- Docker, Render, Vercel, and fnOS packaging are follow-up work for the new backend architecture and are not maintained by this development milestone yet.

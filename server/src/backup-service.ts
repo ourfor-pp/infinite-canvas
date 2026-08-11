@@ -83,7 +83,7 @@ export async function listBackups() {
 
 export async function restoreBackup(id: string) {
     if (!safeBackupId(id)) throw backupError(400, "BACKUP_ID_INVALID", "备份编号不正确");
-    const activeTasks = Number((db.prepare("SELECT count(*) count FROM generations WHERE status IN ('queued','running')").get() as { count: number }).count);
+    const activeTasks = Number((db.prepare("SELECT (SELECT count(*) FROM generations WHERE status IN ('queued','running')) + (SELECT count(*) FROM agent_runs WHERE status IN ('queued','running','waiting_for_user')) count").get() as { count: number }).count);
     if (activeTasks) throw backupError(409, "BACKUP_TASKS_RUNNING", "仍有生成任务运行，暂不能恢复备份");
     const { client, root } = backupClient();
     const manifest = await readManifest(client, root, id);

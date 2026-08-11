@@ -86,6 +86,10 @@ test("AI 渠道只能由管理员配置，普通用户只看到模型能力", as
     if (!address || typeof address === "string") throw new Error("供应商模拟服务启动失败");
     try {
         assert.equal((await api("/admin/ai/providers", userTwo)).response.status, 403);
+        assert.equal((await api("/admin/ai/model-endpoints", userTwo)).response.status, 403);
+        assert.equal((await api("/admin/ai/config", userTwo, { method: "PUT", body: JSON.stringify({ config: { canvasImageCount: "5" } }) })).response.status, 403);
+        const endpoints = await api("/admin/ai/model-endpoints", userOne);
+        assert.equal(endpoints.body.data.some((endpoint: { key: string; output: string }) => endpoint.key === "openai-images" && endpoint.output === "image"), true);
         const provider = await api("/admin/ai/providers", userOne, { method: "POST", body: JSON.stringify({
             name: "测试 OpenAI Compatible",
             type: "openai-compatible",
@@ -93,7 +97,7 @@ test("AI 渠道只能由管理员配置，普通用户只看到模型能力", as
             apiKey: "provider-secret",
             enabled: true,
             concurrency: 2,
-            models: [{ id: "test-text-model", name: "测试文本", output: "text", inputs: ["text"], enabled: true }],
+            models: [{ id: "test-text-model", name: "测试文本", endpoint: "openai-chat", enabled: true }],
         }) });
         assert.equal(provider.response.status, 201);
         assert.equal(provider.body.data.credentialConfigured, true);
@@ -101,6 +105,11 @@ test("AI 渠道只能由管理员配置，普通用户只看到模型能力", as
         assert.equal((await api(`/admin/ai/providers/${provider.body.data.id}/test`, userOne, { method: "POST" })).response.status, 200);
         const models = await api("/ai/models", userTwo);
         assert.equal(models.body.data.some((model: { value: string }) => model.value === `${provider.body.data.id}::test-text-model`), true);
+        const modelRef = `${provider.body.data.id}::test-text-model`;
+        await api("/admin/ai/model-defaults", userOne, { method: "PUT", body: JSON.stringify({ text: modelRef, image: "", video: "", audio: "" }) });
+        assert.equal((await api("/ai/model-defaults", userTwo)).body.data.text, modelRef);
+        await api("/admin/ai/config", userOne, { method: "PUT", body: JSON.stringify({ config: { canvasImageCount: "5" } }) });
+        assert.equal((await api("/ai/config", userTwo)).body.data.config.canvasImageCount, "5");
         assert.equal(JSON.stringify(models.body).includes(String(address.port)), false);
         assert.equal(JSON.stringify(models.body).includes("provider-secret"), false);
         const injected = await api("/generations", userTwo, { method: "POST", body: JSON.stringify({ kind: "text", model: `${provider.body.data.id}::test-text-model`, prompt: "测试", params: { apiKey: "client-secret" } }) });
@@ -143,14 +152,39 @@ test("Anthropic 根地址自动规范为 v1 并发现 New API 模型", async () 
             credentialMode: "apiKey",
             enabled: true,
             concurrency: 1,
-            models: [{ id: "custom-model", name: "自定义名称", output: "text", inputs: ["text"], enabled: false }],
+            models: [{ id: "custom-model", name: "自定义名称", endpoint: "anthropic-messages", enabled: false }],
         }) });
         assert.equal(configured.response.status, 200);
         assert.deepEqual((await api(`/admin/ai/providers/${provider.body.data.id}/models/discover`, userOne, { method: "POST" })).body.data, { models: ["claude-test"] });
-        assert.deepEqual((await api("/admin/ai/providers", userOne)).body.data.find((item: { id: string }) => item.id === provider.body.data.id).models, [{ id: "custom-model", name: "自定义名称", output: "text", inputs: ["text"], enabled: false }]);
+        assert.deepEqual((await api("/admin/ai/providers", userOne)).body.data.find((item: { id: string }) => item.id === provider.body.data.id).models, [{ id: "custom-model", name: "自定义名称", endpoint: "anthropic-messages", output: "text", inputs: ["text", "image"], enabled: false, agentEnabled: false }]);
     } finally {
         await new Promise<void>((resolvePromise) => fakeProvider.close(() => resolvePromise()));
     }
+});
+
+test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async () => {
+    const provider = await api("/admin/ai/providers", userOne, { method: "POST", body: JSON.stringify({
+        name: "Agent 测试渠道",
+        type: "openai-compatible",
+        baseUrl: "http://127.0.0.1:65534/v1",
+        apiKey: "agent-provider-secret",
+        enabled: true,
+        concurrency: 1,
+        models: [{ id: "agent-test-model", name: "Agent 测试模型", endpoint: "openai-chat", enabled: true, agentEnabled: true }],
+    }) });
+    const modelRef = `${provider.body.data.id}::agent-test-model`;
+    assert.equal((await api("/admin/ai/agent", userTwo)).response.status, 403);
+    assert.equal((await api("/admin/ai/agent", userOne, { method: "PUT", body: JSON.stringify({ modelRef }) })).response.status, 200);
+    const publicConfig = await api("/agent/config", userTwo);
+    assert.deepEqual(publicConfig.body.data, { ready: true, modelName: "Agent 测试模型", providerName: "Agent 测试渠道", protocolVersion: 1, storageVersion: 1 });
+    assert.equal(JSON.stringify(publicConfig.body).includes(modelRef), false);
+
+    assert.equal((await api("/agent/conversations/project/project-1", userTwo)).response.status, 404);
+    const session = await api("/agent/conversations/project/project-1/sessions", userOne, { method: "POST", body: "{}" });
+    assert.equal(session.response.status, 201);
+    assert.equal((await api(`/agent/sessions/${session.body.data.id}/activate`, userTwo, { method: "POST" })).response.status, 404);
+
+    assert.equal((await api("/agent/skills", userTwo)).response.status, 200);
 });
 
 test("公网图片生成由后端执行并把结果回存到用户媒体库", async () => {
@@ -169,7 +203,7 @@ test("公网图片生成由后端执行并把结果回存到用户媒体库", as
             apiKey: "provider-secret",
             enabled: true,
             concurrency: 1,
-            models: [{ id: "test-image-model", name: "测试图片", output: "image", inputs: ["text"], enabled: true }],
+            models: [{ id: "test-image-model", name: "测试图片", endpoint: "openai-images-generations", enabled: true }],
         }) });
         const created = await api("/generations", userTwo, { method: "POST", body: JSON.stringify({ kind: "image", model: `${provider.body.data.id}::test-image-model`, prompt: "后端生成" }) });
         let generation = created.body.data;

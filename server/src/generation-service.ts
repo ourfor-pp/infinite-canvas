@@ -8,6 +8,7 @@ import { db, parseJson } from "./database.js";
 import { buildComfyWorkflow } from "./comfy-workflows.js";
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
 import { decryptCredentials, getProviderRow, resolveProviderModel, type MediaKind } from "./provider-service.js";
+import { syncAgentGenerationCanvas } from "./agent/generation-canvas.js";
 
 export type GenerationRow = {
     id: string;
@@ -160,7 +161,7 @@ async function runPublicGeneration(row: GenerationRow, request: AiGenerationRequ
     if (!row.provider_id) throw generationError("AI_PROVIDER_NOT_FOUND", "生成记录缺少渠道");
     const selection = resolveProviderModel(`${row.provider_id}::${row.model_id}`, row.kind);
     if (!selection.provider) throw generationError("AI_PROVIDER_NOT_FOUND", "AI 渠道不存在");
-    const adapter = adapterFor(selection.provider.type);
+    const adapter = adapterFor(selection.model.endpoint);
     const method = row.kind === "text" ? adapter.generateText : row.kind === "image" ? adapter.generateImage : row.kind === "video" ? adapter.generateVideo : adapter.generateAudio;
     if (!method) throw generationError("AI_CAPABILITY_UNSUPPORTED", "当前渠道不支持这种生成能力");
     const context: ProviderContext = {
@@ -184,7 +185,7 @@ async function cancelProviderTask(row: GenerationRow) {
     if (!provider) return;
     const request = parseJson<AiGenerationRequest>(row.request, {} as AiGenerationRequest);
     const model = resolveProviderModel(`${row.provider_id}::${row.model_id}`, row.kind).model;
-    const adapter = adapterFor(provider.type);
+    const adapter = adapterFor(model.endpoint);
     if (!adapter.cancel) return;
     await adapter.cancel({
         row: provider,
@@ -319,11 +320,18 @@ function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["s
         row.user_id,
     );
     const updated = getGenerationRow(row.user_id, row.id);
-    if (updated) emitEvent(row.user_id, "generation.updated", generationResponse(updated));
+    if (updated) {
+        emitEvent(row.user_id, "generation.updated", generationResponse(updated));
+        syncAgentGenerationCanvas(updated);
+    }
 }
 
 function getGenerationRow(userId: string, id: string) {
     return db.prepare("SELECT * FROM generations WHERE id=? AND user_id=?").get(id, userId) as GenerationRow | undefined;
+}
+
+export function getGenerationForAgent(userId: string, id: string) {
+    return getGenerationRow(userId, id);
 }
 
 function storedKind(mimeType: string): Exclude<MediaKind, "text"> {

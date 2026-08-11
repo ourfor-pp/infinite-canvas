@@ -32,15 +32,15 @@ export async function bootstrapServerState() {
 }
 
 export async function hydrateFromServer() {
-    const [summaries, rawAssets, settings, models] = await Promise.all([serverApi.projects(), serverApi.assets(), serverApi.settings(), serverApi.aiModels()]);
+    const [summaries, rawAssets, settings, models, modelDefaults, globalSettings] = await Promise.all([serverApi.projects(), serverApi.assets(), serverApi.settings(), serverApi.aiModels(), serverApi.aiModelDefaults(), serverApi.aiGlobalSettings()]);
     const projects = await Promise.all(summaries.map((project) => serverApi.project(String(project.id)))) as unknown as CanvasProject[];
     useCanvasStore.getState().replaceProjects(projects);
     useCanvasStore.getState().setHydrated(true);
     useAssetStore.getState().replaceAssets(rawAssets as unknown as Asset[]);
     useAssetStore.getState().setHydrated(true);
-    const sourceSettings = settings?.promptSources as { sources?: PromptSource[]; schedule?: PromptSourceSchedule } | undefined;
-    useConfigStore.getState().hydrateFromServer(settings?.config as Partial<AiConfig> | undefined);
-    useConfigStore.getState().hydrateModels(models);
+    const sourceSettings = globalSettings.promptSources as { sources?: PromptSource[]; schedule?: PromptSourceSchedule };
+    useConfigStore.getState().hydrateFromServer({ ...(settings?.config as Partial<AiConfig> | undefined), ...globalSettings.config });
+    useConfigStore.getState().hydrateModels(models, modelDefaults);
     usePromptSourceStore.getState().hydrateFromServer(sourceSettings?.sources, sourceSettings?.schedule);
 }
 

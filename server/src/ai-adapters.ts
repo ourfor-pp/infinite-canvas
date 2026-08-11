@@ -6,7 +6,7 @@ import { streamText } from "ai";
 import { openAsBlob, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { getStoredFile, storeRemoteFile } from "./file-store.js";
-import { providerBaseUrl, providerHeaders, providerPath, type AiModelDefinition, type MediaKind, type ProviderCredentials, type ProviderRow } from "./provider-service.js";
+import { modelEndpointRegistry, providerBaseUrl, providerPath, type AiModelDefinition, type MediaKind, type ProviderCredentials, type ProviderRow } from "./provider-service.js";
 
 export type GenerationMessage = { role: "system" | "user" | "assistant"; content: unknown };
 export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text"> };
@@ -39,21 +39,23 @@ export interface AiProviderAdapter {
     cancel?: (context: ProviderContext) => Promise<void>;
 }
 
-export function adapterFor(type: ProviderRow["type"]): AiProviderAdapter {
+export function adapterFor(endpoint: AiModelDefinition["endpoint"]): AiProviderAdapter {
+    const definition = modelEndpointRegistry[endpoint];
+    if (!definition) throw adapterError("AI_MODEL_ENDPOINT_UNSUPPORTED", "模型调用方案不存在或已失效");
+    const output = definition.output;
     return {
-        generateText,
-        generateImage: type === "anthropic" ? undefined : generateImage,
-        generateVideo: type === "anthropic" ? undefined : generateVideo,
-        generateAudio: type === "anthropic" || type === "ark" ? undefined : generateAudio,
-        cancel: cancelRemote,
+        generateText: output === "text" ? generateText : undefined,
+        generateImage: output === "image" ? generateImage : undefined,
+        generateVideo: output === "video" ? generateVideo : undefined,
+        generateAudio: output === "audio" ? generateAudio : undefined,
+        cancel: output === "video" ? cancelRemote : undefined,
     };
 }
 
 async function generateText(context: ProviderContext) {
-    const provider = languageProvider(context) as (modelId: string) => unknown;
     const messages = await languageMessages(context);
     const result = streamText({
-        model: provider(context.model.id) as never,
+        model: languageModel(context) as never,
         messages: messages as never,
         abortSignal: context.signal,
         ...(context.request.params?.temperature == null ? {} : { temperature: Number(context.request.params.temperature) }),
@@ -69,12 +71,12 @@ async function generateText(context: ProviderContext) {
     return { text, usage, finishReason };
 }
 
-function languageProvider(context: ProviderContext) {
-    const { row, credentials } = context;
-    if (row.type === "anthropic") return createAnthropic({ baseURL: providerBaseUrl(row), apiKey: credentials.apiKey, authToken: credentials.authToken });
-    if (row.type === "gemini") return createGoogleGenerativeAI({ baseURL: row.base_url, apiKey: credentials.apiKey });
-    if (row.type === "openai") return createOpenAI({ baseURL: row.base_url, apiKey: credentials.apiKey });
-    return createOpenAICompatible({ name: row.id, baseURL: row.base_url, apiKey: credentials.apiKey || undefined });
+function languageModel(context: ProviderContext) {
+    const { row, credentials, model } = context;
+    if (model.endpoint === "anthropic-messages") return createAnthropic({ baseURL: providerBaseUrl(row), apiKey: credentials.apiKey, authToken: credentials.authToken }).messages(model.id);
+    if (model.endpoint === "gemini-generate") return createGoogleGenerativeAI({ baseURL: providerBaseUrl(row), apiKey: credentials.apiKey }).languageModel(model.id);
+    if (row.type === "openai") return createOpenAI({ baseURL: providerBaseUrl(row), apiKey: credentials.apiKey }).chat(model.id);
+    return createOpenAICompatible({ name: row.id, baseURL: providerBaseUrl(row), apiKey: credentials.apiKey || credentials.authToken || undefined }).chatModel(model.id);
 }
 
 async function languageMessages(context: ProviderContext) {
@@ -93,14 +95,16 @@ async function languageMessages(context: ProviderContext) {
 
 function textProviderOptions(context: ProviderContext) {
     const effort = String(context.request.params?.reasoningEffort || "auto");
-    if (effort === "auto" || context.row.type !== "openai") return {};
+    if (effort === "auto" || context.row.type !== "openai" || context.model.endpoint !== "openai-chat") return {};
     return { providerOptions: { openai: { reasoningEffort: effort } } };
 }
 
 async function generateImage(context: ProviderContext) {
-    if (context.row.type === "gemini") return generateGeminiImage(context);
+    if (context.model.endpoint === "gemini-image") return generateGeminiImage(context);
     const references = context.request.references || [];
-    const response = references.length && context.row.type !== "ark" ? await requestOpenAIImageEdit(context) : await requestOpenAIImage(context);
+    if (context.model.endpoint === "openai-images-edits" && !references.length) throw adapterError("AI_IMAGE_REFERENCE_REQUIRED", "当前调用方案需要至少一张参考图");
+    const useEdits = context.model.endpoint === "openai-images-edits" || (context.model.endpoint === "openai-images" && references.length > 0);
+    const response = useEdits ? await requestOpenAIImageEdit(context) : await requestOpenAIImage(context);
     const payload = await jsonBody(response);
     const items = arrayOfRecords(payload.data);
     if (!items.length) throw adapterError("AI_IMAGE_EMPTY", "接口没有返回图片");
@@ -123,7 +127,7 @@ async function requestOpenAIImage(context: ProviderContext) {
             ...(params.quality ? { quality: params.quality } : {}),
             ...(size ? { size } : {}),
             ...(params.background ? { background: params.background } : {}),
-            ...(context.row.type === "ark" && references.length ? { image: references } : {}),
+            ...(context.model.endpoint === "ark-image" && references.length ? { image: references } : {}),
         },
     });
 }
@@ -164,8 +168,8 @@ async function generateGeminiImage(context: ProviderContext) {
 }
 
 async function generateVideo(context: ProviderContext) {
-    if (context.row.type === "gemini") return generateGeminiVideo(context);
-    if (context.row.type === "ark") return generateArkVideo(context);
+    if (context.model.endpoint === "gemini-video") return generateGeminiVideo(context);
+    if (context.model.endpoint === "ark-seedance") return generateArkVideo(context);
     return generateOpenAIVideo(context);
 }
 
@@ -262,7 +266,7 @@ async function pollJsonVideo(context: ProviderContext, path: string, interval: n
 }
 
 async function generateAudio(context: ProviderContext) {
-    if (context.row.type === "gemini") return generateGeminiAudio(context);
+    if (context.model.endpoint === "gemini-audio") return generateGeminiAudio(context);
     const params = context.request.params || {};
     const response = await providerFetch(context, "/audio/speech", {
         method: "POST",
@@ -289,7 +293,7 @@ async function generateGeminiAudio(context: ProviderContext) {
 async function cancelRemote(context: ProviderContext) {
     const id = context.remoteTaskId;
     if (!id) return;
-    const path = context.row.type === "ark" ? `/contents/generations/tasks/${encodeURIComponent(id)}` : context.row.type === "gemini" ? `/${id.replace(/^\/+/, "")}` : `/videos/${encodeURIComponent(id)}`;
+    const path = context.model.endpoint === "ark-seedance" ? `/contents/generations/tasks/${encodeURIComponent(id)}` : context.model.endpoint === "gemini-video" ? `/${id.replace(/^\/+/, "")}` : `/videos/${encodeURIComponent(id)}`;
     try {
         await providerFetch(context, path, { method: "DELETE", signal: AbortSignal.timeout(5000) });
     } catch {
@@ -300,7 +304,7 @@ async function cancelRemote(context: ProviderContext) {
 async function providerFetch(context: ProviderContext, path: string, options: { method: string; json?: unknown; body?: BodyInit; signal?: AbortSignal }) {
     const response = await fetch(providerPath(context.row, path), {
         method: options.method,
-        headers: options.body instanceof FormData ? providerHeaders(context.row, context.credentials) : providerHeaders(context.row, context.credentials, options.json !== undefined),
+        headers: requestHeaders(context, !(options.body instanceof FormData) && options.json !== undefined),
         body: options.body || (options.json === undefined ? undefined : JSON.stringify(options.json)),
         signal: AbortSignal.any([options.signal || context.signal, AbortSignal.timeout(120_000)]),
         redirect: "error",
@@ -310,9 +314,23 @@ async function providerFetch(context: ProviderContext, path: string, options: { 
 }
 
 async function fetchMedia(context: ProviderContext, url: string) {
-    const response = await fetch(url, { headers: providerHeaders(context.row, context.credentials), signal: context.signal, redirect: "error" });
+    const response = await fetch(url, { headers: requestHeaders(context), signal: context.signal, redirect: "error" });
     if (!response.ok) throw adapterError("AI_RESULT_DOWNLOAD_FAILED", `生成结果下载失败（HTTP ${response.status}）`);
     return response;
+}
+
+function requestHeaders(context: ProviderContext, json = false) {
+    const headers: Record<string, string> = json ? { "Content-Type": "application/json" } : {};
+    const family = modelEndpointRegistry[context.model.endpoint]?.family;
+    if (!family) throw adapterError("AI_MODEL_ENDPOINT_UNSUPPORTED", "模型调用方案不存在或已失效");
+    const token = context.credentials.authToken || context.credentials.apiKey || "";
+    if (family === "anthropic") {
+        headers[context.credentials.authToken ? "Authorization" : "x-api-key"] = context.credentials.authToken ? `Bearer ${context.credentials.authToken}` : context.credentials.apiKey || "";
+        headers["anthropic-version"] = "2023-06-01";
+    } else if (family === "gemini") {
+        if (token) headers["x-goog-api-key"] = token;
+    } else if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
 }
 
 async function storeImageItem(context: ProviderContext, item: Record<string, unknown>, index: number) {

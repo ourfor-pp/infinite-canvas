@@ -70,6 +70,11 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
     useEffect(() => subscribeServerEvents(
         (generation) => window.dispatchEvent(new CustomEvent("infinite-canvas:generation-updated", { detail: generation })),
         (delta) => window.dispatchEvent(new CustomEvent("infinite-canvas:generation-delta", { detail: delta })),
+        (project) => {
+            if (useCanvasStore.getState().applyServerProject(project as unknown as import("@/stores/canvas/use-canvas-store").CanvasProject)) {
+                window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: project }));
+            }
+        },
     ), []);
 
     const migrate = async () => {

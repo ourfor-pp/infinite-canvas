@@ -41,8 +41,6 @@ export type AiConfig = {
     canvasImageCount: string;
 };
 
-export type ConfigTabKey = "preferences" | "prompt-sources" | "services" | "local-storage";
-
 export const defaultConfig: AiConfig = {
     model: "",
     imageModel: "",
@@ -70,16 +68,10 @@ export const defaultConfig: AiConfig = {
 type ConfigStore = {
     hydrated: boolean;
     config: AiConfig;
-    isConfigOpen: boolean;
-    configTab: ConfigTabKey;
-    shouldPromptContinue: boolean;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
-    openConfigDialog: (shouldPromptContinue?: boolean, tab?: ConfigTabKey) => void;
-    setConfigDialogOpen: (isOpen: boolean) => void;
-    clearPromptContinue: () => void;
     hydrateFromServer: (config?: Partial<AiConfig>) => void;
-    hydrateModels: (models: AiModelOption[]) => void;
+    hydrateModels: (models: AiModelOption[], defaults?: Partial<Record<ModelCapability, string>>) => void;
 };
 
 let modelCatalog: AiModelOption[] = [];
@@ -87,24 +79,20 @@ let modelCatalog: AiModelOption[] = [];
 export const useConfigStore = create<ConfigStore>()((set) => ({
     hydrated: false,
     config: defaultConfig,
-    isConfigOpen: false,
-    configTab: "preferences",
-    shouldPromptContinue: false,
     updateConfig: (key, value) => set((state) => {
         if (key !== "models") scheduleServerSettingsSave();
         return { config: { ...state.config, [key]: value } };
     }),
     isAiConfigReady: (_config, model) => Boolean(model && modelCatalog.some((item) => item.value === model && item.enabled)),
-    openConfigDialog: (shouldPromptContinue = false, configTab = "preferences") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
-    setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
-    clearPromptContinue: () => set({ shouldPromptContinue: false }),
     hydrateFromServer: (persistedConfig = {}) => set((state) => ({ hydrated: true, config: normalizeConfig({ ...state.config, ...persistedConfig }) })),
-    hydrateModels: (models) => set((state) => {
+    hydrateModels: (models, defaults = {}) => set((state) => {
         modelCatalog = models.filter((model) => model.enabled);
         const values = modelCatalog.map((model) => model.value);
-        const pick = (current: string, capability: ModelCapability) => modelCatalog.some((model) => model.value === current && model.output === capability)
-            ? current
-            : modelCatalog.find((model) => model.output === capability)?.value || "";
+        const pick = (current: string, capability: ModelCapability) => modelCatalog.some((model) => model.value === defaults[capability] && model.output === capability)
+            ? defaults[capability] || ""
+            : modelCatalog.some((model) => model.value === current && model.output === capability)
+                ? current
+                : modelCatalog.find((model) => model.output === capability)?.value || "";
         const imageModel = pick(state.config.imageModel, "image");
         return {
             config: {

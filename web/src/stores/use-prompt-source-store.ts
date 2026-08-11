@@ -1,7 +1,6 @@
 import { create } from "zustand";
 
 import { DEFAULT_PROMPT_SOURCES, createPromptSource, type PromptSource } from "@/services/api/prompt-source-presets";
-import { scheduleServerSettingsSave } from "@/services/server-settings";
 
 export type PromptSourceSchedule = {
     intervalMinutes: number;
@@ -32,21 +31,17 @@ export const usePromptSourceStore = create<PromptSourceStore>()((set) => ({
             addSource: () => createPromptSource(),
             saveSource: (source) =>
                 set((state) => {
-                    scheduleServerSettingsSave();
                     return { sources: state.sources.some((item) => item.id === source.id)
                         ? state.sources.map((item) => (item.id === source.id && !item.builtIn ? createPromptSource(source) : item))
                         : [...state.sources, createPromptSource(source)] };
                 }),
             removeSource: (id) => set((state) => {
-                scheduleServerSettingsSave();
                 return { sources: state.sources.filter((item) => item.id !== id || item.builtIn) };
             }),
             toggleSource: (id, enabled) => set((state) => {
-                scheduleServerSettingsSave();
                 return { sources: state.sources.map((item) => (item.id === id ? { ...item, enabled } : item)) };
             }),
             updateSchedule: (key, value) => set((state) => {
-                scheduleServerSettingsSave();
                 return { schedule: { ...state.schedule, [key]: value } };
             }),
             hydrateFromServer: (savedSources = [], savedSchedule = {}) => {

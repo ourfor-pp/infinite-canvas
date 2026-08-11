@@ -38,7 +38,11 @@ export const config = {
     orphanFileHours: Math.max(1, Number(process.env.ORPHAN_FILE_HOURS) || 24),
     aiMaxConcurrency: Math.max(1, Number(process.env.AI_MAX_CONCURRENCY) || 4),
     aiUserConcurrency: Math.max(1, Number(process.env.AI_USER_CONCURRENCY) || 2),
+    agentMaxConcurrency: Math.max(1, Number(process.env.AGENT_MAX_CONCURRENCY) || 2),
+    agentUserConcurrency: Math.max(1, Number(process.env.AGENT_USER_CONCURRENCY) || 1),
+    agentRoot: resolve(dataDir, "agent"),
 };
 
 mkdirSync(config.filesDir, { recursive: true });
 mkdirSync(config.tempDir, { recursive: true });
+mkdirSync(config.agentRoot, { recursive: true });
