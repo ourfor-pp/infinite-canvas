@@ -8,12 +8,20 @@ describe("共享媒体编辑内核", () => {
     beforeEach(() => useConfigStore.getState().hydrateModels([
         { id: "speech", name: "语音", value: "p::speech", providerId: "p", providerName: "P", output: "audio", inputs: ["text"], enabled: true, audioModes: ["speech"] },
         { id: "sound", name: "声音", value: "p::sound", providerId: "p", providerName: "P", output: "audio", inputs: ["text"], enabled: true, audioModes: ["ambient", "sfx"] },
+        { id: "text-image", name: "文生图", value: "p::text-image", providerId: "p", providerName: "P", output: "image", inputs: ["text"], enabled: true, imageModes: ["generate"] },
+        { id: "cec-image", name: "gpt-image-2", value: "p::cec-image", providerId: "p", providerName: "P", output: "image", inputs: ["text", "image"], enabled: true, imageModes: ["generate", "edit"] },
+        { id: "qwen-edit", name: "Qwen Edit", value: "p::qwen-edit", providerId: "p", providerName: "P", output: "image", inputs: ["text", "image"], enabled: true, imageModes: ["edit"] },
     ]));
 
     it("按角色声音、环境声和音效过滤模型", () => {
         expect(selectableModelsByCapability(defaultConfig, "audio", "speech")).toEqual(["p::speech"]);
         expect(selectableModelsByCapability(defaultConfig, "audio", "ambient")).toEqual(["p::sound"]);
         expect(selectableModelsByCapability(defaultConfig, "audio", "sfx")).toEqual(["p::sound"]);
+    });
+
+    it("文生图和图生图按模型声明能力分别过滤", () => {
+        expect(selectableModelsByCapability(defaultConfig, "image")).toEqual(["p::text-image", "p::cec-image"]);
+        expect(selectableModelsByCapability(defaultConfig, "image", undefined, "edit")).toEqual(["p::cec-image", "p::qwen-edit"]);
     });
 
     it("角色语音需要试听台词，参考音频可以替代声音描述", () => {

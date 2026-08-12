@@ -40,7 +40,7 @@ export async function hydrateFromServer() {
     useAssetStore.getState().replaceAssets(rawAssets as unknown as Asset[]);
     useAssetStore.getState().setHydrated(true);
     const sourceSettings = globalSettings.promptSources as { sources?: PromptSource[]; schedule?: PromptSourceSchedule };
-    useConfigStore.getState().hydrateFromServer({ ...(settings?.config as Partial<AiConfig> | undefined), ...globalSettings.config });
+    useConfigStore.getState().hydrateFromServer({ ...(settings?.config as Partial<AiConfig> | undefined), ...globalSettings.config, imageEditModel: (settings?.config as Partial<AiConfig> | undefined)?.imageEditModel || globalSettings.imageEditModel });
     useConfigStore.getState().hydrateModels(models, modelDefaults);
     usePromptSourceStore.getState().hydrateFromServer(sourceSettings?.sources, sourceSettings?.schedule);
 }

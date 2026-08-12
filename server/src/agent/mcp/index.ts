@@ -33,9 +33,11 @@ import {
     listAgentVisualStyles,
     placeAgentVisualStyle,
     updateAgentVisualStyle,
+    analyzeAgentVisualStyle,
+    generateAgentVisualStyleReferences,
 } from "../canvas-tools.js";
 
-const toolNames = ["canvas_list_projects", "canvas_get_state", "canvas_apply_ops", "canvas_create_text_nodes", "canvas_delete_nodes", "canvas_delete_connections", "canvas_connect_nodes", "assets_list", "assets_add", "assets_delete", "prompts_search", "generation_list_models", "generation_get_status", "generation_create", "creative_assets_list", "creative_asset_get", "creative_assets_create_batch", "creative_asset_update", "creative_asset_place", "creative_asset_generate", "creative_asset_set_primary", "creative_asset_delete", "visual_styles_list", "visual_style_get", "visual_style_create", "visual_style_update", "visual_style_place", "visual_style_set_default", "visual_style_delete", "site_navigate", "canvas_select_nodes", "canvas_focus_nodes", "workspace_write_text", "artifact_publish", "ask_user"] as const;
+const toolNames = ["canvas_list_projects", "canvas_get_state", "canvas_apply_ops", "canvas_create_text_nodes", "canvas_delete_nodes", "canvas_delete_connections", "canvas_connect_nodes", "assets_list", "assets_add", "assets_delete", "prompts_search", "generation_list_models", "generation_get_status", "generation_create", "creative_assets_list", "creative_asset_get", "creative_assets_create_batch", "creative_asset_update", "creative_asset_place", "creative_asset_generate", "creative_asset_set_primary", "creative_asset_delete", "visual_styles_list", "visual_style_get", "visual_style_create", "visual_style_update", "visual_style_place", "visual_style_set_default", "visual_style_analyze", "visual_style_generate_references", "visual_style_delete", "site_navigate", "canvas_select_nodes", "canvas_focus_nodes", "workspace_write_text", "artifact_publish", "ask_user"] as const;
 
 const policyTools = new Set(["canvas_delete_nodes", "canvas_delete_connections", "assets_delete", "creative_asset_update", "creative_asset_set_primary", "creative_asset_delete", "visual_style_delete"]);
 export const agentAutoAllowedTools = [...toolNames.filter((name) => !policyTools.has(name)).map((name) => `mcp__infinite_canvas__${name}`), "Read"];
@@ -102,15 +104,7 @@ export function buildAgentMcpServer(context: AgentMcpContext) {
                 const decision = await context.requireDecision("creative_assets_create_batch", value, "proposal");
                 const items = decision.proposalEdits || value.items;
                 const result = createAgentCreativeAssetBatch(run.userId, targetProjectId, items, value.sourceNodeId);
-                const voiceGenerations = result.filter((asset) => asset.kind === "character").map((asset) => {
-                    const draft = asset.payload.mediaDrafts.audio;
-                    if (!draft.prompt.trim() || !draft.transcript?.trim()) return { assetId: asset.id, status: "skipped", error: "缺少音色设计或试听台词" };
-                    try {
-                        const generation = generateAgentCreativeAsset(run.userId, targetProjectId, { assetId: asset.id, kind: "audio", revision: asset.revision });
-                        return { assetId: asset.id, status: "queued", generationId: generation.id };
-                    } catch (error) { return { assetId: asset.id, status: "failed", error: error instanceof Error ? error.message : String(error) }; }
-                });
-                const output = { assets: result, voiceGenerations };
+                const output = { assets: result };
                 context.appendEvent("tool_result", { toolId, toolName: "creative_assets_create_batch", output, isError: false, finishedAt: new Date().toISOString() });
                 return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true, data: output }, null, 2) }] };
             } catch (error) {
@@ -130,6 +124,8 @@ export function buildAgentMcpServer(context: AgentMcpContext) {
         call("visual_style_update", "按 revision 更新视觉风格描述，可用于分析参考图后写回风格。", canvasToolSchemas.visual_style_update.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_style_update>; return updateAgentVisualStyle(run.userId, project(value), value); }),
         call("visual_style_place", "将已有视觉风格放到画布。", canvasToolSchemas.visual_style_place.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_style_place>; return placeAgentVisualStyle(run.userId, project(value), value); }),
         call("visual_style_set_default", "将视觉风格设为当前项目默认风格。", canvasToolSchemas.visual_style_set_default.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_style_set_default>; return defaultAgentVisualStyle(run.userId, project(value), value.styleId); }),
+        call("visual_style_analyze", "使用支持图片理解的默认文本模型分析风格来源图并写回 Style DNA。", canvasToolSchemas.visual_style_analyze.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_style_analyze>; return analyzeAgentVisualStyle(run.userId, project(value), value); }),
+        call("visual_style_generate_references", "生成角色、场景和道具三类中性风格参考样张。", canvasToolSchemas.visual_style_generate_references.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_style_generate_references>; return generateAgentVisualStyleReferences(run.userId, project(value), value); }),
         call("visual_style_delete", "永久删除视觉风格及全部画布视图；此操作由 SDK 自动审核。", canvasToolSchemas.visual_style_delete.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_style_delete>; return deleteAgentVisualStyle(run.userId, project(value), value.styleId); }),
         call("site_navigate", "让当前已登录页面在本画布项目内跳转；没有活动页面时返回 CLIENT_REQUIRED。", { path: z.string().max(500).regex(/^\/canvas\/[^/]+(?:\/.*)?$/, "只能在当前画布项目内跳转") }, (input) => {
             const value = input as { path: string };

@@ -18,6 +18,7 @@ import {
 } from "../creative-assets.js";
 import { createCreativeAssetGeneration } from "../creative-asset-generation.js";
 import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, placeVisualStyle, setDefaultVisualStyle, updateVisualStyle } from "../visual-styles.js";
+import { createVisualStyleAnalysis, createVisualStyleReferences } from "../visual-style-generation.js";
 
 type ProjectRow = { id: string; user_id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type CanvasNode = { id: string; type?: string; title?: string; position?: { x?: number; y?: number }; metadata?: Record<string, unknown>; [key: string]: unknown };
@@ -63,10 +64,12 @@ export const canvasToolSchemas = {
     creative_asset_delete: z.object({ projectId: z.string().optional(), assetId: z.string() }),
     visual_styles_list: z.object({ projectId: z.string().optional() }),
     visual_style_get: z.object({ projectId: z.string().optional(), styleId: z.string() }),
-    visual_style_create: z.object({ projectId: z.string().optional(), name: z.string().min(1).max(200), mode: z.enum(["template", "custom"]), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), referenceFileId: z.string().nullable().optional() }),
-    visual_style_update: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive(), name: z.string().min(1).max(200).optional(), mode: z.enum(["template", "custom"]).optional(), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), referenceFileId: z.string().nullable().optional() }),
+    visual_style_create: z.object({ projectId: z.string().optional(), name: z.string().min(1).max(200), mode: z.enum(["template", "custom"]), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), status: z.enum(["draft", "confirmed"]).optional(), dna: z.record(z.string(), z.unknown()).optional(), references: z.record(z.string(), z.string()).optional() }),
+    visual_style_update: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive(), name: z.string().min(1).max(200).optional(), mode: z.enum(["template", "custom"]).optional(), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), status: z.enum(["draft", "confirmed"]).optional(), dna: z.record(z.string(), z.unknown()).optional(), references: z.record(z.string(), z.string()).optional() }),
     visual_style_place: z.object({ projectId: z.string().optional(), styleId: z.string(), x: z.number().optional(), y: z.number().optional() }),
     visual_style_set_default: z.object({ projectId: z.string().optional(), styleId: z.string() }),
+    visual_style_analyze: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive() }),
+    visual_style_generate_references: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive(), roles: z.array(z.enum(["character", "scene", "prop"])).min(1).max(3).optional() }),
     visual_style_delete: z.object({ projectId: z.string().optional(), styleId: z.string() }),
 };
 
@@ -229,6 +232,8 @@ export function createAgentVisualStyle(userId: string, projectId: string, input:
 export function updateAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_update>) { assertAgentStyle(userId, projectId, input.styleId); const { projectId: _projectId, styleId, ...patch } = input; return updateVisualStyle(userId, styleId, patch); }
 export function placeAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_place>) { assertAgentStyle(userId, projectId, input.styleId); return placeVisualStyle(userId, input.styleId, input); }
 export function defaultAgentVisualStyle(userId: string, projectId: string, styleId: string) { assertAgentStyle(userId, projectId, styleId); return setDefaultVisualStyle(userId, styleId); }
+export function analyzeAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_analyze>) { assertAgentStyle(userId, projectId, input.styleId); return createVisualStyleAnalysis(userId, input.styleId, input); }
+export function generateAgentVisualStyleReferences(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_generate_references>) { assertAgentStyle(userId, projectId, input.styleId); return createVisualStyleReferences(userId, input.styleId, input); }
 export function deleteAgentVisualStyle(userId: string, projectId: string, styleId: string) { assertAgentStyle(userId, projectId, styleId); return deleteVisualStyle(userId, styleId); }
 
 function projectRow(userId: string, projectId: string) {

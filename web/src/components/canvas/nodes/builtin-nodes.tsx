@@ -38,7 +38,7 @@ const STANDARD_DEFINITIONS: CanvasNodeDefinition[] = [
 
 const BUILTIN_DEFINITIONS: CanvasNodeDefinition[] = [
     ...STANDARD_DEFINITIONS,
-    { type: "visual-style", title: "视觉风格", description: "项目统一的画面风格锚点", icon: <Palette className={iconClass} />, defaultSize: { width: 380, height: 500 }, resizable: false, defaultMetadata: {}, minimapColor: "#d26b98", showInCreateMenu: false, hidePanel: true, Content: VisualStyleNodeContent, ports: [{ id: "style", label: "视觉风格", direction: "output", dataType: "visual-style", multiple: true, position: 0.5 }] },
+    { type: "visual-style", title: "视觉风格", description: "项目统一的画面风格锚点", icon: <Palette className={iconClass} />, defaultSize: { width: 380, height: 620 }, resizable: false, defaultMetadata: {}, minimapColor: "#d26b98", showInCreateMenu: false, hidePanel: true, Content: VisualStyleNodeContent, ports: [{ id: "style", label: "视觉风格", direction: "output", dataType: "visual-style", multiple: true, position: 0.5 }] },
     ...(["character", "scene", "prop"] as CreativeAssetKind[]).map((kind): CanvasNodeDefinition => ({
         type: kind,
         title: CREATIVE_ASSET_NODE_LAYOUT[kind].title,

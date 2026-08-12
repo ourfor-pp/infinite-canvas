@@ -1,4 +1,7 @@
 export type VisualStyleMode = "template" | "custom";
+export type VisualStyleStatus = "draft" | "confirmed";
+export type VisualStyleReferenceRole = "source" | "character" | "scene" | "prop";
+export type VisualStyleDna = { medium: string; rendering: string; palette: string; lighting: string; contrast: string; texture: string; lensAndDepth: string; composition: string; postProcessing: string; exclusions: string[] };
 export type VisualStyle = {
     id: string;
     projectId: string;
@@ -6,6 +9,9 @@ export type VisualStyle = {
     mode: VisualStyleMode;
     templateId: string | null;
     description: string;
+    status: VisualStyleStatus;
+    dna: VisualStyleDna;
+    references: Partial<Record<VisualStyleReferenceRole, string>>;
     referenceFileId: string | null;
     revision: number;
     createdAt: string;

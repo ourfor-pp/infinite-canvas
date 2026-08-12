@@ -17,6 +17,7 @@ type CreativeAssetStore = {
     generate: (id: string, input: Record<string, unknown>) => Promise<void>;
     previewGeneration: (id: string, input: Record<string, unknown>) => Promise<CreativeAssetGenerationPreview>;
     setPrimary: (id: string, variantId: string) => Promise<void>;
+    reviewVariant: (id: string, variantId: string, accepted: boolean, setPrimary?: boolean) => Promise<void>;
 };
 
 export const useCreativeAssetStore = create<CreativeAssetStore>((set, get) => ({
@@ -79,5 +80,10 @@ export const useCreativeAssetStore = create<CreativeAssetStore>((set, get) => ({
         const current = get().assets.find((item) => item.id === id);
         if (!current) throw new Error("创作资产不存在");
         get().apply(await serverApi.setCreativeAssetPrimary(id, variantId, current.revision));
+    },
+    reviewVariant: async (id, variantId, accepted, setPrimary) => {
+        const current = get().assets.find((item) => item.id === id);
+        if (!current) throw new Error("创作资产不存在");
+        get().apply(await serverApi.reviewCreativeAssetVariant(id, variantId, { revision: current.revision, accepted, setPrimary }));
     },
 }));

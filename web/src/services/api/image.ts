@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { ensureServerReference, generationFiles, runServerGeneration } from "@/services/api/ai-generation";
-import type { AiConfig } from "@/stores/use-config-store";
+import { modelSupportsImageMode, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 
 type TextContent = string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
@@ -22,8 +22,10 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
 
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions, purpose: "image-edit" | "image-inpaint" | "image-angle" = mask ? "image-inpaint" : "image-edit", toolParams: Record<string, unknown> = {}) {
     const files = await Promise.all([...references, ...(mask ? [mask] : [])].map((reference) => ensureServerReference(reference, "image")));
+    const editModel = [config.model, config.imageEditModel].find((model) => modelSupportsImageMode(model, "edit"));
     const generation = await runServerGeneration({
         kind: "image",
+        model: purpose === "image-edit" ? editModel : undefined,
         purpose,
         prompt: buildImageReferencePromptText(prompt, references),
         params: { ...imageParams(config), ...toolParams, maskFileId: mask ? files.at(-1)?.fileId : undefined },

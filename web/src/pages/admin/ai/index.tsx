@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ConfigServerServices } from "@/components/layout/config-server-services";
-import { serverApi, type AiProvider, type AudioMode, type ComfyServer, type ModelCapability, type ModelEndpoint, type ModelEndpointDefinition } from "@/services/api/server";
+import { serverApi, type AiProvider, type AudioMode, type ComfyServer, type ImageWorkflowPurpose, type ModelCapability, type ModelEndpoint, type ModelEndpointDefinition } from "@/services/api/server";
 import { AgentManager } from "./components/agent-manager";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -32,6 +32,12 @@ const comfyModels = [
     { value: "minimax-h3-ref2va-local", label: "MiniMax H3 Ref2VA", output: "video" },
     { value: "voxcpm2-local", label: "VoxCPM2", output: "audio" },
 ] as const;
+const imageWorkflowFields: Array<{ purpose: ImageWorkflowPurpose; model: string; label: string; description: string }> = [
+    { purpose: "image-inpaint", model: "qwen-image-inpaint-local", label: "局部编辑", description: "原图、蒙版与修改要求" },
+    { purpose: "image-upscale-faithful", model: "realesrgan-x4-local", label: "忠实超分", description: "文字、界面和产品图优先" },
+    { purpose: "image-upscale-generative", model: "z-image-upscale-local", label: "细节增强", description: "照片与 AI 图片生成式重绘" },
+    { purpose: "image-angle", model: "qwen-image-edit-2511-local", label: "多角度生成", description: "单视角与一键四视图" },
+];
 
 const adminSections = [
     { key: "providers", label: "供应商", description: "连接与模型", icon: Cable },
@@ -45,7 +51,7 @@ type AdminSection = (typeof adminSections)[number]["key"];
 
 type ProviderForm = Omit<AiProvider, "id" | "credentialConfigured" | "credentialType" | "createdAt" | "updatedAt"> & { apiKey?: string; authToken?: string; credentialMode: "apiKey" | "authToken" };
 type ComfyForm = { name: string; url: string; enabled: boolean; models: string[] };
-type DefaultsForm = Record<ModelCapability, string> & { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string };
+type DefaultsForm = Record<ModelCapability, string> & { imageEditModel: string; imageWorkflows: Record<ImageWorkflowPurpose, string>; canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string; creativeAssetReviewModel: string };
 
 function inferredOutput(id: string): ModelCapability {
     const value = id.toLowerCase();
@@ -103,26 +109,30 @@ function DefaultModelsManager() {
     const queryClient = useQueryClient();
     const [form] = Form.useForm<DefaultsForm>();
     const { data: models = [] } = useQuery({ queryKey: ["ai-models"], queryFn: serverApi.aiModels });
+    const { data: comfyServers = [] } = useQuery({ queryKey: ["comfy-servers"], queryFn: serverApi.comfyServers });
     const { data: defaults } = useQuery({ queryKey: ["ai-model-defaults"], queryFn: serverApi.aiModelDefaults });
     const { data: globalSettings } = useQuery({ queryKey: ["ai-global-settings"], queryFn: serverApi.aiGlobalSettings });
-    useEffect(() => { if (defaults || globalSettings) form.setFieldsValue({ ...defaults, ...globalSettings?.config }); }, [defaults, globalSettings, form]);
+    useEffect(() => { if (defaults || globalSettings) form.setFieldsValue({ ...defaults, ...globalSettings?.config, imageEditModel: globalSettings?.imageEditModel, imageWorkflows: globalSettings?.imageWorkflows }); }, [defaults, globalSettings, form]);
     const save = useMutation({
         mutationFn: async (value: DefaultsForm) => {
-            const { text, image, video, audio, ...config } = value;
-            const [modelDefaults, settings] = await Promise.all([serverApi.updateAiModelDefaults({ text, image, video, audio }), serverApi.updateAiGlobalSettings({ config })]);
+            const { text, image, video, audio, imageEditModel, imageWorkflows, ...config } = value;
+            const [modelDefaults, settings] = await Promise.all([serverApi.updateAiModelDefaults({ text, image, video, audio }), serverApi.updateAiGlobalSettings({ config, imageEditModel: imageEditModel || "", imageWorkflows })]);
             return { modelDefaults, settings };
         },
-        onSuccess: ({ modelDefaults, settings }) => { queryClient.setQueryData(["ai-model-defaults"], modelDefaults); queryClient.setQueryData(["ai-global-settings"], settings); useConfigStore.getState().hydrateFromServer(settings.config); useConfigStore.getState().hydrateModels(models, modelDefaults); message.success("模型与生成默认值已保存"); },
+        onSuccess: ({ modelDefaults, settings }) => { queryClient.setQueryData(["ai-model-defaults"], modelDefaults); queryClient.setQueryData(["ai-global-settings"], settings); useConfigStore.getState().hydrateFromServer({ ...settings.config, imageEditModel: settings.imageEditModel }); useConfigStore.getState().hydrateModels(models, modelDefaults); message.success("模型与生成默认值已保存"); },
         onError: (error) => message.error(error instanceof Error ? error.message : "保存失败"),
     });
     const groups = (["image", "video", "audio", "text"] as const).map((kind) => ({
         kind,
-        options: models.filter((model) => model.output === kind).map((model) => ({ value: model.value, label: `${model.name}（${model.providerName}）` })),
+        options: models.filter((model) => model.output === kind && (kind !== "image" || model.imageModes?.includes("generate"))).map((model) => ({ value: model.value, label: `${model.name}（${model.providerName}）` })),
     }));
+    const imageEditOptions = models.filter((model) => model.output === "image" && model.imageModes?.includes("edit")).map((model) => ({ value: model.value, label: `${model.name}（${model.providerName}）` }));
+    const enabledWorkflows = new Set(comfyServers.filter((server) => server.enabled).flatMap((server) => server.models));
     return <section>
-        <Form form={form} layout="vertical" initialValues={{ image: "", video: "", audio: "", text: "", canvasImageCount: "3", audioVoice: "alloy", audioFormat: "mp3", audioSpeed: "1", audioInstructions: "", systemPrompt: "" }}>
-            <section className="mb-7"><div className="mb-4"><h2 className="font-semibold">默认模型</h2><p className="mt-1 text-sm text-stone-500">作为所有用户进入画布和工作台时的默认选择。</p></div><div className="grid gap-x-4 md:grid-cols-2">{groups.map(({ kind, options }) => <Form.Item key={kind} name={kind} label={`默认${capabilityLabels[kind]}模型`}><Select allowClear showSearch optionFilterProp="label" options={options} placeholder={options.length ? `选择${capabilityLabels[kind]}模型` : `暂无可用${capabilityLabels[kind]}模型`} /></Form.Item>)}</div></section>
-            <section className="border-t border-stone-200 pt-6 dark:border-stone-800"><div className="mb-4"><h2 className="font-semibold">生成默认值</h2><p className="mt-1 text-sm text-stone-500">用户仍可在当前画布或工作台任务中临时覆盖。</p></div><div className="grid gap-x-4 md:grid-cols-2 xl:grid-cols-4"><Form.Item name="canvasImageCount" label="画布默认生图张数"><Input type="number" min={1} max={15} /></Form.Item><Form.Item name="audioVoice" label="默认音频声音"><Input placeholder="alloy" /></Form.Item><Form.Item name="audioFormat" label="默认音频格式"><Select options={[{ value: "mp3", label: "MP3" }, { value: "wav", label: "WAV" }, { value: "opus", label: "Opus" }, { value: "aac", label: "AAC" }]} /></Form.Item><Form.Item name="audioSpeed" label="默认音频语速"><Input type="number" min={0.25} max={4} step={0.05} /></Form.Item></div><Form.Item name="audioInstructions" label="默认音频指令"><Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="例如：自然、温暖、适合旁白。" /></Form.Item><Form.Item name="systemPrompt" label="系统提示词"><Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} placeholder="应用到文本、图片、视频和语音请求。" /></Form.Item></section>
+        <Form form={form} layout="vertical" initialValues={{ image: "", imageEditModel: "", video: "", audio: "", text: "", imageWorkflows: {}, canvasImageCount: "3", audioVoice: "alloy", audioFormat: "mp3", audioSpeed: "1", audioInstructions: "", systemPrompt: "", creativeAssetReviewModel: "" }}>
+            <section className="mb-7"><div className="mb-4"><h2 className="font-semibold">默认模型</h2><p className="mt-1 text-sm text-stone-500">文生图与图生图按能力分别配置，用户仍可在对应场景临时选择。</p></div><div className="grid gap-x-4 md:grid-cols-2">{groups.map(({ kind, options }) => <Form.Item key={kind} name={kind} label={`默认${capabilityLabels[kind]}模型`}><Select allowClear showSearch optionFilterProp="label" options={options} placeholder={options.length ? `选择${capabilityLabels[kind]}模型` : `暂无可用${capabilityLabels[kind]}模型`} /></Form.Item>)}<Form.Item name="imageEditModel" label="默认图生图模型" extra="用于普通参考图编辑；可选择 cec-image、Qwen Edit 等支持图生图的模型。"><Select allowClear showSearch optionFilterProp="label" options={imageEditOptions} placeholder={imageEditOptions.length ? "选择图生图模型" : "暂无可用图生图模型"} /></Form.Item></div></section>
+            <section className="mb-7 border-t border-stone-200 pt-6 dark:border-stone-800"><div className="mb-4"><h2 className="font-semibold">图片工具工作流</h2><p className="mt-1 text-sm text-stone-500">画布工具按场景自动调用，不会出现在普通图片模型选择中。</p></div><div className="grid gap-x-4 md:grid-cols-2">{imageWorkflowFields.map((field) => { const available = enabledWorkflows.has(field.model); const model = comfyModels.find((item) => item.value === field.model); return <Form.Item key={field.purpose} name={["imageWorkflows", field.purpose]} label={field.label} extra={field.description}><Select allowClear options={[{ value: field.model, label: `${model?.label || field.model}${available ? "" : "（当前 ComfyUI 未启用）"}`, disabled: !available }]} placeholder="未配置" /></Form.Item>; })}</div></section>
+            <section className="border-t border-stone-200 pt-6 dark:border-stone-800"><div className="mb-4"><h2 className="font-semibold">生成默认值</h2><p className="mt-1 text-sm text-stone-500">用户仍可在当前画布或工作台任务中临时覆盖。</p></div><div className="grid gap-x-4 md:grid-cols-2 xl:grid-cols-4"><Form.Item name="canvasImageCount" label="画布默认生图张数"><Input type="number" min={1} max={15} /></Form.Item><Form.Item name="audioVoice" label="默认音频声音"><Input placeholder="alloy" /></Form.Item><Form.Item name="audioFormat" label="默认音频格式"><Select options={[{ value: "mp3", label: "MP3" }, { value: "wav", label: "WAV" }, { value: "opus", label: "Opus" }, { value: "aac", label: "AAC" }]} /></Form.Item><Form.Item name="audioSpeed" label="默认音频语速"><Input type="number" min={0.25} max={4} step={0.05} /></Form.Item></div><Form.Item name="creativeAssetReviewModel" label="创作资产视觉质检模型" extra="选择支持图片输入的文本模型；留空时由用户人工验收。"><Select allowClear showSearch optionFilterProp="label" options={models.filter((model) => model.output === "text" && model.inputs.includes("image")).map((model) => ({ value: model.value, label: `${model.name}（${model.providerName}）` }))} placeholder="人工验收" /></Form.Item><Form.Item name="audioInstructions" label="默认音频指令"><Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="例如：自然、温暖、适合旁白。" /></Form.Item><Form.Item name="systemPrompt" label="系统提示词"><Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} placeholder="应用到文本、图片、视频和语音请求。" /></Form.Item></section>
             <div className="sticky bottom-0 mt-6 flex justify-end border-t border-stone-200 bg-background/95 py-3 backdrop-blur dark:border-stone-800"><Button type="primary" loading={save.isPending} onClick={() => void form.validateFields().then((value) => save.mutate(value))}>保存全局默认值</Button></div>
         </Form>
     </section>;
@@ -348,7 +358,7 @@ function ProviderManager() {
                                     <Form.Item {...field} name={[field.name, "agentEnabled"]} valuePropName="checked" className="mb-0 flex h-8 items-center"><Checkbox disabled={!endpoint?.agent}>Agent</Checkbox></Form.Item>
                                     <Button danger type="text" icon={<Trash2 className="size-4" />} onClick={() => remove(field.name)} />
                                 </div>
-                                {endpoint ? <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pl-8 text-xs text-stone-500"><Tag className="m-0">画布 · {capabilityLabels[endpoint.output]}</Tag><span className="font-mono text-[11px]">{endpoint.method} {endpoint.path}</span><span>支持{endpoint.inputs.map((input) => inputLabels[input]).join("、")}输入</span>{endpoint.agent ? <span>可用于 Agent</span> : null}{endpoint.output === "audio" ? <Form.Item {...field} name={[field.name, "audioModes"]} className="mb-0 basis-full"><Checkbox.Group options={audioModeOptions} /></Form.Item> : null}</div> : null}
+                                {endpoint ? <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pl-8 text-xs text-stone-500"><Tag className="m-0">画布 · {capabilityLabels[endpoint.output]}</Tag><span className="font-mono text-[11px]">{endpoint.method} {endpoint.path}</span><span>支持{endpoint.inputs.map((input) => inputLabels[input]).join("、")}输入</span>{endpoint.agent ? <span>可用于 Agent</span> : null}{endpoint.output === "audio" ? <Form.Item {...field} name={[field.name, "audioModes"]} className="mb-0 basis-full"><Checkbox.Group options={audioModeOptions} /></Form.Item> : null}{endpoint.output === "image" && endpoint.inputs.includes("image") ? <div className="flex basis-full flex-wrap items-center gap-3"><span>参考图语义</span><Form.Item {...field} name={[field.name, "imageReferenceRoles"]} className="mb-0"><Checkbox.Group options={[{ label: "主体", value: "subject" }, { label: "风格", value: "style" }, { label: "构图", value: "composition" }]} /></Form.Item><span>最多</span><Form.Item {...field} name={[field.name, "maxReferenceImages"]} className="mb-0"><InputNumber min={0} max={32} placeholder="不限" className="w-20" /></Form.Item><span>张</span></div> : null}</div> : null}
                             </List.Item>}}
                             footer={<Button block type="text" icon={<Plus className="size-4" />} disabled={!endpointCatalog.length} onClick={() => { const endpoint = inferredEndpoint("", providerType); const fields = endpointFields(endpointMap.get(endpoint)); add({ id: "", name: "", endpoint, ...fields, enabled: true, agentEnabled: false, ...(fields.output === "audio" ? { audioModes: ["speech"] } : {}) }); }}>添加模型</Button>}
                         />}</Form.List>

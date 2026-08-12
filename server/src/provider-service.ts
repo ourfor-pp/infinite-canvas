@@ -3,7 +3,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { decryptJson, encryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
-import { COMFY_MODEL_DEFINITIONS, PURPOSE_MODELS, type GenerationPurpose } from "./comfy-workflows.js";
+import { COMFY_MODEL_DEFINITIONS, PURPOSE_MODELS, type GenerationPurpose, type ImageMode, type ImageWorkflowPurpose } from "./comfy-workflows.js";
 
 export const providerTypes = ["openai", "openai-compatible", "anthropic", "gemini", "ark"] as const;
 export const mediaKinds = ["text", "image", "video", "audio"] as const;
@@ -15,9 +15,11 @@ export type AudioMode = (typeof audioModes)[number];
 export type ModelEndpoint = (typeof modelEndpoints)[number];
 export type ProviderCredentials = { apiKey?: string; authToken?: string };
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: MediaKind; inputs: MediaKind[]; method: "POST"; path: string; agent: boolean };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[] };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; imageModes?: ImageMode[]; imageReferenceRoles?: Array<"subject" | "style" | "composition">; maxReferenceImages?: number };
 export type AiGlobalSettings = {
-    config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string };
+    config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string; creativeAssetReviewModel: string };
+    imageEditModel: string;
+    imageWorkflows: Record<ImageWorkflowPurpose, string>;
     promptSources: { sources: Array<Record<string, unknown>>; schedule: Record<string, unknown> };
 };
 export type ProviderRow = {
@@ -56,6 +58,8 @@ export const modelSchema = z.object({
     enabled: z.boolean().default(true),
     agentEnabled: z.boolean().default(false),
     audioModes: z.array(z.enum(audioModes)).optional(),
+    imageReferenceRoles: z.array(z.enum(["subject", "style", "composition"])).max(3).optional(),
+    maxReferenceImages: z.number().int().min(0).max(32).optional(),
 });
 
 export const providerInputSchema = z.object({
@@ -83,10 +87,23 @@ const globalGenerationSchema = z.object({
     audioSpeed: z.string().default("1"),
     audioInstructions: z.string().default(""),
     systemPrompt: z.string().default(""),
+    creativeAssetReviewModel: z.string().default(""),
 });
 const promptSourcesSchema = z.object({ sources: z.array(z.record(z.string(), z.unknown())).default([]), schedule: z.record(z.string(), z.unknown()).default({}) });
-const globalSettingsInputSchema = z.object({ config: globalGenerationSchema.partial().optional(), promptSources: promptSourcesSchema.optional() });
-const defaultGlobalSettings: AiGlobalSettings = { config: globalGenerationSchema.parse({}), promptSources: { sources: [], schedule: {} } };
+const imageWorkflowsSchema = z.object({
+    "image-inpaint": z.string().default(PURPOSE_MODELS["image-inpaint"]),
+    "image-upscale-faithful": z.string().default(PURPOSE_MODELS["image-upscale-faithful"]),
+    "image-upscale-generative": z.string().default(PURPOSE_MODELS["image-upscale-generative"]),
+    "image-angle": z.string().default(PURPOSE_MODELS["image-angle"]),
+});
+const imageWorkflowsInputSchema = z.object({
+    "image-inpaint": z.string().optional(),
+    "image-upscale-faithful": z.string().optional(),
+    "image-upscale-generative": z.string().optional(),
+    "image-angle": z.string().optional(),
+});
+const globalSettingsInputSchema = z.object({ config: globalGenerationSchema.partial().optional(), imageEditModel: z.string().optional(), imageWorkflows: imageWorkflowsInputSchema.optional(), promptSources: promptSourcesSchema.optional() });
+const defaultGlobalSettings: AiGlobalSettings = { config: globalGenerationSchema.parse({}), imageEditModel: "comfyui::qwen-image-edit-2511-local", imageWorkflows: imageWorkflowsSchema.parse({}), promptSources: { sources: [], schedule: {} } };
 
 export function listAdminProviders() {
     return (db.prepare("SELECT * FROM ai_providers ORDER BY created_at").all() as ProviderRow[]).map(adminProviderResponse);
@@ -109,7 +126,7 @@ export function saveProvider(input: ProviderInput, id?: string) {
     const baseUrl = normalizeProviderUrl(value.baseUrl, value.type);
     const models = value.models.map((model) => {
         const endpoint = modelEndpointRegistry[model.endpoint];
-        return { ...model, output: endpoint.output, inputs: endpoint.inputs, ...(endpoint.output === "audio" ? { audioModes: model.audioModes?.length ? model.audioModes : ["speech" as const] } : { audioModes: undefined }) };
+        return { ...model, output: endpoint.output, inputs: endpoint.inputs, imageModes: imageModesForEndpoint(model.endpoint), ...(endpoint.output === "audio" ? { audioModes: model.audioModes?.length ? model.audioModes : ["speech" as const] } : { audioModes: undefined }) };
     });
     if (current) {
         assertProviderIdle(providerId);
@@ -163,14 +180,14 @@ export function listPublicModels() {
     const providers = db.prepare("SELECT * FROM ai_providers WHERE enabled=1 ORDER BY created_at").all() as ProviderRow[];
     const publicModels = providers.flatMap((provider) => providerModels(provider)
         .filter((model) => model.enabled)
-        .map((model) => ({ id: model.id, name: model.name, output: model.output, inputs: model.inputs, audioModes: model.output === "audio" ? model.audioModes?.length ? model.audioModes : ["speech" as const] : undefined, enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
+        .map((model) => ({ id: model.id, name: model.name, output: model.output, inputs: model.inputs, audioModes: model.output === "audio" ? model.audioModes?.length ? model.audioModes : ["speech" as const] : undefined, imageModes: model.imageModes, imageReferenceRoles: model.imageReferenceRoles, maxReferenceImages: model.maxReferenceImages, enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
     const comfyRows = db.prepare("SELECT name, models FROM comfy_servers WHERE enabled=1 ORDER BY created_at").all() as Array<{ name: string; models: string }>;
-    const comfyNames = new Set(comfyRows.flatMap((row) => parseJson<string[]>(row.models, [])));
+    const comfyNames = new Set(comfyRows.flatMap((row) => parseJson<string[]>(row.models, [])).filter((id) => COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable));
     return [
         ...publicModels,
         ...Array.from(comfyNames).map((id) => {
             const output = comfyModelOutput(id);
-            return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, enabled: true };
+            return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imageModes: comfyImageModes(id), imageReferenceRoles: undefined, maxReferenceImages: undefined, enabled: true };
         }),
     ];
 }
@@ -181,21 +198,40 @@ export function listModelEndpoints() {
 
 export function listModelDefaults() {
     const rows = db.prepare("SELECT kind, model_ref FROM ai_model_defaults").all() as Array<{ kind: MediaKind; model_ref: string }>;
-    return Object.fromEntries(mediaKinds.map((kind) => [kind, rows.find((row) => row.kind === kind)?.model_ref || ""])) as Record<MediaKind, string>;
+    return Object.fromEntries(mediaKinds.map((kind) => {
+        const value = rows.find((row) => row.kind === kind)?.model_ref || "";
+        if (!value) return [kind, ""];
+        try { resolveSelectableModel(value, kind); return [kind, value]; }
+        catch { return [kind, ""]; }
+    })) as Record<MediaKind, string>;
 }
 
 export function getAiGlobalSettings(): AiGlobalSettings {
     const row = db.prepare("SELECT encrypted_payload FROM ai_global_settings WHERE id=1").get() as { encrypted_payload: string } | undefined;
     if (!row) return defaultGlobalSettings;
     const stored = decryptJson<Partial<AiGlobalSettings>>(row.encrypted_payload, config.appSecret);
-    return { config: globalGenerationSchema.parse(stored.config || {}), promptSources: promptSourcesSchema.parse(stored.promptSources || {}) };
+    return { config: globalGenerationSchema.parse(stored.config || {}), imageEditModel: typeof stored.imageEditModel === "string" ? stored.imageEditModel : defaultGlobalSettings.imageEditModel, imageWorkflows: imageWorkflowsSchema.parse(stored.imageWorkflows || {}), promptSources: promptSourcesSchema.parse(stored.promptSources || {}) };
 }
 
 export function saveAiGlobalSettings(input: unknown) {
     const value = globalSettingsInputSchema.parse(input);
     const current = getAiGlobalSettings();
+    const reviewModel = value.config?.creativeAssetReviewModel?.trim();
+    if (reviewModel) {
+        const selection = resolveProviderModel(reviewModel, "text");
+        if (!selection.model.inputs.includes("image")) throw providerError(400, "AI_REVIEW_MODEL_INVALID", "创作资产质检模型必须支持图片输入");
+    }
+    const imageEditModel = value.imageEditModel === undefined ? current.imageEditModel : value.imageEditModel.trim();
+    if (value.imageEditModel !== undefined && imageEditModel) resolveImageModel(imageEditModel, "edit");
+    const imageWorkflows = imageWorkflowsSchema.parse({ ...current.imageWorkflows, ...value.imageWorkflows });
+    Object.entries(value.imageWorkflows || {}).forEach(([purpose, model]) => {
+        if (model && model !== PURPOSE_MODELS[purpose as ImageWorkflowPurpose]) throw providerError(400, "AI_WORKFLOW_INVALID", "所选图片工具工作流与场景不匹配");
+        if (model) resolveProviderModel(`comfyui::${model}`, "image");
+    });
     const next: AiGlobalSettings = {
         config: globalGenerationSchema.parse({ ...current.config, ...value.config }),
+        imageEditModel,
+        imageWorkflows,
         promptSources: value.promptSources ? promptSourcesSchema.parse(value.promptSources) : current.promptSources,
     };
     const now = new Date().toISOString();
@@ -210,7 +246,7 @@ export function saveModelDefaults(input: Partial<Record<MediaKind, string>>) {
     db.transaction(() => {
         mediaKinds.forEach((kind) => {
             const value = values[kind].trim();
-            if (value) resolveProviderModel(value, kind);
+            if (value) resolveSelectableModel(value, kind);
             db.prepare("INSERT INTO ai_model_defaults(kind, model_ref, updated_at) VALUES(?, ?, ?) ON CONFLICT(kind) DO UPDATE SET model_ref=excluded.model_ref, updated_at=excluded.updated_at").run(kind, value, now);
         });
     })();
@@ -220,7 +256,7 @@ export function saveModelDefaults(input: Partial<Record<MediaKind, string>>) {
 export function pruneModelDefaults() {
     const rows = db.prepare("SELECT kind, model_ref FROM ai_model_defaults WHERE model_ref != ''").all() as Array<{ kind: MediaKind; model_ref: string }>;
     rows.forEach((row) => {
-        try { resolveProviderModel(row.model_ref, row.kind); }
+        try { resolveSelectableModel(row.model_ref, row.kind); }
         catch { db.prepare("UPDATE ai_model_defaults SET model_ref='', updated_at=? WHERE kind=?").run(new Date().toISOString(), row.kind); }
     });
 }
@@ -233,7 +269,7 @@ export function resolveProviderModel(value: string, expectedOutput: MediaKind) {
         const output = comfyModelOutput(modelId);
         const node = db.prepare("SELECT id FROM comfy_servers WHERE enabled=1 AND models LIKE ? ORDER BY created_at LIMIT 1").get(`%${modelId}%`) as { id: string } | undefined;
         if (!node || output !== expectedOutput) throw providerError(400, "AI_MODEL_UNAVAILABLE", "模型不可用或能力不匹配");
-        return { providerId, modelId, model: { id: modelId, name: modelId, output, inputs: comfyModelInputs(modelId), enabled: true }, comfyServerId: node.id };
+        return { providerId, modelId, model: { id: modelId, name: modelId, output, inputs: comfyModelInputs(modelId), imageModes: comfyImageModes(modelId), enabled: true }, comfyServerId: node.id };
     }
     const provider = getProviderRow(providerId);
     const model = provider && providerModels(provider).find((item) => item.id === modelId && item.enabled);
@@ -241,9 +277,29 @@ export function resolveProviderModel(value: string, expectedOutput: MediaKind) {
     return { providerId, modelId, model, provider: { ...provider, credentials: decryptCredentials(provider) } };
 }
 
+export function resolveSelectableModel(value: string, expectedOutput: MediaKind) {
+    const selection = resolveProviderModel(value, expectedOutput);
+    if (selection.providerId === "comfyui" && !COMFY_MODEL_DEFINITIONS[selection.modelId as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable) throw providerError(400, "AI_MODEL_NOT_SELECTABLE", "该工作流只能由对应图片工具调用");
+    if (expectedOutput === "image" && !selection.model.imageModes?.includes("generate")) throw providerError(400, "AI_MODEL_MODE_UNSUPPORTED", "该模型不支持文生图");
+    return selection;
+}
+
+export function resolveImageModel(value: string, mode: "generate" | "edit") {
+    const selection = resolveProviderModel(value, "image");
+    if (!selection.model.imageModes?.includes(mode)) throw providerError(400, "AI_MODEL_MODE_UNSUPPORTED", mode === "edit" ? "该模型不支持图生图" : "该模型不支持文生图");
+    return selection;
+}
+
 export function resolvePurposeModel(purpose: GenerationPurpose, expectedOutput: MediaKind) {
     if (purpose === "default") throw providerError(400, "AI_MODEL_REQUIRED", "普通生成必须指定模型");
-    return resolveProviderModel(`comfyui::${PURPOSE_MODELS[purpose]}`, expectedOutput);
+    if (purpose === "image-edit") {
+        const model = getAiGlobalSettings().imageEditModel;
+        if (!model) throw providerError(400, "AI_IMAGE_EDIT_MODEL_NOT_CONFIGURED", "管理员尚未配置默认图生图模型");
+        return resolveImageModel(model, "edit");
+    }
+    const model = getAiGlobalSettings().imageWorkflows[purpose];
+    if (!model) throw providerError(400, "AI_WORKFLOW_NOT_CONFIGURED", "管理员尚未配置该图片工具工作流");
+    return resolveProviderModel(`comfyui::${model}`, expectedOutput);
 }
 
 export function resolveAgentModel(value: string) {
@@ -272,7 +328,7 @@ export function getProviderRow(id: string) {
 }
 
 export function providerModels(row: ProviderRow) {
-    return parseJson<AiModelDefinition[]>(row.models, []);
+    return parseJson<AiModelDefinition[]>(row.models, []).map((model) => ({ ...model, imageModes: imageModesForEndpoint(model.endpoint) }));
 }
 
 export function decryptCredentials(row: ProviderRow) {
@@ -360,6 +416,18 @@ function comfyModelName(id: string) {
 
 function comfyModelInputs(id: string): MediaKind[] {
     return COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.inputs || ["text"];
+}
+
+function comfyImageModes(id: string) {
+    return COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.imageModes;
+}
+
+function imageModesForEndpoint(endpoint: ModelEndpoint): ImageMode[] | undefined {
+    const definition = modelEndpointRegistry[endpoint];
+    if (definition.output !== "image") return undefined;
+    if (endpoint === "openai-images-generations") return ["generate"];
+    if (endpoint === "openai-images-edits") return ["edit"];
+    return definition.inputs.includes("image") ? ["generate", "edit"] : ["generate"];
 }
 
 function providerError(status: number, code: string, message: string) {

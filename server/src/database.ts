@@ -216,6 +216,9 @@ CREATE TABLE IF NOT EXISTS visual_styles (
   template_id TEXT,
   description TEXT NOT NULL DEFAULT '',
   reference_file_id TEXT REFERENCES stored_files(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  dna TEXT NOT NULL DEFAULT '{}',
+  reference_files TEXT NOT NULL DEFAULT '{}',
   revision INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -239,6 +242,7 @@ applyVersionTen();
 applyVersionEleven();
 applyVersionTwelve();
 applyVersionThirteen();
+applyVersionFourteen();
 ensureAgentMetadata(3, 2);
 
 function applyVersionTwo() {
@@ -550,6 +554,18 @@ function applyVersionThirteen() {
             db.prepare("UPDATE creative_assets SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...payload, mediaDrafts: { ...drafts, image: { ...image, prompt: "" } } }), row.id, row.user_id);
         }
         db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(13, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionFourteen() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=14").get()) return;
+    const styleColumns = db.prepare("PRAGMA table_info(visual_styles)").all() as Array<{ name: string }>;
+    db.transaction(() => {
+        if (!styleColumns.some((column) => column.name === "status")) db.exec("ALTER TABLE visual_styles ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'");
+        if (!styleColumns.some((column) => column.name === "dna")) db.exec("ALTER TABLE visual_styles ADD COLUMN dna TEXT NOT NULL DEFAULT '{}'");
+        if (!styleColumns.some((column) => column.name === "reference_files")) db.exec("ALTER TABLE visual_styles ADD COLUMN reference_files TEXT NOT NULL DEFAULT '{}'");
+        db.prepare("UPDATE visual_styles SET reference_files=json_object('source', reference_file_id) WHERE reference_file_id IS NOT NULL AND reference_files='{}'").run();
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(14, ?)").run(new Date().toISOString());
     })();
 }
 

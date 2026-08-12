@@ -7,9 +7,10 @@ import { decryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
 import { buildComfyWorkflow, type GenerationPurpose } from "./comfy-workflows.js";
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
-import { decryptCredentials, getProviderRow, resolveProviderModel, resolvePurposeModel, type AiModelDefinition, type MediaKind } from "./provider-service.js";
+import { decryptCredentials, getAiGlobalSettings, getProviderRow, listPublicModels, resolveImageModel, resolveProviderModel, resolvePurposeModel, resolveSelectableModel, type AiModelDefinition, type MediaKind } from "./provider-service.js";
 import { syncAgentGenerationCanvas } from "./agent/generation-canvas.js";
-import { syncCreativeAssetGeneration } from "./creative-assets.js";
+import { getCreativeAsset, syncCreativeAssetGeneration } from "./creative-assets.js";
+import { syncVisualStyleGeneration } from "./visual-styles.js";
 
 export type GenerationRow = {
     id: string;
@@ -60,7 +61,11 @@ export function generationResponse(row: GenerationRow) {
 
 export function createGeneration(userId: string, input: AiGenerationRequest) {
     const purpose = (input.purpose || "default") as GenerationPurpose;
-    const selection = purpose === "default" ? resolveProviderModel(input.model || "", input.kind) : resolvePurposeModel(purpose, input.kind);
+    const selection = purpose === "default"
+        ? resolveSelectableModel(input.model || "", input.kind)
+        : purpose === "image-edit" && input.model
+            ? resolveImageModel(input.model, "edit")
+            : resolvePurposeModel(purpose, input.kind);
     if ((input.prompt?.trim() || input.messages?.length) && !selection.model.inputs.includes("text")) throw generationError("AI_MODEL_INPUT_UNSUPPORTED", "所选模型不支持文本输入");
     for (const reference of input.references || []) {
         const kind = reference.kind || "image";
@@ -325,9 +330,32 @@ function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["s
     const updated = getGenerationRow(row.user_id, row.id);
     if (updated) {
         emitEvent(row.user_id, "generation.updated", generationResponse(updated));
-        syncAgentGenerationCanvas(updated);
-        syncCreativeAssetGeneration(updated);
+        try { syncAgentGenerationCanvas(updated); } catch { /* 结果已持久化，画布回写可由刷新恢复。 */ }
+        try { syncCreativeAssetGeneration(updated); } catch { /* 保留已完成任务，避免回写冲突改写任务终态。 */ }
+        try { syncVisualStyleGeneration(updated); } catch { /* 保留已完成任务，风格卡可重新生成缺失样张。 */ }
+        try { scheduleCreativeAssetReview(updated); } catch { /* 质检调度失败不回滚已经完成的媒体任务。 */ }
     }
+}
+
+function scheduleCreativeAssetReview(row: GenerationRow) {
+    if (row.status !== "succeeded" || row.kind !== "image") return;
+    const request = parseJson<AiGenerationRequest & { params?: Record<string, unknown> }>(row.request, {} as AiGenerationRequest);
+    const target = request.params?.__creativeAsset as { assetId?: string } | undefined;
+    if (!target?.assetId || request.params?.__creativeAssetReview) return;
+    const files = parseJson<{ files?: Array<{ fileId?: string; id?: string }> }>(row.result, {}).files || [];
+    const fileId = String(files[0]?.fileId || files[0]?.id || "");
+    if (!fileId) return;
+    const modelRef = getAiGlobalSettings().config.creativeAssetReviewModel.trim();
+    const model = listPublicModels().find((item) => item.value === modelRef && item.output === "text" && item.inputs.includes("image"));
+    if (!modelRef || !model) return;
+    const asset = getCreativeAsset(row.user_id, target.assetId);
+    createGeneration(row.user_id, {
+        kind: "text",
+        model: modelRef,
+        prompt: `你是 AIGC 资产设计图质检员。资产类型：${asset.kind}；名称：${asset.name}；设定：${asset.payload.description}；设计画像：${JSON.stringify(asset.payload.designProfile)}。检查图片是否满足：主体与设定身份一致；角色性别表达和声音画像不冲突；角色和道具为纯白无影背景，场景必须无人；不得出现文字、字母、数字、水印、Logo、UI；多视图中的主体身份、服装、材质和比例一致；画面不得混入故事情节。只返回 JSON：{\"passed\":boolean,\"summary\":\"中文结论\",\"issues\":[\"具体问题\"]}。`,
+        references: [{ fileId, kind: "image" }],
+        params: { temperature: 0, __creativeAssetReview: { assetId: target.assetId, sourceGenerationId: row.id, fileId } },
+    });
 }
 
 function getGenerationRow(userId: string, id: string) {

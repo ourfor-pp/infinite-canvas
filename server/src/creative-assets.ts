@@ -15,6 +15,21 @@ export type CreativeAssetMediaDraft = {
     audioMode?: CreativeAssetAudioMode;
     transcript?: string;
 };
+export type CharacterDesignProfile = {
+    apparentGender: "female" | "male" | "androgynous" | "unspecified";
+    voiceGender: "female" | "male" | "androgynous" | "unspecified";
+    ageBand: string;
+    identityAnchor: string;
+    uncertainties: string[];
+};
+export type CreativeAssetReview = {
+    status: "pending_review" | "approved" | "rejected";
+    source: "automatic" | "manual";
+    summary?: string;
+    issues?: string[];
+    reviewedAt?: string;
+    reviewGenerationId?: string;
+};
 export type CreativeAssetVariant = {
     id: string;
     kind: "image" | "audio";
@@ -24,10 +39,12 @@ export type CreativeAssetVariant = {
     generationId?: string;
     usage?: string;
     transcript?: string;
+    review?: CreativeAssetReview;
     createdAt: string;
 };
 export type CreativeAssetPayload = {
     description: string;
+    designProfile: CharacterDesignProfile | null;
     variants: CreativeAssetVariant[];
     primaryImageId: string | null;
     primaryAudioId: string | null;
@@ -71,10 +88,25 @@ const variant = z.object({
     generationId: id.optional(),
     usage: z.string().max(100).optional(),
     transcript: text.optional(),
+    review: z.object({
+        status: z.enum(["pending_review", "approved", "rejected"]),
+        source: z.enum(["automatic", "manual"]),
+        summary: z.string().max(2_000).optional(),
+        issues: z.array(z.string().max(500)).max(50).optional(),
+        reviewedAt: z.string().optional(),
+        reviewGenerationId: id.optional(),
+    }).optional(),
     createdAt: z.string(),
 });
 export const creativeAssetPayloadSchema = z.object({
     description: text.default(""),
+    designProfile: z.object({
+        apparentGender: z.enum(["female", "male", "androgynous", "unspecified"]).default("unspecified"),
+        voiceGender: z.enum(["female", "male", "androgynous", "unspecified"]).default("unspecified"),
+        ageBand: z.string().max(100).default(""),
+        identityAnchor: z.string().max(2_000).default(""),
+        uncertainties: z.array(z.string().max(500)).max(50).default([]),
+    }).nullable().default(null),
     variants: z.array(variant).max(500).default([]),
     primaryImageId: id.nullable().default(null),
     primaryAudioId: id.nullable().default(null),
@@ -82,6 +114,7 @@ export const creativeAssetPayloadSchema = z.object({
 });
 const creativeAssetPayloadPatchSchema = z.object({
     description: text.optional(),
+    designProfile: creativeAssetPayloadSchema.shape.designProfile.optional(),
     variants: z.array(variant).max(500).optional(),
     primaryImageId: id.nullable().optional(),
     primaryAudioId: id.nullable().optional(),
@@ -166,7 +199,26 @@ export function setCreativeAssetPrimary(userId: string, assetId: string, variant
     const selected = payload.variants.find((item) => item.id === variantId);
     if (!selected) throw creativeAssetError(404, "CREATIVE_ASSET_VARIANT_NOT_FOUND", "媒体版本不存在");
     if (selected.kind === "audio" && selected.usage === "reference_input") throw creativeAssetError(400, "CREATIVE_ASSET_REFERENCE_NOT_PRIMARY", "参考音频不能设为主音频");
+    if (selected.kind === "image" && selected.review?.status !== "approved") throw creativeAssetError(409, "CREATIVE_ASSET_VARIANT_REVIEW_REQUIRED", "设计图通过审核后才能设为主图");
     return updateCreativeAsset(userId, assetId, { revision, payload: selected.kind === "image" ? { primaryImageId: variantId } : { primaryAudioId: variantId } }, true);
+}
+
+export function reviewCreativeAssetVariant(userId: string, assetId: string, variantId: string, input: { revision: number; accepted: boolean; summary?: string; issues?: string[]; setPrimary?: boolean }) {
+    const row = creativeAssetRow(userId, assetId);
+    if (!row) throw creativeAssetError(404, "CREATIVE_ASSET_NOT_FOUND", "创作资产不存在或无权访问");
+    const payload = creativeAssetPayloadSchema.parse(parseJson(row.payload, {}));
+    const selected = payload.variants.find((item) => item.id === variantId);
+    if (!selected || selected.kind !== "image") throw creativeAssetError(404, "CREATIVE_ASSET_VARIANT_NOT_FOUND", "设计图版本不存在");
+    selected.review = {
+        status: input.accepted ? "approved" : "rejected",
+        source: "manual",
+        summary: input.summary?.trim() || (input.accepted ? "已人工验收" : "已人工拒绝"),
+        issues: input.issues || [],
+        reviewedAt: new Date().toISOString(),
+    };
+    if (!input.accepted && payload.primaryImageId === variantId) payload.primaryImageId = null;
+    if (input.accepted && input.setPrimary) payload.primaryImageId = variantId;
+    return updateCreativeAsset(userId, assetId, { revision: input.revision, payload }, true);
 }
 
 export function deleteCreativeAsset(userId: string, assetId: string) {
@@ -264,7 +316,12 @@ export function createCreativeAssetsBatch(userId: string, projectId: string, raw
 
 export function syncCreativeAssetGeneration(row: { id: string; user_id: string; status: string; request: string; result: string | null }) {
     if (row.status !== "succeeded") return;
-    const request = parseJson<{ kind?: "image" | "audio"; prompt?: string; params?: { __creativeAsset?: { assetId?: string; usage?: string; label?: string; transcript?: string } } }>(row.request, {});
+    const request = parseJson<{ kind?: "image" | "audio"; prompt?: string; params?: { __creativeAsset?: { assetId?: string; usage?: string; label?: string; transcript?: string }; __creativeAssetReview?: { assetId?: string; sourceGenerationId?: string; fileId?: string } } }>(row.request, {});
+    const reviewTarget = request.params?.__creativeAssetReview;
+    if (reviewTarget?.assetId && reviewTarget.sourceGenerationId && reviewTarget.fileId) {
+        applyAutomaticReview(row, reviewTarget as { assetId: string; sourceGenerationId: string; fileId: string });
+        return;
+    }
     const target = request.params?.__creativeAsset;
     if (!target?.assetId) return;
     const asset = creativeAssetRow(row.user_id, target.assetId);
@@ -276,9 +333,28 @@ export function syncCreativeAssetGeneration(row: { id: string; user_id: string; 
     const kind = request.kind === "audio" ? "audio" : "image";
     const additions = fileIds.filter((fileId) => !payload.variants.some((item) => item.generationId === row.id && item.fileId === fileId));
     if (!additions.length) return;
-    const added = additions.map((fileId, index) => ({ id: nanoid(), kind, fileId, label: target.label || `${kind === "image" ? "生成图片" : "生成声音"}${additions.length > 1 ? ` ${index + 1}` : ""}`, prompt: request.prompt || "", generationId: row.id, usage: target.usage, transcript: target.transcript, createdAt: new Date().toISOString() } satisfies CreativeAssetVariant));
+    const added = additions.map((fileId, index) => ({ id: nanoid(), kind, fileId, label: target.label || `${kind === "image" ? "生成图片" : "生成声音"}${additions.length > 1 ? ` ${index + 1}` : ""}`, prompt: request.prompt || "", generationId: row.id, usage: target.usage, transcript: target.transcript, ...(kind === "image" ? { review: { status: "pending_review" as const, source: "manual" as const, summary: "等待验收" } } : {}), createdAt: new Date().toISOString() } satisfies CreativeAssetVariant));
     payload.variants.push(...added);
     updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
+}
+
+function applyAutomaticReview(row: { id: string; user_id: string; result: string | null }, target: { assetId: string; sourceGenerationId: string; fileId: string }) {
+    const asset = creativeAssetRow(row.user_id, target.assetId);
+    if (!asset) return;
+    const payload = creativeAssetPayloadSchema.parse(parseJson(asset.payload, {}));
+    const variant = payload.variants.find((item) => item.kind === "image" && item.generationId === target.sourceGenerationId && item.fileId === target.fileId);
+    if (!variant) return;
+    const rawText = String(parseJson<{ text?: string }>(row.result, {}).text || "");
+    const parsed = parseReviewResult(rawText);
+    variant.review = parsed ? { status: parsed.passed ? "approved" : "rejected", source: "automatic", summary: parsed.summary, issues: parsed.issues, reviewedAt: new Date().toISOString(), reviewGenerationId: row.id } : { status: "pending_review", source: "manual", summary: "自动质检结果无法解析，请人工验收", reviewGenerationId: row.id };
+    updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
+}
+
+function parseReviewResult(value: string) {
+    try {
+        const json = value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+        return z.object({ passed: z.boolean(), summary: z.string().max(2_000), issues: z.array(z.string().max(500)).max(50).default([]) }).parse(JSON.parse(json));
+    } catch { return null; }
 }
 
 export function creativeAssetResponse(row: CreativeAssetRow) {
@@ -290,16 +366,17 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
     const requirement = extra.trim();
     if (kind === "audio") return requirement || asset.payload.mediaDrafts.audio.prompt || asset.payload.description;
     const layout = {
-        character: "横版 16:9 四格角色设计稿，纯白背景：左侧约 40% 为胸像特写，右侧三个等宽面板依次为正面、四分之三侧面、背面的 A-Pose 全身视图。四个面板中的面部、发型、服装和配饰必须完全一致。",
-        scene: "横版 16:9 场景设计稿：主画面占四分之三区域，完整展示空间结构、固定陈设、光线和氛围；右下角嵌入标志性局部细节图。画面中没有人物出镜。",
-        prop: "横版 16:9 道具设计稿，纯净浅灰背景：正面全视图、45 度侧视图、关键细节特写水平排列，各视图必须是同一件道具，结构、材质和比例保持一致。画面中没有人物出镜。",
+        character: "横版 16:9 四格角色设定图，严格纯白无影背景：左侧约 40% 为胸像特写，右侧依次为正面、四分之三侧面、背面的 A-Pose 全身视图。四个视图必须是同一角色，面部、性别表达、年龄、发型、服装和配饰完全一致。只画角色，不画环境、情节、文字或标注。",
+        scene: "横版 16:9 场景设定图，严格无人、无文字、无标注：主画面占四分之三区域，完整展示空间结构、固定陈设、光线和氛围；右下角嵌入标志性局部细节图。",
+        prop: "横版 16:9 道具设定图，严格纯白无影背景：正面全视图、45 度侧视图、关键细节特写水平排列，各视图必须是同一件道具，结构、材质和比例保持一致。只画道具，不画人物、环境、文字或标注。",
     }[asset.kind];
     return [
         `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}「${asset.name}」的视觉设计参考。`,
         description,
         requirement,
         layout,
-        "画面避免：水印、多余文字、Logo。",
+        asset.kind === "character" && asset.payload.designProfile ? `身份锚点：${asset.payload.designProfile.identityAnchor}\n年龄段：${asset.payload.designProfile.ageBand}\n外观性别：${asset.payload.designProfile.apparentGender}` : "",
+        "负面约束：背景场景、剧情动作、叙事事件、水印、文字、字母、数字、Logo、UI、边框标题。",
     ].filter(Boolean).join("\n\n");
 }
 

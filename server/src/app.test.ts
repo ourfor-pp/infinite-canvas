@@ -73,6 +73,7 @@ test("创作资产按项目隔离、保存自然语言描述并检测 revision",
     const created = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "character", name: "林夏", payload: { description: "二十八岁的清瘦调查记者，短发，深色风衣。", mediaDrafts: { audio: { prompt: "冷静、低声线", transcript: "这件事，我会亲自查清楚。" } } } }) });
     assert.equal(created.response.status, 201);
     assert.equal(created.body.data.revision, 1);
+    assert.equal(created.body.data.status, "draft");
     assert.equal(created.body.data.payload.mediaDrafts.audio.prompt, "冷静、低声线");
     assert.equal(created.body.data.payload.mediaDrafts.audio.transcript, "这件事，我会亲自查清楚。");
     const assetId = created.body.data.id;
@@ -121,11 +122,16 @@ test("视觉风格支持项目默认、画布放置、隔离和删除回收", as
     const created = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "冷峻悬疑", mode: "custom", description: "低饱和冷灰色调，硬朗侧光。" }) });
     assert.equal(created.response.status, 201);
     assert.equal(created.body.data.revision, 1);
+    assert.equal(created.body.data.status, "draft");
+    assert.equal(created.body.data.dna.medium, "");
     const styleId = created.body.data.id;
     assert.equal((await api(`/visual-styles/${styleId}`, userTwo)).response.status, 404);
 
     const placed = await api(`/visual-styles/${styleId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 100, y: 200 }) });
     assert.equal(placed.response.status, 201);
+    assert.equal((await api(`/visual-styles/${styleId}/default`, userOne, { method: "POST" })).response.status, 409);
+    const confirmed = await api(`/visual-styles/${styleId}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "confirmed" }) });
+    assert.equal(confirmed.response.status, 200);
     await api(`/visual-styles/${styleId}/default`, userOne, { method: "POST" });
     const project = await api(`/projects/${projectId}`, userOne);
     assert.equal(project.body.data.defaultVisualStyleId, styleId);
@@ -216,7 +222,10 @@ test("AI 渠道只能由管理员配置，普通用户只看到模型能力", as
             apiKey: "provider-secret",
             enabled: true,
             concurrency: 2,
-            models: [{ id: "test-text-model", name: "测试文本", endpoint: "openai-chat", enabled: true }],
+            models: [
+                { id: "test-text-model", name: "测试文本", endpoint: "openai-chat", enabled: true },
+                { id: "cec-image", name: "gpt-image-2", endpoint: "openai-images", enabled: true },
+            ],
         }) });
         assert.equal(provider.response.status, 201);
         assert.equal(provider.body.data.credentialConfigured, true);
@@ -224,6 +233,10 @@ test("AI 渠道只能由管理员配置，普通用户只看到模型能力", as
         assert.equal((await api(`/admin/ai/providers/${provider.body.data.id}/test`, userOne, { method: "POST" })).response.status, 200);
         const models = await api("/ai/models", userTwo);
         assert.equal(models.body.data.some((model: { value: string }) => model.value === `${provider.body.data.id}::test-text-model`), true);
+        const imageModel = models.body.data.find((model: { value: string }) => model.value === `${provider.body.data.id}::cec-image`);
+        assert.deepEqual(imageModel.imageModes, ["generate", "edit"]);
+        const imageEditModel = `${provider.body.data.id}::cec-image`;
+        assert.equal((await api("/admin/ai/config", userOne, { method: "PUT", body: JSON.stringify({ imageEditModel }) })).body.data.imageEditModel, imageEditModel);
         const modelRef = `${provider.body.data.id}::test-text-model`;
         await api("/admin/ai/model-defaults", userOne, { method: "PUT", body: JSON.stringify({ text: modelRef, image: "", video: "", audio: "" }) });
         assert.equal((await api("/ai/model-defaults", userTwo)).body.data.text, modelRef);
@@ -444,10 +457,22 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
     const address = fakeComfy.address();
     if (!address || typeof address === "string") throw new Error("ComfyUI 模拟服务启动失败");
     try {
-        await api("/admin/comfyui/servers", userOne, { method: "POST", body: JSON.stringify({ name: "测试节点", url: `http://127.0.0.1:${address.port}`, enabled: true, models: ["hidream-o1-full-fp8-local", "realesrgan-x4-local"] }) });
+        await api("/admin/comfyui/servers", userOne, { method: "POST", body: JSON.stringify({ name: "测试节点", url: `http://127.0.0.1:${address.port}`, enabled: true, models: ["hidream-o1-full-fp8-local", "qwen-image-edit-2511-local", "realesrgan-x4-local"] }) });
         const ordinaryModels = await api("/ai/models", userTwo);
         assert.equal(JSON.stringify(ordinaryModels.body).includes(String(address.port)), false);
+        assert.equal(ordinaryModels.body.data.some((model: { id: string }) => model.id === "hidream-o1-full-fp8-local"), true);
+        assert.deepEqual(ordinaryModels.body.data.find((model: { id: string }) => model.id === "qwen-image-edit-2511-local").imageModes, ["edit", "angle"]);
+        assert.equal(ordinaryModels.body.data.some((model: { id: string }) => model.id === "realesrgan-x4-local"), false);
         assert.equal((await api("/admin/comfyui/servers", userTwo)).response.status, 403);
+        const directWorkflow = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: "comfyui::realesrgan-x4-local", prompt: "不应直接选择" }) });
+        assert.equal(directWorkflow.response.status, 400);
+        assert.equal(directWorkflow.body.error.code, "AI_MODEL_NOT_SELECTABLE");
+        const editAsGeneration = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: "comfyui::qwen-image-edit-2511-local", prompt: "不应作为文生图" }) });
+        assert.equal(editAsGeneration.response.status, 400);
+        assert.equal(editAsGeneration.body.error.code, "AI_MODEL_MODE_UNSUPPORTED");
+        const invalidDefault = await api("/admin/ai/model-defaults", userOne, { method: "PUT", body: JSON.stringify({ text: "", image: "comfyui::realesrgan-x4-local", video: "", audio: "" }) });
+        assert.equal(invalidDefault.response.status, 400);
+        assert.equal(invalidDefault.body.error.code, "AI_MODEL_NOT_SELECTABLE");
         const created = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: "comfyui::hidream-o1-full-fp8-local", prompt: "测试图片", params: { size: "16:9", count: 1 } }) });
         let generation = created.body.data;
         for (let index = 0; index < 20 && !["succeeded", "failed"].includes(generation.status); index += 1) {
@@ -461,6 +486,12 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
         const form = new FormData();
         form.set("file", new Blob(["source"], { type: "image/png" }), "source.png");
         const uploaded = await api("/files", userOne, { method: "POST", body: form });
+        const configured = await api("/admin/ai/config", userOne, { method: "PUT", body: JSON.stringify({ imageEditModel: "comfyui::qwen-image-edit-2511-local", imageWorkflows: { "image-upscale-faithful": "realesrgan-x4-local" } }) });
+        assert.equal(configured.body.data.imageEditModel, "comfyui::qwen-image-edit-2511-local");
+        assert.equal(configured.body.data.imageWorkflows["image-upscale-faithful"], "realesrgan-x4-local");
+        const edit = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", purpose: "image-edit", prompt: "改成蓝色", references: [{ fileId: uploaded.body.data.fileId, kind: "image" }] }) });
+        assert.equal(edit.response.status, 201);
+        assert.equal(edit.body.data.modelId, "qwen-image-edit-2511-local");
         const upscale = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", purpose: "image-upscale-faithful", params: { targetLongEdge: 2048, sourceWidth: 800, sourceHeight: 600 }, references: [{ fileId: uploaded.body.data.fileId, kind: "image" }] }) });
         assert.equal(upscale.response.status, 201);
         assert.equal(upscale.body.data.modelId, "realesrgan-x4-local");

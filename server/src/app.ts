@@ -21,10 +21,12 @@ import {
     listCreativeAssets,
     placeCreativeAsset,
     setCreativeAssetPrimary,
+    reviewCreativeAssetVariant,
     updateCreativeAsset,
 } from "./creative-assets.js";
 import { createCreativeAssetGeneration, previewCreativeAssetGeneration } from "./creative-asset-generation.js";
 import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, placeVisualStyle, setDefaultVisualStyle, updateVisualStyle } from "./visual-styles.js";
+import { createVisualStyleAnalysis, createVisualStyleReferences } from "./visual-style-generation.js";
 
 type ProjectRow = { id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type AssetRow = { id: string; kind: string; title: string; payload: string; created_at: string; updated_at: string };
@@ -160,6 +162,7 @@ api.put("/creative-assets/:id", route((req) => updateCreativeAsset(req.user.id, 
 api.delete("/creative-assets/:id", route((req) => deleteCreativeAsset(req.user.id, routeId(req))));
 api.post("/creative-assets/:id/place", route((req) => placeCreativeAsset(req.user.id, routeId(req), z.object({ x: z.number().optional(), y: z.number().optional() }).parse(req.body || {})), 201));
 api.post("/creative-assets/:id/variants/:variantId/primary", route((req) => setCreativeAssetPrimary(req.user.id, routeId(req), routeParam(req, "variantId"), z.number().int().positive().parse(req.body?.revision), true)));
+api.post("/creative-assets/:id/variants/:variantId/review", route((req) => reviewCreativeAssetVariant(req.user.id, routeId(req), routeParam(req, "variantId"), z.object({ revision: z.number().int().positive(), accepted: z.boolean(), summary: z.string().max(2_000).optional(), issues: z.array(z.string().max(500)).max(50).optional(), setPrimary: z.boolean().optional() }).parse(req.body))));
 api.post("/creative-assets/:id/generation-preview", route((req) => previewCreativeAssetGeneration(req.user.id, routeId(req), req.body)));
 api.post("/creative-assets/:id/generations", route((req) => createCreativeAssetGeneration(req.user.id, routeId(req), req.body), 201));
 
@@ -171,6 +174,8 @@ api.put("/visual-styles/:id", route((req) => updateVisualStyle(req.user.id, rout
 api.delete("/visual-styles/:id", route((req) => deleteVisualStyle(req.user.id, routeId(req))));
 api.post("/visual-styles/:id/place", route((req) => placeVisualStyle(req.user.id, routeId(req), z.object({ x: z.number().optional(), y: z.number().optional() }).parse(req.body || {})), 201));
 api.post("/visual-styles/:id/default", route((req) => setDefaultVisualStyle(req.user.id, routeId(req))));
+api.post("/visual-styles/:id/references/generate", route((req) => createVisualStyleReferences(req.user.id, routeId(req), req.body), 201));
+api.post("/visual-styles/:id/analyze", route((req) => createVisualStyleAnalysis(req.user.id, routeId(req), req.body), 201));
 
 api.get("/assets", (_req, res) => {
     const req = _req as Request;

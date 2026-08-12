@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type AudioMode, type ModelCapability } from "@/stores/use-config-store";
+import { modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type AudioMode, type ImageMode, type ModelCapability } from "@/stores/use-config-store";
 
 type ModelPickerProps = {
     config: AiConfig;
@@ -13,18 +13,19 @@ type ModelPickerProps = {
     onChange: (model: string) => void;
     capability?: ModelCapability;
     audioMode?: AudioMode;
+    imageMode?: Extract<ImageMode, "generate" | "edit">;
     className?: string;
     fullWidth?: boolean;
     placeholder?: string;
     onMissingConfig?: () => void;
 };
 
-export function ModelPicker({ config, value, onChange, capability, audioMode, className, fullWidth = false, placeholder, onMissingConfig }: ModelPickerProps) {
+export function ModelPicker({ config, value, onChange, capability, audioMode, imageMode, className, fullWidth = false, placeholder, onMissingConfig }: ModelPickerProps) {
     const { t } = useTranslation();
     const pickerId = useId();
     const [open, setOpen] = useState(false);
-    const options = useMemo(() => Array.from(new Set([value, ...selectableModelsByCapability(config, capability, audioMode)].filter((model): model is string => Boolean(model)))), [audioMode, capability, config, value]);
-    const current = value || "";
+    const options = useMemo(() => selectableModelsByCapability(config, capability, audioMode, imageMode), [audioMode, capability, config, imageMode]);
+    const current = value && options.includes(value) ? value : "";
     const pickerPlaceholder = placeholder || t("settingsPanels.model.select");
 
     useEffect(() => {

@@ -6,6 +6,7 @@ import { scheduleServerSettingsSave } from "@/services/server-settings";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ModelInputCapability = ModelCapability;
 export type AudioMode = "speech" | "ambient" | "sfx";
+export type ImageMode = "generate" | "edit" | "inpaint" | "upscale-faithful" | "upscale-generative" | "angle";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 export type AiModelOption = {
     id: string;
@@ -17,11 +18,13 @@ export type AiModelOption = {
     inputs: ModelInputCapability[];
     enabled: boolean;
     audioModes?: AudioMode[];
+    imageModes?: ImageMode[];
 };
 
 export type AiConfig = {
     model: string;
     imageModel: string;
+    imageEditModel: string;
     videoModel: string;
     textModel: string;
     audioModel: string;
@@ -46,6 +49,7 @@ export type AiConfig = {
 export const defaultConfig: AiConfig = {
     model: "",
     imageModel: "",
+    imageEditModel: "",
     videoModel: "",
     textModel: "",
     audioModel: "",
@@ -90,17 +94,18 @@ export const useConfigStore = create<ConfigStore>()((set) => ({
     hydrateModels: (models, defaults = {}) => set((state) => {
         modelCatalog = models.filter((model) => model.enabled);
         const values = modelCatalog.map((model) => model.value);
-        const pick = (current: string, capability: ModelCapability) => modelCatalog.some((model) => model.value === defaults[capability] && model.output === capability)
+        const pick = (current: string, capability: ModelCapability, imageMode?: "generate" | "edit") => modelCatalog.some((model) => model.value === defaults[capability] && model.output === capability && (!imageMode || model.imageModes?.includes(imageMode)))
             ? defaults[capability] || ""
-            : modelCatalog.some((model) => model.value === current && model.output === capability)
+            : modelCatalog.some((model) => model.value === current && model.output === capability && (!imageMode || model.imageModes?.includes(imageMode)))
                 ? current
-                : modelCatalog.find((model) => model.output === capability)?.value || "";
-        const imageModel = pick(state.config.imageModel, "image");
+                : modelCatalog.find((model) => model.output === capability && (!imageMode || model.imageModes?.includes(imageMode)))?.value || "";
+        const imageModel = pick(state.config.imageModel, "image", "generate");
         return {
             config: {
                 ...state.config,
                 models: values,
                 imageModel,
+                imageEditModel: pick(state.config.imageEditModel, "image", "edit"),
                 videoModel: pick(state.config.videoModel, "video"),
                 textModel: pick(state.config.textModel, "text"),
                 audioModel: pick(state.config.audioModel, "audio"),
@@ -134,8 +139,9 @@ export function useEffectiveConfig() {
     return useMemo(() => config, [config]);
 }
 
-export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability, audioMode?: AudioMode) {
-    const available = capability ? modelCatalog.filter((model) => model.output === capability && (!audioMode || (model.audioModes || ["speech"]).includes(audioMode))).map((model) => model.value) : modelCatalog.map((model) => model.value);
+export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability, audioMode?: AudioMode, imageMode?: "generate" | "edit") {
+    const requiredImageMode = capability === "image" ? imageMode || "generate" : undefined;
+    const available = capability ? modelCatalog.filter((model) => model.output === capability && (!audioMode || (model.audioModes || ["speech"]).includes(audioMode)) && (!requiredImageMode || model.imageModes?.includes(requiredImageMode))).map((model) => model.value) : modelCatalog.map((model) => model.value);
     return available.length ? available : capability ? [] : config.models;
 }
 
@@ -143,15 +149,19 @@ export function modelCapabilityOf(_config: AiConfig, value: string) {
     return modelCatalog.find((model) => model.value === value)?.output;
 }
 
-export function modelMatchesCapability(config: AiConfig, value: string, capability?: ModelCapability) {
-    return !capability || modelCapabilityOf(config, value) === capability;
+export function modelMatchesCapability(config: AiConfig, value: string, capability?: ModelCapability, imageMode?: "generate" | "edit") {
+    return (!capability || modelCapabilityOf(config, value) === capability) && (capability !== "image" || getAvailableModel(value)?.imageModes?.includes(imageMode || "generate") === true);
 }
 
-export function resolveModelForCapability(config: AiConfig, currentModel: string | undefined, capability: ModelCapability) {
-    const fallback = capability === "image" ? config.imageModel : capability === "video" ? config.videoModel : capability === "audio" ? config.audioModel : config.textModel;
-    if (currentModel && modelMatchesCapability(config, currentModel, capability)) return currentModel;
-    if (fallback && modelMatchesCapability(config, fallback, capability)) return fallback;
-    return selectableModelsByCapability(config, capability)[0] || "";
+export function resolveModelForCapability(config: AiConfig, currentModel: string | undefined, capability: ModelCapability, imageMode?: "generate" | "edit") {
+    const fallback = capability === "image" ? imageMode === "edit" ? config.imageEditModel : config.imageModel : capability === "video" ? config.videoModel : capability === "audio" ? config.audioModel : config.textModel;
+    if (currentModel && modelMatchesCapability(config, currentModel, capability, imageMode)) return currentModel;
+    if (fallback && modelMatchesCapability(config, fallback, capability, imageMode)) return fallback;
+    return selectableModelsByCapability(config, capability, undefined, imageMode)[0] || "";
+}
+
+export function modelSupportsImageMode(value: string, imageMode: "generate" | "edit") {
+    return getAvailableModel(value)?.imageModes?.includes(imageMode) === true;
 }
 
 export function decodeModelReference(value: string) {

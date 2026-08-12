@@ -8,6 +8,7 @@ export type CreativeAssetMediaDraft = {
     audioMode?: CreativeAssetAudioMode;
     transcript?: string;
 };
+export type CharacterDesignProfile = { apparentGender: "female" | "male" | "androgynous" | "unspecified"; voiceGender: "female" | "male" | "androgynous" | "unspecified"; ageBand: string; identityAnchor: string; uncertainties: string[] };
 
 export const CREATIVE_ASSET_NODE_LAYOUT = {
     character: { width: 420, height: 540, title: "角色" },
@@ -28,11 +29,13 @@ export type CreativeAssetVariant = {
     generationId?: string;
     usage?: string;
     transcript?: string;
+    review?: { status: "pending_review" | "approved" | "rejected"; source: "automatic" | "manual"; summary?: string; issues?: string[]; reviewedAt?: string; reviewGenerationId?: string };
     createdAt: string;
 };
 
 export type CreativeAssetPayload = {
     description: string;
+    designProfile: CharacterDesignProfile | null;
     variants: CreativeAssetVariant[];
     primaryImageId: string | null;
     primaryAudioId: string | null;
