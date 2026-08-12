@@ -10,7 +10,7 @@ process.env.DATA_DIR = testData;
 process.env.AUTH_MODE = "fnos";
 process.env.APP_SECRET = "test-secret";
 
-const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createTextNodes }, { resolveAgentToolSearchMode }, { parseSkillAllowedTools }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js")]);
+const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createTextNodes }, { recoverAgentRuns, resolveAgentToolSearchMode }, { parseSkillAllowedTools }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js")]);
 let origin = "";
 const server = app.listen(0, "127.0.0.1");
 
@@ -345,6 +345,14 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     const branchRow = db.prepare("SELECT sdk_session_id, fork_pending, fork_resume_at FROM agent_sessions WHERE id=?").get(branch.body.data.id) as { sdk_session_id: string; fork_pending: number; fork_resume_at: string };
     assert.deepEqual(branchRow, { sdk_session_id: "sdk-session-1", fork_pending: 1, fork_resume_at: "sdk-anchor-1" });
     assert.equal((await api(`/agent/sessions/${heldSession}/fork`, userTwo, { method: "POST", body: JSON.stringify({ fromEventSeq: 3 }) })).response.status, 404);
+
+    const interrupted = await api("/agent/projects/project-1/sessions", userOne, { method: "POST", body: "{}" });
+    db.prepare("UPDATE agent_sessions SET status='running', current_run_id='restart-run' WHERE id=?").run(interrupted.body.data.id);
+    recoverAgentRuns();
+    const recovered = await api(`/agent/projects/project-1/conversation?sessionId=${interrupted.body.data.id}`, userOne);
+    assert.equal(recovered.body.data.session.status, "failed");
+    assert.equal(recovered.body.data.session.events.some((item: { kind: string; payload: { code?: string } }) => item.kind === "error" && item.payload.code === "SERVICE_RESTART_INTERRUPTED"), true);
+    assert.equal(recovered.body.data.session.events.some((item: { kind: string; payload: { state?: string } }) => item.kind === "run_state" && item.payload.state === "failed"), true);
 
     const longSession = await api("/agent/projects/project-1/sessions", userOne, { method: "POST", body: "{}" });
     const insertLongEvent = db.prepare("INSERT INTO agent_events(session_id,seq,run_id,kind,payload,created_at) VALUES(?,?,?,?,?,datetime('now'))");

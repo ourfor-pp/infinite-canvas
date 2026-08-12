@@ -60,7 +60,8 @@ export function buildConversationItems(events: AgentEvent[]): AgentConversationI
     };
     for (const event of projectAgentEvents(events)) {
         const timestamp = Date.parse(event.createdAt);
-        const showTime = Number.isFinite(timestamp) && (!lastTime || timestamp - lastTime >= 5 * 60_000);
+        const forkBoundary = event.kind === "run_state" && Number(event.payload.forkSourceSeq) > 0;
+        const showTime = !forkBoundary && Number.isFinite(timestamp) && (!lastTime || timestamp - lastTime >= 5 * 60_000);
         if (event.kind === "user_text") {
             flush();
             if (showTime) items.push({ type: "time", id: `time-${event.seq}`, label: formatTime(timestamp) });

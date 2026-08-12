@@ -38,6 +38,7 @@ let pumpScheduled = false;
 
 export function recoverAgentRuns() {
     const now = new Date().toISOString();
+    const interrupted = db.prepare("SELECT id, current_run_id FROM agent_sessions WHERE status IN ('running','waiting_for_user')").all() as Array<{ id: string; current_run_id: string | null }>;
     db.transaction(() => {
         db.prepare("UPDATE agent_sessions SET status='failed', current_run_id=NULL, pending_decision=NULL, last_error=?, last_error_code='SERVICE_RESTART_INTERRUPTED', updated_at=? WHERE status IN ('running','waiting_for_user')")
             .run("服务重启中断，当前任务无法安全恢复", now);
@@ -46,6 +47,10 @@ export function recoverAgentRuns() {
         db.prepare("UPDATE agent_queued_messages SET status='held', error='服务重启后等待确认', updated_at=? WHERE status IN ('queued','dispatching','running')").run(now);
         db.prepare("DELETE FROM agent_message_receipts WHERE client_message_id IN (SELECT client_message_id FROM agent_queued_messages WHERE status='held')").run();
     })();
+    interrupted.forEach((session) => {
+        appendEvent(session.id, session.current_run_id, "error", { code: "SERVICE_RESTART_INTERRUPTED", message: "服务重启中断，当前任务无法安全恢复" });
+        appendEvent(session.id, session.current_run_id, "run_state", { state: "failed", content: "服务重启中断，当前任务无法安全恢复" });
+    });
 }
 
 export function getAgentSettings(): AgentSettings {
@@ -119,12 +124,16 @@ export function getConversation(userId: string, projectId: string, sessionId?: s
 
 export function createSession(userId: string, projectId: string, title = "新对话") {
     assertProject(userId, projectId);
+    const session = createSessionRecord(userId, projectId, title);
+    publishProjectSnapshot(userId, projectId);
+    return session;
+}
+
+function createSessionRecord(userId: string, projectId: string, title: string) {
     const now = new Date().toISOString();
     const id = nanoid();
     db.prepare("INSERT INTO agent_sessions(id, user_id, project_id, title, status, created_at, updated_at) VALUES(?, ?, ?, ?, 'idle', ?, ?)").run(id, userId, projectId, title.trim() || "新对话", now, now);
-    const session = sessionResponse(getSessionRow(userId, id)!, true);
-    publishProjectSnapshot(userId, projectId);
-    return session;
+    return sessionResponse(getSessionRow(userId, id)!, true);
 }
 
 export function forkSession(userId: string, sessionId: string, fromEventSeq?: number) {
@@ -135,7 +144,7 @@ export function forkSession(userId: string, sessionId: string, fromEventSeq?: nu
     const anchor = fromEventSeq === undefined ? null : db.prepare("SELECT payload FROM agent_events WHERE session_id=? AND seq<? AND kind='assistant_text' ORDER BY seq DESC LIMIT 1").get(source.id, fromEventSeq) as { payload: string } | undefined;
     const resumeAt = String(parseJson<Record<string, unknown>>(anchor?.payload || "{}", {}).sdkMessageUuid || "").trim();
     if (fromEventSeq !== undefined && fromEventSeq > 1 && source.sdk_session_id && !resumeAt) throw agentError(409, "AGENT_FORK_ANCHOR_MISSING", "这段旧会话没有可安全截断的 SDK 上下文，请从第一条消息重新开始或新建会话");
-    const next = createSession(userId, source.project_id, `${source.title} · 分支`);
+    const next = createSessionRecord(userId, source.project_id, `${source.title} · 分支`);
     db.transaction(() => {
         if (fromEventSeq === undefined) db.prepare("INSERT INTO agent_events(session_id, seq, run_id, kind, payload, created_at) SELECT ?, seq, run_id, kind, payload, created_at FROM agent_events WHERE session_id=? AND kind<>'client_action'").run(next.id, source.id);
         else db.prepare("INSERT INTO agent_events(session_id, seq, run_id, kind, payload, created_at) SELECT ?, seq, run_id, kind, payload, created_at FROM agent_events WHERE session_id=? AND seq<? AND kind<>'client_action'").run(next.id, source.id, fromEventSeq);
@@ -144,7 +153,7 @@ export function forkSession(userId: string, sessionId: string, fromEventSeq?: nu
         db.prepare("UPDATE agent_sessions SET sdk_session_id=?, fork_pending=?, fork_resume_at=?, event_seq=? WHERE id=? AND user_id=?")
             .run(canResume ? source.sdk_session_id : null, Number(canResume), fromEventSeq === undefined ? null : resumeAt || null, eventSeq, next.id, userId);
     })();
-    appendEvent(next.id, null, "run_state", { state: "idle", content: fromEventSeq === undefined ? `从“${source.title}”创建分支` : "从历史消息创建新分支", ...(fromEventSeq === undefined ? {} : { forkSourceSeq: fromEventSeq }) });
+    appendEvent(next.id, null, "run_state", { state: "idle", content: fromEventSeq === undefined ? `从“${source.title}”创建分支` : "从这里重新开始", ...(fromEventSeq === undefined ? {} : { forkSourceSeq: fromEventSeq }) });
     publishProjectSnapshot(userId, source.project_id);
     return sessionResponse(requireSession(userId, next.id), true);
 }

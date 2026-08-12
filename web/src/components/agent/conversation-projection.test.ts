@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildConversationItems, projectAgentEvents, splitAssistantRoundEvents } from "./conversation-projection";
 import type { AgentEvent } from "@/services/api/agent";
 
-const event = (seq: number, kind: AgentEvent["kind"], payload: Record<string, unknown>, runId = "run-1"): AgentEvent => ({ sessionId: "s", seq, runId, kind, payload, createdAt: new Date(seq * 1000).toISOString() });
+const event = (seq: number, kind: AgentEvent["kind"], payload: Record<string, unknown>, runId: string | null = "run-1"): AgentEvent => ({ sessionId: "s", seq, runId, kind, payload, createdAt: new Date(seq * 1000).toISOString() });
 
 describe("conversation projection", () => {
     it("merges streaming text and tool results", () => {
@@ -31,5 +31,13 @@ describe("conversation projection", () => {
         ]));
         expect(result.answers).toHaveLength(1);
         expect(result.answers[0].text).toBe("最终正文");
+    });
+    it("does not add a new timeline marker for a restart boundary", () => {
+        const result = buildConversationItems([
+            { ...event(1, "assistant_text", { text: "此前回复" }), createdAt: "2026-08-12T07:00:00.000Z" },
+            { ...event(2, "run_state", { state: "idle", content: "从这里重新开始", forkSourceSeq: 2 }, null), createdAt: "2026-08-12T08:00:00.000Z" },
+        ]);
+        expect(result.filter((item) => item.type === "time")).toHaveLength(1);
+        expect(result.at(-1)).toMatchObject({ type: "round", events: [expect.objectContaining({ payload: expect.objectContaining({ forkSourceSeq: 2 }) })] });
     });
 });

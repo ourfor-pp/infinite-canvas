@@ -72,4 +72,22 @@ describe("Agent 助手回合", () => {
         expect(holder.textContent).toContain("已允许");
         await act(async () => root.unmount()); holder.remove();
     });
+
+    it("将旧分支状态文案统一显示为重新开始边界", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const events = [{ sessionId: "branch-1", seq: 3, runId: null, kind: "run_state" as const, payload: { state: "idle", content: "从历史消息创建新分支", forkSourceSeq: 3 }, createdAt: new Date().toISOString() }];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="idle" />));
+        expect(holder.textContent).toContain("从这里重新开始");
+        expect(holder.textContent).not.toContain("从历史消息创建新分支");
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("服务端会话已失败时不再显示残留的运行中状态", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const events = [{ sessionId: "session-1", seq: 2, runId: "run-1", kind: "run_state" as const, payload: { state: "running", content: "Agent 已开始处理" }, createdAt: new Date().toISOString() }];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="failed" />));
+        expect(holder.textContent).toContain("Agent 执行失败");
+        expect(holder.textContent).not.toContain("Agent 已开始处理");
+        await act(async () => root.unmount()); holder.remove();
+    });
 });

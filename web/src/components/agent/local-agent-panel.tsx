@@ -68,6 +68,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
     const handledClientActionsRef = useRef(new Set<string>());
     const backgroundEventsRef = useRef(new Map<string, AgentEvent[]>());
     const hydratedDraftScopeRef = useRef("");
+    const activeSessionRef = useRef<AgentSession | null>(null);
 
     const nodes = useMemo(() => canvasContext ? buildCanvasResourceReferences(canvasContext.snapshot.nodes) : [], [canvasContext]);
     const busy = session?.status === "running" || session?.status === "waiting_for_user";
@@ -89,6 +90,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
         let active = true;
         setLoading(true);
         setConversation(null);
+        activeSessionRef.current = null;
         setSession(null);
         setEvents([]);
         setComposerDocument(draft ? { version: 1, segments: [{ type: "text", text: draft }] } : EMPTY_COMPOSER_DOCUMENT);
@@ -153,21 +155,32 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
     }, [attachments, composerDocument, followUpMode, projectId, session?.id]);
 
     useEffect(() => {
-        if (!session?.id) return;
-        void agentApi.turnIndex(session.id).then(setTurnIndex).catch(() => setTurnIndex([]));
+        const sessionId = session?.id;
+        if (!sessionId) return;
+        void agentApi.turnIndex(sessionId).then((items) => {
+            if (activeSessionRef.current?.id === sessionId) setTurnIndex(items);
+        }).catch(() => {
+            if (activeSessionRef.current?.id === sessionId) setTurnIndex([]);
+        });
+    }, [session?.id]);
+
+    useEffect(() => {
         return subscribeAgent(projectId, (event) => {
+            const activeSession = activeSessionRef.current;
             if (event.type === "queue.updated") {
-                if (event.sessionId === session.id) setQueuedMessages(event.queuedMessages);
+                if (event.sessionId === activeSession?.id) setQueuedMessages(event.queuedMessages);
                 return;
             }
             if (event.type === "snapshot") {
                 setConversation((current) => current ? { ...current, sessions: event.sessions } : current);
-                setSession((current) => current ? event.sessions.find((item) => item.id === current.id) || current : current);
-                setQueuedMessages(event.queuedMessages[session.id] || []);
+                if (!activeSession) return;
+                const selected = event.sessions.find((item) => item.id === activeSession.id);
+                if (selected) setActiveSession(selected);
+                setQueuedMessages(event.queuedMessages[activeSession.id] || []);
                 const seen = useAgentStore.getState().seenEventSeqs;
-                setBackgroundUnread(Object.fromEntries(event.sessions.filter((item) => item.id !== session.id && item.eventSeq > (seen[item.id] || 0)).map((item) => [item.id, Math.min(99, item.eventSeq - (seen[item.id] || 0))])));
-                const selected = event.sessions.find((item) => item.id === session.id);
-                if (selected && selected.eventSeq > session.eventSeq) void agentApi.conversation(projectId, session.id).then((next) => {
+                setBackgroundUnread(Object.fromEntries(event.sessions.filter((item) => item.id !== activeSession.id && item.eventSeq > (seen[item.id] || 0)).map((item) => [item.id, Math.min(99, item.eventSeq - (seen[item.id] || 0))])));
+                if (selected && selected.eventSeq > activeSession.eventSeq) void agentApi.conversation(projectId, activeSession.id).then((next) => {
+                    if (activeSessionRef.current?.id !== activeSession.id) return;
                     applyConversation(next);
                     if (next.session) markSessionSeen(next.session.id, next.session.eventSeq);
                 }).catch(() => undefined);
@@ -176,8 +189,8 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
             }
             event.events.filter((item) => item.kind === "client_action").forEach((item) => void runClientAction(event.session.id, item));
             setConversation((current) => current ? { ...current, sessions: upsertSession(current.sessions, event.session), ...(current.session?.id === event.session.id ? { session: event.session } : {}) } : current);
-            if (event.session.id === session.id) {
-                setSession(event.session);
+            if (event.session.id === activeSession?.id) {
+                setActiveSession(event.session);
                 setEvents((current) => mergeEvents(current, event.events));
                 markSessionSeen(event.session.id, event.session.eventSeq);
             } else if (event.events.length) {
@@ -186,7 +199,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
             }
             setAgentState({ connected: true, activity: statusLabel(event.session.status) });
         });
-    }, [projectId, session?.id, streamVersion]);
+    }, [projectId]);
 
     const runClientAction = async (sessionId: string, event: AgentEvent) => {
         const actionId = String(event.payload.actionId || "");
@@ -217,9 +230,14 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
         return () => { dockObserver.disconnect(); };
     }, [projectId]);
 
+    const setActiveSession = (next: AgentSession | null) => {
+        activeSessionRef.current = next;
+        setSession(next);
+    };
+
     const applyConversation = (next: AgentConversation) => {
         setConversation(next);
-        setSession(next.session);
+        setActiveSession(next.session);
         setEvents(next.session?.events || []);
         setQueuedMessages(next.queuedMessages || []);
     };
@@ -265,7 +283,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
         try {
             const created = await agentApi.createSession(projectId);
             setConversation((current) => current ? { ...current, sessions: [created, ...current.sessions], session: created } : current);
-            setSession(created);
+            setActiveSession(created);
             setCurrentSession(projectId, created.id);
             markSessionSeen(created.id, created.eventSeq);
             setEvents([]);
@@ -293,7 +311,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
         try {
             const created = await agentApi.fork(source.id);
             setConversation((current) => current ? { ...current, sessions: [created, ...current.sessions], session: created } : current);
-            setSession(created);
+            setActiveSession(created);
             setCurrentSession(projectId, created.id);
             markSessionSeen(created.id, created.eventSeq);
             setEvents(created.events || []);
@@ -319,7 +337,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
                 return [{ id, fileId: id, name: String(item.name || "附件"), mimeType: String(item.mimeType || "application/octet-stream"), bytes: Number(item.bytes) || 0, metadata: {}, createdAt: event.createdAt, url: "" } satisfies ServerFile];
             });
             setConversation((current) => current ? { ...current, sessions: [created, ...current.sessions.filter((item) => item.id !== created.id)], session: created } : current);
-            setSession(created);
+            setActiveSession(created);
             setCurrentSession(projectId, created.id);
             markSessionSeen(created.id, created.eventSeq);
             setEvents(created.events || []);
@@ -350,7 +368,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
         setDecisionBusy(true);
         try {
             const next = await agentApi.decide(session.id, { decision, scope, comment: answer, ...(proposalEdits === undefined ? {} : { proposalEdits }) });
-            setSession(next);
+            setActiveSession(next);
             setAnswer("");
         } catch (error) { message.error(error instanceof Error ? error.message : "提交失败"); }
         finally { setDecisionBusy(false); }
@@ -365,7 +383,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
 
     const cancel = async () => {
         if (!session) return;
-        try { setSession(await agentApi.cancel(session.id)); }
+        try { setActiveSession(await agentApi.cancel(session.id)); }
         catch (error) { message.error(error instanceof Error ? error.message : "停止任务失败"); }
     };
 
@@ -474,9 +492,10 @@ function QueuedMessages({ items, busy, onSteer, onRetry, onDelete }: { items: Ag
     return <div className="agent-queue-list">{items.map((item) => <div key={item.id} className="agent-queue-item"><span className={`agent-queue-dot is-${item.status}`} /><span className="min-w-0 flex-1"><strong>{item.displayText}</strong><small>{item.status === "queued" ? "等待当前任务完成" : item.status === "held" ? "等待确认" : item.status === "failed" ? item.error || "发送失败" : "正在发送"}</small></span>{["queued", "held", "failed"].includes(item.status) ? <span className="flex shrink-0 gap-1">{item.status === "failed" || item.status === "held" ? <button disabled={busy} onClick={() => onRetry(item.id)}>重试</button> : null}<button disabled={busy} onClick={() => onSteer(item.id)}>马上</button><button disabled={busy} onClick={() => onDelete(item.id)}>删除</button></span> : null}</div>)}</div>;
 }
 
-function mergeEvents(current: AgentEvent[], incoming: AgentEvent[]) {
-    const map = new Map(current.map((event) => [event.seq, event]));
-    incoming.forEach((event) => map.set(event.seq, event));
+export function mergeEvents(current: AgentEvent[], incoming: AgentEvent[]) {
+    const sessionId = current[0]?.sessionId || incoming[0]?.sessionId;
+    const map = new Map(current.filter((event) => !sessionId || event.sessionId === sessionId).map((event) => [event.seq, event]));
+    incoming.filter((event) => !sessionId || event.sessionId === sessionId).forEach((event) => map.set(event.seq, event));
     return Array.from(map.values()).sort((a, b) => a.seq - b.seq);
 }
 
