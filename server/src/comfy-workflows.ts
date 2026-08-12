@@ -20,10 +20,10 @@ export const COMFY_MODELS = [
 ] as const;
 
 export type ComfyModel = (typeof COMFY_MODELS)[number];
-export type GenerationPurpose = "default" | "image-edit" | "image-inpaint" | "image-upscale-faithful" | "image-upscale-generative" | "image-angle";
-export type ImageMode = "generate" | "edit" | "inpaint" | "upscale-faithful" | "upscale-generative" | "angle";
+export type GenerationPurpose = "default" | "image-inpaint" | "image-upscale-faithful" | "image-upscale-generative" | "image-angle";
+export type ImageMode = "generate" | "edit";
 
-export type ImageWorkflowPurpose = Exclude<GenerationPurpose, "default" | "image-edit">;
+export type ImageWorkflowPurpose = Exclude<GenerationPurpose, "default">;
 
 export const PURPOSE_MODELS: Record<ImageWorkflowPurpose, ComfyModel> = {
     "image-inpaint": "qwen-image-inpaint-local",
@@ -32,14 +32,14 @@ export const PURPOSE_MODELS: Record<ImageWorkflowPurpose, ComfyModel> = {
     "image-angle": "qwen-image-edit-2511-local",
 };
 
-export const COMFY_MODEL_DEFINITIONS: Record<ComfyModel, { name: string; output: "image" | "video" | "audio"; inputs: Array<"text" | "image" | "video" | "audio">; selectable: boolean; imageModes?: ImageMode[] }> = {
+export const COMFY_MODEL_DEFINITIONS: Record<ComfyModel, { name: string; output: "image" | "video" | "audio"; inputs: Array<"text" | "image" | "video" | "audio">; selectable: boolean; imageModes?: ImageMode[]; maxReferenceImages?: number }> = {
     "qwen-image-2512-local": { name: "Qwen Image 2512 FP8", output: "image", inputs: ["text"], selectable: true, imageModes: ["generate"] },
     "z-image-turbo-local": { name: "Z-Image Turbo", output: "image", inputs: ["text"], selectable: true, imageModes: ["generate"] },
-    "qwen-image-edit-2511-local": { name: "Qwen Image Edit 2511", output: "image", inputs: ["text", "image"], selectable: true, imageModes: ["edit", "angle"] },
-    "qwen-image-inpaint-local": { name: "Qwen Image 局部编辑", output: "image", inputs: ["text", "image"], selectable: false, imageModes: ["inpaint"] },
-    "realesrgan-x4-local": { name: "RealESRGAN 忠实超分", output: "image", inputs: ["image"], selectable: false, imageModes: ["upscale-faithful"] },
-    "z-image-upscale-local": { name: "Z-Image 细节增强", output: "image", inputs: ["text", "image"], selectable: false, imageModes: ["upscale-generative"] },
-    "hidream-o1-full-fp8-local": { name: "HiDream-O1 Full FP8", output: "image", inputs: ["text", "image"], selectable: true, imageModes: ["generate", "edit"] },
+    "qwen-image-edit-2511-local": { name: "Qwen Image Edit 2511", output: "image", inputs: ["text", "image"], selectable: true, imageModes: ["edit"], maxReferenceImages: 3 },
+    "qwen-image-inpaint-local": { name: "Qwen Image 局部编辑", output: "image", inputs: ["text", "image"], selectable: false },
+    "realesrgan-x4-local": { name: "RealESRGAN 忠实超分", output: "image", inputs: ["image"], selectable: false },
+    "z-image-upscale-local": { name: "Z-Image 细节增强", output: "image", inputs: ["text", "image"], selectable: false },
+    "hidream-o1-full-fp8-local": { name: "HiDream-O1 Full FP8", output: "image", inputs: ["text", "image"], selectable: true, imageModes: ["generate", "edit"], maxReferenceImages: 1 },
     "minimax-h3-fl2va-local": { name: "MiniMax H3 FL2VA", output: "video", inputs: ["text", "image"], selectable: true },
     "minimax-h3-ref2va-local": { name: "MiniMax H3 Ref2VA", output: "video", inputs: ["text", "image", "video", "audio"], selectable: true },
     "voxcpm2-local": { name: "VoxCPM2", output: "audio", inputs: ["text", "audio"], selectable: true },

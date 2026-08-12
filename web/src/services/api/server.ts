@@ -39,13 +39,13 @@ export type ServerGeneration = {
 export type ComfyServer = { id: string; name: string; url: string; enabled: boolean; models: string[]; createdAt: string; updatedAt: string };
 export type ComfyTestResult = { available: boolean; workflows: Array<{ id: string; available: boolean; missing: string[] }> };
 export type ModelCapability = "text" | "image" | "video" | "audio";
-export type ImageMode = "generate" | "edit" | "inpaint" | "upscale-faithful" | "upscale-generative" | "angle";
+export type ImageMode = "generate" | "edit";
 export type ImageWorkflowPurpose = "image-inpaint" | "image-upscale-faithful" | "image-upscale-generative" | "image-angle";
 export type AudioMode = "speech" | "ambient" | "sfx";
 export type ModelEndpoint = "openai-chat" | "anthropic-messages" | "gemini-generate" | "openai-images" | "openai-images-generations" | "openai-images-edits" | "gemini-image" | "ark-image" | "openai-video" | "ark-seedance" | "gemini-video" | "openai-tts" | "gemini-audio";
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: ModelCapability; inputs: ModelCapability[]; method: "POST"; path: string; agent: boolean };
 export type AiGlobalSettings = { config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string; creativeAssetReviewModel: string }; imageEditModel: string; imageWorkflows: Record<ImageWorkflowPurpose, string>; promptSources: { sources: Array<Record<string, unknown>>; schedule: Record<string, unknown> } };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: ModelCapability; inputs: ModelCapability[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; imageModes?: ImageMode[]; imageReferenceRoles?: Array<"subject" | "style" | "composition">; maxReferenceImages?: number };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: ModelCapability; inputs: ModelCapability[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; imageModes?: ImageMode[]; maxReferenceImages?: number };
 export type PublicAiModel = Omit<AiModelDefinition, "endpoint" | "agentEnabled"> & { value: string; providerId: string; providerName: string };
 export type AiProvider = {
     id: string;
@@ -71,9 +71,9 @@ export type CreativeAssetGenerationPreview = {
     model: { value: string; name: string; providerName: string; inputs: ModelCapability[]; audioModes?: AudioMode[] };
     prompt: string;
     instructions: string;
-    references: Array<{ fileId: string; kind: "image" | "audio"; source: "style" | "asset" | "canvas" | "primary"; label: string }>;
+    references: Array<{ fileId: string; kind: "image" | "audio"; source: "style" | "asset" | "canvas" | "primary"; label: string; nodeId?: string; title?: string }>;
     style: { id: string; revision: number; name: string; description: string; referenceFileId: string | null; imageApplied: boolean } | null;
-    canvasInputs: { texts: string[]; imageFileIds: string[]; audioFileIds: string[] };
+    canvasInputs: { texts: string[]; imageFileIds: string[]; audioFileIds: string[]; imageReferences: Array<{ nodeId: string; fileId: string; label: string; title: string }>; audioReferences: Array<{ nodeId: string; fileId: string; label: string; title: string }> };
     warnings: Array<{ code: string; message: string; blocking: boolean }>;
     params: Record<string, unknown>;
 };

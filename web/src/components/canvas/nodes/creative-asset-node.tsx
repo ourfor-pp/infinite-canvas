@@ -6,6 +6,9 @@ import { MediaEditorPopover } from "@/components/canvas/media-editor/media-edito
 import { MediaPreview } from "@/components/canvas/media-editor/media-preview";
 import { useCreativeAssetMediaTarget } from "@/components/canvas/media-editor/creative-asset-target";
 import { serverFileUrl } from "@/services/api/server";
+import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
+import { editCreativeAssetMediaEvent } from "@/lib/canvas/canvas-ui-events";
+import { focusVisualStyleEvent } from "@/lib/canvas/canvas-ui-events";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
@@ -51,14 +54,29 @@ function CreativeAssetCard({ asset, generations, ctx }: { asset: CreativeAsset; 
     const Icon = meta.icon;
     const primaryImage = primaryVariant(asset, "image");
     const primaryAudio = primaryVariant(asset, "audio");
-    const candidates = asset.payload.variants.filter((item) => item.usage !== "reference_input");
     const inbound = ctx.getConnections().filter((connection) => connection.toNodeId === ctx.node.id);
     const linked = (portId: string) => inbound.filter((connection) => connection.toPortId === portId).length;
-    const imageTarget = useCreativeAssetMediaTarget(asset, ctx.node.id, "image", { images: linked("reference-image"), audios: linked("reference-audio") }, generations?.image);
-    const audioTarget = useCreativeAssetMediaTarget(asset, ctx.node.id, "audio", { images: linked("reference-image"), audios: linked("reference-audio") }, generations?.audio);
+    const canvasReferences = buildCanvasResourceReferences(ctx.getNodes()).map((reference) => ({ ...reference, active: inbound.some((connection) => connection.fromNodeId === reference.nodeId && connection.toPortId === (reference.kind === "audio" ? "reference-audio" : "reference-image")) }));
+    const mediaConnections = (kind: "image" | "audio") => ({
+        references: canvasReferences,
+        connect: (reference: (typeof canvasReferences)[number]) => ctx.applyOps([{ type: "connect_nodes", fromNodeId: reference.nodeId, fromPortId: "output", toNodeId: ctx.node.id, toPortId: kind === "image" ? "reference-image" : "reference-audio" }]),
+        disconnect: (sourceNodeId: string) => ctx.applyOps([{ type: "delete_connections", ids: inbound.filter((connection) => connection.fromNodeId === sourceNodeId && connection.toPortId === (kind === "image" ? "reference-image" : "reference-audio")).map((connection) => connection.id) }]),
+    });
+    const imageTarget = useCreativeAssetMediaTarget(asset, ctx.node.id, "image", mediaConnections("image"), generations?.image);
+    const audioTarget = useCreativeAssetMediaTarget(asset, ctx.node.id, "audio", mediaConnections("audio"), generations?.audio);
+
+    useEffect(() => {
+        const openFromCanvas = (event: Event) => {
+            const detail = (event as CustomEvent<{ nodeId?: string; kind?: "image" | "audio" }>).detail;
+            if (detail?.nodeId === ctx.node.id) setEditor(detail.kind || "image");
+        };
+        window.addEventListener(editCreativeAssetMediaEvent, openFromCanvas);
+        return () => window.removeEventListener(editCreativeAssetMediaEvent, openFromCanvas);
+    }, [ctx.node.id]);
 
     useEffect(() => { if (!dirtyRef.current) { draftRef.current = asset; setDraft(asset); } }, [asset]);
     useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+    useEffect(() => { const close = () => setEditor(null); window.addEventListener(focusVisualStyleEvent, close); return () => window.removeEventListener(focusVisualStyleEvent, close); }, []);
     const change = (patch: Partial<CreativeAsset>) => {
         const next = { ...draftRef.current, ...patch };
         draftRef.current = next;
@@ -116,14 +134,14 @@ function CreativeAssetCard({ asset, generations, ctx }: { asset: CreativeAsset; 
     return <article className="group/card relative flex size-full flex-col overflow-hidden p-4" style={{ background: ctx.theme.node.panel, color: ctx.theme.node.text }} data-canvas-no-zoom onMouseDownCapture={(event) => { if ((event.target as Element)?.closest("input,textarea,button,audio,.ant-dropdown,.ant-image")) event.stopPropagation(); }}>
         <header className="flex items-center gap-2"><span className="grid size-8 shrink-0 place-items-center rounded-lg border" style={{ borderColor: `${meta.accent}70`, color: meta.accent }}><Icon className="size-4" /></span><Input variant="borderless" className="min-w-0 flex-1 !px-1 !text-lg !font-semibold" value={draft.name} onChange={(event) => change({ name: event.target.value })} aria-label={`${meta.label}名称`} />{dirty ? <span className="size-1.5 rounded-full" title="正在自动保存" style={{ background: meta.accent }} /> : null}{asset.status === "locked" ? <LockKeyhole className="size-3.5 opacity-45" /> : asset.status === "confirmed" ? <Check className="size-3.5 opacity-45" /> : null}<Tooltip title="交给 Agent"><Button type="text" size="small" icon={<Bot className="size-4" />} onClick={() => void askAgent()} /></Tooltip><Dropdown trigger={["click"]} menu={menu}><Button type="text" size="small" icon={<MoreHorizontal className="size-4" />} /></Dropdown></header>
 
-        <div ref={imageAnchorRef} className="mt-4"><div className="mb-2 flex items-center justify-between text-[10px] font-medium tracking-wide" style={{ color: ctx.theme.node.muted }}><span>{meta.sheet}{candidates.filter((item) => item.kind === "image").length ? ` · ${candidates.filter((item) => item.kind === "image").length} 个版本` : ""}</span><Button type="text" size="small" className="!-mr-2 !h-6 !px-2 !text-[11px]" icon={<SlidersHorizontal className="size-3" />} onClick={() => void openEditor("image")}>调图</Button></div><div className="relative aspect-video overflow-hidden rounded-xl border" style={{ borderColor: ctx.theme.node.stroke, background: `${meta.accent}0c` }}><MediaPreview kind="image" url={primaryImage ? serverFileUrl(`server:${primaryImage.fileId}`) : undefined} title={asset.name} emptyLabel={generations?.image ? `生成中 ${Math.round(generations.image.progress * 100)}%` : candidates.some((item) => item.kind === "image") ? "已有候选，调图后选择主图" : "打开调图生成设计图"} />{generations?.image ? <Progress value={generations.image.progress} color={meta.accent} /> : null}</div></div>
+        <div ref={imageAnchorRef} className="mt-4"><div className="mb-2 flex items-center justify-between text-[10px] font-medium tracking-wide" style={{ color: ctx.theme.node.muted }}><span>{meta.sheet}</span><Button type="text" size="small" className="!-mr-2 !h-6 !px-2 !text-[11px]" icon={<SlidersHorizontal className="size-3" />} onClick={() => void openEditor("image")}>调图</Button></div><div className="relative aspect-video overflow-hidden rounded-xl border" style={{ borderColor: ctx.theme.node.stroke, background: `${meta.accent}0c` }}><MediaPreview kind="image" url={primaryImage ? serverFileUrl(`server:${primaryImage.fileId}`) : undefined} title={asset.name} emptyLabel={generations?.image ? `生成中 ${Math.round(generations.image.progress * 100)}%` : "打开调图生成设计图"} onEdit={() => void openEditor("image")} />{generations?.image ? <Progress value={generations.image.progress} color={meta.accent} /> : null}</div></div>
         <MediaEditorPopover anchorRef={imageAnchorRef} open={editor === "image"} onClose={() => setEditor(null)} target={imageTarget} />
 
         <label className="mt-3 block"><span className="mb-1.5 flex items-center justify-between text-[10px] font-medium" style={{ color: ctx.theme.node.muted }}><span>描述</span><span>{linked("setting") ? `已连接 ${linked("setting")} 段设定` : ""}{linked("style") ? " · 已连接风格" : ""}</span></span><Input.TextArea value={draft.payload.description} onChange={(event) => change({ payload: { ...draft.payload, description: event.target.value } })} autoSize={{ minRows: 3, maxRows: 4 }} placeholder={descriptionPlaceholder(asset.kind)} /></label>
 
         {asset.kind === "character" && draft.payload.designProfile ? <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-current/10 px-2.5 py-2 text-[10px]" style={{ color: ctx.theme.node.muted }}><span>外观 {genderLabel(draft.payload.designProfile.apparentGender)}</span><span>声音 {genderLabel(draft.payload.designProfile.voiceGender)}</span>{draft.payload.designProfile.ageBand ? <span>年龄 {draft.payload.designProfile.ageBand}</span> : null}{draft.payload.designProfile.uncertainties.length ? <Tooltip title={draft.payload.designProfile.uncertainties.join("；")}><span className="text-amber-600">{draft.payload.designProfile.uncertainties.length} 项待确认</span></Tooltip> : null}</div> : null}
 
-        <div ref={audioAnchorRef} className="mt-auto border-t pt-3" style={{ borderColor: ctx.theme.node.stroke }}><div className="flex items-center gap-2"><Headphones className="size-4" style={{ color: meta.accent }} /><span className="text-[11px] font-medium">{meta.audio}</span>{primaryAudio ? <audio src={serverFileUrl(`server:${primaryAudio.fileId}`)} controls className="h-8 min-w-0 flex-1" /> : <span className="min-w-0 flex-1 truncate text-[10px] opacity-35">{generations?.audio ? `生成中 ${Math.round(generations.audio.progress * 100)}%` : candidates.some((item) => item.kind === "audio") ? "已有候选待选择" : "尚未设计"}</span>}<Button type="text" size="small" className="!-mr-2 !h-7 !px-2 !text-[11px]" icon={<SlidersHorizontal className="size-3" />} onClick={() => void openEditor("audio")}>调声音</Button></div></div>
+        <div ref={audioAnchorRef} className="mt-auto border-t pt-3" style={{ borderColor: ctx.theme.node.stroke }}><div className="flex items-center gap-2"><Headphones className="size-4" style={{ color: meta.accent }} /><span className="text-[11px] font-medium">{meta.audio}</span>{primaryAudio ? <audio src={serverFileUrl(`server:${primaryAudio.fileId}`)} controls className="h-8 min-w-0 flex-1" /> : <span className="min-w-0 flex-1 truncate text-[10px] opacity-35">{generations?.audio ? `生成中 ${Math.round(generations.audio.progress * 100)}%` : "尚未设计"}</span>}<Button type="text" size="small" className="!-mr-2 !h-7 !px-2 !text-[11px]" icon={<SlidersHorizontal className="size-3" />} onClick={() => void openEditor("audio")}>调声音</Button></div></div>
         <MediaEditorPopover anchorRef={audioAnchorRef} open={editor === "audio"} onClose={() => setEditor(null)} target={audioTarget} />
     </article>;
 }

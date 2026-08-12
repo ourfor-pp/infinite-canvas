@@ -2,11 +2,15 @@ import { useMemo } from "react";
 import { App } from "antd";
 
 import { randomId } from "@/lib/utils";
+import { requestVisualStyleFocus } from "@/lib/canvas/canvas-ui-events";
 import { serverApi, serverFileUrl, uploadServerFile } from "@/services/api/server";
 import { useAgentStore } from "@/stores/use-agent-store";
+import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
+import { useVisualStyleStore } from "@/stores/use-visual-style-store";
 import type { CreativeAsset, CreativeAssetKind, CreativeAssetVariant } from "@/types/creative-asset";
+import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { MediaEditorDraft, MediaEditorReference, MediaEditorTarget } from "./types";
 
 const META = {
@@ -15,22 +19,31 @@ const META = {
     prop: { label: "道具", image: "道具设计图", audio: "道具音效" },
 } satisfies Record<CreativeAssetKind, { label: string; image: string; audio: string }>;
 
-export function useCreativeAssetMediaTarget(asset: CreativeAsset, nodeId: string, kind: "image" | "audio", connected: { images: number; audios: number }, running?: { id: string; status: string; progress: number }): MediaEditorTarget {
+type CreativeAssetMediaConnections = {
+    references: CanvasResourceReference[];
+    connect: (reference: CanvasResourceReference) => void;
+    disconnect: (nodeId: string) => void;
+};
+
+export function useCreativeAssetMediaTarget(asset: CreativeAsset, nodeId: string, kind: "image" | "audio", connections: CreativeAssetMediaConnections, running?: { id: string; status: string; progress: number }): MediaEditorTarget {
     const { modal } = App.useApp();
     const config = useEffectiveConfig();
     const update = useCreativeAssetStore((state) => state.update);
     const generate = useCreativeAssetStore((state) => state.generate);
     const preview = useCreativeAssetStore((state) => state.previewGeneration);
-    const setPrimary = useCreativeAssetStore((state) => state.setPrimary);
-    const reviewVariant = useCreativeAssetStore((state) => state.reviewVariant);
+    const project = useCanvasStore((state) => state.projects.find((item) => item.id === asset.projectId));
+    const styles = useVisualStyleStore((state) => state.styles);
     const meta = META[asset.kind];
     return useMemo(() => {
         const draft = asset.payload.mediaDrafts[kind];
-        const references: MediaEditorReference[] = asset.payload.variants.filter((item) => item.kind === kind && item.usage === "reference_input").map((item) => ({ id: item.id, label: item.label || (kind === "image" ? "参考图" : "参考音频"), kind, url: serverFileUrl(`server:${item.fileId}`), source: "asset" as const }));
-        const linked = kind === "image" ? connected.images : connected.audios;
-        for (let index = 0; index < linked; index += 1) references.push({ id: `canvas-${kind}-${index}`, label: kind === "image" ? "画布参考图" : "画布参考音频", kind, source: "canvas" });
+        const assetReferences = asset.payload.variants.filter((item) => item.kind === kind && item.usage === "reference_input");
+        const references: MediaEditorReference[] = assetReferences.map((item, index) => ({ id: item.id, label: item.label || `参考${kind === "image" ? "图" : "音频"}${index + 1}`, kind, url: serverFileUrl(`server:${item.fileId}`), source: "asset" as const }));
+        references.push(...connections.references.filter((item) => item.kind === kind && item.active).map((item) => ({ id: `canvas:${item.nodeId}`, nodeId: item.nodeId, label: item.label, kind, url: item.previewUrl, source: "canvas" as const })));
         const primaryId = kind === "image" ? asset.payload.primaryImageId : asset.payload.primaryAudioId;
         const variants = asset.payload.variants.filter((item) => item.kind === kind && item.usage !== "reference_input").map((item) => ({ id: item.id, label: item.label, kind, url: serverFileUrl(`server:${item.fileId}`), prompt: item.prompt, primary: item.id === primaryId, review: item.review }));
+        const styleConnection = project?.connections.find((item) => item.toNodeId === nodeId && item.toPortId === "style");
+        const linkedStyleId = project?.nodes.find((item) => item.id === styleConnection?.fromNodeId)?.metadata?.visualStyleId;
+        const style = styles.find((item) => item.id === (linkedStyleId || project?.defaultVisualStyleId));
         const saveDraft = async (next: MediaEditorDraft) => {
             const current = useCreativeAssetStore.getState().assets.find((item) => item.id === asset.id) || asset;
             await update(asset.id, { payload: { mediaDrafts: { [kind]: { ...current.payload.mediaDrafts[kind], ...next, model: next.model || null } } } });
@@ -43,15 +56,24 @@ export function useCreativeAssetMediaTarget(asset: CreativeAsset, nodeId: string
             imageMode: kind === "image" ? references.length ? "edit" : "generate" : undefined,
             allowEmptyPrompt: kind === "image",
             separateSpeechTranscript: kind === "audio" && asset.kind === "character",
+            visualStyle: style ? { id: style.id, name: style.name, status: style.status, source: linkedStyleId ? "linked" : "default" } : null,
+            configureVisualStyle: kind === "image" ? () => requestVisualStyleFocus(style?.id) : undefined,
             snapshot: { draft: { ...draft, model: draft.model || "" }, references, variants, running },
             config,
+            mentionReferences: connections.references.filter((item) => item.kind === kind),
+            activateReference: connections.connect,
+            removeReference: async (reference) => {
+                if (reference.source === "canvas" && reference.nodeId) return connections.disconnect(reference.nodeId);
+                const current = useCreativeAssetStore.getState().assets.find((item) => item.id === asset.id) || asset;
+                await update(asset.id, { payload: { variants: current.payload.variants.filter((item) => item.id !== reference.id) } });
+            },
             saveDraft,
             preview: () => preview(asset.id, { kind, nodeId }),
             generate: async () => {
                 const sending = await preview(asset.id, { kind, nodeId });
                 const draftStyle = sending.warnings.find((warning) => warning.code === "VISUAL_STYLE_NOT_CONFIRMED");
                 if (!draftStyle) return generate(asset.id, { kind, nodeId });
-                const proceed = await new Promise<boolean>((resolve) => modal.confirm({ title: "风格尚未确认", content: draftStyle.message, okText: "仍然生成", cancelText: "返回确认风格", onOk: () => resolve(true), onCancel: () => resolve(false) }));
+                const proceed = await new Promise<boolean>((resolve) => modal.confirm({ title: "风格尚未确认", content: `${draftStyle.message}。你可以选择模板、上传参考图后分析，或交给 Agent 设计；完成后在风格卡点击“确认当前风格”。`, okText: "仍然生成", cancelText: "去配置风格", onOk: () => resolve(true), onCancel: () => { requestVisualStyleFocus(style?.id); resolve(false); } }));
                 if (!proceed) return;
                 return generate(asset.id, { kind, nodeId, allowDraftStyle: true });
             },
@@ -59,16 +81,15 @@ export function useCreativeAssetMediaTarget(asset: CreativeAsset, nodeId: string
             uploadReference: async (file: File) => {
                 const uploaded = await uploadServerFile(file, file.name);
                 const current = useCreativeAssetStore.getState().assets.find((item) => item.id === asset.id) || asset;
-                const variant: CreativeAssetVariant = { id: randomId(), kind, fileId: uploaded.fileId, label: kind === "image" ? "参考图" : "参考音频", prompt: "", usage: "reference_input", createdAt: new Date().toISOString() };
+                const referenceCount = current.payload.variants.filter((item) => item.kind === kind && item.usage === "reference_input").length;
+                const variant: CreativeAssetVariant = { id: randomId(), kind, fileId: uploaded.fileId, label: `参考${kind === "image" ? "图" : "音频"}${referenceCount + 1}`, prompt: "", usage: "reference_input", createdAt: new Date().toISOString() };
                 await update(asset.id, { payload: { variants: [...current.payload.variants, variant] } });
             },
-            setPrimary: (variantId: string) => setPrimary(asset.id, variantId),
-            reviewVariant: (variantId, accepted, makePrimary) => reviewVariant(asset.id, variantId, accepted, makePrimary),
             askAgent: async () => {
                 const store = useAgentStore.getState();
                 store.prepareComposer(asset.projectId, { kind: "asset", projectId: asset.projectId, assetId: asset.id, nodeId, title: asset.name, subtitle: `${meta.label} · ${kind === "image" ? "调图" : "调声音"}` });
                 if (!store.drafts[asset.projectId]?.trim()) store.setDraft(asset.projectId, `请优化“${asset.name}”的${kind === "image" ? "设计图提示词" : meta.audio + "描述"}，保留当前设定的一致性。`);
             },
         } satisfies MediaEditorTarget;
-    }, [asset, config, connected.audios, connected.images, generate, kind, meta.audio, meta.image, meta.label, modal, nodeId, preview, reviewVariant, running, setPrimary, update]);
+    }, [asset, config, connections, generate, kind, meta.audio, meta.image, meta.label, modal, nodeId, preview, project, running, styles, update]);
 }

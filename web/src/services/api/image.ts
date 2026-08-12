@@ -20,13 +20,13 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     return generationFiles(generation).map((file) => ({ id: file.id || nanoid(), dataUrl: file.url }));
 }
 
-export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions, purpose: "image-edit" | "image-inpaint" | "image-angle" = mask ? "image-inpaint" : "image-edit", toolParams: Record<string, unknown> = {}) {
+export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions, purpose?: "image-inpaint" | "image-angle", toolParams: Record<string, unknown> = {}) {
     const files = await Promise.all([...references, ...(mask ? [mask] : [])].map((reference) => ensureServerReference(reference, "image")));
     const editModel = [config.model, config.imageEditModel].find((model) => modelSupportsImageMode(model, "edit"));
     const generation = await runServerGeneration({
         kind: "image",
-        model: purpose === "image-edit" ? editModel : undefined,
-        purpose,
+        model: purpose ? undefined : editModel,
+        ...(purpose ? { purpose } : {}),
         prompt: buildImageReferencePromptText(prompt, references),
         params: { ...imageParams(config), ...toolParams, maskFileId: mask ? files.at(-1)?.fileId : undefined },
         references: files,

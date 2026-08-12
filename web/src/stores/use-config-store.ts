@@ -6,7 +6,7 @@ import { scheduleServerSettingsSave } from "@/services/server-settings";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ModelInputCapability = ModelCapability;
 export type AudioMode = "speech" | "ambient" | "sfx";
-export type ImageMode = "generate" | "edit" | "inpaint" | "upscale-faithful" | "upscale-generative" | "angle";
+export type ImageMode = "generate" | "edit";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 export type AiModelOption = {
     id: string;
@@ -77,7 +77,7 @@ type ConfigStore = {
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
     hydrateFromServer: (config?: Partial<AiConfig>) => void;
-    hydrateModels: (models: AiModelOption[], defaults?: Partial<Record<ModelCapability, string>>) => void;
+    hydrateModels: (models: AiModelOption[], defaults?: Partial<Record<ModelCapability, string>>, imageEditDefault?: string) => void;
 };
 
 let modelCatalog: AiModelOption[] = [];
@@ -91,7 +91,7 @@ export const useConfigStore = create<ConfigStore>()((set) => ({
     }),
     isAiConfigReady: (_config, model) => Boolean(model && modelCatalog.some((item) => item.value === model && item.enabled)),
     hydrateFromServer: (persistedConfig = {}) => set((state) => ({ hydrated: true, config: normalizeConfig({ ...state.config, ...persistedConfig }) })),
-    hydrateModels: (models, defaults = {}) => set((state) => {
+    hydrateModels: (models, defaults = {}, imageEditDefault = "") => set((state) => {
         modelCatalog = models.filter((model) => model.enabled);
         const values = modelCatalog.map((model) => model.value);
         const pick = (current: string, capability: ModelCapability, imageMode?: "generate" | "edit") => modelCatalog.some((model) => model.value === defaults[capability] && model.output === capability && (!imageMode || model.imageModes?.includes(imageMode)))
@@ -105,7 +105,7 @@ export const useConfigStore = create<ConfigStore>()((set) => ({
                 ...state.config,
                 models: values,
                 imageModel,
-                imageEditModel: pick(state.config.imageEditModel, "image", "edit"),
+                imageEditModel: modelCatalog.some((model) => model.value === imageEditDefault && model.imageModes?.includes("edit")) ? imageEditDefault : pick(state.config.imageEditModel, "image", "edit"),
                 videoModel: pick(state.config.videoModel, "video"),
                 textModel: pick(state.config.textModel, "text"),
                 audioModel: pick(state.config.audioModel, "audio"),

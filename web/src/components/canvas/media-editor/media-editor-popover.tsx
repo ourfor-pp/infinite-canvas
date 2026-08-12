@@ -17,7 +17,7 @@ export function MediaEditorPopover({ anchorRef, open, onClose, target }: { ancho
         const sync = () => setRect(anchorRef.current?.getBoundingClientRect() || null);
         const outside = (event: PointerEvent) => {
             const node = event.target;
-            if (!(node instanceof Node) || anchorRef.current?.contains(node) || panelRef.current?.contains(node) || (node instanceof Element && node.closest("[role=listbox],.ant-select-dropdown,.media-image-preview,.ant-image-preview-root,.ant-image-preview-wrap,.ant-image-preview-mask,.ant-image-preview-close,.ant-image-preview-operations-wrapper,.ant-popover"))) return;
+            if (!(node instanceof Node) || anchorRef.current?.contains(node) || panelRef.current?.contains(node) || (node instanceof Element && node.closest("[role=listbox],[data-canvas-resource-mention-menu],.ant-select-dropdown,.media-image-preview,.ant-image-preview-root,.ant-image-preview-wrap,.ant-image-preview-mask,.ant-image-preview-close,.ant-image-preview-operations-wrapper,.ant-popover"))) return;
             onClose();
         };
         window.dispatchEvent(new CustomEvent(eventName, { detail: target.key }));

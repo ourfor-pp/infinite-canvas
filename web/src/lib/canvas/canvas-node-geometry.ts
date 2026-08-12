@@ -1,6 +1,22 @@
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ConnectionHandle } from "@/types/canvas";
 import { compatibleTargetPort, nodePorts, portById } from "./canvas-ports";
 
+export type CanvasFocusBounds = { left: number; top: number; right: number; bottom: number };
+
+export function viewportForCanvasBounds(bounds: CanvasFocusBounds, viewportSize: { width: number; height: number }, maxZoom = 2) {
+    const inset = { left: 56, right: 56, top: 76, bottom: 88 };
+    const availableWidth = Math.max(1, viewportSize.width - inset.left - inset.right);
+    const availableHeight = Math.max(1, viewportSize.height - inset.top - inset.bottom);
+    const width = Math.max(1, bounds.right - bounds.left);
+    const height = Math.max(1, bounds.bottom - bounds.top);
+    const k = Math.min(Math.max(Math.min(availableWidth / width, availableHeight / height), 0.05), maxZoom);
+    const screenCenterX = inset.left + availableWidth / 2;
+    const screenCenterY = inset.top + availableHeight / 2;
+    const worldCenterX = (bounds.left + bounds.right) / 2;
+    const worldCenterY = (bounds.top + bounds.bottom) / 2;
+    return { x: screenCenterX - worldCenterX * k, y: screenCenterY - worldCenterY * k, k };
+}
+
 export function nodeBounds(nodes: CanvasNodeData[]) {
     return nodes.reduce(
         (acc, node) => ({

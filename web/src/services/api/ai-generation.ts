@@ -4,7 +4,7 @@ export type GenerationKind = ServerGeneration["kind"];
 export type GenerationInput = {
     kind: GenerationKind;
     model?: string;
-    purpose?: "default" | "image-edit" | "image-inpaint" | "image-upscale-faithful" | "image-upscale-generative" | "image-angle";
+    purpose?: "default" | "image-inpaint" | "image-upscale-faithful" | "image-upscale-generative" | "image-angle";
     prompt?: string;
     messages?: Array<{ role: "system" | "user" | "assistant"; content: unknown }>;
     params?: Record<string, unknown>;

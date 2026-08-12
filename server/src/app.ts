@@ -47,7 +47,7 @@ const generationParamsSchema = jsonRecord.superRefine((value, context) => {
 const generationSchema = z.object({
     kind: z.enum(["image", "video", "audio", "text"]),
     model: z.string().trim().min(3).optional(),
-    purpose: z.enum(["default", "image-edit", "image-inpaint", "image-upscale-faithful", "image-upscale-generative", "image-angle"]).default("default"),
+    purpose: z.enum(["default", "image-inpaint", "image-upscale-faithful", "image-upscale-generative", "image-angle"]).default("default"),
     prompt: z.string().max(200_000).optional(),
     messages: z.array(z.object({ role: z.enum(["system", "user", "assistant"]), content: z.string().max(200_000) })).max(500).optional(),
     params: generationParamsSchema.optional(),

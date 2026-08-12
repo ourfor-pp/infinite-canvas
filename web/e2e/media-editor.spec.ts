@@ -25,15 +25,14 @@ test("业务卡媒体编辑器通过 Portal 打开且不改变节点尺寸", asy
     await expect(page.getByTestId("agent-calls")).toHaveText("1");
 });
 
-test("图片点击只进入预览且浮层适配窄视口与深色主题", async ({ page }) => {
+test("业务主图点击直接打开调图浮层且适配窄视口与深色主题", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 760 });
     await page.goto("/__media-editor-test.html");
-    await page.locator(".ant-image").first().click();
-    await expect(page.getByRole("dialog", { name: "林夏" })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "林夏" })).toBeHidden();
-    await page.getByRole("button", { name: "切换主题" }).click();
+    await page.getByRole("button", { name: "调整林夏图片" }).click();
+    await expect(page.getByTestId("media-editor-popover")).toBeVisible();
     await page.getByRole("button", { name: /调\s*图/ }).click();
+    await page.getByRole("button", { name: "切换主题" }).click();
+    await page.getByRole("button", { name: "调整林夏图片" }).click();
     const previewToggle = page.getByRole("button", { name: "最终提示词" });
     await expect(previewToggle).toBeVisible();
     const popover = page.getByTestId("media-editor-popover");
@@ -41,4 +40,20 @@ test("图片点击只进入预览且浮层适配窄视口与深色主题", async
     const box = await popover.boundingBox();
     expect(box?.x).toBeGreaterThanOrEqual(0);
     expect((box?.x || 0) + (box?.width || 0)).toBeLessThanOrEqual(390);
+});
+
+test("@ 选择画布图片会建立引用，移除顶部缩略图会断开引用", async ({ page }) => {
+    await page.goto("/__media-editor-test.html");
+    await page.getByRole("button", { name: /调\s*图/ }).click();
+    const editor = page.getByRole("textbox");
+    await editor.click();
+    await editor.press("End");
+    await editor.pressSequentially(" @");
+    await expect(page.getByText("素材引用")).toBeVisible();
+    await page.getByRole("button", { name: /图片\s*展开/ }).click();
+    await page.getByRole("button", { name: /图片2.*月面参考图/ }).click();
+    await expect(page.getByTestId("connected-images")).toHaveText("image-1,image-2");
+    await expect(page.getByRole("button", { name: "移除图片2" })).toBeVisible();
+    await page.getByRole("button", { name: "移除图片2" }).click();
+    await expect(page.getByTestId("connected-images")).toHaveText("image-1");
 });

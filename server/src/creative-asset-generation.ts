@@ -31,24 +31,20 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     const audioReferences = variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
     const audioMode = creativeAssetAudioMode(asset.kind);
     const styleReferenceFileId = connected.style?.references?.[asset.kind] || connected.style?.references?.source || null;
-    const supportsImageRole = (role: "subject" | "style" | "composition") => model.inputs.includes("image") && (!model.imageReferenceRoles?.length || model.imageReferenceRoles.includes(role));
-    const styleImageSupported = input.kind === "image" && Boolean(styleReferenceFileId && supportsImageRole("style"));
+    const supportsImageReferences = model.inputs.includes("image");
+    const styleImageSupported = input.kind === "image" && Boolean(styleReferenceFileId && supportsImageReferences);
     const requestedSubjectReferences = [...imageReferences.map((item) => ({ fileId: item.fileId, kind: "image" as const, source: "asset" as const, label: item.label || "资产参考图" })), ...(primaryImage ? [{ fileId: primaryImage.fileId, kind: "image" as const, source: "primary" as const, label: "当前主设计图" }] : [])];
-    const requestedCompositionReferences = connected.imageFileIds.map((fileId) => ({ fileId, kind: "image" as const, source: "canvas" as const, label: "画布参考图" }));
+    const requestedCompositionReferences = connected.imageReferences.map((item) => ({ ...item, kind: "image" as const, source: "canvas" as const }));
     const requestedImageReferences = dedupe([
         ...(styleReferenceFileId ? [{ fileId: styleReferenceFileId, kind: "image" as const, source: "style" as const, label: "视觉风格参考" }] : []),
         ...requestedSubjectReferences,
         ...requestedCompositionReferences,
     ]);
     let references = input.kind === "image"
-        ? dedupe([
-            ...(styleImageSupported ? requestedImageReferences.filter((item) => item.source === "style") : []),
-            ...(supportsImageRole("subject") ? requestedSubjectReferences : []),
-            ...(supportsImageRole("composition") ? requestedCompositionReferences : []),
-        ])
+        ? supportsImageReferences ? requestedImageReferences : []
         : dedupe([
             ...audioReferences.map((item) => ({ fileId: item.fileId, kind: "audio" as const, source: "asset" as const, label: item.label || "资产参考音频" })),
-            ...connected.audioFileIds.map((fileId) => ({ fileId, kind: "audio" as const, source: "canvas" as const, label: "画布参考音频" })),
+            ...connected.audioReferences.map((item) => ({ ...item, kind: "audio" as const, source: "canvas" as const })),
         ]);
     const warnings: Array<{ code: string; message: string; blocking: boolean }> = [];
     const referenceLimit = input.kind === "image" ? model.maxReferenceImages : undefined;
@@ -57,9 +53,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
         warnings.push({ code: "AI_MODEL_REFERENCE_LIMIT", message: `所选模型最多接收 ${referenceLimit} 张参考图，已按风格、主体、构图顺序截取`, blocking: false });
     }
     const styleImageApplied = input.kind === "image" && references.some((item) => item.source === "style");
-    if (references.length && !model.inputs.includes(input.kind)) warnings.push({ code: "AI_MODEL_REFERENCE_UNSUPPORTED", message: `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`, blocking: true });
-    if (input.kind === "image" && requestedSubjectReferences.length && !supportsImageRole("subject")) warnings.push({ code: "AI_MODEL_SUBJECT_REFERENCE_UNSUPPORTED", message: "所选模型不支持主体参考图，请更换模型或移除资产参考图和当前主图", blocking: true });
-    if (input.kind === "image" && requestedCompositionReferences.length && !supportsImageRole("composition")) warnings.push({ code: "AI_MODEL_COMPOSITION_REFERENCE_UNSUPPORTED", message: "所选模型不支持构图参考图，请更换模型或断开画布参考图", blocking: true });
+    if ((input.kind === "image" ? requestedImageReferences.length : references.length) && !model.inputs.includes(input.kind)) warnings.push({ code: "AI_MODEL_REFERENCE_UNSUPPORTED", message: `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`, blocking: true });
     if (input.kind === "image" && styleReferenceFileId && !styleImageApplied) warnings.push({ code: "STYLE_IMAGE_NOT_APPLIED", message: "所选模型不支持风格参考图，本次只应用风格文字描述", blocking: false });
     if (input.kind === "image" && connected.style?.status === "draft" && !input.allowDraftStyle) warnings.push({ code: "VISUAL_STYLE_NOT_CONFIRMED", message: "当前视觉风格尚未确认；确认继续后仍可生成，但结果的一致性可能变化", blocking: true });
     if (input.kind === "audio" && !(model.audioModes || ["speech"]).includes(audioMode as AudioMode)) warnings.push({ code: "AI_MODEL_AUDIO_MODE_UNSUPPORTED", message: `所选模型不支持${audioModeLabel(audioMode)}`, blocking: true });
@@ -77,11 +71,12 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     const label = input.kind === "image" ? `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}设计图` : audioMode === "speech" ? "角色声音" : audioMode === "ambient" ? "场景环境声" : "道具音效";
     const params = {
         ...draft.params,
+        count: 1,
         ...(input.kind === "image" ? { size: "16:9" } : {}),
         ...(instructions ? { instructions } : {}),
         __creativeAsset: { projectId: asset.projectId, assetId: asset.id, nodeId: input.nodeId, usage, label, transcript: draft.transcript, assetRevision: asset.revision, audioMode: input.kind === "audio" ? audioMode : undefined },
         __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: styleReferenceFileId, styleImageApplied } : null,
-        __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds },
+        __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds, imageReferences: connected.imageReferences, audioReferences: connected.audioReferences },
     };
     return {
         assetId: asset.id,
@@ -93,7 +88,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
         instructions,
         references,
         style: connected.style ? { id: connected.style.id, revision: connected.style.revision, name: connected.style.name, description: connected.style.description, referenceFileId: styleReferenceFileId, imageApplied: styleImageApplied } : null,
-        canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds },
+        canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds, imageReferences: connected.imageReferences, audioReferences: connected.audioReferences },
         warnings,
         params,
     };

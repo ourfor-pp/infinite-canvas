@@ -15,7 +15,7 @@ export type AudioMode = (typeof audioModes)[number];
 export type ModelEndpoint = (typeof modelEndpoints)[number];
 export type ProviderCredentials = { apiKey?: string; authToken?: string };
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: MediaKind; inputs: MediaKind[]; method: "POST"; path: string; agent: boolean };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; imageModes?: ImageMode[]; imageReferenceRoles?: Array<"subject" | "style" | "composition">; maxReferenceImages?: number };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; imageModes?: ImageMode[]; maxReferenceImages?: number };
 export type AiGlobalSettings = {
     config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string; creativeAssetReviewModel: string };
     imageEditModel: string;
@@ -58,8 +58,8 @@ export const modelSchema = z.object({
     enabled: z.boolean().default(true),
     agentEnabled: z.boolean().default(false),
     audioModes: z.array(z.enum(audioModes)).optional(),
-    imageReferenceRoles: z.array(z.enum(["subject", "style", "composition"])).max(3).optional(),
-    maxReferenceImages: z.number().int().min(0).max(32).optional(),
+    imageModes: z.array(z.enum(["generate", "edit"])).max(2).optional(),
+    maxReferenceImages: z.number().int().min(1).max(32).optional(),
 });
 
 export const providerInputSchema = z.object({
@@ -74,7 +74,14 @@ export const providerInputSchema = z.object({
     models: z.array(modelSchema).default([]),
 }).superRefine((value, context) => {
     value.models.forEach((model, index) => {
-        if (model.agentEnabled && !modelEndpointRegistry[model.endpoint].agent) context.addIssue({ code: "custom", path: ["models", index, "agentEnabled"], message: "只有兼容的文本调用方案可以启用 Agent" });
+        const endpoint = modelEndpointRegistry[model.endpoint];
+        if (model.agentEnabled && !endpoint.agent) context.addIssue({ code: "custom", path: ["models", index, "agentEnabled"], message: "只有兼容的文本调用方案可以启用 Agent" });
+        if (endpoint.output !== "image") return;
+        if (!model.imageModes?.length) context.addIssue({ code: "custom", path: ["models", index, "imageModes"], message: "请选择图片模型能力" });
+        const allowed = imageModesForEndpoint(model.endpoint) || [];
+        if (model.imageModes?.some((mode) => !allowed.includes(mode))) context.addIssue({ code: "custom", path: ["models", index, "imageModes"], message: "所选图片能力与调用方案不兼容" });
+        if (model.imageModes?.includes("edit") && !model.maxReferenceImages) context.addIssue({ code: "custom", path: ["models", index, "maxReferenceImages"], message: "请配置图生图最多参考图数量" });
+        if (!model.imageModes?.includes("edit") && model.maxReferenceImages !== undefined) context.addIssue({ code: "custom", path: ["models", index, "maxReferenceImages"], message: "只有图生图模型可以配置参考图数量" });
     });
 });
 
@@ -126,7 +133,7 @@ export function saveProvider(input: ProviderInput, id?: string) {
     const baseUrl = normalizeProviderUrl(value.baseUrl, value.type);
     const models = value.models.map((model) => {
         const endpoint = modelEndpointRegistry[model.endpoint];
-        return { ...model, output: endpoint.output, inputs: endpoint.inputs, imageModes: imageModesForEndpoint(model.endpoint), ...(endpoint.output === "audio" ? { audioModes: model.audioModes?.length ? model.audioModes : ["speech" as const] } : { audioModes: undefined }) };
+        return { ...model, output: endpoint.output, inputs: endpoint.inputs, imageModes: endpoint.output === "image" ? model.imageModes : undefined, ...(endpoint.output === "audio" ? { audioModes: model.audioModes?.length ? model.audioModes : ["speech" as const] } : { audioModes: undefined }) };
     });
     if (current) {
         assertProviderIdle(providerId);
@@ -180,14 +187,14 @@ export function listPublicModels() {
     const providers = db.prepare("SELECT * FROM ai_providers WHERE enabled=1 ORDER BY created_at").all() as ProviderRow[];
     const publicModels = providers.flatMap((provider) => providerModels(provider)
         .filter((model) => model.enabled)
-        .map((model) => ({ id: model.id, name: model.name, output: model.output, inputs: model.inputs, audioModes: model.output === "audio" ? model.audioModes?.length ? model.audioModes : ["speech" as const] : undefined, imageModes: model.imageModes, imageReferenceRoles: model.imageReferenceRoles, maxReferenceImages: model.maxReferenceImages, enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
+        .map((model) => ({ id: model.id, name: model.name, output: model.output, inputs: model.inputs, audioModes: model.output === "audio" ? model.audioModes?.length ? model.audioModes : ["speech" as const] : undefined, imageModes: model.imageModes, maxReferenceImages: model.maxReferenceImages, enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
     const comfyRows = db.prepare("SELECT name, models FROM comfy_servers WHERE enabled=1 ORDER BY created_at").all() as Array<{ name: string; models: string }>;
     const comfyNames = new Set(comfyRows.flatMap((row) => parseJson<string[]>(row.models, [])).filter((id) => COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable));
     return [
         ...publicModels,
         ...Array.from(comfyNames).map((id) => {
             const output = comfyModelOutput(id);
-            return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imageModes: comfyImageModes(id), imageReferenceRoles: undefined, maxReferenceImages: undefined, enabled: true };
+            return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imageModes: comfyImageModes(id), maxReferenceImages: comfyMaxReferenceImages(id), enabled: true };
         }),
     ];
 }
@@ -269,7 +276,7 @@ export function resolveProviderModel(value: string, expectedOutput: MediaKind) {
         const output = comfyModelOutput(modelId);
         const node = db.prepare("SELECT id FROM comfy_servers WHERE enabled=1 AND models LIKE ? ORDER BY created_at LIMIT 1").get(`%${modelId}%`) as { id: string } | undefined;
         if (!node || output !== expectedOutput) throw providerError(400, "AI_MODEL_UNAVAILABLE", "模型不可用或能力不匹配");
-        return { providerId, modelId, model: { id: modelId, name: modelId, output, inputs: comfyModelInputs(modelId), imageModes: comfyImageModes(modelId), enabled: true }, comfyServerId: node.id };
+        return { providerId, modelId, model: { id: modelId, name: modelId, output, inputs: comfyModelInputs(modelId), imageModes: comfyImageModes(modelId), maxReferenceImages: comfyMaxReferenceImages(modelId), enabled: true }, comfyServerId: node.id };
     }
     const provider = getProviderRow(providerId);
     const model = provider && providerModels(provider).find((item) => item.id === modelId && item.enabled);
@@ -286,17 +293,13 @@ export function resolveSelectableModel(value: string, expectedOutput: MediaKind)
 
 export function resolveImageModel(value: string, mode: "generate" | "edit") {
     const selection = resolveProviderModel(value, "image");
+    if (selection.providerId === "comfyui" && !COMFY_MODEL_DEFINITIONS[selection.modelId as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable) throw providerError(400, "AI_MODEL_NOT_SELECTABLE", "该工作流只能由对应图片工具调用");
     if (!selection.model.imageModes?.includes(mode)) throw providerError(400, "AI_MODEL_MODE_UNSUPPORTED", mode === "edit" ? "该模型不支持图生图" : "该模型不支持文生图");
     return selection;
 }
 
 export function resolvePurposeModel(purpose: GenerationPurpose, expectedOutput: MediaKind) {
     if (purpose === "default") throw providerError(400, "AI_MODEL_REQUIRED", "普通生成必须指定模型");
-    if (purpose === "image-edit") {
-        const model = getAiGlobalSettings().imageEditModel;
-        if (!model) throw providerError(400, "AI_IMAGE_EDIT_MODEL_NOT_CONFIGURED", "管理员尚未配置默认图生图模型");
-        return resolveImageModel(model, "edit");
-    }
     const model = getAiGlobalSettings().imageWorkflows[purpose];
     if (!model) throw providerError(400, "AI_WORKFLOW_NOT_CONFIGURED", "管理员尚未配置该图片工具工作流");
     return resolveProviderModel(`comfyui::${model}`, expectedOutput);
@@ -328,7 +331,12 @@ export function getProviderRow(id: string) {
 }
 
 export function providerModels(row: ProviderRow) {
-    return parseJson<AiModelDefinition[]>(row.models, []).map((model) => ({ ...model, imageModes: imageModesForEndpoint(model.endpoint) }));
+    return parseJson<AiModelDefinition[]>(row.models, []).map((model) => {
+        const normalized = { ...model } as AiModelDefinition & { imageReferenceRoles?: unknown };
+        delete normalized.imageReferenceRoles;
+        const imageModes = normalized.output === "image" ? normalized.imageModes?.length ? normalized.imageModes : imageModesForEndpoint(normalized.endpoint) : undefined;
+        return { ...normalized, imageModes, maxReferenceImages: imageModes?.includes("edit") ? normalized.maxReferenceImages || 1 : undefined };
+    });
 }
 
 export function decryptCredentials(row: ProviderRow) {
@@ -420,6 +428,10 @@ function comfyModelInputs(id: string): MediaKind[] {
 
 function comfyImageModes(id: string) {
     return COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.imageModes;
+}
+
+function comfyMaxReferenceImages(id: string) {
+    return COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.maxReferenceImages;
 }
 
 function imageModesForEndpoint(endpoint: ModelEndpoint): ImageMode[] | undefined {

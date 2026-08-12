@@ -158,11 +158,15 @@ export function resolveCreativeAssetNodeInputs(userId: string, projectId: string
     const inbound = target ? project.connections.filter((connection) => connection.toNodeId === target.id) : [];
     const source = (connection: (typeof inbound)[number]) => project.nodes.find((node) => node.id === connection.fromNodeId);
     const texts = inbound.filter((item) => item.toPortId === "setting").map(source).filter((node) => node?.type === "text").map((node) => String(node?.metadata?.content || node?.metadata?.prompt || "").trim()).filter(Boolean);
-    const imageFileIds = inbound.filter((item) => item.toPortId === "reference-image").map(source).filter((node) => node?.type === "image").map((node) => serverFileId(node?.metadata?.storageKey)).filter((value): value is string => Boolean(value));
-    const audioFileIds = inbound.filter((item) => item.toPortId === "reference-audio").map(source).filter((node) => node?.type === "audio").map((node) => serverFileId(node?.metadata?.storageKey)).filter((value): value is string => Boolean(value));
+    const imageNodes = project.nodes.filter((node) => node.type === "image" && serverFileId(node.metadata?.storageKey));
+    const audioNodes = project.nodes.filter((node) => node.type === "audio" && serverFileId(node.metadata?.storageKey));
+    const imageReferences = inbound.filter((item) => item.toPortId === "reference-image").map(source).filter((node) => node?.type === "image").map((node) => ({ nodeId: String(node?.id), fileId: serverFileId(node?.metadata?.storageKey), label: `图片${imageNodes.findIndex((item) => item.id === node?.id) + 1}`, title: String(node?.title || "画布图片") })).filter((value) => Boolean(value.fileId));
+    const audioReferences = inbound.filter((item) => item.toPortId === "reference-audio").map(source).filter((node) => node?.type === "audio").map((node) => ({ nodeId: String(node?.id), fileId: serverFileId(node?.metadata?.storageKey), label: `音频${audioNodes.findIndex((item) => item.id === node?.id) + 1}`, title: String(node?.title || "画布音频") })).filter((value) => Boolean(value.fileId));
+    const imageFileIds = imageReferences.map((item) => item.fileId);
+    const audioFileIds = audioReferences.map((item) => item.fileId);
     imageFileIds.forEach((fileId) => assertReferenceKind(userId, fileId, "image/"));
     audioFileIds.forEach((fileId) => assertReferenceKind(userId, fileId, "audio/"));
-    return { texts, imageFileIds, audioFileIds, style: resolveVisualStyleForNode(userId, projectId, nodeId) };
+    return { texts, imageFileIds, audioFileIds, imageReferences, audioReferences, style: resolveVisualStyleForNode(userId, projectId, nodeId) };
 }
 
 export function syncVisualStyleGeneration(row: { id: string; user_id: string; status: string; request: string; result: string | null }) {

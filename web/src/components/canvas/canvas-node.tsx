@@ -57,6 +57,7 @@ type CanvasNodeProps = {
     onRetry?: (node: CanvasNodeData) => void;
     onGenerateImage?: (node: CanvasNodeData) => void;
     onViewImage?: (node: CanvasNodeData) => void;
+    onFocus?: (node: CanvasNodeData) => void;
     onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
 };
 
@@ -121,6 +122,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onRetry,
     onGenerateImage,
     onViewImage,
+    onFocus,
     onContextMenu,
 }: CanvasNodeProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -375,23 +377,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                     if (!isCanvasImagePreviewTarget(event.target)) onMouseDown(event, data.id);
                 }}
                 onDoubleClick={(event) => {
-                    if (isBatchRoot) {
-                        event.stopPropagation();
-                        onToggleBatch?.(data.id);
-                        return;
-                    }
-                    if (definition?.onDoubleClick && pluginContext) {
-                        if (definition.onDoubleClick(pluginContext)) event.stopPropagation();
-                        return;
-                    }
-                    if (data.type === CanvasNodeType.Image && hasImageContent) {
-                        event.stopPropagation();
-                        onViewImage?.(data);
-                        return;
-                    }
-                    if (data.type !== CanvasNodeType.Text) return;
                     event.stopPropagation();
-                    setIsEditingContent(true);
+                    onFocus?.(data);
                 }}
             >
                 <div
@@ -445,7 +432,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 ...(definition?.hasSourceHandle === false || data.type === CanvasNodeType.Config ? [] : [{ id: "output", label: "输出", direction: "output", dataType: "text", multiple: true, position: 0.5 } as CanvasNodePort]),
             ]).map((port) => <ConnectionHandleDot key={`${port.direction}:${port.id}`} port={port} visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, port.direction === "output" ? "source" : "target", port.id)} />) : null}
 
-            {showPanel && !isGroup && renderPanel ? <div className="absolute left-1/2 top-full z-[70] w-[600px] -translate-x-1/2 pt-4">{renderPanel(data)}</div> : null}
+            {showPanel && !isGroup && renderPanel ? <div data-canvas-node-panel className="absolute left-1/2 top-full z-[70] w-[600px] -translate-x-1/2 pt-4">{renderPanel(data)}</div> : null}
         </div>
     );
 });
@@ -827,14 +814,6 @@ function BatchFrame({ batchCount, batchExpanded, onToggleBatch, children }: { ba
     return (
         <div
             className="group/batch relative h-full w-full overflow-visible"
-            onDoubleClick={
-                isBatchRoot
-                    ? (event) => {
-                          event.stopPropagation();
-                          onToggleBatch?.();
-                      }
-                    : undefined
-            }
         >
             {isBatchRoot ? (
                 <div className="pointer-events-none absolute inset-0 overflow-visible">

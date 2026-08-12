@@ -36,7 +36,7 @@ export type CanvasNodeImage = {
     bytes: number;
     mimeType: string;
     prompt?: string;
-    generationPurpose?: "image-edit" | "image-angle";
+    generationPurpose?: "image-angle";
     toolParams?: Record<string, unknown>;
 };
 

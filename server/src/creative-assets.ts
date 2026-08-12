@@ -331,10 +331,12 @@ export function syncCreativeAssetGeneration(row: { id: string; user_id: string; 
     if (!fileIds.length) return;
     const payload = creativeAssetPayloadSchema.parse(parseJson(asset.payload, {}));
     const kind = request.kind === "audio" ? "audio" : "image";
-    const additions = fileIds.filter((fileId) => !payload.variants.some((item) => item.generationId === row.id && item.fileId === fileId));
+    const additions = fileIds.slice(0, 1).filter((fileId) => !payload.variants.some((item) => item.generationId === row.id && item.fileId === fileId));
     if (!additions.length) return;
-    const added = additions.map((fileId, index) => ({ id: nanoid(), kind, fileId, label: target.label || `${kind === "image" ? "生成图片" : "生成声音"}${additions.length > 1 ? ` ${index + 1}` : ""}`, prompt: request.prompt || "", generationId: row.id, usage: target.usage, transcript: target.transcript, ...(kind === "image" ? { review: { status: "pending_review" as const, source: "manual" as const, summary: "等待验收" } } : {}), createdAt: new Date().toISOString() } satisfies CreativeAssetVariant));
-    payload.variants.push(...added);
+    const added = additions.map((fileId) => ({ id: nanoid(), kind, fileId, label: target.label || (kind === "image" ? "生成图片" : "生成声音"), prompt: request.prompt || "", generationId: row.id, usage: target.usage, transcript: target.transcript, createdAt: new Date().toISOString() } satisfies CreativeAssetVariant));
+    payload.variants = [...payload.variants.filter((item) => item.kind !== kind || item.usage === "reference_input"), ...added];
+    if (kind === "image") payload.primaryImageId = added[0].id;
+    else payload.primaryAudioId = added[0].id;
     updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
 }
 

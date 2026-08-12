@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Image as AntImage, Popover, Tag, Tooltip } from "antd";
-import { ArrowUp, Bot, Check, ChevronDown, Download, LoaderCircle, Paperclip, Sparkles, Square, Star, X } from "lucide-react";
+import { ArrowUp, Bot, Check, ChevronDown, ImageIcon, LoaderCircle, Music2, Palette, Paperclip, Sparkles, Square, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "@/components/canvas/canvas-audio-settings-popover";
 import { CanvasImageSettingsPopover } from "@/components/canvas/canvas-image-settings-popover";
 import { CanvasPromptChipInput } from "@/components/canvas/canvas-prompt-chip-input";
 import { resolveModelForCapability } from "@/stores/use-config-store";
-import type { MediaEditorDraft, MediaEditorTarget } from "./types";
+import type { MediaEditorDraft, MediaEditorReference, MediaEditorTarget } from "./types";
 
 export function MediaEditor({ target }: { target: MediaEditorTarget }) {
     const { message } = App.useApp();
@@ -45,7 +45,7 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
     const editorConfig = useMemo(() => ({
         ...target.config,
         ...draft.params,
-        model: draft.model || resolveModelForCapability(target.config, undefined, target.kind, imageMode),
+        model: resolveModelForCapability(target.config, draft.model, target.kind, imageMode),
         count: String(draft.params.count || target.config.count),
     }), [draft, imageMode, target.config, target.kind]);
 
@@ -98,10 +98,14 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
 
     return <section className="w-full" data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
         <div className="mb-2 flex items-center justify-between gap-3"><div><div className="text-sm font-semibold">{target.semanticLabel}</div><div className="mt-0.5 text-[11px] opacity-45">{saving ? "正在保存草稿" : "修改只影响下一次生成"}</div></div>{target.askAgent ? <Button type="text" size="small" icon={<Bot className="size-3.5" />} onClick={() => void target.askAgent?.(draftRef.current)}>交给 Agent</Button> : null}</div>
+        {target.kind === "image" ? <VisualStyleStatus target={target} /> : null}
         {target.separateSpeechTranscript ? <input value={draft.transcript || ""} onChange={(event) => change({ transcript: event.target.value })} className="mb-2 h-9 w-full rounded-xl border border-current/10 bg-transparent px-3 text-sm outline-none focus:border-blue-400/70" placeholder="输入一句试听台词" /> : null}
-        <CanvasPromptChipInput value={draft.prompt} references={target.mentionReferences || []} onChange={(prompt) => change({ prompt })} onSubmit={() => void run()} className="thin-scrollbar h-56 w-full resize-none rounded-xl border border-current/10 bg-transparent px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400/70" placeholder={promptPlaceholder} />
+        {target.snapshot.references.length ? <ReferenceShelf references={target.snapshot.references} onRemove={target.removeReference ? async (reference) => {
+            change({ prompt: removeReferenceLabel(draftRef.current.prompt, reference.label) });
+            try { await target.removeReference?.(reference); } catch (error) { message.error(error instanceof Error ? error.message : "移除参考素材失败"); }
+        } : undefined} /> : null}
+        <CanvasPromptChipInput value={draft.prompt} references={target.mentionReferences || []} onActivateReference={target.activateReference} onChange={(prompt) => change({ prompt })} onSubmit={() => void run()} className="thin-scrollbar h-56 w-full resize-none rounded-xl border border-current/10 bg-transparent px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400/70" placeholder={promptPlaceholder} />
 
-        {target.snapshot.references.length ? <div className="mt-2 flex flex-wrap gap-1.5">{target.snapshot.references.map((reference) => <Tag key={reference.id} className="!m-0 !rounded-full">{reference.source === "canvas" ? "已连接" : reference.source === "style" ? "风格" : "参考"} · {reference.label}</Tag>)}</div> : null}
         <div className="mt-3 flex min-w-0 items-center gap-3 border-t border-current/10 pt-3">
             <div className="thin-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-0.5">
                 <ModelPicker config={editorConfig} value={editorConfig.model} onChange={(model) => updateConfig("model", model)} capability={target.kind} audioMode={draft.audioMode} imageMode={imageMode} className="!h-10 !min-w-48 !max-w-60 shrink-0" />
@@ -112,9 +116,17 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
             <Button type={running ? "default" : "primary"} danger={Boolean(running)} className="!size-11 shrink-0 !rounded-full !p-0" disabled={!running && !canGenerate} icon={running ? <Square className="size-3.5 fill-current" /> : busy ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />} onClick={() => running ? void target.stop?.() : void run()} aria-label={running ? "停止生成" : "开始生成"} />
         </div>
         {running ? <div className="mt-2 flex items-center gap-2 text-[11px] opacity-55"><Sparkles className="size-3 animate-pulse" />生成中 {Math.round(running.progress * 100)}%</div> : null}
-        {target.snapshot.variants.length ? <VariantHistory target={target} /> : null}
         <input ref={uploadRef} type="file" accept={target.kind === "image" ? "image/*" : "audio/*"} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void target.uploadReference?.(file).catch((error) => message.error(error instanceof Error ? error.message : "上传失败")); }} />
     </section>;
+}
+
+function VisualStyleStatus({ target }: { target: MediaEditorTarget }) {
+    const style = target.visualStyle;
+    return <div className="mb-2 flex min-h-10 items-center gap-2 rounded-xl border border-current/10 px-3 py-2 text-xs">
+        <Palette className="size-4 shrink-0 opacity-55" />
+        <div className="min-w-0 flex-1"><div className="truncate font-medium">{style ? style.name : "尚未应用视觉风格"}</div><div className="mt-0.5 text-[10px] opacity-45">{!style ? "建议先确定风格，保证角色、场景和道具一致" : style.status === "confirmed" ? `${style.source === "linked" ? "节点单独风格" : "项目默认风格"} · 已确认` : "待确认：选择模板、分析参考图或交给 Agent 设计"}</div></div>
+        {style?.status === "confirmed" ? <Check className="size-4 text-emerald-600" /> : <Button type="text" size="small" className="shrink-0 !px-2" onClick={target.configureVisualStyle}>配置风格</Button>}
+    </div>;
 }
 
 function PreviewDetails({ preview }: { preview: Awaited<ReturnType<NonNullable<MediaEditorTarget["preview"]>>> | null }) {
@@ -123,8 +135,23 @@ function PreviewDetails({ preview }: { preview: Awaited<ReturnType<NonNullable<M
     return <div className="w-[min(560px,calc(100vw-48px))] p-3"><div className="mb-2 text-xs font-semibold">后端最终使用的提示词</div><div className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl bg-black/[0.035] p-3 text-xs leading-5 dark:bg-white/[0.055]">{preview.prompt}</div>{preview.instructions ? <div className="mt-3"><span className="text-[11px] opacity-45">声音指令</span><div className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-xl bg-black/[0.035] p-3 text-xs leading-5 dark:bg-white/[0.055]">{preview.instructions}</div></div> : null}{warnings.length ? <div className="mt-3 flex flex-wrap gap-1">{warnings.map((warning) => <Tag key={warning.code} color={warning.blocking ? "error" : "warning"}>{warning.message}</Tag>)}</div> : null}</div>;
 }
 
-function VariantHistory({ target }: { target: MediaEditorTarget }) {
-    return <div className="mt-3 border-t border-current/10 pt-3"><div className="mb-2 text-[11px] font-medium opacity-45">生成候选与历史</div>{target.kind === "image" ? <AntImage.PreviewGroup classNames={{ popup: { root: "media-image-preview" } }} preview={{ zIndex: 1320 }}><div className="thin-scrollbar flex gap-2 overflow-x-auto pb-1">{target.snapshot.variants.map((variant) => <div key={variant.id} className={`group relative h-[88px] w-32 shrink-0 overflow-hidden rounded-lg border ${variant.review?.status === "rejected" ? "border-red-400/50 opacity-60" : variant.review?.status === "approved" ? "border-emerald-400/50" : "border-amber-400/40"}`}><AntImage rootClassName="size-full" src={variant.url} alt={variant.label} className="!size-full !object-cover" preview={{ mask: false }} />{variant.primary ? <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-md bg-black/65 text-white"><Star className="size-3 fill-current" /></span> : variant.review?.status === "approved" && target.setPrimary && !variant.reference ? <button type="button" title="设为主图" className="absolute right-1 top-1 grid size-6 place-items-center rounded-md bg-black/65 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100" onClick={(event) => { event.stopPropagation(); void target.setPrimary?.(variant.id); }}><Star className="size-3.5" /></button> : null}<div className="absolute inset-x-1 bottom-1 flex items-center gap-1"><span title={variant.review?.summary} className={`rounded-md bg-black/65 px-1.5 py-0.5 text-[9px] text-white ${variant.review?.status === "approved" ? "text-emerald-200" : variant.review?.status === "rejected" ? "text-red-200" : "text-amber-100"}`}>{variant.review?.status === "approved" ? "已通过" : variant.review?.status === "rejected" ? "未通过" : "待验收"}</span>{variant.review?.status === "pending_review" && target.reviewVariant ? <><button type="button" title="验收并设为主图" className="grid size-6 place-items-center rounded-md bg-emerald-600 text-white" onClick={(event) => { event.stopPropagation(); void target.reviewVariant?.(variant.id, true, true); }}><Check className="size-3.5" /></button><button type="button" title="拒绝这个版本" className="grid size-6 place-items-center rounded-md bg-red-600 text-white" onClick={(event) => { event.stopPropagation(); void target.reviewVariant?.(variant.id, false); }}><X className="size-3.5" /></button></> : null}<a href={variant.url} download className="ml-auto grid size-6 place-items-center rounded-md bg-black/65 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100" onClick={(event) => event.stopPropagation()}><Download className="size-3.5" /></a></div></div>)}</div></AntImage.PreviewGroup> : <div className="thin-scrollbar flex gap-2 overflow-x-auto pb-1">{target.snapshot.variants.map((variant) => <div key={variant.id} className="w-72 shrink-0 rounded-lg border border-current/10 px-2.5 py-2"><div className="mb-1 flex items-center gap-2 text-[10px]"><span className="min-w-0 flex-1 truncate opacity-50">{variant.label}</span>{variant.primary ? <Tag className="!m-0">主音频</Tag> : target.setPrimary && !variant.reference ? <Button type="text" size="small" onClick={() => void target.setPrimary?.(variant.id)}>设为主音频</Button> : null}</div><audio src={variant.url} controls className="h-8 w-full" /></div>)}</div>}</div>;
+function ReferenceShelf({ references, onRemove }: { references: MediaEditorReference[]; onRemove?: (reference: MediaEditorReference) => void }) {
+    const images = references.filter((reference) => reference.kind === "image" && reference.url);
+    return <div className="mb-2 flex min-h-12 items-center gap-2 overflow-x-auto rounded-xl border border-current/10 px-2 py-2">
+        {images.length ? <AntImage.PreviewGroup classNames={{ popup: { root: "media-image-preview" } }} preview={{ zIndex: 1320 }}>{references.map((reference) => <ReferenceItem key={reference.id} reference={reference} onRemove={onRemove} />)}</AntImage.PreviewGroup> : references.map((reference) => <ReferenceItem key={reference.id} reference={reference} onRemove={onRemove} />)}
+    </div>;
+}
+
+function ReferenceItem({ reference, onRemove }: { reference: MediaEditorReference; onRemove?: (reference: MediaEditorReference) => void }) {
+    return <div className="group/reference relative size-11 shrink-0 overflow-hidden rounded-lg border border-current/10 bg-black/[0.035] dark:bg-white/[0.055]" title={`${reference.source === "canvas" ? "画布连线" : "上传参考"} · ${reference.label}`}>
+        {reference.kind === "image" && reference.url ? <AntImage rootClassName="size-full" src={reference.url} alt={reference.label} className="!size-full !object-cover" preview={{ mask: false }} /> : reference.kind === "audio" && reference.url ? <audio src={reference.url} controls className="absolute inset-0 size-full opacity-0" /> : <span className="grid size-full place-items-center">{reference.kind === "image" ? <ImageIcon className="size-4 opacity-50" /> : <Music2 className="size-4 opacity-50" />}</span>}
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 py-0.5 text-center text-[9px] text-white">{reference.label.replace(/^@/, "")}</span>
+        {onRemove ? <button type="button" aria-label={`移除${reference.label}`} className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/70 text-white opacity-0 transition-opacity group-hover/reference:opacity-100 focus:opacity-100" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onRemove(reference); }}><X className="size-3" /></button> : null}
+    </div>;
+}
+
+function removeReferenceLabel(prompt: string, label: string) {
+    return prompt.split(label).join("").replace(/[ \t]{2,}/g, " ").trimStart();
 }
 
 function audioSettingKey(key: CanvasAudioSettingKey) {

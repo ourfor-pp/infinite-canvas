@@ -224,7 +224,8 @@ test("AI 渠道只能由管理员配置，普通用户只看到模型能力", as
             concurrency: 2,
             models: [
                 { id: "test-text-model", name: "测试文本", endpoint: "openai-chat", enabled: true },
-                { id: "cec-image", name: "gpt-image-2", endpoint: "openai-images", enabled: true },
+                { id: "cec-image", name: "gpt-image-2", endpoint: "openai-images", enabled: true, imageModes: ["generate", "edit"], maxReferenceImages: 4 },
+                { id: "generate-only", name: "仅文生图", endpoint: "openai-images", enabled: true, imageModes: ["generate"] },
             ],
         }) });
         assert.equal(provider.response.status, 201);
@@ -235,6 +236,10 @@ test("AI 渠道只能由管理员配置，普通用户只看到模型能力", as
         assert.equal(models.body.data.some((model: { value: string }) => model.value === `${provider.body.data.id}::test-text-model`), true);
         const imageModel = models.body.data.find((model: { value: string }) => model.value === `${provider.body.data.id}::cec-image`);
         assert.deepEqual(imageModel.imageModes, ["generate", "edit"]);
+        assert.equal(imageModel.maxReferenceImages, 4);
+        const generateOnlyModel = models.body.data.find((model: { value: string }) => model.value === `${provider.body.data.id}::generate-only`);
+        assert.deepEqual(generateOnlyModel.imageModes, ["generate"]);
+        assert.equal(generateOnlyModel.maxReferenceImages, undefined);
         const imageEditModel = `${provider.body.data.id}::cec-image`;
         assert.equal((await api("/admin/ai/config", userOne, { method: "PUT", body: JSON.stringify({ imageEditModel }) })).body.data.imageEditModel, imageEditModel);
         const modelRef = `${provider.body.data.id}::test-text-model`;
@@ -402,7 +407,7 @@ test("公网图片生成由后端执行并把结果回存到用户媒体库", as
             apiKey: "provider-secret",
             enabled: true,
             concurrency: 1,
-            models: [{ id: "test-image-model", name: "测试图片", endpoint: "openai-images-generations", enabled: true }],
+            models: [{ id: "test-image-model", name: "测试图片", endpoint: "openai-images-generations", enabled: true, imageModes: ["generate"] }],
         }) });
         const created = await api("/generations", userTwo, { method: "POST", body: JSON.stringify({ kind: "image", model: `${provider.body.data.id}::test-image-model`, prompt: "后端生成" }) });
         let generation = created.body.data;
@@ -431,7 +436,7 @@ test("公网图片生成由后端执行并把结果回存到用户媒体库", as
         const creativeResult = await api(`/creative-assets/${creative.body.data.id}`, userOne);
         assert.equal(creativeTask.status, "succeeded");
         assert.equal(creativeResult.body.data.payload.variants.length, 1);
-        assert.equal(creativeResult.body.data.payload.primaryImageId, null);
+        assert.equal(creativeResult.body.data.payload.primaryImageId, creativeResult.body.data.payload.variants[0].id);
         assert.equal(creativeTask.request.prompt, preview.body.data.prompt);
     } finally {
         await new Promise<void>((resolvePromise) => fakeProvider.close(() => resolvePromise()));
@@ -477,7 +482,7 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
         const ordinaryModels = await api("/ai/models", userTwo);
         assert.equal(JSON.stringify(ordinaryModels.body).includes(String(address.port)), false);
         assert.equal(ordinaryModels.body.data.some((model: { id: string }) => model.id === "hidream-o1-full-fp8-local"), true);
-        assert.deepEqual(ordinaryModels.body.data.find((model: { id: string }) => model.id === "qwen-image-edit-2511-local").imageModes, ["edit", "angle"]);
+        assert.deepEqual(ordinaryModels.body.data.find((model: { id: string }) => model.id === "qwen-image-edit-2511-local").imageModes, ["edit"]);
         assert.equal(ordinaryModels.body.data.some((model: { id: string }) => model.id === "realesrgan-x4-local"), false);
         assert.equal((await api("/admin/comfyui/servers", userTwo)).response.status, 403);
         const directWorkflow = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: "comfyui::realesrgan-x4-local", prompt: "不应直接选择" }) });
@@ -505,9 +510,17 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
         const configured = await api("/admin/ai/config", userOne, { method: "PUT", body: JSON.stringify({ imageEditModel: "comfyui::qwen-image-edit-2511-local", imageWorkflows: { "image-upscale-faithful": "realesrgan-x4-local" } }) });
         assert.equal(configured.body.data.imageEditModel, "comfyui::qwen-image-edit-2511-local");
         assert.equal(configured.body.data.imageWorkflows["image-upscale-faithful"], "realesrgan-x4-local");
-        const edit = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", purpose: "image-edit", prompt: "改成蓝色", references: [{ fileId: uploaded.body.data.fileId, kind: "image" }] }) });
+        const removedPurpose = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: configured.body.data.imageEditModel, purpose: "image-edit", prompt: "旧协议", references: [{ fileId: uploaded.body.data.fileId, kind: "image" }] }) });
+        assert.equal(removedPurpose.response.status, 400);
+        const edit = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: configured.body.data.imageEditModel, prompt: "改成蓝色", references: [{ fileId: uploaded.body.data.fileId, kind: "image" }] }) });
         assert.equal(edit.response.status, 201);
         assert.equal(edit.body.data.modelId, "qwen-image-edit-2511-local");
+        const tooManyReferences = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: configured.body.data.imageEditModel, prompt: "参考图过多", references: Array.from({ length: 4 }, () => ({ fileId: uploaded.body.data.fileId, kind: "image" })) }) });
+        assert.equal(tooManyReferences.response.status, 400);
+        assert.equal(tooManyReferences.body.error.code, "AI_MODEL_REFERENCE_LIMIT");
+        const textToImageWithEditModel = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: configured.body.data.imageEditModel, prompt: "没有参考图" }) });
+        assert.equal(textToImageWithEditModel.response.status, 400);
+        assert.equal(textToImageWithEditModel.body.error.code, "AI_MODEL_MODE_UNSUPPORTED");
         const upscale = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", purpose: "image-upscale-faithful", params: { targetLongEdge: 2048, sourceWidth: 800, sourceHeight: 600 }, references: [{ fileId: uploaded.body.data.fileId, kind: "image" }] }) });
         assert.equal(upscale.response.status, 201);
         assert.equal(upscale.body.data.modelId, "realesrgan-x4-local");

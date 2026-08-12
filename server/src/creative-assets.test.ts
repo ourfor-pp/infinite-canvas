@@ -8,7 +8,7 @@ const testData = mkdtempSync(join(tmpdir(), "infinite-canvas-assets-"));
 process.env.DATA_DIR = testData;
 process.env.APP_SECRET = "creative-assets-test";
 
-const [{ db }, { createCreativeAsset, deleteCanvasNodes, getCreativeAsset, placeCreativeAsset, reviewCreativeAssetVariant, setCreativeAssetPrimary, syncCreativeAssetGeneration }, { previewCreativeAssetGeneration }] = await Promise.all([
+const [{ db }, { createCreativeAsset, deleteCanvasNodes, getCreativeAsset, placeCreativeAsset, syncCreativeAssetGeneration }, { previewCreativeAssetGeneration }] = await Promise.all([
     import("./database.js"),
     import("./creative-assets.js"),
     import("./creative-asset-generation.js"),
@@ -38,14 +38,14 @@ test("删除业务节点同步删除资产实体、全部视图和连接", () =>
     assert.throws(() => getCreativeAsset(userId, asset.id), /不存在/);
 });
 
-test("媒体草稿预览按业务语义组装且生成结果只追加候选", () => {
+test("媒体草稿预览按业务语义组装且生成结果直接替换主版本", () => {
     const userId = "user-1";
     const projectId = "project-1";
     const now = new Date().toISOString();
     db.prepare("INSERT INTO ai_providers(id,name,type,base_url,encrypted_credentials,enabled,models,concurrency,created_at,updated_at) VALUES(?,?,?,?,?,1,?,2,?,?)")
         .run("provider-1", "测试渠道", "openai-compatible", "http://127.0.0.1:9/v1", "{}", JSON.stringify([
             { id: "image-model", name: "图片模型", endpoint: "openai-images-generations", output: "image", inputs: ["text"], imageModes: ["generate"], enabled: true },
-            { id: "image-reference-model", name: "参考图模型", endpoint: "openai-images-generations", output: "image", inputs: ["text", "image"], imageModes: ["generate"], imageReferenceRoles: ["subject"], maxReferenceImages: 1, enabled: true },
+            { id: "image-reference-model", name: "参考图模型", endpoint: "openai-images-generations", output: "image", inputs: ["text", "image"], imageModes: ["generate"], maxReferenceImages: 1, enabled: true },
             { id: "sound-model", name: "声音模型", endpoint: "openai-tts", output: "audio", inputs: ["text"], audioModes: ["speech", "ambient"], enabled: true },
         ]), now, now);
     db.prepare("INSERT INTO ai_model_defaults(kind,model_ref,updated_at) VALUES('image','provider-1::image-model',?),('audio','provider-1::sound-model',?)").run(now, now);
@@ -64,13 +64,15 @@ test("媒体草稿预览按业务语义组装且生成结果只追加候选", ()
     syncCreativeAssetGeneration({ id: "generation-1", user_id: userId, status: "succeeded", request: JSON.stringify({ kind: "image", prompt: imagePreview.prompt, params: { __creativeAsset: { assetId: asset.id, usage: "design_sheet", label: "场景设计图" } } }), result: JSON.stringify({ files: [{ fileId: "generated-image" }] }) });
     const saved = getCreativeAsset(userId, asset.id);
     assert.equal(saved.payload.variants.length, 1);
-    assert.equal(saved.payload.primaryImageId, null);
+    assert.equal(saved.payload.primaryImageId, saved.payload.variants[0].id);
     assert.equal(saved.payload.variants[0].prompt, imagePreview.prompt);
-    assert.equal(saved.payload.variants[0].review?.status, "pending_review");
-    assert.throws(() => setCreativeAssetPrimary(userId, asset.id, saved.payload.variants[0].id, saved.revision, true), /通过审核/);
-    const reviewed = reviewCreativeAssetVariant(userId, asset.id, saved.payload.variants[0].id, { revision: saved.revision, accepted: true, setPrimary: true });
-    assert.equal(reviewed.payload.variants[0].review?.status, "approved");
-    assert.equal(reviewed.payload.primaryImageId, reviewed.payload.variants[0].id);
+    db.prepare("INSERT INTO stored_files(id,user_id,path,original_name,mime_type,bytes,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)")
+        .run("generated-image-2", userId, join(testData, "generated-image-2.png"), "generated-image-2.png", "image/png", 0, "{}", now);
+    syncCreativeAssetGeneration({ id: "generation-2", user_id: userId, status: "succeeded", request: JSON.stringify({ kind: "image", prompt: "第二版", params: { __creativeAsset: { assetId: asset.id, usage: "design_sheet", label: "场景设计图" } } }), result: JSON.stringify({ files: [{ fileId: "generated-image-2" }] }) });
+    const replaced = getCreativeAsset(userId, asset.id);
+    assert.equal(replaced.payload.variants.length, 1);
+    assert.equal(replaced.payload.variants[0].fileId, "generated-image-2");
+    assert.equal(replaced.payload.primaryImageId, replaced.payload.variants[0].id);
 
     for (const fileId of ["reference-one", "reference-two"]) db.prepare("INSERT INTO stored_files(id,user_id,path,original_name,mime_type,bytes,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)")
         .run(fileId, userId, join(testData, `${fileId}.png`), `${fileId}.png`, "image/png", 0, "{}", now);

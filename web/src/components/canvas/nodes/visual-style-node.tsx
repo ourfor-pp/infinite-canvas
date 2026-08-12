@@ -95,12 +95,20 @@ function VisualStyleCard({ style, ctx }: { style: VisualStyle; ctx: CanvasNodeCo
     };
     const confirmStyle = async () => {
         if (!await commit()) return;
-        try { const saved = await update(style.id, { status: "confirmed" }); draftRef.current = saved; setDraft(saved); message.success("视觉风格已确认"); }
+        try {
+            const saved = await update(style.id, { status: "confirmed" });
+            draftRef.current = saved;
+            setDraft(saved);
+            if (!project?.defaultVisualStyleId) await serverApi.setDefaultVisualStyle(style.id);
+            message.success(project?.defaultVisualStyleId ? "视觉风格已确认" : "视觉风格已确认并设为项目默认");
+        }
         catch (error) { message.error(error instanceof Error ? error.message : "确认失败"); }
     };
     const askAgent = async () => {
         if (!await commit()) return;
         prepareComposer(style.projectId, { kind: "style", projectId: style.projectId, styleId: style.id, nodeId: ctx.node.id, title: draft.name, subtitle: "视觉风格" });
+        const agent = useAgentStore.getState();
+        if (!agent.drafts[style.projectId]?.trim()) agent.setDraft(style.projectId, `请结合当前项目的故事内容，为“${draft.name}”设计统一视觉风格，完善风格描述和 Style DNA。不要描述具体角色、场景、道具或剧情。`);
     };
     const isDefault = project?.defaultVisualStyleId === style.id;
     const template = templates.find((item) => item.id === draft.templateId);
@@ -115,13 +123,15 @@ function VisualStyleCard({ style, ctx }: { style: VisualStyle; ctx: CanvasNodeCo
             <Dropdown menu={{ items: [{ key: "delete", danger: true, label: "永久删除风格" }], onClick: ({ key }) => key === "delete" && Modal.confirm({ title: "永久删除这个视觉风格？", content: "所有画布视图和相关连接都会移除，此操作不可撤销。", okText: "永久删除", okButtonProps: { danger: true }, cancelText: "取消", onOk: () => remove(style.id) }) }} trigger={["click"]}><Button type="text" size="small" icon={<MoreHorizontal className="size-4" />} /></Dropdown>
         </header>
 
+        {draft.status === "draft" ? <div className="mt-2 rounded-lg border border-current/10 px-2.5 py-2 text-[10px] leading-4 opacity-65"><strong className="font-medium opacity-100">选择一种起步方式：</strong>选下方模板最快；有参考图就上传并分析；也可以点击右上角 Agent 生成风格描述。样张用于检查三类资产是否统一，满意后点击底部确认。</div> : null}
+
         <div className="mt-3 grid grid-cols-3 gap-1.5">
             {referenceRoles.map(({ role, label, hint }) => <ReferenceTile key={role} role={role} label={label} hint={hint} fileId={draft.references[role]} colors={colors} />)}
         </div>
         <div className="mt-2 flex items-center gap-2">
             <Button type="text" size="small" icon={<ImagePlus className="size-3.5" />} onClick={() => fileRef.current?.click()} loading={busy === "upload"}>{draft.references.source ? "替换来源图" : "上传来源图"}</Button>
             {draft.references.source ? <Button type="text" size="small" icon={<WandSparkles className="size-3.5" />} loading={busy === "analyze"} onClick={() => void run("analyze")}>分析风格</Button> : null}
-            <Button type="text" size="small" icon={<Sparkles className="size-3.5" />} loading={busy === "generate"} onClick={() => void run("generate")}>生成样张</Button>
+            <Button type="text" size="small" disabled={!draft.description.trim()} icon={<Sparkles className="size-3.5" />} loading={busy === "generate"} onClick={() => void run("generate")}>生成样张</Button>
         </div>
 
         <Select className="mt-2 w-full" value={draft.mode === "template" ? draft.templateId : "custom"} onChange={(value) => value === "custom" ? change({ mode: "custom", templateId: null, status: "draft" }) : selectTemplate(value)} options={[{ value: "custom", label: "自定义风格" }, { label: "真人影像", options: templates.filter((item) => item.category === "live").map((item) => ({ value: item.id, label: item.name })) }, { label: "动画风格", options: templates.filter((item) => item.category === "anim").map((item) => ({ value: item.id, label: item.name })) }]} />
@@ -130,7 +140,7 @@ function VisualStyleCard({ style, ctx }: { style: VisualStyle; ctx: CanvasNodeCo
         {dnaOpen ? <DnaEditor value={draft.dna} onChange={(dna) => change({ dna, status: "draft" })} /> : null}
 
         <footer className="mt-auto flex items-center gap-2 pt-3">
-            {draft.status === "confirmed" ? <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] text-emerald-600"><Check className="size-3.5" />风格已确认</span> : <Button className="flex-1" icon={<Check className="size-3.5" />} onClick={() => void confirmStyle()}>确认当前风格</Button>}
+            {draft.status === "confirmed" ? <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] text-emerald-600"><Check className="size-3.5" />风格已确认</span> : <Button className="flex-1" disabled={!draft.description.trim()} icon={<Check className="size-3.5" />} onClick={() => void confirmStyle()}>确认当前风格</Button>}
             {isDefault ? <span className="flex items-center gap-1 text-[10px] text-amber-600"><Star className="size-3.5 fill-current" />项目默认</span> : <Button type="text" size="small" disabled={draft.status !== "confirmed"} icon={<Star className="size-3.5" />} onClick={() => void serverApi.setDefaultVisualStyle(style.id).then(() => message.success("已设为项目默认风格")).catch((error) => message.error(error.message))}>设为默认</Button>}
         </footer>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file); }} />

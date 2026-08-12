@@ -50,9 +50,10 @@ import { useVisualStyleStore } from "@/stores/use-visual-style-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { editCreativeAssetMediaEvent, focusVisualStyleEvent } from "@/lib/canvas/canvas-ui-events";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
-import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
+import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, normalizeConnection, snapNodesIntoGroup, viewportForCanvasBounds } from "@/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
     buildAngleLabel,
@@ -753,9 +754,7 @@ function InfiniteCanvasPage() {
         const center = getCanvasCenter();
         try {
             const style = await useVisualStyleStore.getState().create(projectId, { name: "项目视觉风格", mode: "custom", description: "" });
-            const placed = await serverApi.placeVisualStyle(style.id, { x: center.x - 190, y: center.y - 250 });
-            const current = useCanvasStore.getState().projects.find((item) => item.id === projectId);
-            if (!current?.defaultVisualStyleId) await serverApi.setDefaultVisualStyle(style.id);
+            const placed = await serverApi.placeVisualStyle(style.id, { x: center.x - 190, y: center.y - 310 });
             window.setTimeout(() => { setSelectedNodeIds(new Set([placed.nodeId])); setSelectedConnectionId(null); }, 120);
         } catch (error) { message.error(error instanceof Error ? error.message : "创建视觉风格节点失败"); }
     }, [getCanvasCenter, message, projectId]);
@@ -925,13 +924,27 @@ function InfiniteCanvasPage() {
     }, [size.height, size.width]);
 
     const focusNode = useCallback(
-        (nodeId: string) => {
+        (nodeId: string, options?: { includePanel?: boolean; maxZoom?: number }) => {
             const node = nodesRef.current.find((item) => item.id === nodeId);
             if (!node) return;
-            const worldX = node.position.x + node.width / 2;
-            const worldY = node.position.y + node.height / 2;
-            const k = Math.min(Math.max(Math.min((size.width * 0.6) / node.width, (size.height * 0.6) / node.height), 0.05), 1);
-            const target = { x: size.width / 2 - worldX * k, y: size.height / 2 - worldY * k, k };
+            const panel = options?.includePanel
+                ? Array.from(containerRef.current?.querySelectorAll<HTMLElement>("[data-node-id]") || []).find((element) => element.dataset.nodeId === nodeId)?.querySelector<HTMLElement>("[data-canvas-node-panel]")
+                : null;
+            const panelWidth = panel?.offsetWidth || 0;
+            const panelHeight = panel?.offsetHeight || 0;
+            const centerX = node.position.x + node.width / 2;
+            const bounds = {
+                left: panel ? Math.min(node.position.x, centerX - panelWidth / 2) : node.position.x,
+                top: node.position.y,
+                right: panel ? Math.max(node.position.x + node.width, centerX + panelWidth / 2) : node.position.x + node.width,
+                bottom: node.position.y + node.height + panelHeight,
+            };
+            const target = options
+                ? viewportForCanvasBounds(bounds, size, options.maxZoom ?? 2)
+                : (() => {
+                    const k = Math.min(Math.max(Math.min((size.width * 0.6) / node.width, (size.height * 0.6) / node.height), 0.05), 1);
+                    return { x: size.width / 2 - centerX * k, y: size.height / 2 - (node.position.y + node.height / 2) * k, k };
+                })();
             setSelectedNodeIds(new Set([nodeId]));
             setSelectedConnectionId(null);
             setContextMenu(null);
@@ -952,6 +965,35 @@ function InfiniteCanvasPage() {
         },
         [size.height, size.width],
     );
+
+    const focusNodeFromDoubleClick = useCallback((node: CanvasNodeData) => {
+        const definition = getNodeDefinition(node.type);
+        const includePanel = node.type !== CanvasNodeType.Text && node.type !== CanvasNodeType.Group && !definition?.hidePanel;
+        if (includePanel) setDialogNodeId(node.id);
+        else if (node.type === CanvasNodeType.Group) setDialogNodeId(null);
+        setSelectedNodeIds(new Set([node.id]));
+        setSelectedConnectionId(null);
+        setContextMenu(null);
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => focusNode(node.id, { includePanel, maxZoom: 2 })));
+        if (isCreativeAssetNodeType(node.type)) {
+            window.setTimeout(() => window.dispatchEvent(new CustomEvent(editCreativeAssetMediaEvent, { detail: { nodeId: node.id, kind: "image" } })), 470);
+        }
+    }, [focusNode]);
+
+    useEffect(() => {
+        const focusStyle = (event: Event) => {
+            const styleId = (event as CustomEvent<{ styleId?: string }>).detail?.styleId;
+            const node = nodesRef.current.find((item) => item.metadata?.visualStyleId === styleId) || (!styleId ? nodesRef.current.find((item) => item.type === "visual-style") : undefined);
+            if (node) return focusNode(node.id);
+            if (styleId) {
+                void serverApi.placeVisualStyle(styleId, getCanvasCenter()).then((placed) => window.setTimeout(() => focusNode(placed.nodeId), 180)).catch((error) => message.error(error instanceof Error ? error.message : "无法打开视觉风格"));
+                return;
+            }
+            void createVisualStyleNode();
+        };
+        window.addEventListener(focusVisualStyleEvent, focusStyle);
+        return () => window.removeEventListener(focusVisualStyleEvent, focusStyle);
+    }, [createVisualStyleNode, focusNode, getCanvasCenter, message]);
 
     useEffect(() => () => void (focusAnimRef.current && cancelAnimationFrame(focusAnimRef.current)), []);
 
@@ -2644,7 +2686,7 @@ function InfiniteCanvasPage() {
                 }
 
                 const image = useReferenceImages
-                    ? await requestEdit(generationConfig, prompt, retryImages, undefined, { signal: controller.signal }, savedSlot?.generationPurpose || "image-edit", savedSlot?.toolParams).then((items) => items[0])
+                    ? await requestEdit(generationConfig, prompt, retryImages, undefined, { signal: controller.signal }, savedSlot?.generationPurpose, savedSlot?.toolParams).then((items) => items[0])
                     : await requestGeneration(generationConfig, prompt, { signal: controller.signal }).then((items) => items[0]);
                 const uploadedImage = await uploadImage(image.dataUrl);
                 const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
@@ -3012,6 +3054,7 @@ function InfiniteCanvasPage() {
                             onRetry={handleNodeRetry}
                             onGenerateImage={generateImageFromTextNode}
                             onViewImage={handleNodeViewImage}
+                            onFocus={focusNodeFromDoubleClick}
                             onContextMenu={handleNodeContextMenu}
                         />
                     ))}

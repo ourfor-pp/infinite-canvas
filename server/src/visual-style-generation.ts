@@ -24,7 +24,7 @@ export function createVisualStyleReferences(userId: string, styleId: string, raw
     if (!modelRef) throw styleGenerationError(409, "AI_MODEL_NOT_CONFIGURED", "管理员尚未配置默认图片模型");
     const model = listPublicModels().find((item) => item.value === modelRef && item.output === "image");
     if (!model) throw styleGenerationError(400, "AI_MODEL_NOT_AVAILABLE", "默认图片模型不存在、未启用或能力不匹配");
-    const acceptsStyleReference = model.inputs.includes("image") && (!model.imageReferenceRoles?.length || model.imageReferenceRoles.includes("style")) && model.maxReferenceImages !== 0;
+    const acceptsStyleReference = model.inputs.includes("image") && model.maxReferenceImages !== 0;
     const sourceReference = style.references.source && acceptsStyleReference ? [{ fileId: style.references.source, kind: "image" as const }] : [];
     return input.roles.map((role) => createGeneration(userId, {
         kind: "image",
