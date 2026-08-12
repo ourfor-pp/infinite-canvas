@@ -9,10 +9,10 @@ export type BuiltInAgentSkill = {
     description: string;
 };
 
-type SourceSkill = BuiltInAgentSkill & { directory: string };
+type SourceSkill = BuiltInAgentSkill & { directory: string; allowedTools: string[] };
 
 export function listBuiltInAgentSkills() {
-    return readSourceSkills().map(({ directory: _directory, ...skill }) => skill);
+    return readSourceSkills().map(({ directory: _directory, allowedTools: _allowedTools, ...skill }) => skill);
 }
 
 export function getBuiltInAgentSkill(id: string) {
@@ -25,7 +25,8 @@ export function syncBuiltInAgentSkills(workspace: string) {
     const digest = createHash("sha256");
     skills.forEach((skill) => hashDirectory(digest, skill.directory));
     const hash = digest.digest("hex");
-    if (existsSync(resolve(targetRoot, ".content-hash")) && readFileSync(resolve(targetRoot, ".content-hash"), "utf8") === hash) return skills.map((skill) => skill.id);
+    const result = () => ({ skills: skills.map((skill) => skill.id), allowedTools: resolveAllowedTools(skills, targetRoot) });
+    if (existsSync(resolve(targetRoot, ".content-hash")) && readFileSync(resolve(targetRoot, ".content-hash"), "utf8") === hash) return result();
     const parent = resolve(targetRoot, "..");
     const temporary = resolve(parent, `.skills-next-${randomUUID()}`);
     const previous = resolve(parent, `.skills-previous-${randomUUID()}`);
@@ -44,7 +45,7 @@ export function syncBuiltInAgentSkills(workspace: string) {
     } finally {
         rmSync(temporary, { recursive: true, force: true });
     }
-    return skills.map((skill) => skill.id);
+    return result();
 }
 
 function hashDirectory(hash: ReturnType<typeof createHash>, directory: string, prefix = "") {
@@ -65,9 +66,30 @@ function readSourceSkills(): SourceSkill[] {
             const source = readFileSync(resolve(directory, "SKILL.md"), "utf8");
             const metadata = parseSkillMetadata(source);
             if (metadata.id !== entry.name) throw new Error(`Skill 目录名必须与 SKILL.md name 一致：${entry.name}`);
-            return { ...metadata, directory };
+            return { ...metadata, directory, allowedTools: parseSkillAllowedTools(source) };
         })
         .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+}
+
+export function parseSkillAllowedTools(source: string) {
+    const frontmatter = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] || "";
+    const lines = frontmatter.split(/\r?\n/);
+    const index = lines.findIndex((line) => /^allowed-tools\s*:/i.test(line));
+    if (index < 0) return [];
+    const inline = lines[index].replace(/^allowed-tools\s*:\s*/i, "").trim();
+    const values = inline ? (inline.startsWith("[") && inline.endsWith("]") ? inline.slice(1, -1).split(",") : inline.split(/\s+/)) : [];
+    if (!inline) {
+        for (const line of lines.slice(index + 1)) {
+            if (!/^\s+/.test(line)) break;
+            const item = line.match(/^\s*-\s*(.+?)\s*$/)?.[1];
+            if (item) values.push(item);
+        }
+    }
+    return Array.from(new Set(values.map((value) => unquote(value.trim())).filter((value) => /^[A-Za-z][A-Za-z0-9_-]*$/.test(value))));
+}
+
+function resolveAllowedTools(skills: SourceSkill[], targetRoot: string) {
+    return Array.from(new Set(skills.flatMap((skill) => skill.allowedTools.map((name) => name.replaceAll("${CLAUDE_SKILL_DIR}", resolve(targetRoot, skill.id))))));
 }
 
 function parseSkillMetadata(source: string): BuiltInAgentSkill {

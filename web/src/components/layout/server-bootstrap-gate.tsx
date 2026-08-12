@@ -7,6 +7,7 @@ import { bootstrapServerState, hydrateFromServer, importLegacyData, markLegacyMi
 import { subscribeServerEvents } from "@/services/api/server";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
+import { useVisualStyleStore } from "@/stores/use-visual-style-store";
 
 type LegacyData = Awaited<ReturnType<typeof bootstrapServerState>>["legacy"];
 let bootstrapPromise: ReturnType<typeof bootstrapServerState> | null = null;
@@ -84,6 +85,7 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
             }
         },
         (asset) => useCreativeAssetStore.getState().apply(asset),
+        (style) => useVisualStyleStore.getState().apply(style),
     ), []);
 
     const migrate = async () => {

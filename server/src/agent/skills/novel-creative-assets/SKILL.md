@@ -1,6 +1,7 @@
 ---
 name: novel-creative-assets
 description: 从小说、剧本、故事梗概、附件或画布文本中提取角色、场景和道具，整理为可编辑的创作资产候选清单；用户要求拆解故事设定、建立角色场景道具资产或为后续视觉与声音生成准备一致性设定时使用。
+allowed-tools: [mcp__infinite_canvas__canvas_get_state, mcp__infinite_canvas__creative_assets_list, mcp__infinite_canvas__creative_assets_create_batch]
 ---
 
 # 小说设定拆解

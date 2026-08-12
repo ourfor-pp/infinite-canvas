@@ -7,7 +7,7 @@ import { decryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
 import { buildComfyWorkflow } from "./comfy-workflows.js";
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
-import { decryptCredentials, getProviderRow, resolveProviderModel, type MediaKind } from "./provider-service.js";
+import { decryptCredentials, getProviderRow, resolveProviderModel, type AiModelDefinition, type MediaKind } from "./provider-service.js";
 import { syncAgentGenerationCanvas } from "./agent/generation-canvas.js";
 import { syncCreativeAssetGeneration } from "./creative-assets.js";
 
@@ -181,11 +181,13 @@ async function runPublicGeneration(row: GenerationRow, request: AiGenerationRequ
 }
 
 async function cancelProviderTask(row: GenerationRow) {
-    if (!row.provider_id) return;
+    if (!row.provider_id || row.provider_id === "comfyui") return;
     const provider = getProviderRow(row.provider_id);
     if (!provider) return;
     const request = parseJson<AiGenerationRequest>(row.request, {} as AiGenerationRequest);
-    const model = resolveProviderModel(`${row.provider_id}::${row.model_id}`, row.kind).model;
+    const selection = resolveProviderModel(`${row.provider_id}::${row.model_id}`, row.kind);
+    if (!("provider" in selection)) return;
+    const model = selection.model as AiModelDefinition;
     const adapter = adapterFor(model.endpoint);
     if (!adapter.cancel) return;
     await adapter.cancel({

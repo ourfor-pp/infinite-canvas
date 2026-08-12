@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, relative, resolve, sep } from "node:path";
-import { createSdkMcpServer, query, tool, type Options, type PermissionResult, type PermissionUpdate, type Query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type Options, type PermissionResult, type PermissionUpdate, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { config } from "../config.js";
@@ -13,20 +13,23 @@ import { agentAutoAllowedTools, buildAgentMcpServer } from "./mcp/index.js";
 import { getBuiltInAgentSkill, listBuiltInAgentSkills, syncBuiltInAgentSkills, type BuiltInAgentSkill } from "./skill-registry.js";
 import { getCanvasState } from "./canvas-tools.js";
 import { creativeAssetInputSchema, getCreativeAsset } from "../creative-assets.js";
-import type { AgentEvent, AgentEventKind, AgentMessageInput, AgentPendingDecision, AgentSession, AgentSessionStatus, AgentStreamEvent } from "./types.js";
+import { getVisualStyle } from "../visual-styles.js";
+import type { AgentComposerDocument, AgentEvent, AgentEventKind, AgentMessageInput, AgentPendingDecision, AgentQueuedMessage, AgentSession, AgentSessionStatus, AgentStreamEvent } from "./types.js";
+import { SdkInputChannel } from "./sdk-input-channel.js";
 
 type SessionRow = {
     id: string; user_id: string; project_id: string; sdk_session_id: string | null; title: string;
-    status: AgentSessionStatus; event_seq: number; current_run_id: string | null; pending_decision: string | null; fork_pending: number;
+    status: AgentSessionStatus; event_seq: number; current_run_id: string | null; pending_decision: string | null; fork_pending: number; fork_resume_at: string | null;
     last_error: string | null; last_error_code: string | null; created_at: string; updated_at: string;
 };
-type RunRow = { id: string; session_id: string; user_id: string; status: string; model_ref: string; usage: string | null; error: string | null; error_code: string | null; started_at: string; finished_at: string | null };
-type AgentSettings = { modelRef: string; modelName?: string; providerName?: string; ready: boolean };
+type RunRow = { id: string; session_id: string; user_id: string; status: string; model_ref: string; usage: string | null; error: string | null; error_code: string | null; tool_search_mode: string; tool_search_call_count: number; started_at: string; finished_at: string | null };
+type QueueRow = { id: string; user_id: string; project_id: string; session_id: string; wait_for_run_id: string | null; accepted_run_id: string | null; client_message_id: string; content: string; attachment_file_ids: string; display_text: string; status: string; error: string | null; created_at: string; updated_at: string };
+type AgentSettings = { modelRef: string; modelName?: string; providerName?: string; toolSearchMode: string; ready: boolean };
 type DecisionResult = { approved: boolean; scope: "once" | "session" | "project"; comment?: string; answers?: Record<string, string>; proposalEdits?: unknown };
 
 type ConversationListener = { clientId: string; send: (event: AgentStreamEvent) => void };
 const conversationListeners = new Map<string, Set<ConversationListener>>();
-const running = new Map<string, { controller: AbortController; query?: Query; run: RunRow }>();
+const running = new Map<string, { controller: AbortController; query?: Query; input?: SdkInputChannel; run: RunRow }>();
 const decisions = new Map<string, { sessionId: string; resolve: (result: DecisionResult) => void }>();
 const clientActions = new Map<string, { sessionId: string; resolve: (result: { ok: boolean; data?: unknown; error?: string }) => void }>();
 const sdkToolCalls = new Map<string, string>();
@@ -40,6 +43,8 @@ export function recoverAgentRuns() {
             .run("服务重启中断，当前任务无法安全恢复", now);
         db.prepare("UPDATE agent_runs SET status='failed', error=?, error_code='SERVICE_RESTART_INTERRUPTED', finished_at=? WHERE status IN ('queued','running','waiting_for_user')")
             .run("服务重启中断，当前任务无法安全恢复", now);
+        db.prepare("UPDATE agent_queued_messages SET status='held', error='服务重启后等待确认', updated_at=? WHERE status IN ('queued','dispatching','running')").run(now);
+        db.prepare("DELETE FROM agent_message_receipts WHERE client_message_id IN (SELECT client_message_id FROM agent_queued_messages WHERE status='held')").run();
     })();
 }
 
@@ -48,16 +53,18 @@ export function getAgentSettings(): AgentSettings {
     const modelRef = row?.model_ref || "";
     let modelName = "";
     let providerName = "";
+    let toolSearchMode = "false";
     let ready = false;
     if (modelRef) {
         try {
             const selection = resolveAgentModel(modelRef);
             modelName = selection.model.name;
             providerName = selection.provider.name;
+            toolSearchMode = resolveAgentToolSearchMode(selection.model.endpoint, process.env.AGENT_ENABLE_TOOL_SEARCH);
             ready = true;
         } catch { /* Invalid admin configuration is represented as not ready. */ }
     }
-    return { modelRef, modelName, providerName, ready };
+    return { modelRef, modelName, providerName, toolSearchMode, ready };
 }
 
 export function saveAgentSettings(input: { modelRef: string }) {
@@ -78,9 +85,12 @@ export async function testAgentSettings(input?: { modelRef?: string }) {
         toolCalled = true;
         return { content: [{ type: "text", text: "ok" }] };
     })] });
+    const prompt = runtime.toolSearchEnabled
+        ? "请先使用 ToolSearch 找到 health_check，再调用 health_check，最后只回复 OK。"
+        : "请先调用 health_check 工具，再只回复 OK。";
     const runner = query({
-        prompt: "请先调用 health_check 工具，再只回复 OK。",
-        options: { model: selection.model.id, maxTurns: 2, tools: [], mcpServers: { agent_test: testMcp }, allowedTools: ["mcp__agent_test__health_check"], env: runtime.env, cwd: resolve(config.agentRoot, "runtime-test"), includePartialMessages: false, abortController: controller },
+        prompt,
+        options: { model: selection.model.id, maxTurns: 3, tools: runtime.toolSearchEnabled ? ["ToolSearch"] : [], mcpServers: { agent_test: testMcp }, allowedTools: [...(runtime.toolSearchEnabled ? ["ToolSearch"] : []), "mcp__agent_test__health_check"], env: runtime.env, cwd: resolve(config.agentRoot, "runtime-test"), includePartialMessages: false, abortController: controller },
     });
     const timer = setTimeout(() => { controller.abort(); void runner.interrupt(); }, 30_000);
     try {
@@ -88,7 +98,7 @@ export async function testAgentSettings(input?: { modelRef?: string }) {
             if (message.type === "result" && message.subtype !== "success") throw new Error((message.errors || []).join("\n") || "Agent 模型测试失败");
         }
         if (!toolCalled) throw agentError(502, "AGENT_TOOL_TEST_FAILED", "模型可以回复文本，但没有完成工具调用测试");
-        return { available: true, model: selection.model.name, provider: selection.provider.name };
+        return { available: true, model: selection.model.name, provider: selection.provider.name, toolSearchMode: runtime.toolSearchMode };
     } finally {
         clearTimeout(timer);
         await runner.close();
@@ -104,7 +114,7 @@ export function getConversation(userId: string, projectId: string, sessionId?: s
     const sessions = db.prepare("SELECT * FROM agent_sessions WHERE user_id=? AND project_id=? ORDER BY updated_at DESC LIMIT 50").all(userId, projectId) as SessionRow[];
     const selected = sessionId ? sessions.find((row) => row.id === sessionId) : sessions[0];
     if (sessionId && !selected) throw agentError(404, "AGENT_SESSION_NOT_FOUND", "Agent 会话不存在或不属于当前画布");
-    return { projectId, sessions: sessions.map((row) => sessionResponse(row, false)), session: selected ? sessionResponse(selected, true) : null };
+    return { projectId, sessions: sessions.map((row) => sessionResponse(row, false)), session: selected ? sessionResponse(selected, true) : null, queuedMessages: selected ? queueMessages(selected.id) : [] };
 }
 
 export function createSession(userId: string, projectId: string, title = "新对话") {
@@ -117,15 +127,24 @@ export function createSession(userId: string, projectId: string, title = "新对
     return session;
 }
 
-export function forkSession(userId: string, sessionId: string) {
+export function forkSession(userId: string, sessionId: string, fromEventSeq?: number) {
     const source = requireSession(userId, sessionId);
     if (["running", "waiting_for_user"].includes(source.status)) throw agentError(409, "AGENT_SESSION_BUSY", "运行中的会话不能分叉");
+    const sourceMessage = fromEventSeq === undefined ? null : db.prepare("SELECT kind, payload FROM agent_events WHERE session_id=? AND seq=?").get(source.id, fromEventSeq) as { kind: AgentEventKind; payload: string } | undefined;
+    if (fromEventSeq !== undefined && sourceMessage?.kind !== "user_text") throw agentError(404, "AGENT_FORK_MESSAGE_NOT_FOUND", "只能从当前会话中的用户消息创建分支");
+    const anchor = fromEventSeq === undefined ? null : db.prepare("SELECT payload FROM agent_events WHERE session_id=? AND seq<? AND kind='assistant_text' ORDER BY seq DESC LIMIT 1").get(source.id, fromEventSeq) as { payload: string } | undefined;
+    const resumeAt = String(parseJson<Record<string, unknown>>(anchor?.payload || "{}", {}).sdkMessageUuid || "").trim();
+    if (fromEventSeq !== undefined && fromEventSeq > 1 && source.sdk_session_id && !resumeAt) throw agentError(409, "AGENT_FORK_ANCHOR_MISSING", "这段旧会话没有可安全截断的 SDK 上下文，请从第一条消息重新开始或新建会话");
     const next = createSession(userId, source.project_id, `${source.title} · 分支`);
     db.transaction(() => {
-        db.prepare("INSERT INTO agent_events(session_id, seq, run_id, kind, payload, created_at) SELECT ?, seq, run_id, kind, payload, created_at FROM agent_events WHERE session_id=? AND kind<>'client_action'").run(next.id, source.id);
-        db.prepare("UPDATE agent_sessions SET sdk_session_id=?, fork_pending=?, event_seq=? WHERE id=? AND user_id=?").run(source.sdk_session_id, Number(Boolean(source.sdk_session_id)), source.event_seq, next.id, userId);
+        if (fromEventSeq === undefined) db.prepare("INSERT INTO agent_events(session_id, seq, run_id, kind, payload, created_at) SELECT ?, seq, run_id, kind, payload, created_at FROM agent_events WHERE session_id=? AND kind<>'client_action'").run(next.id, source.id);
+        else db.prepare("INSERT INTO agent_events(session_id, seq, run_id, kind, payload, created_at) SELECT ?, seq, run_id, kind, payload, created_at FROM agent_events WHERE session_id=? AND seq<? AND kind<>'client_action'").run(next.id, source.id, fromEventSeq);
+        const eventSeq = (db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM agent_events WHERE session_id=?").get(next.id) as { seq: number }).seq;
+        const canResume = Boolean(source.sdk_session_id && (fromEventSeq === undefined || resumeAt));
+        db.prepare("UPDATE agent_sessions SET sdk_session_id=?, fork_pending=?, fork_resume_at=?, event_seq=? WHERE id=? AND user_id=?")
+            .run(canResume ? source.sdk_session_id : null, Number(canResume), fromEventSeq === undefined ? null : resumeAt || null, eventSeq, next.id, userId);
     })();
-    appendEvent(next.id, null, "run_state", { state: "idle", content: `从“${source.title}”创建分支` });
+    appendEvent(next.id, null, "run_state", { state: "idle", content: fromEventSeq === undefined ? `从“${source.title}”创建分支` : "从历史消息创建新分支", ...(fromEventSeq === undefined ? {} : { forkSourceSeq: fromEventSeq }) });
     publishProjectSnapshot(userId, source.project_id);
     return sessionResponse(requireSession(userId, next.id), true);
 }
@@ -142,53 +161,59 @@ export function removeAgentProjectWorkspace(userId: string, projectId: string) {
     rmSync(projectWorkspace(userId, projectId), { recursive: true, force: true });
 }
 
-export function sendMessage(userId: string, projectId: string, input: AgentMessageInput) {
+export async function sendMessage(userId: string, projectId: string, input: AgentMessageInput) {
     assertProject(userId, projectId);
     const normalized = validateMessageInput(input);
-    let session = normalized.sessionId ? requireSession(userId, normalized.sessionId) : latestSession(userId, projectId);
+    const receipt = db.prepare("SELECT session_id FROM agent_message_receipts WHERE user_id=? AND client_message_id=?").get(userId, normalized.clientMessageId) as { session_id: string } | undefined;
+    if (receipt) return getConversation(userId, projectId, receipt.session_id);
+    const queuedReceipt = db.prepare("SELECT session_id FROM agent_queued_messages WHERE user_id=? AND client_message_id=?").get(userId, normalized.clientMessageId) as { session_id: string } | undefined;
+    if (queuedReceipt) return getConversation(userId, projectId, queuedReceipt.session_id);
+    let session = normalized.preferredSessionId ? requireSession(userId, normalized.preferredSessionId) : latestSession(userId, projectId);
     if (session && session.project_id !== projectId) throw agentError(409, "AGENT_SESSION_PROJECT_MISMATCH", "会话不属于当前画布");
     if (!session) session = getSessionRow(userId, createSession(userId, projectId).id)!;
-    if (["running", "waiting_for_user"].includes(session.status)) throw agentError(409, "AGENT_SESSION_BUSY", "当前会话仍在运行");
+    const busy = ["running", "waiting_for_user"].includes(session.status);
+    if (normalized.submissionMode === "queue" && busy) {
+        enqueueMessage(userId, session, normalized);
+        return getConversation(userId, projectId, session.id);
+    }
+    if (normalized.submissionMode === "steer") {
+        if (session.status === "waiting_for_user") throw agentError(409, "AGENT_DECISION_REQUIRED", "请先处理当前审批或追问，也可以选择稍后发送");
+        if (session.status !== "running") throw agentError(409, "AGENT_SESSION_NOT_RUNNING", "当前会话没有可调整的运行任务");
+        const active = running.get(session.id);
+        if (!active?.input || !session.current_run_id) throw agentError(409, "AGENT_INPUT_CHANNEL_NOT_READY", "Agent 输入通道尚未就绪，请稍后重试或选择稍后发送");
+        const prepared = prepareMessage(userId, projectId, normalized.content, normalized.attachmentFileIds);
+        const prompt = buildPrompt(session, prepared.context, prepared.skills[0] || null);
+        const appended = await active.input.append(singleUserInput(prompt, "now"), () => db.transaction(() => {
+            appendUserMessage(session!.id, session!.current_run_id!, normalized, prepared, "steer");
+            db.prepare("INSERT INTO agent_message_receipts(user_id, client_message_id, session_id, run_id, created_at) VALUES(?, ?, ?, ?, ?)").run(userId, normalized.clientMessageId, session!.id, session!.current_run_id, new Date().toISOString());
+        })());
+        if (!appended) throw agentError(409, "AGENT_INPUT_CHANNEL_CLOSED", "当前 Agent 回合已经结束");
+        return getConversation(userId, projectId, session.id);
+    }
+    if (busy) throw agentError(409, "AGENT_SESSION_BUSY", "当前会话仍在运行");
+    return startDirectMessage(userId, session, normalized);
+}
+
+function startDirectMessage(userId: string, session: SessionRow, normalized: ReturnType<typeof validateMessageInput>, queueId?: string) {
     const settings = getAgentSettings();
     if (!settings.ready) throw agentError(503, "AGENT_NOT_CONFIGURED", "管理员尚未配置可用的 Agent 模型");
-    const attachments = normalized.attachmentFileIds.map((id) => {
-        const file = getStoredFile(userId, id);
-        if (!file) throw agentError(404, "AGENT_ATTACHMENT_NOT_FOUND", "附件不存在或无权访问");
-        return { fileId: id, name: file.original_name, mimeType: file.mime_type, path: file.path };
-    });
-    const references = normalized.canvasReferences.map((reference) => {
-        if (reference.projectId !== projectId) throw agentError(400, "AGENT_REFERENCE_INVALID", "画布引用必须属于当前项目");
-        const state = getCanvasState(userId, reference.projectId);
-        const node = state.nodes.find((item) => item.id === reference.nodeId);
-        if (!node) throw agentError(404, "AGENT_REFERENCE_NOT_FOUND", `引用节点 ${reference.nodeId} 不存在`);
-        return { projectId: reference.projectId, nodeId: reference.nodeId, node };
-    });
-    const assetReferences = normalized.assetReferences.map((reference) => {
-        if (reference.projectId !== projectId) throw agentError(400, "AGENT_ASSET_REFERENCE_INVALID", "创作资产引用必须属于当前项目");
-        const asset = getCreativeAsset(userId, reference.assetId);
-        if (asset.projectId !== reference.projectId) throw agentError(404, "AGENT_ASSET_REFERENCE_NOT_FOUND", "创作资产不存在或不属于当前项目");
-        if (reference.nodeId) {
-            const state = getCanvasState(userId, reference.projectId);
-            const node = state.nodes.find((item) => item.id === reference.nodeId && item.metadata?.assetId === reference.assetId);
-            if (!node) throw agentError(404, "AGENT_ASSET_NODE_NOT_FOUND", "创作资产节点不存在");
-        }
-        return { ...reference, asset };
-    });
-    const skill = normalized.skillId ? getEnabledSkill(normalized.skillId) : null;
+    const prepared = prepareMessage(userId, session.project_id, normalized.content, normalized.attachmentFileIds);
     const runId = nanoid();
     const now = new Date().toISOString();
-    const displayText = normalized.text || (attachments.length ? `发送了 ${attachments.length} 个附件` : assetReferences.length ? `引用了 ${assetReferences.length} 个创作资产` : `引用了 ${references.length} 个画布节点`);
     db.transaction(() => {
         db.prepare("INSERT INTO agent_runs(id, session_id, user_id, status, model_ref, started_at) VALUES(?, ?, ?, 'queued', ?, ?)").run(runId, session!.id, userId, settings.modelRef, now);
         db.prepare("UPDATE agent_sessions SET status='running', current_run_id=?, last_error=NULL, last_error_code=NULL, title=CASE WHEN title='新对话' THEN ? ELSE title END, updated_at=? WHERE id=? AND user_id=?")
-            .run(runId, displayText.slice(0, 80), now, session!.id, userId);
-        appendEvent(session!.id, runId, "user_text", { text: displayText, attachments: attachments.map(({ path: _path, ...item }) => item), references: references.map(({ node, ...item }) => ({ ...item, title: node.title, type: node.type })), assetReferences: assetReferences.map(({ asset, ...item }) => ({ ...item, name: asset.name, kind: asset.kind })), skill: skill ? { id: skill.id, name: skill.name } : null });
+            .run(runId, prepared.displayText.slice(0, 80), now, session!.id, userId);
+        appendUserMessage(session.id, runId, normalized, prepared, queueId ? "queue" : "direct");
         const addFileRef = db.prepare("INSERT OR IGNORE INTO file_refs(file_id, user_id, owner_type, owner_id) SELECT id, user_id, 'agent_project', ? FROM stored_files WHERE id=? AND user_id=?");
-        normalized.attachmentFileIds.forEach((fileId) => addFileRef.run(projectId, fileId, userId));
-        db.prepare("UPDATE agent_runs SET usage=? WHERE id=?").run(JSON.stringify({ input: normalized.text, attachments, references, assetReferences, skillId: skill?.id || null }), runId);
+        normalized.attachmentFileIds.forEach((fileId) => addFileRef.run(session.project_id, fileId, userId));
+        db.prepare("UPDATE agent_runs SET usage=? WHERE id=?").run(JSON.stringify(prepared.context), runId);
+        db.prepare("INSERT INTO agent_message_receipts(user_id, client_message_id, session_id, run_id, created_at) VALUES(?, ?, ?, ?, ?)").run(userId, normalized.clientMessageId, session.id, runId, now);
+        if (queueId) db.prepare("UPDATE agent_queued_messages SET status='running', accepted_run_id=?, updated_at=? WHERE id=?").run(runId, now, queueId);
     })();
     schedulePump();
-    return getConversation(userId, projectId, session.id);
+    publishQueue(session);
+    return getConversation(userId, session.project_id, session.id);
 }
 
 export async function cancelSession(userId: string, sessionId: string) {
@@ -200,13 +225,74 @@ export async function cancelSession(userId: string, sessionId: string) {
         db.prepare("UPDATE agent_sessions SET status='canceled', current_run_id=NULL, pending_decision=NULL, updated_at=? WHERE id=? AND user_id=?").run(now, sessionId, userId);
         if (row.current_run_id) db.prepare("UPDATE agent_runs SET status='canceled', error='用户已取消任务', error_code='AGENT_CANCELED', finished_at=? WHERE id=? AND user_id=?").run(now, row.current_run_id, userId);
         appendEvent(sessionId, row.current_run_id, "run_state", { state: "canceled", content: "任务已取消" });
+        db.prepare("UPDATE agent_queued_messages SET status='held', error='当前任务已取消，等待确认', updated_at=? WHERE session_id=? AND status IN ('queued','dispatching','running')").run(now, sessionId);
     })();
     if (active) {
         active.controller.abort();
         settleSessionWaiters(sessionId, "任务已取消");
         await active.query?.interrupt().catch(() => undefined);
     }
+    publishQueue(row);
     return sessionResponse(requireSession(userId, sessionId), true);
+}
+
+export function listQueuedMessages(userId: string, sessionId: string) {
+    requireSession(userId, sessionId);
+    return queueMessages(sessionId);
+}
+
+export function getTurnIndex(userId: string, sessionId: string) {
+    requireSession(userId, sessionId);
+    return (db.prepare("SELECT seq, run_id, payload, created_at FROM agent_events WHERE session_id=? AND kind='user_text' ORDER BY seq").all(sessionId) as Array<{ seq: number; run_id: string | null; payload: string; created_at: string }>).map((row) => ({
+        seq: row.seq, runId: row.run_id, text: String(parseJson<Record<string, unknown>>(row.payload, {}).text || ""), createdAt: row.created_at,
+    }));
+}
+
+export function retryQueuedMessage(userId: string, sessionId: string, messageId: string) {
+    const session = requireSession(userId, sessionId);
+    const row = requireQueue(userId, sessionId, messageId);
+    if (!["held", "failed"].includes(row.status)) throw agentError(409, "AGENT_QUEUE_NOT_RETRYABLE", "只有等待确认或失败的消息可以重试");
+    db.transaction(() => {
+        db.prepare("DELETE FROM agent_message_receipts WHERE user_id=? AND client_message_id=?").run(userId, row.client_message_id);
+        db.prepare("UPDATE agent_queued_messages SET status='queued', accepted_run_id=NULL, error=NULL, updated_at=? WHERE id=?").run(new Date().toISOString(), row.id);
+    })();
+    publishQueue(session);
+    drainQueuedMessages(session.id);
+    return queueMessages(session.id);
+}
+
+export async function steerQueuedMessage(userId: string, sessionId: string, messageId: string) {
+    const session = requireSession(userId, sessionId);
+    const row = requireQueue(userId, sessionId, messageId);
+    if (["dispatching", "running"].includes(row.status)) throw agentError(409, "AGENT_QUEUE_ALREADY_RUNNING", "排队消息已经开始执行");
+    const input = queuedInput(row, session.status === "running" ? "steer" : "direct");
+    db.transaction(() => {
+        db.prepare("DELETE FROM agent_message_receipts WHERE user_id=? AND client_message_id=?").run(userId, row.client_message_id);
+        db.prepare("DELETE FROM agent_queued_messages WHERE id=?").run(row.id);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_queue' AND owner_id=?").run(userId, row.id);
+    })();
+    publishQueue(session);
+    try { return await sendMessage(userId, session.project_id, input); }
+    catch (error) {
+        db.prepare("INSERT INTO agent_queued_messages(id,user_id,project_id,session_id,wait_for_run_id,accepted_run_id,client_message_id,content,attachment_file_ids,display_text,status,error,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            .run(row.id, row.user_id, row.project_id, row.session_id, row.wait_for_run_id, null, row.client_message_id, row.content, row.attachment_file_ids, row.display_text, "held", sanitizeError(error instanceof Error ? error.message : "发送失败"), row.created_at, new Date().toISOString());
+        const add = db.prepare("INSERT OR IGNORE INTO file_refs(file_id,user_id,owner_type,owner_id) SELECT id,user_id,'agent_queue',? FROM stored_files WHERE id=? AND user_id=?");
+        parseJson<string[]>(row.attachment_file_ids, []).forEach((fileId) => add.run(row.id, fileId, userId));
+        publishQueue(session);
+        throw error;
+    }
+}
+
+export function deleteQueuedMessage(userId: string, sessionId: string, messageId: string) {
+    const session = requireSession(userId, sessionId);
+    const row = requireQueue(userId, sessionId, messageId);
+    if (["dispatching", "running"].includes(row.status)) throw agentError(409, "AGENT_QUEUE_RUNNING", "正在执行的排队消息不能删除");
+    db.transaction(() => {
+        db.prepare("DELETE FROM agent_queued_messages WHERE id=?").run(row.id);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_queue' AND owner_id=?").run(userId, row.id);
+    })();
+    publishQueue(session);
+    return { id: row.id };
 }
 
 export function respondDecision(userId: string, sessionId: string, input: { decision: "approved" | "rejected"; scope?: "once" | "session" | "project"; comment?: string; answers?: Record<string, string>; proposalEdits?: unknown }) {
@@ -262,6 +348,7 @@ export function listSkills() {
 export function listAdminRuns() {
     return (db.prepare("SELECT r.*, u.username FROM agent_runs r JOIN users u ON u.id=r.user_id ORDER BY r.started_at DESC LIMIT 200").all() as Array<RunRow & { username: string }>).map((row) => ({
         id: row.id, sessionId: row.session_id, status: row.status, modelRef: row.model_ref, error: row.error, errorCode: row.error_code,
+        toolSearchMode: row.tool_search_mode, toolSearchCallCount: row.tool_search_call_count,
         startedAt: row.started_at, finishedAt: row.finished_at, user: { id: row.user_id, username: row.username },
     }));
 }
@@ -301,13 +388,14 @@ async function executeRun(run: RunRow, controller: AbortController) {
     const session = requireSession(run.user_id, run.session_id);
     try {
         const selection = resolveAgentModel(run.model_ref);
-        const context = parseJson<{ input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; skillId?: string }>(run.usage, {});
-        const skill = context.skillId ? getEnabledSkill(context.skillId) : null;
+        const context = parseJson<{ input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; skillIds?: string[] }>(run.usage, {});
+        const skill = context.skillIds?.[0] ? getEnabledSkill(context.skillIds[0]) : null;
         const workspace = projectWorkspace(run.user_id, session.project_id);
         mkdirSync(workspace, { recursive: true });
-        syncBuiltInAgentSkills(workspace);
+        const syncedSkills = syncBuiltInAgentSkills(workspace);
         const prompt = buildPrompt(session, { ...context, attachments: stageAttachments(workspace, context.attachments || []) }, skill);
         const runtime = runtimeEnv(selection.provider, selection.provider.credentials, selection.model, resolve(workspace, ".claude"));
+        db.prepare("UPDATE agent_runs SET tool_search_mode=? WHERE id=?").run(runtime.toolSearchMode, run.id);
         const mcp = buildAgentMcpServer({
             session: { id: session.id, projectId: session.project_id },
             run: { userId: run.user_id },
@@ -320,8 +408,9 @@ async function executeRun(run: RunRow, controller: AbortController) {
         });
         const streamState = { text: "", thinking: "", turn: 0 };
         appendEvent(session.id, run.id, "run_state", { state: "running", content: "Agent 已开始处理" });
+        const input = new SdkInputChannel([sdkUserMessage(prompt)]);
         const runner = query({
-            prompt,
+            prompt: input,
             options: {
                 cwd: workspace,
                 abortController: controller,
@@ -329,11 +418,12 @@ async function executeRun(run: RunRow, controller: AbortController) {
                 persistSession: true,
                 resume: session.sdk_session_id || undefined,
                 forkSession: Boolean(session.sdk_session_id && session.fork_pending),
+                resumeSessionAt: session.fork_resume_at || undefined,
                 settingSources: ["project"],
                 skills: "all",
-                tools: ["Read"],
+                tools: runtime.toolSearchEnabled ? ["Read", "ToolSearch"] : ["Read"],
                 mcpServers: { infinite_canvas: mcp },
-                allowedTools: agentAutoAllowedTools,
+                allowedTools: mergeAllowedTools(agentAutoAllowedTools, runtime.toolSearchEnabled ? ["ToolSearch"] : [], syncedSkills.allowedTools),
                 disallowedTools: ["Bash", "PowerShell", "WebFetch", "WebSearch", "Task", "CronCreate", "CronEdit", "CronDelete", "CronList"],
                 permissionMode: "auto",
                 canUseTool: (toolName, input, options) => requestPolicyDecision(session, run, toolName, input, options),
@@ -344,17 +434,24 @@ async function executeRun(run: RunRow, controller: AbortController) {
             },
         });
         const active = running.get(session.id);
-        if (active) active.query = runner;
+        if (active) { active.query = runner; active.input = input; }
         for await (const message of runner) {
             if (controller.signal.aborted) throw Object.assign(new Error("用户已取消任务"), { code: "AGENT_CANCELED" });
             await consumeSdkMessage(session.id, run.id, message, streamState);
+            if (message.type === "result") input.close();
         }
         const now = new Date().toISOString();
         db.transaction(() => {
+            const finalAssistant = db.prepare("SELECT seq FROM agent_events WHERE session_id=? AND run_id=? AND kind='assistant_text' ORDER BY seq DESC LIMIT 1").get(session.id, run.id) as { seq: number } | undefined;
             db.prepare("UPDATE agent_sessions SET status='completed', current_run_id=NULL, pending_decision=NULL, updated_at=? WHERE id=? AND user_id=?").run(now, session.id, run.user_id);
             db.prepare("UPDATE agent_runs SET status='completed', finished_at=? WHERE id=?").run(now, run.id);
-            appendEvent(session.id, run.id, "run_state", { state: "completed", content: "Agent 执行完成" });
+            appendEvent(session.id, run.id, "run_state", { state: "completed", content: "Agent 执行完成", ...(finalAssistant ? { finalAssistantEventSeq: finalAssistant.seq } : {}) });
+            const accepted = db.prepare("SELECT id FROM agent_queued_messages WHERE session_id=? AND accepted_run_id=?").all(session.id, run.id) as Array<{ id: string }>;
+            accepted.forEach(({ id }) => db.prepare("DELETE FROM file_refs WHERE owner_type='agent_queue' AND owner_id=?").run(id));
+            db.prepare("DELETE FROM agent_queued_messages WHERE session_id=? AND accepted_run_id=?").run(session.id, run.id);
         })();
+        publishQueue(session);
+        drainQueuedMessages(session.id);
     } catch (error) {
         const current = getSessionRow(run.user_id, session.id);
         if (current?.status === "canceled") return;
@@ -366,8 +463,11 @@ async function executeRun(run: RunRow, controller: AbortController) {
             db.prepare("UPDATE agent_runs SET status='failed', error=?, error_code=?, finished_at=? WHERE id=?").run(message, code, now, run.id);
             appendEvent(session.id, run.id, "error", { code, content: message });
             appendEvent(session.id, run.id, "run_state", { state: "failed", content: "Agent 执行失败" });
+            db.prepare("UPDATE agent_queued_messages SET status='held', error='上一轮执行失败，等待确认', updated_at=? WHERE session_id=? AND status IN ('queued','dispatching','running')").run(now, session.id);
         })();
+        publishQueue(session);
     } finally {
+        running.get(session.id)?.input?.close();
         settleSessionWaiters(session.id, "Agent 任务已经结束");
     }
 }
@@ -434,7 +534,7 @@ async function requestPolicyDecision(session: SessionRow, run: RunRow, toolName:
 
 async function consumeSdkMessage(sessionId: string, runId: string, message: SDKMessage, streamed: { text: string; thinking: string; turn: number }) {
     const sdkSessionId = String((message as { session_id?: string }).session_id || "").trim();
-    if (sdkSessionId) db.prepare("UPDATE agent_sessions SET sdk_session_id=?, fork_pending=0 WHERE id=?").run(sdkSessionId, sessionId);
+    if (sdkSessionId) db.prepare("UPDATE agent_sessions SET sdk_session_id=?, fork_pending=0, fork_resume_at=NULL WHERE id=?").run(sdkSessionId, sessionId);
     if (message.type === "system" && message.subtype === "permission_denied") {
         appendEvent(sessionId, runId, "run_state", { state: "running", content: `SDK 自动审核未允许 ${message.tool_name.replace(/^mcp__infinite_canvas__/, "")}，该工具已结束`, reason: message.decision_reason || "未通过自动安全审核" });
         return;
@@ -454,11 +554,13 @@ async function consumeSdkMessage(sessionId: string, runId: string, message: SDKM
     }
     if (message.type === "assistant") {
         for (const block of Array.isArray(message.message.content) ? message.message.content : []) {
-            if (block.type === "text" && block.text.trim()) appendEvent(sessionId, runId, "assistant_text", { text: block.text.trim(), streamId: `${runId}:${streamed.turn}:text` });
-            if (block.type === "thinking" && block.thinking.trim()) appendEvent(sessionId, runId, "thinking", { text: block.thinking.trim(), streamId: `${runId}:${streamed.turn}:thinking` });
-            if (block.type === "tool_use" && block.name === "Read") {
+            const sdkMessageUuid = String((message as { uuid?: string }).uuid || "").trim();
+            if (block.type === "text" && block.text.trim()) appendEvent(sessionId, runId, "assistant_text", { text: block.text.trim(), streamId: `${runId}:${streamed.turn}:text`, ...(sdkMessageUuid ? { sdkMessageUuid } : {}) });
+            if (block.type === "thinking" && block.thinking.trim()) appendEvent(sessionId, runId, "thinking", { text: block.thinking.trim(), streamId: `${runId}:${streamed.turn}:thinking`, ...(sdkMessageUuid ? { sdkMessageUuid } : {}) });
+            if (block.type === "tool_use" && (block.name === "Read" || block.name === "ToolSearch")) {
                 sdkToolCalls.set(`${sessionId}:${block.id}`, block.name);
-                appendEvent(sessionId, runId, "tool_call", { toolId: block.id, toolName: block.name, input: block.input, startedAt: new Date().toISOString() });
+                appendEvent(sessionId, runId, "tool_call", { toolId: block.id, toolName: block.name, input: block.input, startedAt: new Date().toISOString(), ...(sdkMessageUuid ? { sdkMessageUuid } : {}) });
+                if (block.name === "ToolSearch") db.prepare("UPDATE agent_runs SET tool_search_call_count=tool_search_call_count+1 WHERE id=?").run(runId);
             }
         }
         streamed.text = "";
@@ -494,10 +596,13 @@ function runtimeEnv(row: ProviderNonNull, credentials: ReturnType<typeof decrypt
         LANG: process.env.LANG || "C.UTF-8",
         LC_ALL: process.env.LC_ALL,
         HOME: home,
+        CLAUDE_AGENT_SDK_CLIENT_APP: "infinite-canvas/0.18.0",
     };
     mkdirSync(claudeDir, { recursive: true });
     mkdirSync(home, { recursive: true });
     env.CLAUDE_CONFIG_DIR = claudeDir;
+    const toolSearchMode = resolveAgentToolSearchMode(model.endpoint, process.env.AGENT_ENABLE_TOOL_SEARCH);
+    env.ENABLE_TOOL_SEARCH = toolSearchMode;
     if (model.endpoint === "anthropic-messages") {
         env.ANTHROPIC_BASE_URL = row.base_url.replace(/\/v1\/?$/, "");
         env.ANTHROPIC_API_KEY = credentials.apiKey || "";
@@ -507,16 +612,28 @@ function runtimeEnv(row: ProviderNonNull, credentials: ReturnType<typeof decrypt
         env.ANTHROPIC_BASE_URL = proxy.baseUrl;
         env.ANTHROPIC_API_KEY = proxy.apiKey;
     }
-    return { env };
+    return { env, toolSearchMode, toolSearchEnabled: toolSearchMode !== "false" };
+}
+
+export function resolveAgentToolSearchMode(endpoint: AiModelDefinition["endpoint"], override?: string) {
+    const value = String(override || "").trim();
+    if (/^(?:true|false|auto|auto:(?:100|[1-9]?\d))$/.test(value)) return value;
+    return endpoint === "anthropic-messages" ? "true" : "false";
+}
+
+function mergeAllowedTools(...lists: string[][]) {
+    const safe = new Set([...agentAutoAllowedTools, "ToolSearch"]);
+    return Array.from(new Set(lists.flat())).filter((name) => safe.has(name));
 }
 
 type ProviderNonNull = NonNullable<ReturnType<typeof getProviderRow>>;
 
-function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }> }, skill: BuiltInAgentSkill | null) {
+function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }> }, skill: BuiltInAgentSkill | null) {
     const sections = [context.input || "请处理本次请求。"];
     if (skill) sections.unshift(`请调用并遵循内置 Skill“${skill.id}”（${skill.name}）完成本次请求。`);
     if (context.references?.length) sections.push(`## 本次画布引用\n${JSON.stringify(context.references, null, 2)}`);
     if (context.assetReferences?.length) sections.push(`## 本次创作资产引用\n${JSON.stringify(context.assetReferences, null, 2)}\n修改前读取最新 revision；不要把新增媒体静默设为主版本。`);
+    if (context.styleReferences?.length) sections.push(`## 本次视觉风格引用\n${JSON.stringify(context.styleReferences, null, 2)}\n修改前读取最新 revision；资产生成时优先沿用这个风格。`);
     const readableAttachments = context.attachments?.filter((file) => isAgentContextFile(file.mimeType)) || [];
     const savedOnlyAttachments = context.attachments?.filter((file) => !isAgentContextFile(file.mimeType)) || [];
     if (readableAttachments.length) sections.push(`## 本次附件\n${readableAttachments.map((file) => `- ${file.name} (${file.mimeType})：${file.path}`).join("\n")}\n只允许通过受控上下文使用这些文件。`);
@@ -526,7 +643,7 @@ function buildPrompt(session: SessionRow, context: { input?: string; attachments
 }
 
 function systemPrompt(session: SessionRow) {
-    return `你是 Infinite Canvas 画布项目内置 Agent。你只能使用 infinite_canvas MCP 工具操作当前项目的数据。优先理解用户目标并直接完成任务；修改画布或创作资产前先读取最新 revision；小说拆解应先调用 creative_assets_create_batch 提交角色、场景、道具候选清单供用户确认，单项角色也使用规范字段；工具成功返回即代表创建完成，后续回复不得再声称仍在等待确认；新增媒体只追加变体，不擅自替换主版本；不要编造工具结果。删除和受保护设定修改由 SDK 自动审核，升级人工时等待确认。禁止尝试 Shell、宿主文件系统、管理员接口、渠道凭据和任意外部 URL。当前会话绑定项目 ${session.project_id}。`;
+    return `你是 Infinite Canvas 画布项目内置 Agent。你只能使用 infinite_canvas MCP 工具操作当前项目的数据。优先理解用户目标并直接完成任务；修改画布、创作资产或视觉风格前先读取最新 revision；创作故事、小说或剧本正文时使用 canvas_create_text_nodes，并把标题和全部章节作为一个 Markdown 文档放进唯一一个 item，禁止按章节拆成多个文本节点；小说拆解应先调用 creative_assets_create_batch 提交角色、场景、道具候选清单供用户确认；资产生成前读取已连接的设定、参考与视觉风格，未显式连接时沿用项目默认风格；工具成功返回即代表创建完成，后续回复不得再声称仍在等待确认；新增媒体只追加变体，不擅自替换主版本；不要编造工具结果。删除和受保护设定修改由 SDK 自动审核，升级人工时等待确认。禁止尝试 Shell、宿主文件系统、管理员接口、渠道凭据和任意外部 URL。当前会话绑定项目 ${session.project_id}。`;
 }
 
 function projectWorkspace(userId: string, projectId: string) {
@@ -626,16 +743,110 @@ function settleSessionWaiters(sessionId: string, error: string) {
 }
 
 function validateMessageInput(input: AgentMessageInput) {
+    const mention = { mentionId: z.string().trim().min(1).max(128), projectId: z.string().trim().min(1).max(128) };
     return z.object({
-        text: z.string().max(200_000).optional().default(""),
-        sessionId: z.string().max(128).optional(),
+        preferredSessionId: z.string().max(128).optional(),
+        clientMessageId: z.string().trim().min(1).max(128),
+        submissionMode: z.enum(["direct", "steer", "queue"]),
+        content: z.object({ version: z.literal(1), segments: z.array(z.discriminatedUnion("type", [
+            z.object({ type: z.literal("text"), text: z.string().max(200_000) }),
+            z.object({ type: z.literal("skill"), mentionId: mention.mentionId, skillId: z.string().trim().min(1).max(128) }),
+            z.object({ type: z.literal("canvas"), ...mention, nodeId: z.string().trim().min(1).max(128) }),
+            z.object({ type: z.literal("asset"), ...mention, assetId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
+            z.object({ type: z.literal("style"), ...mention, styleId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
+        ])).min(1).max(200) }),
         attachmentFileIds: z.array(z.string().max(128)).max(20).optional().default([]),
-        canvasReferences: z.array(z.object({ projectId: z.string().max(128), nodeId: z.string().max(128) })).max(50).optional().default([]),
-        assetReferences: z.array(z.object({ projectId: z.string().max(128), assetId: z.string().max(128), nodeId: z.string().max(128).optional() })).max(50).optional().default([]),
-        skillId: z.string().max(128).optional(),
     }).superRefine((value, issue) => {
-        if (!value.text.trim() && !value.attachmentFileIds.length && !value.canvasReferences.length && !value.assetReferences.length) issue.addIssue({ code: "custom", path: ["text"], message: "消息、附件、画布引用或创作资产引用至少需要一项" });
+        if (!composerText(value.content).trim() && !value.attachmentFileIds.length && !value.content.segments.some((segment) => segment.type !== "text")) issue.addIssue({ code: "custom", path: ["content"], message: "消息、附件或引用至少需要一项" });
     }).parse(input);
+}
+
+function prepareMessage(userId: string, projectId: string, document: AgentComposerDocument, attachmentFileIds: string[]) {
+    const attachments = attachmentFileIds.map((id) => {
+        const file = getStoredFile(userId, id);
+        if (!file) throw agentError(404, "AGENT_ATTACHMENT_NOT_FOUND", "附件不存在或无权访问");
+        return { fileId: id, name: file.original_name, mimeType: file.mime_type, path: file.path };
+    });
+    const references: Array<{ projectId: string; nodeId: string; node: unknown }> = [];
+    const assetReferences: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }> = [];
+    const styleReferences: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }> = [];
+    const skills: BuiltInAgentSkill[] = [];
+    const displayParts: string[] = [];
+    const displaySegments: Array<Record<string, unknown>> = [];
+    for (const segment of document.segments) {
+        if (segment.type === "text") { displayParts.push(segment.text); displaySegments.push(segment); continue; }
+        if (segment.type === "skill") {
+            const skill = getEnabledSkill(segment.skillId); skills.push(skill); displayParts.push(`/${skill.name}`); displaySegments.push({ ...segment, label: skill.name }); continue;
+        }
+        if (segment.projectId !== projectId) throw agentError(400, "AGENT_REFERENCE_INVALID", "引用必须属于当前项目");
+        if (segment.type === "canvas") {
+            const node = getCanvasState(userId, projectId).nodes.find((item) => item.id === segment.nodeId);
+            if (!node) throw agentError(404, "AGENT_REFERENCE_NOT_FOUND", `引用节点 ${segment.nodeId} 不存在`);
+            references.push({ projectId, nodeId: segment.nodeId, node }); displayParts.push(`@${node.title || "画布节点"}`); displaySegments.push({ ...segment, label: node.title || "画布节点" });
+        } else if (segment.type === "asset") {
+            const asset = getCreativeAsset(userId, segment.assetId);
+            if (asset.projectId !== projectId) throw agentError(404, "AGENT_ASSET_REFERENCE_NOT_FOUND", "创作资产不存在或不属于当前项目");
+            assetReferences.push({ projectId, assetId: segment.assetId, nodeId: segment.nodeId, asset }); displayParts.push(`@${asset.name}`); displaySegments.push({ ...segment, label: asset.name });
+        } else {
+            const style = getVisualStyle(userId, segment.styleId);
+            if (style.projectId !== projectId) throw agentError(404, "AGENT_STYLE_REFERENCE_NOT_FOUND", "视觉风格不存在或不属于当前项目");
+            styleReferences.push({ projectId, styleId: segment.styleId, nodeId: segment.nodeId, style }); displayParts.push(`@${style.name}`); displaySegments.push({ ...segment, label: style.name });
+        }
+    }
+    const displayText = displayParts.join("").trim() || (attachments.length ? `发送了 ${attachments.length} 个附件` : "引用了项目内容");
+    return { displayText, displaySegments, attachments, references, assetReferences, styleReferences, skills, context: { input: composerText(document), attachments, references, assetReferences, styleReferences, skillIds: skills.map((skill) => skill.id) } };
+}
+
+function appendUserMessage(sessionId: string, runId: string, input: ReturnType<typeof validateMessageInput>, prepared: ReturnType<typeof prepareMessage>, submissionMode: "direct" | "steer" | "queue") {
+    appendEvent(sessionId, runId, "user_text", {
+        text: prepared.displayText, content: { version: 1, segments: prepared.displaySegments }, clientMessageId: input.clientMessageId, submissionMode,
+        attachments: prepared.attachments.map(({ path: _path, ...item }) => item),
+    });
+}
+
+function enqueueMessage(userId: string, session: SessionRow, input: ReturnType<typeof validateMessageInput>) {
+    const prepared = prepareMessage(userId, session.project_id, input.content, input.attachmentFileIds);
+    const id = nanoid(); const now = new Date().toISOString();
+    db.transaction(() => {
+        db.prepare("INSERT INTO agent_queued_messages(id,user_id,project_id,session_id,wait_for_run_id,client_message_id,content,attachment_file_ids,display_text,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'queued',?,?)")
+            .run(id, userId, session.project_id, session.id, session.current_run_id, input.clientMessageId, JSON.stringify(input.content), JSON.stringify(input.attachmentFileIds), prepared.displayText, now, now);
+        const add = db.prepare("INSERT OR IGNORE INTO file_refs(file_id,user_id,owner_type,owner_id) SELECT id,user_id,'agent_queue',? FROM stored_files WHERE id=? AND user_id=?");
+        input.attachmentFileIds.forEach((fileId) => add.run(id, fileId, userId));
+    })();
+    publishQueue(session);
+}
+
+function composerText(document: AgentComposerDocument) { return document.segments.filter((segment): segment is Extract<typeof segment, { type: "text" }> => segment.type === "text").map((segment) => segment.text).join(""); }
+function sdkUserMessage(text: string, priority?: SDKUserMessage["priority"]): SDKUserMessage { return { type: "user", parent_tool_use_id: null, message: { role: "user", content: [{ type: "text", text }] }, ...(priority ? { priority } : {}), timestamp: new Date().toISOString() } as SDKUserMessage; }
+function singleUserInput(text: string, priority?: SDKUserMessage["priority"]): AsyncIterable<SDKUserMessage> { return (async function* () { yield sdkUserMessage(text, priority); })(); }
+
+function queueMessages(sessionId: string): AgentQueuedMessage[] {
+    return (db.prepare("SELECT * FROM agent_queued_messages WHERE session_id=? ORDER BY created_at").all(sessionId) as QueueRow[]).map(queueResponse);
+}
+function queueResponse(row: QueueRow): AgentQueuedMessage {
+    const files = parseJson<string[]>(row.attachment_file_ids, []).map((id) => getStoredFile(row.user_id, id)?.original_name).filter((name): name is string => Boolean(name));
+    return { id: row.id, sessionId: row.session_id, clientMessageId: row.client_message_id, displayText: row.display_text, attachmentNames: files, status: row.status as AgentQueuedMessage["status"], acceptedRunId: row.accepted_run_id, error: row.error, createdAt: row.created_at, updatedAt: row.updated_at };
+}
+function requireQueue(userId: string, sessionId: string, messageId: string) {
+    const row = db.prepare("SELECT * FROM agent_queued_messages WHERE id=? AND session_id=? AND user_id=?").get(messageId, sessionId, userId) as QueueRow | undefined;
+    if (!row) throw agentError(404, "AGENT_QUEUE_NOT_FOUND", "排队消息不存在"); return row;
+}
+function queuedInput(row: QueueRow, mode: "direct" | "steer"): AgentMessageInput { return { preferredSessionId: row.session_id, clientMessageId: row.client_message_id, submissionMode: mode, content: parseJson(row.content, { version: 1, segments: [{ type: "text", text: row.display_text }] }), attachmentFileIds: parseJson(row.attachment_file_ids, []) }; }
+function publishQueue(session: SessionRow) {
+    const listeners = conversationListeners.get(conversationKey(session.user_id, session.project_id));
+    const event: AgentStreamEvent = { type: "queue.updated", cursor: session.event_seq, sessionId: session.id, queuedMessages: queueMessages(session.id) };
+    listeners?.forEach((listener) => listener.send(event));
+}
+function drainQueuedMessages(sessionId: string) {
+    queueMicrotask(() => {
+        const session = db.prepare("SELECT * FROM agent_sessions WHERE id=?").get(sessionId) as SessionRow | undefined;
+        if (!session || ["running", "waiting_for_user"].includes(session.status)) return;
+        const row = db.prepare("SELECT * FROM agent_queued_messages WHERE session_id=? AND status='queued' ORDER BY created_at LIMIT 1").get(sessionId) as QueueRow | undefined;
+        if (!row) return;
+        db.prepare("UPDATE agent_queued_messages SET status='dispatching', updated_at=? WHERE id=?").run(new Date().toISOString(), row.id); publishQueue(session);
+        try { startDirectMessage(row.user_id, session, validateMessageInput(queuedInput(row, "direct")), row.id); }
+        catch (error) { db.prepare("UPDATE agent_queued_messages SET status='failed', error=?, updated_at=? WHERE id=?").run(sanitizeError(error instanceof Error ? error.message : "排队发送失败"), new Date().toISOString(), row.id); publishQueue(session); }
+    });
 }
 
 function appendEvent(sessionId: string, runId: string | null, kind: AgentEventKind, payload: Record<string, unknown>) {
@@ -666,7 +877,7 @@ function publishProjectSnapshot(userId: string, projectId: string) {
 
 function projectSnapshot(userId: string, projectId: string): AgentStreamEvent {
     const rows = db.prepare("SELECT * FROM agent_sessions WHERE user_id=? AND project_id=? ORDER BY updated_at DESC LIMIT 50").all(userId, projectId) as SessionRow[];
-    return { type: "snapshot", cursor: Math.max(0, ...rows.map((row) => row.event_seq)), sessions: rows.map((row) => sessionResponse(row, false)) };
+    return { type: "snapshot", cursor: Math.max(0, ...rows.map((row) => row.event_seq)), sessions: rows.map((row) => sessionResponse(row, false)), queuedMessages: Object.fromEntries(rows.map((row) => [row.id, queueMessages(row.id)])) };
 }
 
 function conversationKey(userId: string, projectId: string) {

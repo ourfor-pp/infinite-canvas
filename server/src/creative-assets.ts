@@ -60,11 +60,20 @@ export const creativeAssetPayloadSchema = z.object({
     imageModel: z.string().max(300).nullable().default(null),
     audioModel: z.string().max(300).nullable().default(null),
 });
+const creativeAssetPayloadPatchSchema = z.object({
+    description: text.optional(),
+    voiceDescription: text.optional(),
+    variants: z.array(variant).max(500).optional(),
+    primaryImageId: id.nullable().optional(),
+    primaryAudioId: id.nullable().optional(),
+    imageModel: z.string().max(300).nullable().optional(),
+    audioModel: z.string().max(300).nullable().optional(),
+});
 export const creativeAssetInputSchema = z.object({
     kind: z.enum(["character", "scene", "prop"]),
     name: z.string().trim().min(1).max(200),
     status: z.enum(["draft", "confirmed", "locked"]).default("draft"),
-    payload: creativeAssetPayloadSchema.partial().default({}),
+    payload: creativeAssetPayloadPatchSchema.default({}),
 });
 export const creativeAssetUpdateSchema = creativeAssetInputSchema.partial().extend({ revision: z.number().int().positive() });
 
@@ -254,7 +263,7 @@ function projectPayload(userId: string, projectId: string) {
     if (!row) throw creativeAssetError(404, "PROJECT_NOT_FOUND", "画布不存在或无权访问");
     const payload = parseJson<ProjectPayload>(row.payload, { nodes: [], connections: [] });
     payload.nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
-    payload.connections = Array.isArray(payload.connections) ? payload.connections : [];
+    payload.connections = Array.isArray(payload.connections) ? payload.connections.filter((item) => typeof item.fromPortId === "string" && typeof item.toPortId === "string") : [];
     return payload;
 }
 

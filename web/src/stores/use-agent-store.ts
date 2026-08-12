@@ -8,6 +8,10 @@ export type AgentCanvasContext = {
     undoOps: () => CanvasAgentSnapshot | null;
     canUndo: boolean;
 };
+export type AgentEntityReference =
+    | { kind: "asset"; projectId: string; assetId: string; nodeId?: string; title: string; subtitle: string }
+    | { kind: "style"; projectId: string; styleId: string; nodeId?: string; title: string; subtitle: string };
+export const EMPTY_AGENT_ENTITY_REFERENCES: AgentEntityReference[] = [];
 
 type AgentStore = {
     width: number;
@@ -20,6 +24,8 @@ type AgentStore = {
     drafts: Record<string, string>;
     currentSessionIds: Record<string, string>;
     seenEventSeqs: Record<string, number>;
+    entityReferences: Record<string, AgentEntityReference[]>;
+    focusRequests: Record<string, number>;
     setAgentState: (patch: Partial<Pick<AgentStore, "width" | "connected" | "enabled" | "activity">>) => void;
     openPanel: (projectId: string) => void;
     closePanel: (projectId: string) => void;
@@ -28,9 +34,16 @@ type AgentStore = {
     setDraft: (projectId: string, value: string) => void;
     setCurrentSession: (projectId: string, sessionId: string) => void;
     markSessionSeen: (sessionId: string, eventSeq: number) => void;
+    prepareComposer: (projectId: string, reference: AgentEntityReference) => void;
+    removeEntityReference: (projectId: string, reference: AgentEntityReference) => void;
+    clearEntityReferences: (projectId: string) => void;
 };
 
 export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
+
+export function selectAgentEntityReferences(state: Pick<AgentStore, "entityReferences">, projectId: string) {
+    return state.entityReferences[projectId] || EMPTY_AGENT_ENTITY_REFERENCES;
+}
 
 const saved = <T extends Record<string, unknown>>(key: string) => {
     if (typeof window === "undefined") return {} as T;
@@ -52,6 +65,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     drafts: saved<Record<string, string>>("agent-drafts-by-project"),
     currentSessionIds: saved<Record<string, string>>("agent-session-by-project"),
     seenEventSeqs: saved<Record<string, number>>("agent-seen-events"),
+    entityReferences: {},
+    focusRequests: {},
     setAgentState: (patch) => set(patch),
     openPanel: (projectId) => set((state) => {
         const panelOpen = { ...state.panelOpen, [projectId]: true };
@@ -81,4 +96,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         persist("agent-seen-events", seenEventSeqs);
         return { seenEventSeqs };
     }),
+    prepareComposer: (projectId, reference) => set((state) => {
+        const current = state.entityReferences[projectId] || [];
+        const same = (item: AgentEntityReference) => item.kind === reference.kind && (item.kind === "asset" ? item.assetId === (reference.kind === "asset" ? reference.assetId : "") : item.styleId === (reference.kind === "style" ? reference.styleId : ""));
+        const panelOpen = { ...state.panelOpen, [projectId]: true };
+        persist("agent-panel-open-by-project", panelOpen);
+        return { panelOpen, panelClosing: { ...state.panelClosing, [projectId]: false }, entityReferences: { ...state.entityReferences, [projectId]: current.some(same) ? current : [...current, reference] }, focusRequests: { ...state.focusRequests, [projectId]: (state.focusRequests[projectId] || 0) + 1 } };
+    }),
+    removeEntityReference: (projectId, reference) => set((state) => ({ entityReferences: { ...state.entityReferences, [projectId]: (state.entityReferences[projectId] || []).filter((item) => item.kind !== reference.kind || (item.kind === "asset" ? item.assetId : item.styleId) !== (reference.kind === "asset" ? reference.assetId : reference.styleId)) } })),
+    clearEntityReferences: (projectId) => set((state) => ({ entityReferences: { ...state.entityReferences, [projectId]: [] } })),
 }));

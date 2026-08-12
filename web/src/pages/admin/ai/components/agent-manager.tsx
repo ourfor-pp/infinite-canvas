@@ -27,10 +27,10 @@ export function AgentManager() {
 
     return <section className="space-y-5">
         <div className="max-w-2xl rounded-xl border border-stone-200 bg-background p-5 dark:border-stone-800">
-            <div className="mb-4 flex items-center gap-2"><Bot className="size-4" /><h3 className="font-semibold">运行配置</h3>{settings?.ready ? <Tag color="green">可用</Tag> : <Tag color="orange">待配置</Tag>}</div>
+            <div className="mb-4 flex items-center gap-2"><Bot className="size-4" /><h3 className="font-semibold">运行配置</h3>{settings?.ready ? <Tag color="green">可用</Tag> : <Tag color="orange">待配置</Tag>}{settings?.ready ? <Tag>工具搜索 {settings.toolSearchMode}</Tag> : null}</div>
             <Form form={form} layout="vertical">
                 <Form.Item name="modelRef" label="全局 Agent 模型" rules={[{ required: true, message: "请选择 Agent 模型" }]}><Select showSearch options={modelOptions} placeholder="选择已启用 Agent 能力的文本模型" optionFilterProp="label" /></Form.Item>
-                <div className="flex flex-wrap justify-end gap-2"><Button icon={<Wifi className="size-4" />} onClick={() => void form.validateFields(["modelRef"]).then((value) => agentApi.testAdminSettings(value)).then((result) => message.success(`${result.provider} / ${result.model} 的连接与工具调用正常`)).catch((error) => message.error(error.message))}>测试连接与工具</Button><Button type="primary" loading={save.isPending} onClick={() => void form.validateFields().then((value) => save.mutate(value))}>保存配置</Button></div>
+                <div className="flex flex-wrap justify-end gap-2"><Button icon={<Wifi className="size-4" />} onClick={() => void form.validateFields(["modelRef"]).then((value) => agentApi.testAdminSettings(value)).then((result) => message.success(`${result.provider} / ${result.model} 的连接与工具调用正常（工具搜索：${result.toolSearchMode}）`)).catch((error) => message.error(error.message))}>测试连接与工具</Button><Button type="primary" loading={save.isPending} onClick={() => void form.validateFields().then((value) => save.mutate(value))}>保存配置</Button></div>
             </Form>
         </div>
 
@@ -42,6 +42,7 @@ export function AgentManager() {
                 { title: "状态", dataIndex: "status", width: 120, render: (value) => <Tag color={value === "completed" ? "green" : value === "failed" ? "red" : value === "running" ? "processing" : undefined}>{value}</Tag> },
                 { title: "开始时间", dataIndex: "startedAt", width: 180, render: (value) => new Date(value).toLocaleString() },
                 { title: "耗时", width: 100, render: (_, row) => row.finishedAt ? `${Math.max(0, Math.round((new Date(row.finishedAt).getTime() - new Date(row.startedAt).getTime()) / 1000))}s` : "运行中" },
+                { title: "工具搜索", width: 110, render: (_, row) => <span>{row.toolSearchMode === "false" ? "关闭" : `${row.toolSearchCallCount} 次`}</span> },
                 { title: "错误", dataIndex: "error", ellipsis: true },
                 { title: "操作", width: 80, render: (_, row) => ["queued", "running", "waiting_for_user"].includes(row.status) ? <Button size="small" danger onClick={() => agentApi.cancelAdminRun(row.id).then(() => queryClient.invalidateQueries({ queryKey: ["admin-agent-runs"] })).catch((error) => message.error(error.message))}>取消</Button> : null },
             ]} locale={{ emptyText: "暂无 Agent 任务" }} />

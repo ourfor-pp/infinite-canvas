@@ -4,6 +4,7 @@
   "defaultOpen": true,
   "pages": [
     "local-development",
+    "testing-strategy",
     "fnos-application-deployment",
     "canvas-data-structure"
   ]

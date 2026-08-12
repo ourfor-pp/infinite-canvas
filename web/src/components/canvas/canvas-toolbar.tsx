@@ -24,6 +24,7 @@ export function CanvasToolbar({
     onAddConfig,
     onAddGroup,
     onAddCreativeAsset,
+    onAddVisualStyle,
     onAddExtensionNode,
     onUndo,
     onRedo,
@@ -47,6 +48,7 @@ export function CanvasToolbar({
     onAddConfig: () => void;
     onAddGroup: () => void;
     onAddCreativeAsset: (kind: CreativeAssetKind) => void;
+    onAddVisualStyle: () => void;
     onAddExtensionNode: (type: string) => void;
     onUndo: () => void;
     onRedo: () => void;
@@ -235,12 +237,13 @@ export function CanvasToolbar({
             {creativeOpen ? (
                 <div className="pointer-events-auto absolute bottom-[72px] z-30 w-[286px] -translate-x-1/2 rounded-xl border p-2 shadow-xl backdrop-blur" style={{ left: creativePanelX || "50%", background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item }}>
                     <div className="px-1.5 pb-2 pt-0.5"><p className="text-[11px] font-semibold">新建业务节点</p><p className="mt-0.5 text-[9px] opacity-45">直接落到画布，完整设定可稍后完善</p></div>
-                    <div className="grid grid-cols-3 gap-1">
+                    <div className="grid grid-cols-4 gap-1">
                         {([
                             { kind: "character", label: "角色", caption: "人物档案", icon: UserRound, color: "#c8654a" },
                             { kind: "scene", label: "场景", caption: "空间场记", icon: MapPinned, color: "#267b70" },
                             { kind: "prop", label: "道具", caption: "物件标本", icon: Box, color: "#a5792d" },
                         ] as const).map((item) => <button key={item.kind} type="button" className="group flex flex-col items-center rounded-lg px-2 py-3 text-center transition hover:bg-black/5 dark:hover:bg-white/10" onClick={() => { onAddCreativeAsset(item.kind); setCreativeOpen(false); }}><item.icon className="size-5" style={{ color: item.color }} /><span className="mt-1.5 text-xs font-semibold">{item.label}</span><span className="mt-0.5 text-[9px] opacity-40">{item.caption}</span></button>)}
+                        <button type="button" className="group flex flex-col items-center rounded-lg px-2 py-3 text-center transition hover:bg-black/5 dark:hover:bg-white/10" onClick={() => { onAddVisualStyle(); setCreativeOpen(false); }}><Palette className="size-5" style={{ color: "#d26b98" }} /><span className="mt-1.5 text-xs font-semibold">风格</span><span className="mt-0.5 text-[9px] opacity-40">视觉锚点</span></button>
                     </div>
                 </div>
             ) : null}

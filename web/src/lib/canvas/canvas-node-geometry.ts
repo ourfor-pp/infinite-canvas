@@ -1,4 +1,5 @@
-import { CanvasNodeType, type CanvasNodeData, type ConnectionHandle } from "@/types/canvas";
+import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ConnectionHandle } from "@/types/canvas";
+import { compatibleTargetPort, nodePorts, portById } from "./canvas-ports";
 
 export function nodeBounds(nodes: CanvasNodeData[]) {
     return nodes.reduce(
@@ -57,20 +58,21 @@ export function findContainingGroupId(node: CanvasNodeData, nodes: CanvasNodeDat
 }
 
 export function getConnectionTargetAnchor(node: CanvasNodeData, current: ConnectionHandle) {
-    return {
-        x: current.handleType === "source" ? node.position.x : node.position.x + node.width,
-        y: node.position.y + node.height / 2,
-    };
+    return { x: current.handleType === "source" ? node.position.x : node.position.x + node.width, y: node.position.y + node.height / 2 };
 }
 
-export function normalizeConnection(firstNodeId: string, secondNodeId: string, nodes: CanvasNodeData[], firstHandleType: "source" | "target") {
+export function normalizeConnection(firstNodeId: string, secondNodeId: string, nodes: CanvasNodeData[], firstHandleType: "source" | "target", firstPortId: string, connections: CanvasConnection[]) {
     const first = nodes.find((node) => node.id === firstNodeId);
     const second = nodes.find((node) => node.id === secondNodeId);
     if (!first || !second || first.id === second.id) return null;
     if (first.type === CanvasNodeType.Group || second.type === CanvasNodeType.Group) return null;
-    if (first.type === CanvasNodeType.Config && second.type === CanvasNodeType.Config) return null;
-    if (second.type === CanvasNodeType.Config) return { fromNodeId: first.id, toNodeId: second.id };
-    if (first.type === CanvasNodeType.Config && firstHandleType === "target") return { fromNodeId: second.id, toNodeId: first.id };
-    if (first.type === CanvasNodeType.Config) return { fromNodeId: first.id, toNodeId: second.id };
-    return { fromNodeId: first.id, toNodeId: second.id };
+    const sourceNode = firstHandleType === "source" ? first : second;
+    const targetNode = firstHandleType === "source" ? second : first;
+    const fixed = portById(first, firstPortId, firstHandleType === "source" ? "output" : "input");
+    if (!fixed) return null;
+    const sourcePort = firstHandleType === "source" ? fixed : nodePorts(sourceNode).find((port) => port.direction === "output" && (fixed.dataType === port.dataType || fixed.accepts?.includes(port.dataType)));
+    const targetPort = firstHandleType === "target" ? fixed : sourcePort ? compatibleTargetPort(sourcePort, targetNode, connections) : null;
+    if (!sourcePort || !targetPort) return null;
+    if (!targetPort.multiple && connections.some((connection) => connection.toNodeId === targetNode.id && connection.toPortId === targetPort.id)) return null;
+    return { fromNodeId: sourceNode.id, fromPortId: sourcePort.id, toNodeId: targetNode.id, toPortId: targetPort.id };
 }

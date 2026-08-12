@@ -16,10 +16,11 @@ import {
     setCreativeAssetPrimary,
     updateCreativeAsset,
 } from "../creative-assets.js";
+import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, placeVisualStyle, resolveCreativeAssetNodeInputs, setDefaultVisualStyle, updateVisualStyle } from "../visual-styles.js";
 
 type ProjectRow = { id: string; user_id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type CanvasNode = { id: string; type?: string; title?: string; position?: { x?: number; y?: number }; metadata?: Record<string, unknown>; [key: string]: unknown };
-type CanvasPayload = Record<string, unknown> & { id: string; title: string; nodes: CanvasNode[]; connections: Array<Record<string, unknown>>; revision?: number };
+type CanvasPayload = Record<string, unknown> & { id: string; title: string; nodes: CanvasNode[]; connections: Array<Record<string, unknown>>; revision?: number; updatedAt?: string };
 
 const record = z.record(z.string(), z.unknown());
 const canvasOp = z.discriminatedUnion("type", [
@@ -27,22 +28,22 @@ const canvasOp = z.discriminatedUnion("type", [
     z.object({ type: z.literal("update_node"), id: z.string(), patch: record.optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("delete_node"), id: z.string().optional(), ids: z.array(z.string()).optional() }).passthrough(),
     z.object({ type: z.literal("delete_connections"), id: z.string().optional(), ids: z.array(z.string()).optional(), all: z.boolean().optional() }).passthrough(),
-    z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), toNodeId: z.string() }).passthrough(),
+    z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), fromPortId: z.string(), toNodeId: z.string(), toPortId: z.string() }).passthrough(),
 ]);
 const canvasSafeOp = z.discriminatedUnion("type", [
     z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: z.string().optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().optional(), height: z.number().optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("update_node"), id: z.string(), patch: record.optional(), metadata: record.optional() }).passthrough(),
-    z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), toNodeId: z.string() }).passthrough(),
+    z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), fromPortId: z.string(), toNodeId: z.string(), toPortId: z.string() }).passthrough(),
 ]);
 
 export const canvasToolSchemas = {
     canvas_get_state: z.object({ projectId: z.string().optional() }),
     canvas_get_selection: z.object({ projectId: z.string().optional() }),
     canvas_apply_ops: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ops: z.array(canvasSafeOp).min(1) }),
-    canvas_create_text_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), items: z.array(z.object({ text: z.string(), title: z.string().optional(), x: z.number().optional(), y: z.number().optional() })).min(1) }),
+    canvas_create_text_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), items: z.array(z.object({ text: z.string().max(1_000_000), title: z.string().optional(), x: z.number().optional(), y: z.number().optional(), width: z.number().min(220).max(1600).optional(), height: z.number().min(160).max(2400).optional(), fontSize: z.number().min(10).max(48).optional() })).min(1) }),
     canvas_delete_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ids: z.array(z.string()).min(1) }),
     canvas_delete_connections: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ids: z.array(z.string()).min(1) }),
-    canvas_connect_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), connections: z.array(z.object({ fromNodeId: z.string(), toNodeId: z.string() })).min(1) }),
+    canvas_connect_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), connections: z.array(z.object({ fromNodeId: z.string(), fromPortId: z.string(), toNodeId: z.string(), toPortId: z.string() })).min(1) }),
     canvas_list_projects: z.object({ keyword: z.string().optional(), limit: z.number().int().min(1).max(100).optional() }),
     assets_list: z.object({ kind: z.enum(["all", "text", "image", "video"]).optional(), keyword: z.string().optional(), limit: z.number().int().min(1).max(100).optional() }),
     assets_add: z.object({ kind: z.enum(["text", "image", "video"]), title: z.string().min(1).max(200), payload: record }),
@@ -56,9 +57,16 @@ export const canvasToolSchemas = {
     creative_assets_create_batch: z.object({ projectId: z.string().optional(), sourceNodeId: z.string().optional(), items: z.array(creativeAssetInputSchema).min(1).max(200) }),
     creative_asset_update: z.object({ projectId: z.string().optional(), assetId: z.string(), revision: z.number().int().positive(), patch: creativeAssetInputSchema.partial() }),
     creative_asset_place: z.object({ projectId: z.string().optional(), assetId: z.string(), x: z.number().optional(), y: z.number().optional() }),
-    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), kind: z.enum(["image", "audio"]), prompt: z.string().optional(), model: z.string().optional(), label: z.string().optional(), usage: z.string().optional(), transcript: z.string().optional() }),
+    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), nodeId: z.string().optional(), kind: z.enum(["image", "audio"]), prompt: z.string().optional(), model: z.string().optional(), label: z.string().optional(), usage: z.string().optional(), transcript: z.string().optional() }),
     creative_asset_set_primary: z.object({ projectId: z.string().optional(), assetId: z.string(), variantId: z.string(), revision: z.number().int().positive() }),
     creative_asset_delete: z.object({ projectId: z.string().optional(), assetId: z.string() }),
+    visual_styles_list: z.object({ projectId: z.string().optional() }),
+    visual_style_get: z.object({ projectId: z.string().optional(), styleId: z.string() }),
+    visual_style_create: z.object({ projectId: z.string().optional(), name: z.string().min(1).max(200), mode: z.enum(["template", "custom"]), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), referenceFileId: z.string().nullable().optional() }),
+    visual_style_update: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive(), name: z.string().min(1).max(200).optional(), mode: z.enum(["template", "custom"]).optional(), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), referenceFileId: z.string().nullable().optional() }),
+    visual_style_place: z.object({ projectId: z.string().optional(), styleId: z.string(), x: z.number().optional(), y: z.number().optional() }),
+    visual_style_set_default: z.object({ projectId: z.string().optional(), styleId: z.string() }),
+    visual_style_delete: z.object({ projectId: z.string().optional(), styleId: z.string() }),
 };
 
 export function getCanvasState(userId: string, projectId: string) {
@@ -103,9 +111,9 @@ export function createTextNodes(userId: string, projectId: string, input: z.infe
         nodeType: "text",
         title: item.title || "Agent 文本",
         position: { x: item.x ?? startX, y: item.y ?? index * 240 },
-        width: 340,
-        height: 200,
-        metadata: { content: item.text, status: "success", fontSize: 14 },
+        width: item.width ?? 340,
+        height: item.height ?? 200,
+        metadata: { content: item.text, status: "success", fontSize: item.fontSize ?? 14 },
     })), input.expectedRevision);
 }
 
@@ -199,19 +207,25 @@ export function generateAgentCreativeAsset(userId: string, projectId: string, in
     const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId && item.kind === "audio");
     const referenceImages = asset.payload.variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
     const referenceAudios = asset.payload.variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
-    const requestedReferences = input.kind === "image" ? referenceImages : referenceAudios;
+    const connected = resolveCreativeAssetNodeInputs(userId, projectId, asset.id, input.nodeId);
+    const requestedReferences = input.kind === "image" ? [...referenceImages, ...connected.imageFileIds] : [...referenceAudios, ...connected.audioFileIds];
     if (requestedReferences.length && !selected.inputs.includes(input.kind)) throw agentToolError("AI_MODEL_REFERENCE_UNSUPPORTED", `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`);
+    const styleImage = connected.style?.referenceFileId && selected.inputs.includes("image") ? [{ fileId: connected.style.referenceFileId, kind: "image" as const }] : [];
     const references = input.kind === "image"
-        ? [...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...(primaryImage && selected.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])]
-        : [...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...(primaryAudio && selected.inputs.includes("audio") ? [{ fileId: primaryAudio.fileId, kind: "audio" as const }] : [])];
-    const prompt = input.kind === "audio" && input.transcript?.trim() ? input.transcript.trim() : buildCreativeAssetPrompt(asset, input.kind, input.prompt);
+        ? dedupeGenerationRefs([...styleImage, ...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...connected.imageFileIds.map((fileId) => ({ fileId, kind: "image" as const })), ...(primaryImage && selected.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])])
+        : dedupeGenerationRefs([...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...connected.audioFileIds.map((fileId) => ({ fileId, kind: "audio" as const })), ...(primaryAudio && selected.inputs.includes("audio") ? [{ fileId: primaryAudio.fileId, kind: "audio" as const }] : [])]);
+    const prompt = input.kind === "audio" && input.transcript?.trim() ? input.transcript.trim() : [connected.style?.description, ...connected.texts, buildCreativeAssetPrompt(asset, input.kind, input.prompt)].filter(Boolean).join("\n\n");
     const params = {
         ...(input.kind === "image" ? { size: "16:9" } : {}),
         ...(input.kind === "audio" && [asset.payload.voiceDescription, input.prompt].filter(Boolean).length ? { instructions: [asset.payload.voiceDescription, input.prompt].filter(Boolean).join("；") } : {}),
-        __creativeAsset: { projectId, assetId: asset.id, usage: input.usage || (input.kind === "image" ? "design_sheet" : "voice_reference"), label: input.label, transcript: input.transcript },
+        __creativeAsset: { projectId, assetId: asset.id, nodeId: input.nodeId, usage: input.usage || (input.kind === "image" ? "design_sheet" : "voice_reference"), label: input.label, transcript: input.transcript },
+        __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: connected.style.referenceFileId, styleImageApplied: Boolean(styleImage.length) } : null,
+        __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds },
     };
     return createGeneration(userId, { kind: input.kind, model, prompt, references, params });
 }
+
+function dedupeGenerationRefs<T extends { fileId: string }>(references: T[]) { const seen = new Set<string>(); return references.filter((item) => seen.has(item.fileId) ? false : Boolean(seen.add(item.fileId))); }
 
 export function setAgentCreativeAssetPrimary(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_set_primary>) {
     getAgentCreativeAsset(userId, projectId, input.assetId);
@@ -223,6 +237,19 @@ export function deleteAgentCreativeAsset(userId: string, projectId: string, asse
     return deleteCreativeAsset(userId, assetId);
 }
 
+function assertAgentStyle(userId: string, projectId: string, styleId: string) {
+    const style = getVisualStyle(userId, styleId);
+    if (style.projectId !== projectId) throw agentToolError("VISUAL_STYLE_NOT_FOUND", "视觉风格不存在或不属于当前画布");
+    return style;
+}
+export function listAgentVisualStyles(userId: string, projectId: string) { return listVisualStyles(userId, projectId); }
+export function getAgentVisualStyle(userId: string, projectId: string, styleId: string) { return assertAgentStyle(userId, projectId, styleId); }
+export function createAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_create>) { return createVisualStyle(userId, projectId, input); }
+export function updateAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_update>) { assertAgentStyle(userId, projectId, input.styleId); const { projectId: _projectId, styleId, ...patch } = input; return updateVisualStyle(userId, styleId, patch); }
+export function placeAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_place>) { assertAgentStyle(userId, projectId, input.styleId); return placeVisualStyle(userId, input.styleId, input); }
+export function defaultAgentVisualStyle(userId: string, projectId: string, styleId: string) { assertAgentStyle(userId, projectId, styleId); return setDefaultVisualStyle(userId, styleId); }
+export function deleteAgentVisualStyle(userId: string, projectId: string, styleId: string) { assertAgentStyle(userId, projectId, styleId); return deleteVisualStyle(userId, styleId); }
+
 function projectRow(userId: string, projectId: string) {
     const row = db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as ProjectRow | undefined;
     if (!row) throw agentToolError("PROJECT_NOT_FOUND", "画布不存在或无权访问");
@@ -232,7 +259,7 @@ function projectRow(userId: string, projectId: string) {
 function normalizePayload(row: ProjectRow): CanvasPayload {
     const payload = parseJson<CanvasPayload>(row.payload, { id: row.id, title: row.title, nodes: [], connections: [] });
     payload.nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
-    payload.connections = Array.isArray(payload.connections) ? payload.connections : [];
+    payload.connections = Array.isArray(payload.connections) ? payload.connections.filter((item) => typeof item.fromPortId === "string" && typeof item.toPortId === "string") : [];
     return payload;
 }
 
@@ -265,8 +292,30 @@ function applyOp(payload: CanvasPayload, op: z.infer<typeof canvasOp>) {
         return;
     }
     const id = op.id || `connection-${nanoid()}`;
-    if (!payload.nodes.some((node) => node.id === op.fromNodeId) || !payload.nodes.some((node) => node.id === op.toNodeId)) throw agentToolError("NODE_NOT_FOUND", "连线节点不存在");
-    if (!payload.connections.some((connection) => connection.fromNodeId === op.fromNodeId && connection.toNodeId === op.toNodeId)) payload.connections.push({ id, fromNodeId: op.fromNodeId, toNodeId: op.toNodeId });
+    const sourceNode = payload.nodes.find((node) => node.id === op.fromNodeId);
+    const targetNode = payload.nodes.find((node) => node.id === op.toNodeId);
+    if (!sourceNode || !targetNode) throw agentToolError("NODE_NOT_FOUND", "连线节点不存在");
+    const sourcePort = agentNodePorts(sourceNode).find((port) => port.id === op.fromPortId && port.direction === "output");
+    const targetPort = agentNodePorts(targetNode).find((port) => port.id === op.toPortId && port.direction === "input");
+    if (!sourcePort || !targetPort || !(sourcePort.dataType === targetPort.dataType || targetPort.accepts?.includes(sourcePort.dataType))) throw agentToolError("CANVAS_PORT_INCOMPATIBLE", "节点端口不存在或类型不兼容");
+    if (!targetPort.multiple && payload.connections.some((connection) => connection.toNodeId === op.toNodeId && connection.toPortId === op.toPortId)) throw agentToolError("CANVAS_PORT_OCCUPIED", "目标端口只允许一条连接");
+    if (!payload.connections.some((connection) => connection.fromNodeId === op.fromNodeId && connection.fromPortId === op.fromPortId && connection.toNodeId === op.toNodeId && connection.toPortId === op.toPortId)) payload.connections.push({ id, fromNodeId: op.fromNodeId, fromPortId: op.fromPortId, toNodeId: op.toNodeId, toPortId: op.toPortId });
+}
+
+type AgentPort = { id: string; direction: "input" | "output"; dataType: string; multiple: boolean; accepts?: string[] };
+function agentNodePorts(node: CanvasNode): AgentPort[] {
+    if (node.type === "visual-style") return [{ id: "style", direction: "output", dataType: "visual-style", multiple: true }];
+    if (["character", "scene", "prop"].includes(String(node.type))) return [
+        { id: "reference-image", direction: "input", dataType: "image", multiple: true },
+        { id: "setting", direction: "input", dataType: "text", multiple: true },
+        { id: "style", direction: "input", dataType: "visual-style", multiple: false },
+        ...(node.type === "character" ? [{ id: "reference-audio", direction: "input" as const, dataType: "audio", multiple: false }] : []),
+        { id: "asset", direction: "output", dataType: "creative-asset", multiple: true },
+    ];
+    if (node.type === "group") return [];
+    const output = ({ text: "text", image: "image", audio: "audio", video: "video" } as Record<string, string>)[String(node.type)] || "text";
+    const input: AgentPort = { id: "input", direction: "input", dataType: "text", accepts: ["text", "image", "audio", "video", "creative-asset"], multiple: true };
+    return node.type === "config" ? [input] : [input, { id: "output", direction: "output", dataType: output, multiple: true }];
 }
 
 function agentToolError(code: string, message: string) {

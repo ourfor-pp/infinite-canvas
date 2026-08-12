@@ -8,7 +8,8 @@ import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
-import { CanvasNodeType, type CanvasNodeData, type CanvasNodeImage, type Position } from "@/types/canvas";
+import { CanvasMarkdownContent } from "./canvas-markdown-content";
+import { CanvasNodeType, type CanvasNodeData, type CanvasNodeImage, type CanvasNodePort, type Position } from "@/types/canvas";
 import type { CanvasNodeContext, CanvasPluginHost } from "@/types/canvas-plugin";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { useTranslation } from "react-i18next";
@@ -39,7 +40,7 @@ type CanvasNodeProps = {
     onSelectCapture?: (event: React.MouseEvent, nodeId: string) => void;
     onHoverStart: (nodeId: string) => void;
     onHoverEnd: (nodeId: string) => void;
-    onConnectStart: (event: React.MouseEvent, nodeId: string, handleType: "source" | "target") => void;
+    onConnectStart: (event: React.MouseEvent, nodeId: string, handleType: "source" | "target", portId: string) => void;
     onResizeStart: (nodeId: string) => void;
     onResize: (nodeId: string, width: number, height: number, position?: Position) => void;
     onResizeEnd: (nodeId: string) => void;
@@ -132,7 +133,8 @@ export const CanvasNode = React.memo(function CanvasNode({
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
     const isGroup = data.type === CanvasNodeType.Group;
-    const isBusinessNode = data.type === "character" || data.type === "scene" || data.type === "prop";
+    const isBusinessNode = data.type === "character" || data.type === "scene" || data.type === "prop" || data.type === "visual-style";
+    const ports = definition?.ports ? (typeof definition.ports === "function" ? definition.ports(data) : definition.ports) : [];
     const nodeRadius = data.type === "scene" ? "rounded-[18px]" : data.type === "prop" ? "rounded-md" : "rounded-3xl";
     const batchCount = data.type === CanvasNodeType.Image ? data.metadata?.images?.length || 0 : 0;
     const isBatchRoot = batchCount > 1;
@@ -432,8 +434,10 @@ export const CanvasNode = React.memo(function CanvasNode({
                 </> : null}
             </div>
 
-            {!isGroup ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
-            {!isGroup ? <ConnectionHandleDot side="right" visible={(definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config && (hovered || isSelected || isConnecting)} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
+            {!isGroup ? (ports.length ? ports : [
+                { id: "input", label: "输入", direction: "input", dataType: "text", multiple: true, position: 0.5 } as CanvasNodePort,
+                ...(definition?.hasSourceHandle === false || data.type === CanvasNodeType.Config ? [] : [{ id: "output", label: "输出", direction: "output", dataType: "text", multiple: true, position: 0.5 } as CanvasNodePort]),
+            ]).map((port) => <ConnectionHandleDot key={`${port.direction}:${port.id}`} port={port} visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, port.direction === "output" ? "source" : "target", port.id)} />) : null}
 
             {showPanel && !isGroup && renderPanel ? <div className="absolute left-1/2 top-full z-[70] w-[600px] -translate-x-1/2 pt-4">{renderPanel(data)}</div> : null}
         </div>
@@ -554,6 +558,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
             {isEditingContent ? (
                 <CanvasResourceMentionTextarea
                     ref={textareaRef}
+                    data-canvas-no-zoom
                     className="thin-scrollbar block h-full w-full resize-none overflow-y-auto whitespace-pre-wrap break-words border-none bg-transparent pl-4 pr-14 pt-0 pb-4 m-0 font-mono outline-none select-text appearance-none"
                     style={textStyle}
                     value={node.metadata?.content || ""}
@@ -569,13 +574,13 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                     onWheel={(event) => event.stopPropagation()}
                 />
             ) : (
-                <div
-                    className="thin-scrollbar block h-full w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent pl-4 pr-14 pt-0 pb-4 font-mono"
-                    style={textStyle}
-                    onWheel={(event) => event.stopPropagation()}
-                >
-                    {node.metadata?.content || <span style={{ color: theme.node.placeholder }}>{t("canvas.node.editText")}</span>}
-                </div>
+                node.metadata?.content ? (
+                    <CanvasMarkdownContent fontSize={fontSize} color={theme.node.text} onWheel={(event) => event.stopPropagation()}>
+                        {node.metadata.content}
+                    </CanvasMarkdownContent>
+                ) : (
+                    <div className="px-4 font-mono" style={{ ...textStyle, color: theme.node.placeholder }}>{t("canvas.node.editText")}</div>
+                )
             )}
         </div>
     );
@@ -864,17 +869,22 @@ function ResizeHandle({ corner, onMouseDown }: { corner: ResizeCorner; onMouseDo
     return <div className={`absolute z-50 size-7 ${positionClass}`} onMouseDown={(event) => onMouseDown(event, corner)} />;
 }
 
-function ConnectionHandleDot({ side, visible, onMouseDown }: { side: "left" | "right"; visible: boolean; onMouseDown: (event: React.MouseEvent) => void }) {
+function ConnectionHandleDot({ port, visible, onMouseDown }: { port: CanvasNodePort; visible: boolean; onMouseDown: (event: React.MouseEvent) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const side = port.direction === "input" ? "left" : "right";
+    const accent = { text: "#64748b", image: "#10b981", audio: "#a855f7", video: "#f97316", "visual-style": "#d26b98", "creative-asset": "#c58a3d" }[port.dataType];
 
     return (
         <div
-            className={`absolute top-1/2 z-30 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center transition-opacity duration-150 ${
+            className={`group/port absolute z-30 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center transition-opacity duration-150 ${
                 side === "left" ? "-left-6" : "-right-6"
             } ${visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+            style={{ top: `${(port.position ?? 0.5) * 100}%` }}
+            title={`${port.label} · ${port.multiple ? "可多连" : "单连"}`}
             onMouseDown={onMouseDown}
         >
-            <div className="size-3 rounded-full border-2 transition-all hover:scale-125" style={{ background: theme.node.panel, borderColor: theme.node.muted }} />
+            <span className={`pointer-events-none absolute whitespace-nowrap rounded px-1.5 py-0.5 text-[9px] opacity-0 shadow-sm transition group-hover/port:opacity-100 ${side === "left" ? "left-8" : "right-8"}`} style={{ background: theme.node.panel, color: theme.node.muted }}>{port.label}</span>
+            <div className="size-3 rounded-full border-2 transition-all hover:scale-125" style={{ background: theme.node.panel, borderColor: accent }} />
         </div>
     );
 }

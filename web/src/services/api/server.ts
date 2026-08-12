@@ -1,4 +1,5 @@
 import type { CreativeAsset } from "@/types/creative-asset";
+import type { VisualStyle, VisualStyleTemplate } from "@/types/visual-style";
 
 const apiBase = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/api`;
 
@@ -103,6 +104,13 @@ export const serverApi = {
     placeCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<{ nodeId: string; projectId: string }>(`/creative-assets/${encodeURIComponent(id)}/place`, { method: "POST", body: JSON.stringify(input) }),
     generateCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<ServerGeneration>(`/creative-assets/${encodeURIComponent(id)}/generations`, { method: "POST", body: JSON.stringify(input) }),
     setCreativeAssetPrimary: (id: string, variantId: string, revision: number) => serverRequest<CreativeAsset>(`/creative-assets/${encodeURIComponent(id)}/variants/${encodeURIComponent(variantId)}/primary`, { method: "POST", body: JSON.stringify({ revision }) }),
+    visualStyleTemplates: () => serverRequest<VisualStyleTemplate[]>("/visual-style-templates"),
+    visualStyles: (projectId: string) => serverRequest<VisualStyle[]>(`/projects/${encodeURIComponent(projectId)}/visual-styles`),
+    createVisualStyle: (projectId: string, input: Record<string, unknown>) => serverRequest<VisualStyle>(`/projects/${encodeURIComponent(projectId)}/visual-styles`, { method: "POST", body: JSON.stringify(input) }),
+    updateVisualStyle: (id: string, input: Record<string, unknown>) => serverRequest<VisualStyle>(`/visual-styles/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+    deleteVisualStyle: (id: string) => serverRequest(`/visual-styles/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    placeVisualStyle: (id: string, input: Record<string, unknown>) => serverRequest<{ nodeId: string; projectId: string }>(`/visual-styles/${encodeURIComponent(id)}/place`, { method: "POST", body: JSON.stringify(input) }),
+    setDefaultVisualStyle: (id: string) => serverRequest<VisualStyle>(`/visual-styles/${encodeURIComponent(id)}/default`, { method: "POST" }),
     assets: () => serverRequest<Array<Record<string, unknown>>>("/assets"),
     createAsset: (asset: Record<string, unknown>) => serverRequest<Record<string, unknown>>("/assets", { method: "POST", body: JSON.stringify(asset) }),
     updateAsset: (id: string, asset: Record<string, unknown>) => serverRequest<Record<string, unknown>>(`/assets/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(asset) }),
@@ -164,7 +172,7 @@ export function serverFileIdFromUrl(source: string) {
     }
 }
 
-export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void, onProject?: (project: Record<string, unknown>) => void, onCreativeAsset?: (asset: CreativeAsset | { id: string; projectId: string; deleted: true }) => void) {
+export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void, onProject?: (project: Record<string, unknown>) => void, onCreativeAsset?: (asset: CreativeAsset | { id: string; projectId: string; deleted: true }) => void, onVisualStyle?: (style: VisualStyle | { id: string; projectId: string; deleted: true }) => void) {
     let socket: WebSocket | null = null;
     let retryTimer = 0;
     let stopped = false;
@@ -178,6 +186,7 @@ export function subscribeServerEvents(onGeneration: (generation: ServerGeneratio
                 if (message.type === "generation.delta" && message.data) onDelta?.(message.data as { id: string; delta: string });
                 if (message.type === "project.updated" && message.data) onProject?.(message.data as Record<string, unknown>);
                 if (message.type === "creative_asset.updated" && message.data) onCreativeAsset?.(message.data as CreativeAsset | { id: string; projectId: string; deleted: true });
+                if (message.type === "visual_style.updated" && message.data) onVisualStyle?.(message.data as VisualStyle | { id: string; projectId: string; deleted: true });
             } catch {
                 // Ignore malformed server events and keep the connection alive.
             }

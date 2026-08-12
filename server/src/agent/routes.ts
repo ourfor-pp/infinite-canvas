@@ -10,12 +10,17 @@ import {
     getAgentSettings,
     getConversation,
     getSessionEvents,
+    getTurnIndex,
+    listQueuedMessages,
     listAdminRuns,
     listSkills,
     respondDecision,
     respondClientAction,
     saveAgentSettings,
     sendMessage,
+    steerQueuedMessage,
+    retryQueuedMessage,
+    deleteQueuedMessage,
     subscribeConversation,
     testAgentSettings,
 } from "./service.js";
@@ -27,13 +32,18 @@ export const agentAdminRouter = Router();
 
 agentRouter.get("/config", route(() => {
     const settings = getAgentSettings();
-    return { ready: settings.ready, modelName: settings.modelName || "", providerName: settings.providerName || "", protocolVersion: 2, storageVersion: 2 };
+    return { ready: settings.ready, modelName: settings.modelName || "", providerName: settings.providerName || "", protocolVersion: 3, storageVersion: 2 };
 }));
 agentRouter.get("/skills", route(() => listSkills()));
 agentRouter.get("/projects/:projectId/conversation", route((req) => getConversation(req.user.id, routeParam(req, "projectId"), optionalId(req.query.sessionId))));
 agentRouter.get("/sessions/:id/events", route((req) => getSessionEvents(req.user.id, routeParam(req, "id"), optionalPositiveInt(req.query.beforeSeq), optionalPositiveInt(req.query.limit))));
+agentRouter.get("/sessions/:id/turn-index", route((req) => getTurnIndex(req.user.id, routeParam(req, "id"))));
+agentRouter.get("/sessions/:id/queued-messages", route((req) => listQueuedMessages(req.user.id, routeParam(req, "id"))));
+agentRouter.post("/sessions/:id/queued-messages/:messageId/steer", asyncRoute((req) => steerQueuedMessage(req.user.id, routeParam(req, "id"), routeParam(req, "messageId"))));
+agentRouter.post("/sessions/:id/queued-messages/:messageId/retry", route((req) => retryQueuedMessage(req.user.id, routeParam(req, "id"), routeParam(req, "messageId"))));
+agentRouter.delete("/sessions/:id/queued-messages/:messageId", route((req) => deleteQueuedMessage(req.user.id, routeParam(req, "id"), routeParam(req, "messageId"))));
 agentRouter.post("/projects/:projectId/sessions", route((req) => createSession(req.user.id, routeParam(req, "projectId"), String(req.body?.title || "新对话")), 201));
-agentRouter.post("/projects/:projectId/messages", route((req) => sendMessage(req.user.id, routeParam(req, "projectId"), req.body), 202));
+agentRouter.post("/projects/:projectId/messages", asyncRoute((req) => sendMessage(req.user.id, routeParam(req, "projectId"), req.body), 202));
 agentRouter.get("/projects/:projectId/stream", (req, res, next) => {
     try {
         const projectId = routeParam(req, "projectId");
@@ -53,7 +63,7 @@ agentRouter.get("/projects/:projectId/stream", (req, res, next) => {
         });
     } catch (error) { next(error); }
 });
-agentRouter.post("/sessions/:id/fork", route((req) => forkSession(req.user.id, routeParam(req, "id")), 201));
+agentRouter.post("/sessions/:id/fork", route((req) => forkSession(req.user.id, routeParam(req, "id"), z.object({ fromEventSeq: z.number().int().positive().optional() }).parse(req.body || {}).fromEventSeq), 201));
 agentRouter.delete("/sessions/:id", route((req) => deleteSession(req.user.id, routeParam(req, "id"))));
 agentRouter.post("/sessions/:id/cancel", asyncRoute((req) => cancelSession(req.user.id, routeParam(req, "id"))));
 agentRouter.post("/sessions/:id/approval", route((req) => respondDecision(req.user.id, routeParam(req, "id"), z.object({ decision: z.enum(["approved", "rejected"]), scope: z.enum(["once", "session", "project"]).optional(), comment: z.string().max(20_000).optional(), answers: z.record(z.string(), z.string()).optional(), proposalEdits: z.unknown().optional() }).parse(req.body))));

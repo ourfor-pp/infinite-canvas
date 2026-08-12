@@ -1,6 +1,7 @@
 ---
 name: generate-creative-assets
 description: 为画布中的角色、场景和道具生成或重新生成标准多视图设计图，或为角色生成声音参考；用户提到角色设计图、场景设计图、道具三视图、人物四视图、定妆图、参考声音或资产一致性时使用。
+allowed-tools: [mcp__infinite_canvas__creative_asset_get, mcp__infinite_canvas__creative_asset_generate, mcp__infinite_canvas__generation_get_status]
 ---
 
 # 生成创作资产

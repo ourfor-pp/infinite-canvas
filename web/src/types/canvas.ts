@@ -74,6 +74,7 @@ export type CanvasNodeMetadata = {
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
     assetId?: string;
     assetKind?: "character" | "scene" | "prop";
+    visualStyleId?: string;
 };
 
 export type CanvasNodeData = {
@@ -89,7 +90,20 @@ export type CanvasNodeData = {
 export type CanvasConnection = {
     id: string;
     fromNodeId: string;
+    fromPortId: string;
     toNodeId: string;
+    toPortId: string;
+};
+
+export type CanvasPortDataType = "text" | "image" | "audio" | "video" | "visual-style" | "creative-asset";
+export type CanvasNodePort = {
+    id: string;
+    label: string;
+    direction: "input" | "output";
+    dataType: CanvasPortDataType;
+    multiple: boolean;
+    accepts?: CanvasPortDataType[];
+    position?: number;
 };
 
 export type CanvasAssistantReference = {
@@ -129,6 +143,7 @@ export type CanvasAssistantSession = {
 export type ConnectionHandle = {
     nodeId: string;
     handleType: "source" | "target";
+    portId: string;
 };
 
 export type SelectionBox = {

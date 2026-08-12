@@ -1,0 +1,4 @@
+interface:
+  display_name: "故事创作"
+  short_description: "创作或续写完整故事，并作为单张 Markdown 故事卡加入画布"
+  default_prompt: "使用 $write-story 创作一篇完整短篇故事并放入画布。"

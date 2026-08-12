@@ -16,6 +16,7 @@
 ## Development and Data
 
 - [Local Development](/docs/development/local-development)
+- [Testing Strategy](/docs/development/testing-strategy)
 - [fnOS Application Deployment and Unified Gateway](/docs/development/fnos-application-deployment)
 - [Canvas Data Structure](/docs/development/canvas-data-structure)
 - [Local ComfyUI Integration Handoff](./COMFYUI_HANDOFF.md)

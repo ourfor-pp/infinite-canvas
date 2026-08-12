@@ -4,7 +4,7 @@ export type LocalStorageUsage = { usage: number; quota: number; contentBytes: nu
 
 export async function readLocalStorageUsage(): Promise<LocalStorageUsage> {
     const [estimate, database] = await Promise.all([
-        navigator.storage?.estimate ? navigator.storage.estimate().catch(() => ({})) : Promise.resolve({}),
+        navigator.storage?.estimate ? navigator.storage.estimate().catch((): StorageEstimate => ({})) : Promise.resolve<StorageEstimate>({}),
         readDatabaseUsage("infinite-canvas"),
     ]);
     return { usage: estimate.usage ?? database.bytes, quota: estimate.quota ?? 0, contentBytes: database.bytes, databases: [database] };

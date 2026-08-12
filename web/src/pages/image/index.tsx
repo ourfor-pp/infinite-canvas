@@ -782,7 +782,7 @@ async function readStoredLogs() {
     if (typeof window === "undefined") return [];
     try {
         const values: GenerationLog[] = [];
-        await logStore.iterate<GenerationLog, void>((value) => {
+        await logStore.iterate<void>((value) => {
             values.push(value);
         });
         const logs = await Promise.all(values.map(normalizeLog));

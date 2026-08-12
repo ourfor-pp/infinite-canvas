@@ -285,7 +285,7 @@ export default {
         shortcut: {
             dragCanvas: "Drag canvas",
             pan: "Pan view",
-            toggleTool: "Temporarily switch Select / Move",
+            toggleTool: "Temporarily use the Move tool",
             wheel: "Mouse wheel",
             zoom: "Zoom canvas",
             zoomSlider: "Zoom slider",

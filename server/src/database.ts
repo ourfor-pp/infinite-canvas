@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
   project_id TEXT NOT NULL,
   sdk_session_id TEXT,
   fork_pending INTEGER NOT NULL DEFAULT 0,
+  fork_resume_at TEXT,
   title TEXT NOT NULL,
   status TEXT NOT NULL,
   event_seq INTEGER NOT NULL DEFAULT 0,
@@ -173,12 +174,55 @@ CREATE TABLE IF NOT EXISTS agent_events (
   created_at TEXT NOT NULL,
   PRIMARY KEY (session_id, seq)
 );
+CREATE TABLE IF NOT EXISTS agent_queued_messages (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  wait_for_run_id TEXT,
+  accepted_run_id TEXT,
+  client_message_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  attachment_file_ids TEXT NOT NULL DEFAULT '[]',
+  display_text TEXT NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(user_id, client_message_id),
+  FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_queue_session ON agent_queued_messages(session_id, created_at);
+CREATE TABLE IF NOT EXISTS agent_message_receipts (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_message_id TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  run_id TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, client_message_id)
+);
 CREATE TABLE IF NOT EXISTS agent_metadata (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   protocol_version INTEGER NOT NULL,
   storage_version INTEGER NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS visual_styles (
+  id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  template_id TEXT,
+  description TEXT NOT NULL DEFAULT '',
+  reference_file_id TEXT REFERENCES stored_files(id) ON DELETE SET NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (id, user_id),
+  FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_visual_styles_project ON visual_styles(user_id, project_id, updated_at DESC);
 `);
 
 db.prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(1, ?)").run(new Date().toISOString());
@@ -189,7 +233,11 @@ applyVersionFive();
 applyVersionSix();
 prepareAgentMetadata();
 applyVersionSeven();
-ensureAgentMetadata();
+applyVersionEight();
+applyVersionNine();
+applyVersionTen();
+applyVersionEleven();
+ensureAgentMetadata(3, 2);
 
 function applyVersionTwo() {
     if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=2").get()) return;
@@ -366,6 +414,87 @@ function applyVersionSeven() {
     cleanupLegacyAgentWorkspaces();
 }
 
+function applyVersionEight() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=8").get()) return;
+    db.transaction(() => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS visual_styles (
+              id TEXT NOT NULL,
+              user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              project_id TEXT NOT NULL,
+              name TEXT NOT NULL,
+              mode TEXT NOT NULL,
+              template_id TEXT,
+              description TEXT NOT NULL DEFAULT '',
+              reference_file_id TEXT REFERENCES stored_files(id) ON DELETE SET NULL,
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (id, user_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_visual_styles_project ON visual_styles(user_id, project_id, updated_at DESC);
+        `);
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(8, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionNine() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=9").get()) return;
+    const columns = db.prepare("PRAGMA table_info(agent_runs)").all() as Array<{ name: string }>;
+    db.transaction(() => {
+        if (!columns.some((column) => column.name === "tool_search_mode")) db.exec("ALTER TABLE agent_runs ADD COLUMN tool_search_mode TEXT NOT NULL DEFAULT 'false'");
+        if (!columns.some((column) => column.name === "tool_search_call_count")) db.exec("ALTER TABLE agent_runs ADD COLUMN tool_search_call_count INTEGER NOT NULL DEFAULT 0");
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(9, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionTen() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=10").get()) return;
+    db.transaction(() => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS agent_queued_messages (
+              id TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              project_id TEXT NOT NULL,
+              session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+              wait_for_run_id TEXT,
+              accepted_run_id TEXT,
+              client_message_id TEXT NOT NULL,
+              content TEXT NOT NULL,
+              attachment_file_ids TEXT NOT NULL DEFAULT '[]',
+              display_text TEXT NOT NULL,
+              status TEXT NOT NULL,
+              error TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE(user_id, client_message_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_queue_session ON agent_queued_messages(session_id, created_at);
+            CREATE TABLE IF NOT EXISTS agent_message_receipts (
+              user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              client_message_id TEXT NOT NULL,
+              session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+              run_id TEXT,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY (user_id, client_message_id)
+            );
+        `);
+        db.prepare("UPDATE agent_metadata SET protocol_version=3, storage_version=2, updated_at=? WHERE id=1").run(new Date().toISOString());
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(10, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionEleven() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=11").get()) return;
+    const columns = db.prepare("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
+    db.transaction(() => {
+        if (!columns.some((column) => column.name === "fork_resume_at")) db.exec("ALTER TABLE agent_sessions ADD COLUMN fork_resume_at TEXT");
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(11, ?)").run(new Date().toISOString());
+    })();
+}
+
 function ensureAgentMetadata(protocolVersion = 2, storageVersion = 2) {
     const now = new Date().toISOString();
     db.prepare("INSERT OR IGNORE INTO agent_metadata(id, protocol_version, storage_version, updated_at) VALUES(1, ?, ?, ?)").run(protocolVersion, storageVersion, now);
@@ -378,7 +507,7 @@ function prepareAgentMetadata() {
     const legacy = columns.some((column) => column.name === "owner_type");
     db.prepare("INSERT OR IGNORE INTO agent_metadata(id, protocol_version, storage_version, updated_at) VALUES(1, ?, ?, ?)").run(legacy ? 1 : 2, legacy ? 1 : 2, new Date().toISOString());
     const row = db.prepare("SELECT protocol_version, storage_version FROM agent_metadata WHERE id=1").get() as { protocol_version: number; storage_version: number };
-    if (![[1, 1], [2, 2]].some(([protocol, storage]) => row.protocol_version === protocol && row.storage_version === storage)) throw new Error(`不支持的 Agent 数据版本：protocol=${row.protocol_version}, storage=${row.storage_version}`);
+    if (![[1, 1], [2, 2], [3, 2]].some(([protocol, storage]) => row.protocol_version === protocol && row.storage_version === storage)) throw new Error(`不支持的 Agent 数据版本：protocol=${row.protocol_version}, storage=${row.storage_version}`);
     if (legacy !== (row.storage_version === 1)) throw new Error("Agent 表结构与存储版本冲突，拒绝自动覆盖");
 }
 

@@ -2,7 +2,7 @@ import type { ComponentType, ReactNode } from "react";
 
 import type { CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
 import type { CanvasTheme } from "@/lib/canvas-theme";
-import type { CanvasConnection, CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
+import type { CanvasConnection, CanvasNodeData, CanvasNodeMetadata, CanvasNodePort } from "@/types/canvas";
 import type { CanvasResourceKind } from "@/lib/canvas/canvas-resource-references";
 
 // Resource emitted when a plugin node is consumed as an upstream input.
@@ -108,6 +108,7 @@ export type CanvasNodeDefinition = {
     minimapColor?: string;
     showInCreateMenu?: boolean; // Defaults to true.
     hasSourceHandle?: boolean; // Right-side output handle; defaults to true.
+    ports?: CanvasNodePort[] | ((node: CanvasNodeData) => CanvasNodePort[]);
     hidePanel?: boolean; // Prevents click/create from opening a lower panel; intended for display-only nodes.
     transparentBackground?: boolean; // Makes the node card transparent so SVG or vector content blends into the canvas.
     autoOpenPanel?: boolean; // Opens a custom Panel on click; automatic opening otherwise applies only to built-ins.

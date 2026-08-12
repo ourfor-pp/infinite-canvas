@@ -23,6 +23,7 @@ import {
     setCreativeAssetPrimary,
     updateCreativeAsset,
 } from "./creative-assets.js";
+import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, placeVisualStyle, resolveCreativeAssetNodeInputs, setDefaultVisualStyle, updateVisualStyle } from "./visual-styles.js";
 
 type ProjectRow = { id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type AssetRow = { id: string; kind: string; title: string; payload: string; created_at: string; updated_at: string };
@@ -124,16 +125,18 @@ api.put("/projects/:id/force", route((req) => {
 }));
 
 api.delete("/projects/:id", route((req) => {
-    if (db.prepare("SELECT 1 FROM agent_sessions WHERE user_id=? AND project_id=? AND status IN ('running','waiting_for_user')").get(req.user.id, req.params.id)) throw apiError(409, "PROJECT_AGENT_BUSY", "Agent 正在使用这个画布，请先停止任务");
+    const projectId = routeId(req);
+    if (db.prepare("SELECT 1 FROM agent_sessions WHERE user_id=? AND project_id=? AND status IN ('running','waiting_for_user')").get(req.user.id, projectId)) throw apiError(409, "PROJECT_AGENT_BUSY", "Agent 正在使用这个画布，请先停止任务");
     const result = db.transaction(() => {
-        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='creative_asset' AND owner_id IN (SELECT id FROM creative_assets WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, req.params.id);
-        db.prepare("DELETE FROM agent_sessions WHERE user_id=? AND project_id=?").run(req.user.id, req.params.id);
-        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, req.params.id);
-        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_project' AND owner_id=?").run(req.user.id, req.params.id);
-        db.prepare("DELETE FROM projects WHERE id=? AND user_id=?").run(req.params.id, req.user.id);
-        return { id: req.params.id };
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='creative_asset' AND owner_id IN (SELECT id FROM creative_assets WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='visual_style' AND owner_id IN (SELECT id FROM visual_styles WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId);
+        db.prepare("DELETE FROM agent_sessions WHERE user_id=? AND project_id=?").run(req.user.id, projectId);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, projectId);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_project' AND owner_id=?").run(req.user.id, projectId);
+        db.prepare("DELETE FROM projects WHERE id=? AND user_id=?").run(projectId, req.user.id);
+        return { id: projectId };
     })();
-    removeAgentProjectWorkspace(req.user.id, req.params.id);
+    removeAgentProjectWorkspace(req.user.id, projectId);
     return result;
 }));
 
@@ -145,6 +148,15 @@ api.delete("/creative-assets/:id", route((req) => deleteCreativeAsset(req.user.i
 api.post("/creative-assets/:id/place", route((req) => placeCreativeAsset(req.user.id, routeId(req), z.object({ x: z.number().optional(), y: z.number().optional() }).parse(req.body || {})), 201));
 api.post("/creative-assets/:id/variants/:variantId/primary", route((req) => setCreativeAssetPrimary(req.user.id, routeId(req), routeParam(req, "variantId"), z.number().int().positive().parse(req.body?.revision), true)));
 api.post("/creative-assets/:id/generations", route((req) => createCreativeAssetGeneration(req), 201));
+
+api.get("/visual-style-templates", route(() => listVisualStyleTemplates()));
+api.get("/projects/:id/visual-styles", route((req) => listVisualStyles(req.user.id, routeId(req))));
+api.post("/projects/:id/visual-styles", route((req) => createVisualStyle(req.user.id, routeId(req), req.body), 201));
+api.get("/visual-styles/:id", route((req) => getVisualStyle(req.user.id, routeId(req))));
+api.put("/visual-styles/:id", route((req) => updateVisualStyle(req.user.id, routeId(req), req.body)));
+api.delete("/visual-styles/:id", route((req) => deleteVisualStyle(req.user.id, routeId(req))));
+api.post("/visual-styles/:id/place", route((req) => placeVisualStyle(req.user.id, routeId(req), z.object({ x: z.number().optional(), y: z.number().optional() }).parse(req.body || {})), 201));
+api.post("/visual-styles/:id/default", route((req) => setDefaultVisualStyle(req.user.id, routeId(req))));
 
 api.get("/assets", (_req, res) => {
     const req = _req as Request;
@@ -341,6 +353,7 @@ function createCreativeAssetGeneration(req: Request) {
         label: z.string().trim().max(200).optional(),
         usage: z.string().trim().max(100).optional(),
         transcript: z.string().max(20_000).optional(),
+        nodeId: idSchema.optional(),
         params: generationParamsSchema.optional(),
     }).parse(req.body);
     const model = value.model || (value.kind === "image" ? asset.payload.imageModel : asset.payload.audioModel) || listModelDefaults()[value.kind];
@@ -352,17 +365,22 @@ function createCreativeAssetGeneration(req: Request) {
     const primaryAudio = variants.find((item) => item.id === asset.payload.primaryAudioId && item.kind === "audio");
     const referenceImages = variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
     const referenceAudios = variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
-    const requestedReferences = value.kind === "image" ? referenceImages : referenceAudios;
+    const connected = resolveCreativeAssetNodeInputs(req.user.id, asset.projectId, asset.id, value.nodeId);
+    const requestedReferences = value.kind === "image" ? [...referenceImages, ...connected.imageFileIds.map((fileId) => ({ fileId }))] : [...referenceAudios, ...connected.audioFileIds.map((fileId) => ({ fileId }))];
     if (requestedReferences.length && !selectedModel.inputs.includes(value.kind)) throw apiError(400, "AI_MODEL_REFERENCE_UNSUPPORTED", `所选模型不支持${value.kind === "image" ? "图片" : "音频"}参考，请更换模型或移除参考文件`);
-    const references = value.kind === "image"
-        ? [...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...(primaryImage && selectedModel.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])]
-        : [...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...(primaryAudio && selectedModel.inputs.includes("audio") ? [{ fileId: primaryAudio.fileId, kind: "audio" as const }] : [])];
-    const prompt = value.kind === "audio" && value.transcript?.trim() ? value.transcript.trim() : buildCreativeAssetPrompt(asset, value.kind, value.prompt);
+    const styleImageApplied = value.kind === "image" && Boolean(connected.style?.referenceFileId && selectedModel.inputs.includes("image"));
+    const references = dedupeReferences<{ fileId: string; kind: "image" | "audio" }>(value.kind === "image"
+        ? [...(styleImageApplied ? [{ fileId: connected.style!.referenceFileId!, kind: "image" as const }] : []), ...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...connected.imageFileIds.map((fileId) => ({ fileId, kind: "image" as const })), ...(primaryImage && selectedModel.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])]
+        : [...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...connected.audioFileIds.map((fileId) => ({ fileId, kind: "audio" as const })), ...(primaryAudio && selectedModel.inputs.includes("audio") ? [{ fileId: primaryAudio.fileId, kind: "audio" as const }] : [])]);
+    const extraPrompt = [connected.style?.description ? `视觉风格：${connected.style.description}` : "", ...connected.texts, value.prompt || ""].filter(Boolean).join("\n\n");
+    const prompt = value.kind === "audio" && value.transcript?.trim() ? value.transcript.trim() : buildCreativeAssetPrompt(asset, value.kind, extraPrompt);
     const params = {
         ...(value.params || {}),
         ...(value.kind === "image" ? { size: "16:9" } : {}),
         ...(value.kind === "audio" && [asset.payload.voiceDescription, value.prompt].filter(Boolean).length ? { instructions: [asset.payload.voiceDescription, value.prompt].filter(Boolean).join("；") } : {}),
-        __creativeAsset: { projectId: asset.projectId, assetId: asset.id, usage: value.usage || (value.kind === "image" ? "design_sheet" : "voice_reference"), label: value.label, transcript: value.transcript },
+        __creativeAsset: { projectId: asset.projectId, assetId: asset.id, nodeId: value.nodeId, usage: value.usage || (value.kind === "image" ? "design_sheet" : "voice_reference"), label: value.label, transcript: value.transcript },
+        __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: connected.style.referenceFileId, styleImageApplied } : null,
+        __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds },
     };
     return createGeneration(req.user.id, {
         kind: value.kind,
@@ -371,6 +389,11 @@ function createCreativeAssetGeneration(req: Request) {
         references,
         params,
     });
+}
+
+function dedupeReferences<T extends { fileId: string }>(references: T[]) {
+    const seen = new Set<string>();
+    return references.filter((reference) => !seen.has(reference.fileId) && Boolean(seen.add(reference.fileId)));
 }
 
 function importBrowserData(req: Request) {

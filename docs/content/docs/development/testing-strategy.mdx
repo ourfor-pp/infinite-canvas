@@ -1,0 +1,17 @@
+---
+title: Testing Strategy
+description: Layered tests, business coverage, and quality gates for Infinite Canvas
+---
+
+# Testing Strategy
+
+Infinite Canvas uses five layers: Vitest unit tests, Testing Library component tests, Node integration tests with temporary SQLite databases, local provider-contract simulators, and Playwright browser journeys.
+
+Coverage is organized by business domain rather than file count: canvas graph and semantic ports; character, scene, and prop assets; visual styles; persistent generation; Agent sessions and SSE; administrator AI configuration; authenticated files and security; backup and import; and deployment boundaries.
+
+Every applicable domain covers success, invalid input, authorization isolation, revision conflict, network interruption, and service restart. Pull requests must pass frontend tests, TypeScript checks, the production frontend build, backend tests, and the backend TypeScript build. Critical browser journeys run before merge, while the complete provider, restart, backup, and Playwright matrices run nightly.
+
+Bug fixes should begin with a failing regression test. New APIs require authorization, isolation, and error-envelope coverage. New React external-store selectors require stable empty and derived snapshot tests.
+
+Implementation proceeds in five stages: establish the test runners and v0.20 regressions; cover canvas/assets/styles/Agent/generation; add Playwright critical journeys; add provider/restart/WebDAV fault fixtures; then enforce fast, merge, nightly, and release-candidate CI gates.
+

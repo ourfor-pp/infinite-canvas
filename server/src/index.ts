@@ -11,6 +11,7 @@ import { cleanupUnreferencedFiles } from "./file-store.js";
 import { recoverAgentRuns } from "./agent/service.js";
 import { setAgentProjectEmitter } from "./agent/project-events.js";
 import { setCreativeAssetEmitter } from "./creative-assets.js";
+import { setVisualStyleEmitter } from "./visual-styles.js";
 
 const server = config.socketPath
     ? (() => {
@@ -64,6 +65,12 @@ setAgentProjectEmitter((userId, project) => {
 });
 setCreativeAssetEmitter((userId, asset) => {
     const message = JSON.stringify({ type: "creative_asset.updated", data: asset });
+    clients.get(userId)?.forEach((client) => {
+        if (client.readyState === WebSocketClient.OPEN) client.send(message);
+    });
+});
+setVisualStyleEmitter((userId, style) => {
+    const message = JSON.stringify({ type: "visual_style.updated", data: style });
     clients.get(userId)?.forEach((client) => {
         if (client.readyState === WebSocketClient.OPEN) client.send(message);
     });

@@ -1,4 +1,5 @@
 import localforage from "localforage";
+import { randomId } from "@/lib/utils";
 
 import { serverApi, serverFileUrl, uploadServerFile, type ServerSession } from "@/services/api/server";
 import { type AiConfig, useConfigStore } from "@/stores/use-config-store";
@@ -133,11 +134,12 @@ async function readLegacyBlob(storageKey: string) {
 
 function collectStorageKeys(value: unknown, result = new Set<string>()) {
     if (!value || typeof value !== "object") return Array.from(result);
-    if ("storageKey" in value && typeof value.storageKey === "string" && !value.storageKey.startsWith("server:")) result.add(value.storageKey);
+    const record = value as Record<string, unknown>;
+    if (typeof record.storageKey === "string" && !record.storageKey.startsWith("server:")) result.add(record.storageKey);
     for (const key of ["dataUrl", "url", "coverUrl"] as const) {
-        if (key in value && typeof value[key] === "string" && value[key].startsWith("data:")) result.add(value[key]);
+        if (typeof record[key] === "string" && record[key].startsWith("data:")) result.add(record[key]);
     }
-    Object.values(value).forEach((child) => {
+    Object.values(record).forEach((child) => {
         if (Array.isArray(child)) child.forEach((item) => collectStorageKeys(item, result));
         else collectStorageKeys(child, result);
     });
@@ -182,7 +184,7 @@ function migrationMarkerKey(userId = useUserStore.getState().user?.id || "user")
 }
 
 function legacyFileName(storageKey: string, mimeType: string) {
-    const name = storageKey.startsWith("data:") ? `inline-${crypto.randomUUID()}` : storageKey.replace(/[^a-z0-9-]/gi, "-").slice(0, 120);
+    const name = storageKey.startsWith("data:") ? `inline-${randomId()}` : storageKey.replace(/[^a-z0-9-]/gi, "-").slice(0, 120);
     return `${name}.${mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin"}`;
 }
 
