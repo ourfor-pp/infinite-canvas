@@ -13,4 +13,11 @@ describe("Agent 会话事件合并", () => {
 
         expect(mergeEvents([branch], [sourceUser, sourceCanceled])).toEqual([branch]);
     });
+
+    it("较旧的接口快照不会删掉已经收到的流式增量", () => {
+        const user = event("branch", 4, "user_text");
+        const streamed = event("branch", 5, "thinking");
+
+        expect(mergeEvents([user, streamed], [user])).toEqual([user, streamed]);
+    });
 });

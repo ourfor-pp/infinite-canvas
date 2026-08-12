@@ -40,6 +40,8 @@ describe("Agent 助手回合", () => {
         const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
         await act(async () => root.render(<AssistantRound events={processEvents} theme={canvasThemes.light} status="running" />));
         expect(holder.querySelector(".agent-process-toggle")?.getAttribute("aria-expanded")).toBe("false");
+        expect(holder.querySelector(".agent-process-toggle")?.textContent).toContain("思考 1 轮");
+        expect(holder.querySelector(".agent-process-toggle")?.textContent).not.toContain("正在执行");
         expect(holder.querySelector("button[aria-label='复制本轮回复内容']")).toBeNull();
         await act(async () => root.unmount()); holder.remove();
     });
@@ -79,6 +81,8 @@ describe("Agent 助手回合", () => {
         await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="idle" />));
         expect(holder.textContent).toContain("从这里重新开始");
         expect(holder.textContent).not.toContain("从历史消息创建新分支");
+        expect(holder.querySelector(".agent-meta-note")).not.toBeNull();
+        expect(holder.querySelector(".agent-status-pill")).toBeNull();
         await act(async () => root.unmount()); holder.remove();
     });
 
@@ -87,6 +91,18 @@ describe("Agent 助手回合", () => {
         const events = [{ sessionId: "session-1", seq: 2, runId: "run-1", kind: "run_state" as const, payload: { state: "running", content: "Agent 已开始处理" }, createdAt: new Date().toISOString() }];
         await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="failed" />));
         expect(holder.textContent).toContain("Agent 执行失败");
+        expect(holder.textContent).not.toContain("Agent 已开始处理");
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("运行中用最近思考替代瞬时启动状态", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const events = [
+            { sessionId: "session-1", seq: 2, runId: "run-1", kind: "run_state" as const, payload: { state: "running", content: "Agent 已开始处理" }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 3, runId: "run-1", kind: "thinking" as const, payload: { text: "正在核对场景和道具资产" }, createdAt: new Date().toISOString() },
+        ];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="running" />));
+        expect(holder.querySelector(".agent-status-pill")?.textContent).toBe("思考：正在核对场景和道具资产");
         expect(holder.textContent).not.toContain("Agent 已开始处理");
         await act(async () => root.unmount()); holder.remove();
     });

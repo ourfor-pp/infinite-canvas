@@ -510,7 +510,7 @@
 
 .agent-process-group { display: grid; width: 100%; min-width: 0; gap: 8px; margin-bottom: 8px; font-size: 13px; }
 .agent-process-toggle { display: flex; width: 100%; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px; border: 0; border-radius: 12px; padding: 0; background: transparent; color: var(--agent-text); text-align: left; cursor: pointer; }
-.agent-process-toggle > svg { color: var(--agent-muted); }
+.agent-process-toggle > svg { flex: 0 0 auto; color: var(--agent-muted); }
 .agent-process-toggle > span { min-width: 0; flex: 1 1 180px; }
 .agent-process-toggle > em { margin-left: auto; border: 1px solid var(--agent-line); border-radius: 999px; background: var(--agent-surface); padding: 3px 8px; color: var(--agent-muted); font-size: 11px; font-style: normal; line-height: 1; white-space: nowrap; }
 .agent-process-content { display: grid; min-width: 0; gap: 6px; border-left: 1px solid var(--agent-line); margin-left: 7px; padding: 4px 0 0 14px; }
@@ -526,6 +526,8 @@
 .agent-status-pill > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-status-pill > i { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 999px; background: var(--agent-accent); animation: agent-status-pulse 1s ease-in-out infinite; }
 .agent-status-pill.is-failed { border-color: color-mix(in srgb, #ef4444 35%, var(--agent-line)); background: color-mix(in srgb, #ef4444 6%, var(--agent-surface)); color: #dc2626; }
+.agent-meta-note, .agent-time-note { width: 100%; padding: 4px 0; text-align: center; color: var(--agent-muted); font-size: 11px; line-height: 1.4; opacity: .5; }
+.agent-meta-note { margin: 8px 0 2px; }
 
 .agent-composer-wrap { padding: 8px 12px 12px; background: linear-gradient(180deg, transparent, var(--agent-panel) 18%); }
 .agent-composer {

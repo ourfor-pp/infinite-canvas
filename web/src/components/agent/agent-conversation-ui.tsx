@@ -85,7 +85,7 @@ export function AgentConversationFlow({
             ) : null}
             {(items.length > 80 ? virtual.items.map((virtualItem) => ({ item: items[virtualItem.index], top: virtualItem.top })) : items.map((item) => ({ item, top: undefined }))).map(({ item, top }) => {
                 const position = top === undefined ? undefined : { position: "absolute" as const, top: top + historyOffset, left: 0, right: 0 };
-                if (item.type === "time") return <div key={item.id} className="flex items-center gap-3 py-1 text-[10px] opacity-35"><span className="h-px flex-1 bg-current" /><time>{item.label}</time><span className="h-px flex-1 bg-current" /></div>;
+                if (item.type === "time") return <div key={item.id} className="agent-time-note"><time>{item.label}</time></div>;
                 if (item.type === "user") return <Measured key={item.id} id={item.id} style={position} onHeight={recordHeight}><UserMessage event={item.event} theme={theme} restarting={restartingMessageSeq === item.event.seq} onRestart={onRestartFromMessage} /></Measured>;
                 return <Measured key={item.id} id={item.id} className="agent-assistant-round" style={position} onHeight={recordHeight}><AssistantRound events={item.events} theme={theme} status={item.id === latestRoundId ? status : "completed"} pendingDecision={item.id === latestRoundId ? pendingDecision : null} decisionValue={decisionValue} decisionBusy={decisionBusy} onDecisionValue={onDecisionValue} onDecide={onDecide} onBeforeProcessAutoCollapse={onBeforeProcessAutoCollapse} /></Measured>;
             })}
@@ -196,7 +196,7 @@ export const AssistantRound = memo(function AssistantRound({ events, theme, stat
                 return null;
             })}
             {errors.map((event) => <div key={event.seq} className="mt-3 rounded-xl border border-red-500/25 bg-red-500/5 px-3 py-2.5 text-sm text-red-600 dark:text-red-300"><div className="flex items-center gap-2 font-medium"><CircleAlert className="size-4" />{String(event.payload.code || "Agent 执行失败")}</div><div className="mt-1 opacity-80">{eventText(event)}</div></div>)}
-            {latestState ? <RunState event={latestState} status={status} /> : null}
+            <RoundStatus events={events} status={status} />
         </div>
     );
 });
@@ -211,7 +211,7 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
     const terminal = Boolean(status && !["running", "waiting_for_user"].includes(status));
     const running = !terminal && (status === "running" || tools.some((event) => !event.result));
     const failed = tools.some((event) => Boolean(event.result?.payload.isError)) || status === "failed" || status === "canceled";
-    const stateLabel = running ? "正在执行" : status === "canceled" ? "已取消" : failed ? "执行失败" : "已完成";
+    const headerParts = [tools.length ? `${tools.length} 次工具调用` : "", processMessages.length + decisions.length ? `${processMessages.length + decisions.length} 条过程记录` : "", thinking.length ? `思考 ${thinking.length} 轮` : ""].filter(Boolean);
     const duration = roundDuration(roundEvents, running, now);
     useEffect(() => {
         if (!running) return;
@@ -226,8 +226,7 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
         <section ref={groupRef} className="agent-process-group">
             <button type="button" className="agent-process-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
                 <ChevronRight className={`size-3.5 transition ${open ? "rotate-90" : ""}`} />
-                {running ? <LoaderCircle className="size-3.5 animate-spin" /> : failed ? <CircleAlert className="size-3.5 text-red-500" /> : <Check className="size-3.5 text-emerald-500" />}
-                <span>{stateLabel}{thinking.length ? ` ${thinking.length} 段思考` : ""}{tools.length ? ` · ${tools.length} 次工具调用` : ""}{processMessages.length + decisions.length ? ` · ${processMessages.length + decisions.length} 条过程记录` : ""}</span>
+                <span>{headerParts.join(" · ") || "过程记录"}</span>
                 {duration ? <em>本轮耗时 {duration}</em> : null}
             </button>
             {open ? (
@@ -295,12 +294,29 @@ function ArtifactStrip({ events, theme }: { events: ProjectedEvent[]; theme: Can
     );
 }
 
-function RunState({ event, status }: { event: ProjectedEvent; status?: AgentSession["status"] }) {
-    const storedState = String(event.payload.state || "");
-    const state = status && ["completed", "failed", "canceled"].includes(status) ? status : storedState;
-    if (state === "completed") return null;
-    const text = Number(event.payload.forkSourceSeq) > 0 ? "从这里重新开始" : state !== storedState ? (state === "failed" ? "Agent 执行失败" : "任务已取消") : eventText(event) || (state === "running" ? "模型正在处理中…" : state === "failed" ? "Agent 执行失败" : "Agent 已停止");
-    return <div className="agent-status-row"><span className={`agent-status-pill is-${state || "idle"}`}>{state === "running" ? <i aria-hidden="true" /> : state === "failed" ? <CircleAlert className="size-3.5" /> : <Check className="size-3.5" />}<span>{text}</span></span></div>;
+function RoundStatus({ events, status }: { events: ProjectedEvent[]; status?: AgentSession["status"] }) {
+    const forkBoundary = [...events].reverse().find((event) => event.kind === "run_state" && Number(event.payload.forkSourceSeq) > 0);
+    if (forkBoundary) return <div className="agent-meta-note">从这里重新开始</div>;
+    if (status === "completed") return null;
+    if (status === "failed") return <StatusPill state="failed" text="Agent 执行失败" />;
+    if (status === "canceled") return <StatusPill state="canceled" text="任务已取消" />;
+    const activity = [...events].reverse().find((event) => {
+        if (event.kind === "thinking") return Boolean(eventText(event).trim());
+        if (event.kind === "tool_call") return !event.result;
+        if (event.kind !== "run_state") return false;
+        const text = eventText(event).trim();
+        return Boolean(text && !["Agent 已开始处理", "Agent 开始执行"].includes(text));
+    });
+    const text = activity?.kind === "thinking"
+        ? `思考：${eventText(activity).replace(/^思考[：:]\s*/i, "").trim()}`
+        : activity?.kind === "tool_call"
+            ? `${formatAgentToolName(String(activity.payload.toolName || "工具"))}执行中`
+            : activity ? eventText(activity) : "模型正在处理中…";
+    return status === "running" || status === "waiting_for_user" ? <StatusPill state="running" text={text} /> : null;
+}
+
+function StatusPill({ state, text }: { state: "idle" | "running" | "failed" | "canceled"; text: string }) {
+    return <div className="agent-status-row"><Tooltip title={text.length > 40 ? text : undefined}><span className={`agent-status-pill is-${state}`}>{state === "running" ? <i aria-hidden="true" /> : state === "failed" ? <CircleAlert className="size-3.5" /> : <Check className="size-3.5" />}<span>{text}</span></span></Tooltip></div>;
 }
 
 export function AgentDecisionCard({ pending, value, theme, busy, onChange, onDecide }: {

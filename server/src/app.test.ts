@@ -338,8 +338,16 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     db.prepare("INSERT INTO agent_events(session_id,seq,run_id,kind,payload,created_at) VALUES(?,3,'branch-run-2','user_text',?,datetime('now'))").run(heldSession, JSON.stringify({ text: "需要修改的消息", content: { version: 1, segments: [{ type: "text", text: "需要修改的消息" }] } }));
     db.prepare("INSERT INTO agent_events(session_id,seq,run_id,kind,payload,created_at) VALUES(?,4,'branch-run-2','assistant_text',?,datetime('now'))").run(heldSession, JSON.stringify({ text: "不应进入分支" }));
     db.prepare("UPDATE agent_sessions SET sdk_session_id='sdk-session-1', event_seq=4 WHERE id=?").run(heldSession);
+    const streamAbort = new AbortController();
+    const streamResponse = await fetch(`${origin}/agent/projects/project-1/stream?clientId=test-client`, { headers: userOne, signal: streamAbort.signal });
+    assert.equal(streamResponse.status, 200);
+    const stream = sseEvents(streamResponse);
+    assert.equal((await stream.next()).value.type, "snapshot");
     const branch = await api(`/agent/sessions/${heldSession}/fork`, userOne, { method: "POST", body: JSON.stringify({ fromEventSeq: 3 }) });
     assert.equal(branch.response.status, 201);
+    const streamedBranch = await nextSseMatching(stream, (event) => event.type === "delta" && event.session?.id === branch.body.data.id);
+    assert.equal(streamedBranch.events?.[0]?.payload.forkSourceSeq, 3);
+    streamAbort.abort();
     assert.deepEqual(branch.body.data.events.filter((item: { kind: string }) => item.kind === "user_text").map((item: { payload: { text: string } }) => item.payload.text), ["第一条消息"]);
     assert.equal(JSON.stringify(branch.body.data.events).includes("不应进入分支"), false);
     const branchRow = db.prepare("SELECT sdk_session_id, fork_pending, fork_resume_at FROM agent_sessions WHERE id=?").get(branch.body.data.id) as { sdk_session_id: string; fork_pending: number; fork_resume_at: string };
@@ -525,4 +533,40 @@ async function api(path: string, headers: Record<string, string>, init: RequestI
 function json(response: import("node:http").ServerResponse, value: unknown) {
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(JSON.stringify(value));
+}
+
+type TestSseEvent = { type?: string; session?: { id?: string }; events?: Array<{ payload: Record<string, unknown> }> };
+
+async function* sseEvents(response: Response): AsyncGenerator<TestSseEvent> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+            const block = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const data = block.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+            if (data) yield JSON.parse(data) as TestSseEvent;
+            boundary = buffer.indexOf("\n\n");
+        }
+    }
+}
+
+async function nextSseMatching(stream: AsyncGenerator<TestSseEvent>, predicate: (event: TestSseEvent) => boolean) {
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+        return await Promise.race([
+            (async () => {
+                for await (const event of stream) if (predicate(event)) return event;
+                throw new Error("SSE 已提前断开");
+            })(),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("等待 SSE 事件超时")), 1000); }),
+        ]);
+    } finally {
+        clearTimeout(timer!);
+    }
 }

@@ -49,15 +49,18 @@ agentRouter.get("/projects/:projectId/stream", (req, res, next) => {
         const projectId = routeParam(req, "projectId");
         getConversation(req.user.id, projectId);
         res.status(200);
-        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
         res.setHeader("Cache-Control", "no-cache, no-transform");
         res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        res.flushHeaders();
+        res.socket?.setNoDelay(true);
         const clientId = req.query.clientId === undefined ? "" : id.parse(String(req.query.clientId));
         const unsubscribe = subscribeConversation(req.user.id, projectId, clientId, (event) => {
             res.write(`id: ${event.cursor}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
         });
         const heartbeat = setInterval(() => res.write(`event: keepalive\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`), 15_000);
-        req.on("close", () => {
+        res.on("close", () => {
             clearInterval(heartbeat);
             unsubscribe();
         });

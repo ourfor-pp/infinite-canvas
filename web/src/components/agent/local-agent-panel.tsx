@@ -198,6 +198,19 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
                 setBackgroundUnread((current) => ({ ...current, [event.session.id]: Math.min(99, (current[event.session.id] || 0) + 1) }));
             }
             setAgentState({ connected: true, activity: statusLabel(event.session.status) });
+        }, (connected) => {
+            if (!connected) {
+                setAgentState({ connected: false, activity: "正在重新连接" });
+                return;
+            }
+            setAgentState({ connected: true, activity: "已连接" });
+            const active = activeSessionRef.current;
+            if (!active) return;
+            void agentApi.conversation(projectId, active.id).then((next) => {
+                if (activeSessionRef.current?.id !== active.id) return;
+                applyConversation(next);
+                if (next.session) markSessionSeen(next.session.id, next.session.eventSeq);
+            }).catch(() => undefined);
         });
     }, [projectId]);
 
@@ -236,9 +249,12 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
     };
 
     const applyConversation = (next: AgentConversation) => {
-        setConversation(next);
-        setActiveSession(next.session);
-        setEvents(next.session?.events || []);
+        const currentSession = activeSessionRef.current;
+        const sameSession = Boolean(currentSession && next.session?.id === currentSession.id);
+        const selectedSession = sameSession && currentSession!.eventSeq > next.session!.eventSeq ? currentSession : next.session;
+        setConversation({ ...next, session: selectedSession, sessions: selectedSession ? upsertSession(next.sessions, selectedSession) : next.sessions });
+        setActiveSession(selectedSession);
+        setEvents((current) => sameSession ? mergeEvents(current, next.session?.events || []) : next.session?.events || []);
         setQueuedMessages(next.queuedMessages || []);
     };
 

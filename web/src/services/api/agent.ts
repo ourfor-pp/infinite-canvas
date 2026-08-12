@@ -45,11 +45,15 @@ export const agentApi = {
     cancelAdminRun: (id: string) => serverRequest(`/admin/agent/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
 };
 
-export function subscribeAgent(projectId: string, onEvent: (event: AgentStreamEvent) => void) {
+export function subscribeAgent(projectId: string, onEvent: (event: AgentStreamEvent) => void, onConnection?: (connected: boolean) => void) {
     const source = new EventSource(serverApiUrl(`/agent/projects/${encodeURIComponent(projectId)}/stream?clientId=${encodeURIComponent(agentClientId)}`));
     const receive = (event: MessageEvent<string>) => {
-        try { onEvent(JSON.parse(event.data) as AgentStreamEvent); } catch { /* Ignore malformed stream events. */ }
+        let parsed: AgentStreamEvent;
+        try { parsed = JSON.parse(event.data) as AgentStreamEvent; } catch { return; }
+        onEvent(parsed);
     };
+    source.addEventListener("open", () => onConnection?.(true));
+    source.addEventListener("error", () => onConnection?.(false));
     source.addEventListener("snapshot", receive as EventListener);
     source.addEventListener("delta", receive as EventListener);
     source.addEventListener("queue.updated", receive as EventListener);
