@@ -7,12 +7,14 @@ import { openAsBlob, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { getStoredFile, storeRemoteFile } from "./file-store.js";
 import { modelEndpointRegistry, providerBaseUrl, providerPath, type AiModelDefinition, type MediaKind, type ProviderCredentials, type ProviderRow } from "./provider-service.js";
+import type { GenerationPurpose } from "./comfy-workflows.js";
 
 export type GenerationMessage = { role: "system" | "user" | "assistant"; content: unknown };
 export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text"> };
 export type AiGenerationRequest = {
     kind: MediaKind;
-    model: string;
+    model?: string;
+    purpose?: GenerationPurpose;
     prompt?: string;
     messages?: GenerationMessage[];
     params?: Record<string, unknown>;

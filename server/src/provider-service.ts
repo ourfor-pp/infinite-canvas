@@ -3,6 +3,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { decryptJson, encryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
+import { COMFY_MODEL_DEFINITIONS, PURPOSE_MODELS, type GenerationPurpose } from "./comfy-workflows.js";
 
 export const providerTypes = ["openai", "openai-compatible", "anthropic", "gemini", "ark"] as const;
 export const mediaKinds = ["text", "image", "video", "audio"] as const;
@@ -237,6 +238,11 @@ export function resolveProviderModel(value: string, expectedOutput: MediaKind) {
     return { providerId, modelId, model, provider: { ...provider, credentials: decryptCredentials(provider) } };
 }
 
+export function resolvePurposeModel(purpose: GenerationPurpose, expectedOutput: MediaKind) {
+    if (purpose === "default") throw providerError(400, "AI_MODEL_REQUIRED", "普通生成必须指定模型");
+    return resolveProviderModel(`comfyui::${PURPOSE_MODELS[purpose]}`, expectedOutput);
+}
+
 export function resolveAgentModel(value: string) {
     const selection = resolveProviderModel(value, "text");
     if (!selection.provider || !selection.model.agentEnabled || !modelEndpointRegistry[selection.model.endpoint]?.agent) {
@@ -342,24 +348,15 @@ function assertProviderIdle(id: string) {
 }
 
 function comfyModelOutput(id: string): MediaKind {
-    if (id === "hidream-o1-full-fp8-local") return "image";
-    if (id.startsWith("minimax-h3-")) return "video";
-    if (id === "voxcpm2-local") return "audio";
-    return "text";
+    return COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.output || "text";
 }
 
 function comfyModelName(id: string) {
-    if (id === "hidream-o1-full-fp8-local") return "HiDream-O1 Full FP8";
-    if (id === "minimax-h3-fl2va-local") return "MiniMax H3 FL2VA";
-    if (id === "minimax-h3-ref2va-local") return "MiniMax H3 Ref2VA";
-    if (id === "voxcpm2-local") return "VoxCPM2";
-    return id;
+    return COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.name || id;
 }
 
 function comfyModelInputs(id: string): MediaKind[] {
-    if (id === "minimax-h3-ref2va-local") return ["text", "image", "video", "audio"];
-    if (id === "minimax-h3-fl2va-local") return ["text", "image"];
-    return ["text"];
+    return COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.inputs || ["text"];
 }
 
 function providerError(status: number, code: string, message: string) {

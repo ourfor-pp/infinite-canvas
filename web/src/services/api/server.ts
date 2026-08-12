@@ -37,6 +37,7 @@ export type ServerGeneration = {
 };
 
 export type ComfyServer = { id: string; name: string; url: string; enabled: boolean; models: string[]; createdAt: string; updatedAt: string };
+export type ComfyTestResult = { available: boolean; workflows: Array<{ id: string; available: boolean; missing: string[] }> };
 export type ModelCapability = "text" | "image" | "video" | "audio";
 export type ModelEndpoint = "openai-chat" | "anthropic-messages" | "gemini-generate" | "openai-images" | "openai-images-generations" | "openai-images-edits" | "gemini-image" | "ark-image" | "openai-video" | "ark-seedance" | "gemini-video" | "openai-tts" | "gemini-audio";
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: ModelCapability; inputs: ModelCapability[]; method: "POST"; path: string; agent: boolean };
@@ -144,7 +145,7 @@ export const serverApi = {
     createComfyServer: (input: Record<string, unknown>) => serverRequest<ComfyServer>("/admin/comfyui/servers", { method: "POST", body: JSON.stringify(input) }),
     updateComfyServer: (id: string, input: Record<string, unknown>) => serverRequest<ComfyServer>(`/admin/comfyui/servers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
     deleteComfyServer: (id: string) => serverRequest(`/admin/comfyui/servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    testComfyServer: (id: string) => serverRequest(`/admin/comfyui/servers/${encodeURIComponent(id)}/test`, { method: "POST" }),
+    testComfyServer: (id: string) => serverRequest<ComfyTestResult>(`/admin/comfyui/servers/${encodeURIComponent(id)}/test`, { method: "POST" }),
     backupSettings: () => serverRequest<BackupSettings | null>("/admin/backups/settings"),
     updateBackupSettings: (input: Record<string, unknown>) => serverRequest<BackupSettings>("/admin/backups/settings", { method: "PUT", body: JSON.stringify(input) }),
     testBackup: () => serverRequest<{ available: boolean }>("/admin/backups/test", { method: "POST" }),

@@ -5,9 +5,9 @@ import { adapterFor, type AiGenerationRequest, type ProviderContext } from "./ai
 import { config } from "./config.js";
 import { decryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
-import { buildComfyWorkflow } from "./comfy-workflows.js";
+import { buildComfyWorkflow, type GenerationPurpose } from "./comfy-workflows.js";
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
-import { decryptCredentials, getProviderRow, resolveProviderModel, type AiModelDefinition, type MediaKind } from "./provider-service.js";
+import { decryptCredentials, getProviderRow, resolveProviderModel, resolvePurposeModel, type AiModelDefinition, type MediaKind } from "./provider-service.js";
 import { syncAgentGenerationCanvas } from "./agent/generation-canvas.js";
 import { syncCreativeAssetGeneration } from "./creative-assets.js";
 
@@ -59,7 +59,8 @@ export function generationResponse(row: GenerationRow) {
 }
 
 export function createGeneration(userId: string, input: AiGenerationRequest) {
-    const selection = resolveProviderModel(input.model, input.kind);
+    const purpose = (input.purpose || "default") as GenerationPurpose;
+    const selection = purpose === "default" ? resolveProviderModel(input.model || "", input.kind) : resolvePurposeModel(purpose, input.kind);
     if ((input.prompt?.trim() || input.messages?.length) && !selection.model.inputs.includes("text")) throw generationError("AI_MODEL_INPUT_UNSUPPORTED", "所选模型不支持文本输入");
     for (const reference of input.references || []) {
         const kind = reference.kind || "image";
@@ -131,7 +132,8 @@ function pumpQueue() {
 function canRun(row: GenerationRow) {
     const userActive = Array.from(running.values()).filter((item) => item.row.user_id === row.user_id).length;
     if (userActive >= config.aiUserConcurrency) return false;
-    if (!row.provider_id || row.provider_id === "comfyui") return true;
+    if (!row.provider_id) return true;
+    if (row.provider_id === "comfyui") return !Array.from(running.values()).some((item) => item.row.id !== row.id && item.row.provider_id === "comfyui" && item.row.comfy_server_id === row.comfy_server_id);
     const provider = getProviderRow(row.provider_id);
     if (!provider?.enabled) return true;
     const providerActive = Array.from(running.values()).filter((item) => item.row.provider_id === row.provider_id).length;
@@ -215,9 +217,7 @@ async function runComfyGeneration(row: GenerationRow, request: AiGenerationReque
             model: row.model_id,
             prompt: request.prompt || "",
             params: request.params || {},
-            images: uploaded.filter((item) => item.kind === "image").map((item) => item.name),
-            videos: uploaded.filter((item) => item.kind === "video").map((item) => item.name),
-            audios: uploaded.filter((item) => item.kind === "audio").map((item) => item.name),
+            files: uploaded,
         });
         const created = await comfyJson<{ prompt_id?: string; node_errors?: unknown }>(`${baseUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow, client_id: `infinite-canvas-${row.id}` }), signal });
         if (!created.prompt_id) throw generationError("COMFY_REJECTED", `ComfyUI 拒绝工作流：${JSON.stringify(created.node_errors || created)}`);
@@ -246,7 +246,7 @@ async function uploadComfyReferences(baseUrl: string, userId: string, references
         form.set("image", await openAsBlob(stored.path, { type: stored.mime_type }), stored.original_name || `reference-${index}`);
         const result = await comfyJson<{ name?: string; subfolder?: string }>(`${baseUrl}/upload/image`, { method: "POST", body: form, signal });
         if (!result.name) throw generationError("COMFY_UPLOAD_FAILED", "ComfyUI 素材上传失败");
-        return { kind: reference.kind || storedKind(stored.mime_type), name: result.subfolder ? `${result.subfolder}/${result.name}` : result.name };
+        return { fileId: reference.fileId, kind: reference.kind || storedKind(stored.mime_type), name: result.subfolder ? `${result.subfolder}/${result.name}` : result.name };
     }));
 }
 

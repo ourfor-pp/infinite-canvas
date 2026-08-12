@@ -21,7 +21,8 @@ description: Major features available in the current project
 
 - Text, image, video, and generation-configuration nodes.
 - Connect text prompts and reference media to generation nodes.
-- Generate or rewrite text, create images, edit images from references, and create videos.
+- Generate or rewrite text, create images, edit images from references, locally inpaint masked regions, faithfully upscale or enhance details, generate single new camera angles or grouped four-view results, and create videos.
+- Local image tools route through dedicated backend ComfyUI workflows. Missing nodes or model files produce explicit readiness errors instead of silently falling back to the selected image model.
 - Preserve original image ratios by default and organize batch results as connected nodes.
 - Record prompts, models, dimensions, quality, and references on generated nodes for retries.
 

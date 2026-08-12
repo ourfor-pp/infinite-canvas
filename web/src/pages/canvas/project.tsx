@@ -5,7 +5,7 @@ import { Group, Video } from "lucide-react";
 import { saveAs } from "file-saver";
 import { useTranslation } from "react-i18next";
 
-import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
+import { requestEdit, requestGeneration, requestImageQuestion, requestUpscale } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -31,6 +31,7 @@ import { CanvasNodeCropDialog, type CanvasImageCropRect } from "@/components/can
 import { CanvasNodeMaskEditDialog, type CanvasImageMaskEditPayload } from "@/components/canvas/canvas-node-mask-edit-dialog";
 import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "@/components/canvas/canvas-node-split-dialog";
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "@/components/canvas/canvas-node-upscale-dialog";
+import { CanvasNodeSuperResolveDialog, type CanvasSuperResolveParams } from "@/components/canvas/canvas-node-super-resolve-dialog";
 import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, type NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "@/components/canvas/canvas-node-hover-toolbar";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
@@ -58,6 +59,7 @@ import {
     buildAnglePrompt,
     buildGenerationConfig,
     findRetrySourceNode,
+    fourAngleViews,
     generationReferenceUrls,
     getGenerationCount,
     getInputSummary,
@@ -1762,10 +1764,6 @@ function InfiniteCanvasPage() {
         async (node: CanvasNodeData, payload: CanvasImageMaskEditPayload) => {
             if (!node.metadata?.content) return;
             const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1", size: node.metadata?.size || "auto" };
-            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
-                openConfigDialog(true);
-                return;
-            }
             const userPrompt = payload.prompt.trim();
             const prompt = t("canvas.projectPage.maskPrompt", { prompt: userPrompt });
             const childId = nanoid();
@@ -1791,7 +1789,7 @@ function InfiniteCanvasPage() {
             setDialogNodeId(childId);
             const controller = startGenerationRequest(childId, node.id, childId);
             try {
-                const image = await requestEdit(generationConfig, prompt, [source], { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl }, { signal: controller.signal }).then((items) => items[0]);
+                const image = await requestEdit(generationConfig, prompt, [source], { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl }, { signal: controller.signal }, "image-inpaint", { preserveMode: payload.preserveMode, growPixels: 12, featherPixels: 6 }).then((items) => items[0]);
                 const uploaded = await uploadImage(image.dataUrl);
                 const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
@@ -1805,7 +1803,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
+        [effectiveConfig, finishGenerationRequest, message, startGenerationRequest, t],
     );
 
     const upscaleImageNode = useCallback(async (node: CanvasNodeData, params: CanvasImageUpscaleParams) => {
@@ -1833,14 +1831,34 @@ function InfiniteCanvasPage() {
         setDialogNodeId(childId);
     }, []);
 
+    const superResolveImageNode = useCallback(async (node: CanvasNodeData, params: CanvasSuperResolveParams) => {
+        if (!node.metadata?.content) return;
+        const childId = nanoid();
+        const source = { id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey };
+        setSuperResolveNodeId(null);
+        setRunningNodeId(childId);
+        setNodes((prev) => [...prev, { id: childId, type: CanvasNodeType.Image, title: params.mode === "faithful" ? "忠实超分" : "细节增强", position: { x: node.position.x + node.width + 96, y: node.position.y }, width: node.width, height: node.height, metadata: { status: NODE_STATUS_LOADING, prompt: node.metadata?.prompt, generationType: "edit", references: [node.metadata!.storageKey || node.metadata!.content!] } }]);
+        setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, fromPortId: "output", toNodeId: childId, toPortId: "input" }]);
+        setSelectedNodeIds(new Set([childId]));
+        setDialogNodeId(childId);
+        const controller = startGenerationRequest(childId, node.id, childId);
+        try {
+            const result = await requestUpscale(source, params, { signal: controller.signal }).then((items) => items[0]);
+            const uploaded = await uploadImage(result.dataUrl);
+            const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
+            setNodes((prev) => prev.map((item) => item.id === childId ? { ...item, ...size, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt: node.metadata?.prompt } } : item));
+        } catch (error) {
+            if (!isGenerationCanceled(error)) setNodes((prev) => prev.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: error instanceof Error ? error.message : t("canvas.projectPage.generationFailed") } } : item));
+        } finally {
+            finishGenerationRequest(childId, controller);
+            setRunningNodeId(null);
+        }
+    }, [finishGenerationRequest, startGenerationRequest, t]);
+
     const generateAngleNode = useCallback(
         async (node: CanvasNodeData, params: CanvasImageAngleParams) => {
             if (!node.metadata?.content) return;
             const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" };
-            if (!isAiConfigReady(generationConfig, generationConfig.model)) {
-                openConfigDialog(true);
-                return;
-            }
             const childId = nanoid();
             const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
             const title = buildAngleLabel(params);
@@ -1873,6 +1891,8 @@ function InfiniteCanvasPage() {
                     [{ id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey }],
                     undefined,
                     { signal: controller.signal },
+                    "image-angle",
+                    params,
                 ).then((items) => items[0]);
                 const uploaded = await uploadImage(image.dataUrl);
                 const size = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
@@ -1886,8 +1906,51 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, openConfigDialog, startGenerationRequest, t],
+        [effectiveConfig, finishGenerationRequest, startGenerationRequest, t],
     );
+
+    const generateFourAngles = useCallback(async (node: CanvasNodeData) => {
+        if (!node.metadata?.content) return;
+        const views = fourAngleViews();
+        const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" };
+        const source = { id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey };
+        const rootId = nanoid();
+        const imageIds = views.map(() => nanoid());
+        const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+        const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 4, [source]);
+        setAngleNodeId(null);
+        setRunningNodeId(rootId);
+        setNodes((prev) => [...prev, { id: rootId, type: CanvasNodeType.Image, title: `${node.title || t("canvas.node.untitled")} ${t("canvas.editors.fourViews")}`, position: { x: node.position.x + node.width + 96, y: node.position.y }, width: imageConfig.width, height: imageConfig.height, metadata: { status: NODE_STATUS_LOADING, prompt: t("canvas.editors.fourViews"), images: imageIds.map((id, index) => ({ id, status: NODE_STATUS_LOADING, content: "", storageKey: "", naturalWidth: 0, naturalHeight: 0, bytes: 0, mimeType: "", prompt: `${buildAnglePrompt(views[index].params)} ${t("canvas.generation.namedView", { name: views[index].title })}`, generationPurpose: "image-angle", toolParams: { ...views[index].params, viewName: views[index].title } })), ...generationMetadata } }]);
+        setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, fromPortId: "output", toNodeId: rootId, toPortId: "input" }]);
+        setSelectedNodeIds(new Set([rootId]));
+        setDialogNodeId(rootId);
+        const controller = startGenerationRequest(rootId, node.id, rootId);
+        let successes = 0;
+        await Promise.all(views.map(async (view, index) => {
+            const imageId = imageIds[index];
+            const prompt = `${buildAnglePrompt(view.params)} ${t("canvas.generation.namedView", { name: view.title })}`;
+            try {
+                const result = await requestEdit(generationConfig, prompt, [source], undefined, { signal: controller.signal }, "image-angle", { ...view.params, viewName: view.title }).then((items) => items[0]);
+                const uploaded = await uploadImage(result.dataUrl);
+                const item: CanvasNodeImage = { id: imageId, status: NODE_STATUS_SUCCESS, content: uploaded.url, storageKey: uploaded.storageKey, naturalWidth: uploaded.width, naturalHeight: uploaded.height, bytes: uploaded.bytes, mimeType: uploaded.mimeType, prompt, generationPurpose: "image-angle", toolParams: { ...view.params, viewName: view.title } };
+                successes += 1;
+                setNodes((prev) => prev.map((current) => {
+                    if (current.id !== rootId) return current;
+                    const images = current.metadata?.images?.map((image) => image.id === imageId ? item : image) || [];
+                    if (current.metadata?.primaryImageId) return { ...current, metadata: { ...current.metadata, images } };
+                    const fitted = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
+                    return { ...current, ...fitted, metadata: { ...current.metadata, ...imageMetadata(uploaded), images, primaryImageId: imageId } };
+                }));
+            } catch (error) {
+                if (isGenerationCanceled(error)) return;
+                const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.generationFailed");
+                setNodes((prev) => prev.map((current) => current.id === rootId ? { ...current, metadata: { ...current.metadata, images: current.metadata?.images?.map((image) => image.id === imageId ? { ...image, status: NODE_STATUS_ERROR, errorDetails } : image) } } : current));
+            }
+        }));
+        setNodes((prev) => prev.map((current) => current.id === rootId ? { ...current, metadata: { ...current.metadata, status: successes ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR, errorDetails: successes ? undefined : t("canvas.projectPage.allFailed") } } : current));
+        finishGenerationRequest(rootId, controller);
+        setRunningNodeId(null);
+    }, [effectiveConfig, finishGenerationRequest, startGenerationRequest, t]);
 
     const handleFontSizeChange = useCallback((nodeId: string, fontSize: number) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, fontSize } } : node)));
@@ -2474,6 +2537,7 @@ function InfiniteCanvasPage() {
         async (node: CanvasNodeData, imageId?: string) => {
             const sourceNode = findRetrySourceNode(node.id, nodesRef.current, connectionsRef.current) || node;
             const savedImageMetadata = node.type === CanvasNodeType.Image ? node.metadata : undefined;
+            const savedSlot = imageId ? savedImageMetadata?.images?.find((image) => image.id === imageId) : undefined;
             const hasSavedImageMetadata = Boolean(savedImageMetadata?.generationType);
             const generationConfig =
                 hasSavedImageMetadata && savedImageMetadata
@@ -2492,7 +2556,7 @@ function InfiniteCanvasPage() {
             }
 
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || ""));
-            const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
+            const prompt = (savedSlot?.prompt || savedImageMetadata?.prompt || context?.prompt || "").trim();
             if (!prompt) {
                 message.warning(t("canvas.projectPage.retryPromptMissing"));
                 return;
@@ -2563,7 +2627,7 @@ function InfiniteCanvasPage() {
                 }
 
                 const image = useReferenceImages
-                    ? await requestEdit(generationConfig, prompt, retryImages, undefined, { signal: controller.signal }).then((items) => items[0])
+                    ? await requestEdit(generationConfig, prompt, retryImages, undefined, { signal: controller.signal }, savedSlot?.generationPurpose || "image-edit", savedSlot?.toolParams).then((items) => items[0])
                     : await requestGeneration(generationConfig, prompt, { signal: controller.signal }).then((items) => items[0]);
                 const uploadedImage = await uploadImage(image.dataUrl);
                 const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
@@ -2576,6 +2640,7 @@ function InfiniteCanvasPage() {
                     naturalHeight: uploadedImage.height,
                     bytes: uploadedImage.bytes,
                     mimeType: uploadedImage.mimeType,
+                    ...(savedSlot?.prompt ? { prompt: savedSlot.prompt, generationPurpose: savedSlot.generationPurpose, toolParams: savedSlot.toolParams } : {}),
                 };
                 const generationMetadata = savedImageMetadata?.generationType
                     ? {
@@ -3054,11 +3119,9 @@ function InfiniteCanvasPage() {
                     <CanvasNodeUpscaleDialog dataUrl={upscaleNode.metadata.content} open={Boolean(upscaleNode)} onClose={() => setUpscaleNodeId(null)} onConfirm={(params) => void upscaleImageNode(upscaleNode!, params)} />
                 ) : null}
 
-                <Modal title={t("canvas.projectPage.superResolve")} open={Boolean(superResolveNode?.metadata?.content)} centered footer={null} onCancel={() => setSuperResolveNodeId(null)}>
-                    <div className="py-8 text-center text-base font-medium">{t("canvas.projectPage.notImplemented")}</div>
-                </Modal>
+                {superResolveNode?.metadata?.content ? <CanvasNodeSuperResolveDialog dataUrl={superResolveNode.metadata.content} open={Boolean(superResolveNode)} onClose={() => setSuperResolveNodeId(null)} onConfirm={(params) => void superResolveImageNode(superResolveNode!, params)} /> : null}
 
-                {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} /> : null}
+                {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} onConfirmBatch={() => void generateFourAngles(angleNode!)} /> : null}
 
                 <Modal
                     title={t("canvas.projectPage.imageDetails")}

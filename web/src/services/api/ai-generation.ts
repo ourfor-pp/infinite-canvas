@@ -3,7 +3,8 @@ import { serverApi, serverFileIdFromUrl, serverFileUrl, uploadServerFile, type S
 export type GenerationKind = ServerGeneration["kind"];
 export type GenerationInput = {
     kind: GenerationKind;
-    model: string;
+    model?: string;
+    purpose?: "default" | "image-edit" | "image-inpaint" | "image-upscale-faithful" | "image-upscale-generative" | "image-angle";
     prompt?: string;
     messages?: Array<{ role: "system" | "user" | "assistant"; content: unknown }>;
     params?: Record<string, unknown>;

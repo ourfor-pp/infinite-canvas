@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Button, Input, Modal, Slider, Tooltip } from "antd";
+import { Button, Input, Modal, Segmented, Slider, Tooltip } from "antd";
 import { Brush, Eraser, Redo2, RotateCcw, Undo2, WandSparkles, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -10,6 +10,7 @@ import { useImageEditorViewport } from "@/components/canvas/use-image-editor-vie
 export type CanvasImageMaskEditPayload = {
     prompt: string;
     maskDataUrl: string;
+    preserveMode: "strict" | "natural";
 };
 
 type DrawMode = "paint" | "erase";
@@ -32,6 +33,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
     const [prompt, setPrompt] = useState("");
     const [brushSize, setBrushSize] = useState(defaultBrushSize);
     const [mode, setMode] = useState<DrawMode>("paint");
+    const [preserveMode, setPreserveMode] = useState<"strict" | "natural">("strict");
     const [error, setError] = useState("");
     const [historySize, setHistorySize] = useState(0);
     const [redoSize, setRedoSize] = useState(0);
@@ -43,6 +45,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         setPrompt("");
         setBrushSize(defaultBrushSize);
         setMode("paint");
+        setPreserveMode("strict");
         setError("");
         setHistorySize(0);
         setRedoSize(0);
@@ -206,7 +209,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         if (!nextPrompt) return setError(t("canvas.editors.maskPromptRequired"));
         if (!canvas) return;
         if (!canvasHasPaint(canvas)) return setError(t("canvas.editors.maskRequired"));
-        onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas) });
+        onConfirm({ prompt: nextPrompt, maskDataUrl: buildEditMask(canvas), preserveMode });
     };
 
     return (
@@ -291,6 +294,12 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
                                 <Button type="text" icon={<ZoomIn className="size-4" />} disabled={!viewport.canZoomIn} aria-label={t("canvas.editors.zoomIn")} onClick={viewport.zoomIn} />
                             </Tooltip>
                         </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <div className="text-sm font-medium opacity-75">{t("canvas.editors.preserveMode")}</div>
+                        <Segmented block value={preserveMode} options={[{ label: t("canvas.editors.strictPreserve"), value: "strict" }, { label: t("canvas.editors.naturalBlend"), value: "natural" }]} onChange={(value) => setPreserveMode(value as "strict" | "natural")} />
+                        <div className="text-xs opacity-55">{t(preserveMode === "strict" ? "canvas.editors.strictPreserveDescription" : "canvas.editors.naturalBlendDescription")}</div>
                     </div>
 
                     <div className="space-y-2">

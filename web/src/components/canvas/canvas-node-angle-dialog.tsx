@@ -17,7 +17,7 @@ const defaultParams: CanvasImageAngleParams = {
     wideAngle: false,
 };
 
-export function CanvasNodeAngleDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (params: CanvasImageAngleParams) => void }) {
+export function CanvasNodeAngleDialog({ dataUrl, open, onClose, onConfirm, onConfirmBatch }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (params: CanvasImageAngleParams) => void; onConfirmBatch?: () => void }) {
     const { t } = useTranslation();
     const [params, setParams] = useState(defaultParams);
 
@@ -64,7 +64,8 @@ export function CanvasNodeAngleDialog({ dataUrl, open, onClose, onConfirm }: { d
                         </div>
                     </div>
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                    {onConfirmBatch ? <Button size="large" onClick={onConfirmBatch}>{t("canvas.editors.fourViews")}</Button> : null}
                     <Button type="primary" size="large" icon={<WandSparkles className="size-4" />} onClick={() => onConfirm(params)}>
                         {t("canvas.editors.aiGenerate")}
                     </Button>

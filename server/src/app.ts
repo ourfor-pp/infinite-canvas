@@ -5,7 +5,7 @@ import { authenticate, requireAdmin } from "./auth.js";
 import { config } from "./config.js";
 import { decryptJson, encryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
-import { COMFY_MODELS } from "./comfy-workflows.js";
+import { COMFY_MODELS, COMFY_REQUIREMENTS } from "./comfy-workflows.js";
 import { getStoredFile, receiveUpload, sendStoredFile, storedFileResponse, syncFileRefs } from "./file-store.js";
 import { cancelGeneration, cancelGenerationByAdmin, createGeneration, generationResponse, type GenerationRow } from "./generation-service.js";
 import { createBackup, getBackupSettings, listBackups, restoreBackup, saveBackupSettings, testBackupConnection } from "./backup-service.js";
@@ -44,13 +44,18 @@ const generationParamsSchema = jsonRecord.superRefine((value, context) => {
 });
 const generationSchema = z.object({
     kind: z.enum(["image", "video", "audio", "text"]),
-    model: z.string().trim().min(3),
+    model: z.string().trim().min(3).optional(),
+    purpose: z.enum(["default", "image-edit", "image-inpaint", "image-upscale-faithful", "image-upscale-generative", "image-angle"]).default("default"),
     prompt: z.string().max(200_000).optional(),
     messages: z.array(z.object({ role: z.enum(["system", "user", "assistant"]), content: z.string().max(200_000) })).max(500).optional(),
     params: generationParamsSchema.optional(),
     references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional() })).optional(),
 }).superRefine((value, context) => {
-    if (!value.prompt?.trim() && !value.messages?.length) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });
+    if (value.purpose === "default" && !value.model) context.addIssue({ code: "custom", path: ["model"], message: "普通生成必须指定模型" });
+    if (!value.prompt?.trim() && !value.messages?.length && !value.purpose.startsWith("image-upscale-")) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });
+    if (value.purpose !== "default" && value.kind !== "image") context.addIssue({ code: "custom", path: ["purpose"], message: "专用图片工具只支持图片任务" });
+    if (value.purpose === "image-inpaint" && !String(value.params?.maskFileId || "")) context.addIssue({ code: "custom", path: ["params", "maskFileId"], message: "局部编辑缺少蒙版" });
+    if (value.purpose.startsWith("image-upscale-") && ![1024, 2048, 4096].includes(Number(value.params?.targetLongEdge))) context.addIssue({ code: "custom", path: ["params", "targetLongEdge"], message: "超分目标只支持 1024、2048 或 4096" });
 });
 
 export const app = express();
@@ -245,9 +250,23 @@ api.post("/admin/comfyui/servers/:id/test", requireAdmin, asyncRoute(async (req)
     const row = db.prepare("SELECT * FROM comfy_servers WHERE id=?").get(req.params.id) as ComfyServerRow | undefined;
     if (!row) throw apiError(404, "COMFY_NOT_FOUND", "ComfyUI 节点不存在");
     const { url } = decryptJson<{ url: string }>(row.encrypted_url, config.appSecret);
-    const response = await fetch(`${url.replace(/\/+$/, "")}/system_stats`, { signal: AbortSignal.timeout(10_000), redirect: "error" });
-    if (!response.ok) throw apiError(502, "COMFY_UNAVAILABLE", `ComfyUI 返回 ${response.status}`);
-    return { available: true };
+    const baseUrl = url.replace(/\/+$/, "");
+    const [statsResponse, infoResponse] = await Promise.all([
+        fetch(`${baseUrl}/system_stats`, { signal: AbortSignal.timeout(10_000), redirect: "error" }),
+        fetch(`${baseUrl}/object_info`, { signal: AbortSignal.timeout(10_000), redirect: "error" }),
+    ]);
+    if (!statsResponse.ok || !infoResponse.ok) throw apiError(502, "COMFY_UNAVAILABLE", `ComfyUI 返回 ${statsResponse.ok ? infoResponse.status : statsResponse.status}`);
+    const info = await infoResponse.json() as Record<string, unknown>;
+    const serialized = JSON.stringify(info);
+    const enabled = new Set(parseJson<string[]>(row.models, []));
+    const workflows = Object.entries(COMFY_REQUIREMENTS).filter(([id]) => enabled.has(id)).map(([id, requirement]) => {
+        const missing = [
+            ...(requirement?.nodes || []).filter((name) => !(name in info)).map((name) => `节点：${name}`),
+            ...(requirement?.models || []).filter((model) => !serialized.includes(JSON.stringify(model.name))).map((model) => `模型：${model.name}`),
+        ];
+        return { id, available: !missing.length, missing };
+    });
+    return { available: true, workflows };
 }));
 
 api.get("/generations", (req, res) => {

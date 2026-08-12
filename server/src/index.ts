@@ -12,6 +12,7 @@ import { recoverAgentRuns } from "./agent/service.js";
 import { setAgentProjectEmitter } from "./agent/project-events.js";
 import { setCreativeAssetEmitter } from "./creative-assets.js";
 import { setVisualStyleEmitter } from "./visual-styles.js";
+import { COMFY_MODELS } from "./comfy-workflows.js";
 
 const server = config.socketPath
     ? (() => {
@@ -25,7 +26,7 @@ if (config.defaultComfyUrl && !(db.prepare("SELECT 1 FROM comfy_servers LIMIT 1"
     const now = new Date().toISOString();
     db.prepare("INSERT INTO comfy_servers(id, name, encrypted_url, enabled, models, created_at, updated_at) VALUES('development', '开发机 ComfyUI', ?, 1, ?, ?, ?)").run(
         encryptJson({ url: config.defaultComfyUrl }, config.appSecret),
-        JSON.stringify(["hidream-o1-full-fp8-local", "minimax-h3-fl2va-local", "minimax-h3-ref2va-local", "voxcpm2-local"]),
+        JSON.stringify(COMFY_MODELS),
         now,
         now,
     );

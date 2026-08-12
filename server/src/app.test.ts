@@ -421,6 +421,7 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
     const fakeComfy = createServer((request, response) => {
         const url = new URL(request.url || "/", "http://localhost");
         if (url.pathname === "/system_stats") return json(response, { system: {} });
+        if (url.pathname === "/upload/image") return json(response, { name: "uploaded.png" });
         if (url.pathname === "/prompt") return json(response, { prompt_id: `prompt-${++promptCounter}` });
         if (url.pathname.startsWith("/history/")) {
             const id = url.pathname.split("/").pop() || "";
@@ -436,7 +437,7 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
     const address = fakeComfy.address();
     if (!address || typeof address === "string") throw new Error("ComfyUI 模拟服务启动失败");
     try {
-        await api("/admin/comfyui/servers", userOne, { method: "POST", body: JSON.stringify({ name: "测试节点", url: `http://127.0.0.1:${address.port}`, enabled: true, models: ["hidream-o1-full-fp8-local"] }) });
+        await api("/admin/comfyui/servers", userOne, { method: "POST", body: JSON.stringify({ name: "测试节点", url: `http://127.0.0.1:${address.port}`, enabled: true, models: ["hidream-o1-full-fp8-local", "realesrgan-x4-local"] }) });
         const ordinaryModels = await api("/ai/models", userTwo);
         assert.equal(JSON.stringify(ordinaryModels.body).includes(String(address.port)), false);
         assert.equal((await api("/admin/comfyui/servers", userTwo)).response.status, 403);
@@ -449,6 +450,19 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
         assert.equal(generation.status, "succeeded");
         assert.equal(generation.result.files.length, 1);
         assert.equal((await api(`/generations/${created.body.data.id}`, userTwo)).response.status, 404);
+
+        const form = new FormData();
+        form.set("file", new Blob(["source"], { type: "image/png" }), "source.png");
+        const uploaded = await api("/files", userOne, { method: "POST", body: form });
+        const upscale = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", purpose: "image-upscale-faithful", params: { targetLongEdge: 2048, sourceWidth: 800, sourceHeight: 600 }, references: [{ fileId: uploaded.body.data.fileId, kind: "image" }] }) });
+        assert.equal(upscale.response.status, 201);
+        assert.equal(upscale.body.data.modelId, "realesrgan-x4-local");
+        let upscaleGeneration = upscale.body.data;
+        for (let index = 0; index < 20 && !["succeeded", "failed"].includes(upscaleGeneration.status); index += 1) {
+            await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+            upscaleGeneration = (await api(`/generations/${upscale.body.data.id}`, userOne)).body.data;
+        }
+        assert.equal(upscaleGeneration.status, "succeeded");
     } finally {
         await new Promise<void>((resolvePromise) => fakeComfy.close(() => resolvePromise()));
     }

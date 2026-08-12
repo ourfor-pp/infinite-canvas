@@ -35,6 +35,9 @@ export type CanvasNodeImage = {
     naturalHeight: number;
     bytes: number;
     mimeType: string;
+    prompt?: string;
+    generationPurpose?: "image-edit" | "image-angle";
+    toolParams?: Record<string, unknown>;
 };
 
 export type CanvasNodeMetadata = {

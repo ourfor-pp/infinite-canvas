@@ -5,9 +5,9 @@
 ## 1. 当前结论
 
 - ComfyUI 已部署并运行在同一台机器的 `8189` 端口。
-- 当前已跑通三个模型家族：HiDream-O1 图片、MiniMax H3 音视频、VoxCPM2 TTS。
+- 当前图片能力由 Qwen Image 2512、Qwen Image Edit 2511、Z-Image Turbo、RealESRGAN 和 HiDream-O1 组成；MiniMax H3 与 VoxCPM2 继续提供视频和音频能力。
 - H3 和 HiDream 已使用工作流级 SageAttention；VoxCPM2 保持普通推理，未默认启用 `torch.compile`。
-- 三个模型共享一张 RTX 5090 32 GB，不能由 Infinite Canvas 自行并发提交。应复用 ArcReel 的队列、显存判断和切模逻辑，或者将该逻辑抽成独立本地网关。
+- 所有模型共享一张 RTX 5090 32 GB。Infinite Canvas 对同一 ComfyUI 节点只运行一个任务，批量和四视图任务进入持久队列，避免显存争抢。
 - `./dev.sh` 会把 ComfyUI 仅绑定到 `127.0.0.1`，由 Infinite Canvas 后端调用；浏览器和公网都不应直接访问它。
 
 ## 2. 部署清单
@@ -86,6 +86,28 @@ curl -sS http://127.0.0.1:8189/object_info/RunningHub_VoxCPM_Generate
 ```
 
 ## 4. 当前使用的模型
+
+### v0.16 图片工作流
+
+固定模型 ID 与用途如下；蓝图只用于核对节点，运行时图由 `server/src/comfy-workflows.ts` 构建：
+
+| 模型 ID | 用途 | 基线参数 |
+|---|---|---|
+| `qwen-image-2512-local` | 高质量文生图 | Lightning 4/8 步；高质量无 Lightning 40 步 |
+| `z-image-turbo-local` | 快速文生图 | 8 步、低 CFG |
+| `qwen-image-edit-2511-local` | 通用编辑、参考图编辑、多角度 | BF16、20 步；高质量 40 步；最多 3 张参考图 |
+| `qwen-image-inpaint-local` | 蒙版局部编辑 | InstantX Inpaint ControlNet；默认扩张 12px、羽化 6px |
+| `realesrgan-x4-local` | 忠实 AI 超分 | RealESRGAN x4 后精确缩放到目标尺寸 |
+| `z-image-upscale-local` | 生成式细节增强 | RealESRGAN 预放大、约 2MP 重绘、默认 denoise 0.20 |
+
+Inpaint ControlNet 安装位置：
+
+```text
+/data/sas/ComfyUI/models/controlnet/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors
+SHA-256 49c01aafe6545c1f6e7627a724c8fb13357fe74efee235622158f0a8f30e5458
+```
+
+该文件来自 ModelScope `Comfy-Org/Qwen-Image-InstantX-ControlNets` 同名仓库，大小和 SHA-256 已与 InstantX 官方 Hugging Face 文件核对一致。
 
 ### HiDream-O1 Full FP8
 
@@ -281,9 +303,9 @@ Browser
 
 `./dev.sh` 会把 ComfyUI 绑定到回环地址且不启用 CORS。不要重新加入浏览器直连脚本或把 8189 暴露到局域网/公网。
 
-## 9. 建议实施顺序
+## 9. 后续验收顺序
 
-1. 人工验证四个固定工作流与参考素材上限。
+1. 人工验证六个图片固定工作流、画布比例和参考素材上限。
 2. 验证关闭页面、断线重连、取消和服务重启恢复。
 3. 后续把 Infinite Canvas 与 ArcReel 统一接入共享 GPU coordinator，并覆盖跨模型、手工 ComfyUI 队列和 OOM 重试测试。
 
@@ -304,4 +326,6 @@ Browser
 - 用该图片作为 H3 首帧生成 5 秒 480p 视频，确认 MP4 同时包含视频和 AAC 音轨。
 - 用 VoxCPM2 生成中文声音设计音频，并把结果作为音频节点插回画布。
 - 连续执行 HiDream -> H3 -> Vox -> H3，检查没有并发任务、误清显存或第二个 ComfyUI 进程。
+- 分别执行 Qwen 2512 与 Z-Image 文生图、Qwen Edit 单图与三参考图编辑、严格/自然局部编辑、两种 AI 超分和一键四视图。
+- 严格局部编辑需要逐像素检查羽化范围外与原图一致；1K/2K/4K 超分需要检查输出尺寸与界面预览值完全一致。
 - 关闭浏览器等待任务完成后重新打开，确认任务和结果可从后端恢复，且浏览器响应中没有 8189 地址。

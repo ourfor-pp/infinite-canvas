@@ -171,3 +171,12 @@ export function buildAngleLabel(params: CanvasImageAngleParams) {
 export function buildAnglePrompt(params: CanvasImageAngleParams) {
     return i18n.t("canvas.generation.anglePrompt", { angle: buildAngleLabel(params) });
 }
+
+export function fourAngleViews(): Array<{ title: string; params: CanvasImageAngleParams }> {
+    return [
+        { title: i18n.t("canvas.generation.frontView"), params: { horizontalAngle: 0, pitchAngle: 0, cameraDistance: 4.8, wideAngle: false } },
+        { title: i18n.t("canvas.generation.leftView"), params: { horizontalAngle: -90, pitchAngle: 0, cameraDistance: 4.8, wideAngle: false } },
+        { title: i18n.t("canvas.generation.rightView"), params: { horizontalAngle: 90, pitchAngle: 0, cameraDistance: 4.8, wideAngle: false } },
+        { title: i18n.t("canvas.generation.backView"), params: { horizontalAngle: 180, pitchAngle: 0, cameraDistance: 4.8, wideAngle: false } },
+    ];
+}

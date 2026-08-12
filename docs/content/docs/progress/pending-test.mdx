@@ -7,6 +7,12 @@ description: Implemented changes that still need manual verification
 
 The current release needs manual verification in these areas:
 
+- v0.16 local image workflows: verify Qwen Image 2512 Lightning 4/8-step and 40-step quality, Z-Image Turbo, Qwen Edit 2511 with one to three references, and HiDream across every canvas aspect ratio. No result may be forced to 16:9, and a missing node or model must return a stable explicit error without fallback.
+- v0.16 local inpainting: test people, object replacement, material replacement, and text regions in strict-preserve and natural-blend modes. Strict mode must keep every pixel outside the expanded and feathered mask unchanged, while refresh and project switching must not cancel the backend task.
+- v0.16 local upscaling: verify faithful and generative modes on landscape, portrait, transparent PNG, people, product, UI, and text images at 1K, 2K, and 4K. Output dimensions must exactly match preview and the RTX 5090 must not OOM.
+- v0.16 four-view generation: run at least three people or product references and verify front, left 90°, right 90°, and back 180° slot ownership, progress, individual failure/retry/download/set-primary, and persisted recovery after refresh.
+- v0.16 shared ComfyUI scheduling: continuously queue text-to-image, edit, inpaint, upscale, four-view, video, and audio work and verify only one task runs on the same ComfyUI node at a time.
+
 - Agent header: the conversation title should align directly to the left edge; the header must not show a robot icon, connection-status dot, provider/model name, or empty placeholder.
 - Agent reply actions: the completed-round copy button must remain fully visible below the reply on hover and keyboard focus, including the last reply above the composer and conversations long enough to enable virtualization.
 - Creative business-node deletion: deleting any character, scene, or prop node must remove its backing creative asset, all duplicate views and connected edges, while an explicitly collected asset-library snapshot remains reusable.
