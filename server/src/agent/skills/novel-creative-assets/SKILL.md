@@ -14,7 +14,7 @@ allowed-tools: [mcp__infinite_canvas__canvas_get_state, mcp__infinite_canvas__cr
    - 角色：年龄感、体态、面部、发型、服装、配饰、标志性特征和色彩。不要写性格、关系和剧情背景。
    - 场景：空间结构、固定陈设、材质、光线、色调、天气及标志性细节。不要写人物和剧情事件。
    - 道具：形态、材质、尺寸、颜色、纹理、磨损及可识别细节。不要写所属角色和剧情用途。
-4. 每个角色必须额外填写 `payload.voiceDescription` 和 `payload.voiceSampleText`：前者描述音色、语速、口音和情绪质感，后者写一句 10～30 字、符合角色身份与语境的试听台词。场景和道具的两个字段保持空字符串。
+4. 每项资产都使用 `payload.mediaDrafts` 保存媒体草稿。角色的 `audio` 使用 `audioMode: speech`，并填写音色提示词 `prompt` 与 10～30 字试听台词 `transcript`；场景使用 `ambient`，道具使用 `sfx`，可填写对应环境声或音效描述。
 5. 原文没有足够视觉信息时写清楚“需补充哪些视觉信息”，不要擅自编造。
 6. 完成分析后必须调用 `creative_assets_create_batch` 提交候选清单，不要绕过用户确认直接创建。
 
@@ -27,8 +27,10 @@ allowed-tools: [mcp__infinite_canvas__canvas_get_state, mcp__infinite_canvas__cr
   "status": "draft",
   "payload": {
     "description": "年逾六旬的清瘦老人……深色棉帽，灰蓝旧棉衣，围深灰毛线围巾。",
-    "voiceDescription": "苍老低沉，略带沙哑，语速平缓。",
-    "voiceSampleText": "这条老街的风声，我听了整整四十年。"
+    "mediaDrafts": {
+      "image": { "prompt": "", "model": null, "params": {} },
+      "audio": { "prompt": "苍老低沉，略带沙哑，语速平缓。", "model": null, "params": {}, "audioMode": "speech", "transcript": "这条老街的风声，我听了整整四十年。" }
+    }
   }
 }
 ```

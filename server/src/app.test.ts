@@ -70,17 +70,17 @@ test("项目按用户隔离并检测 revision 冲突", async () => {
 });
 
 test("创作资产按项目隔离、保存自然语言描述并检测 revision", async () => {
-    const created = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "character", name: "林夏", payload: { description: "二十八岁的清瘦调查记者，短发，深色风衣。", voiceDescription: "冷静、低声线", voiceSampleText: "这件事，我会亲自查清楚。" } }) });
+    const created = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "character", name: "林夏", payload: { description: "二十八岁的清瘦调查记者，短发，深色风衣。", mediaDrafts: { audio: { prompt: "冷静、低声线", transcript: "这件事，我会亲自查清楚。" } } } }) });
     assert.equal(created.response.status, 201);
     assert.equal(created.body.data.revision, 1);
-    assert.equal(created.body.data.payload.voiceDescription, "冷静、低声线");
-    assert.equal(created.body.data.payload.voiceSampleText, "这件事，我会亲自查清楚。");
+    assert.equal(created.body.data.payload.mediaDrafts.audio.prompt, "冷静、低声线");
+    assert.equal(created.body.data.payload.mediaDrafts.audio.transcript, "这件事，我会亲自查清楚。");
     const assetId = created.body.data.id;
     assert.equal((await api(`/creative-assets/${assetId}`, userTwo)).response.status, 404);
 
     const updated = await api(`/creative-assets/${assetId}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "confirmed", payload: { description: "二十八岁的清瘦调查记者，短发，深色风衣与旧相机。" } }) });
     assert.equal(updated.body.data.revision, 2);
-    assert.equal(updated.body.data.payload.voiceDescription, "冷静、低声线");
+    assert.equal(updated.body.data.payload.mediaDrafts.audio.prompt, "冷静、低声线");
     const conflict = await api(`/creative-assets/${assetId}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, name: "旧名称" }) });
     assert.equal(conflict.response.status, 409);
     assert.equal(conflict.body.error.details.current.revision, 2);
@@ -98,7 +98,7 @@ test("创作资产按项目隔离、保存自然语言描述并检测 revision",
     assert.equal(project.body.data.nodes.filter((node: { metadata?: { assetId?: string } }) => node.metadata?.assetId === assetId).length, 2);
     assert.equal(project.body.data.nodes.some((node: { type: string; title: string }) => node.type === "group" && node.title === "角色设定"), false);
     const businessNode = project.body.data.nodes.find((node: { id: string }) => node.id === firstView.body.data.nodeId);
-    assert.deepEqual({ type: businessNode.type, width: businessNode.width, height: businessNode.height }, { type: "character", width: 420, height: 690 });
+    assert.deepEqual({ type: businessNode.type, width: businessNode.width, height: businessNode.height }, { type: "character", width: 420, height: 540 });
 
     const disposable = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "character", name: "删除即消失", payload: { description: "临时角色" } }) });
     const disposableId = disposable.body.data.id;
@@ -386,8 +386,14 @@ test("公网图片生成由后端执行并把结果回存到用户媒体库", as
         assert.equal(JSON.stringify(generation).includes(String(address.port)), false);
         assert.equal((await fetch(`${origin}/files/${generation.result.files[0].fileId}/content`, { headers: userTwo })).status, 200);
 
-        const creative = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "scene", name: "雨夜车站", payload: { description: "潮湿、冷色调的旧车站" } }) });
-        const creativeGeneration = await api(`/creative-assets/${creative.body.data.id}/generations`, userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: `${provider.body.data.id}::test-image-model`, prompt: "雨夜旧车站设定图" }) });
+        const model = `${provider.body.data.id}::test-image-model`;
+        const creative = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "scene", name: "雨夜车站", payload: { description: "潮湿、冷色调的旧车站", mediaDrafts: { image: { model, prompt: "雨幕中的站台与冷白灯光" } } } }) });
+        const generationRequest = { kind: "image", revision: creative.body.data.revision };
+        const preview = await api(`/creative-assets/${creative.body.data.id}/generation-preview`, userOne, { method: "POST", body: JSON.stringify(generationRequest) });
+        assert.equal(preview.response.status, 200);
+        assert.equal(preview.body.data.model.value, model);
+        assert.match(preview.body.data.prompt, /雨幕中的站台与冷白灯光/);
+        const creativeGeneration = await api(`/creative-assets/${creative.body.data.id}/generations`, userOne, { method: "POST", body: JSON.stringify(generationRequest) });
         let creativeTask = creativeGeneration.body.data;
         for (let index = 0; index < 20 && !["succeeded", "failed"].includes(creativeTask.status); index += 1) {
             await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
@@ -396,7 +402,8 @@ test("公网图片生成由后端执行并把结果回存到用户媒体库", as
         const creativeResult = await api(`/creative-assets/${creative.body.data.id}`, userOne);
         assert.equal(creativeTask.status, "succeeded");
         assert.equal(creativeResult.body.data.payload.variants.length, 1);
-        assert.ok(creativeResult.body.data.payload.primaryImageId);
+        assert.equal(creativeResult.body.data.payload.primaryImageId, null);
+        assert.equal(creativeTask.request.prompt, preview.body.data.prompt);
     } finally {
         await new Promise<void>((resolvePromise) => fakeProvider.close(() => resolvePromise()));
     }

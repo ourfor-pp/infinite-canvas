@@ -10,6 +10,7 @@ import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasMarkdownContent } from "./canvas-markdown-content";
+import { MediaPreview } from "./media-editor/media-preview";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeImage, type CanvasNodePort, type Position } from "@/types/canvas";
 import type { CanvasNodeContext, CanvasPluginHost } from "@/types/canvas-plugin";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -647,7 +648,7 @@ function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
                 <Music2 className="size-4 shrink-0" />
                 <span className="truncate">{t("canvas.node.audio")}</span>
             </div>
-            <audio src={node.metadata.content} controls className="w-full" data-canvas-no-zoom />
+            <MediaPreview kind="audio" url={node.metadata.content} title={node.title} emptyLabel={t("canvas.node.emptyAudio")} />
         </div>
     );
 }
@@ -689,13 +690,7 @@ function ImageContent({
                 : null}
             <div className="h-full w-full overflow-hidden rounded-3xl">
                 {primaryContent ? (
-                    <img
-                        src={primaryContent}
-                        alt={node.title}
-                        draggable={false}
-                        onDragStart={(event) => event.preventDefault()}
-                        className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
-                    />
+                    <MediaPreview kind="image" url={primaryContent} title={node.title} emptyLabel={t("canvas.node.emptyImage")} fit={node.metadata?.freeResize ? "fill" : "contain"} />
                 ) : (
                     <ImageSlotStatus image={primaryImage} />
                 )}

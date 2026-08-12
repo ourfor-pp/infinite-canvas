@@ -507,7 +507,7 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | nu
                         ) : isCreativeAsset(asset) ? (
                             <div className="mt-2 space-y-3">
                                 <Typography.Paragraph className="!mb-0 whitespace-pre-wrap">{asset.data.snapshot.payload.description || asset.note || t("assets.noCover")}</Typography.Paragraph>
-                                {asset.kind === "character" && asset.data.snapshot.payload.voiceDescription ? <div className="rounded-md bg-stone-50 px-3 py-2 dark:bg-stone-900"><Typography.Text type="secondary" className="block text-[11px]">声音</Typography.Text><Typography.Text className="mt-1 block whitespace-pre-wrap text-sm">{asset.data.snapshot.payload.voiceDescription}</Typography.Text></div> : null}
+                                {asset.data.snapshot.payload.mediaDrafts.audio.prompt ? <div className="rounded-md bg-stone-50 px-3 py-2 dark:bg-stone-900"><Typography.Text type="secondary" className="block text-[11px]">{asset.kind === "character" ? "声音" : asset.kind === "scene" ? "环境声" : "音效"}</Typography.Text><Typography.Text className="mt-1 block whitespace-pre-wrap text-sm">{asset.data.snapshot.payload.mediaDrafts.audio.prompt}</Typography.Text></div> : null}
                             </div>
                         ) : (
                             <Typography.Text className="mt-2 block">
@@ -546,7 +546,7 @@ function assetSummary(asset: Asset) {
 }
 
 function assetSearchText(asset: Asset) {
-    const content = asset.kind === "text" ? asset.data.content : isCreativeAsset(asset) ? [asset.data.snapshot.payload.description, asset.data.snapshot.payload.voiceDescription].join(" ") : asset.data.mimeType;
+    const content = asset.kind === "text" ? asset.data.content : isCreativeAsset(asset) ? [asset.data.snapshot.payload.description, asset.data.snapshot.payload.mediaDrafts.audio.prompt].join(" ") : asset.data.mimeType;
     return [asset.title, asset.source || "", asset.note || "", (asset.tags || []).join(" "), content].join(" ").toLowerCase();
 }
 

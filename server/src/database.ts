@@ -237,6 +237,8 @@ applyVersionEight();
 applyVersionNine();
 applyVersionTen();
 applyVersionEleven();
+applyVersionTwelve();
+applyVersionThirteen();
 ensureAgentMetadata(3, 2);
 
 function applyVersionTwo() {
@@ -492,6 +494,62 @@ function applyVersionEleven() {
     db.transaction(() => {
         if (!columns.some((column) => column.name === "fork_resume_at")) db.exec("ALTER TABLE agent_sessions ADD COLUMN fork_resume_at TEXT");
         db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(11, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionTwelve() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=12").get()) return;
+    const assets = db.prepare("SELECT id,user_id,kind,name,payload FROM creative_assets").all() as Array<{ id: string; user_id: string; kind: string; name: string; payload: string }>;
+    const providers = db.prepare("SELECT id,models FROM ai_providers").all() as Array<{ id: string; models: string }>;
+    db.transaction(() => {
+        for (const row of assets) {
+            const payload = parseJson<Record<string, unknown>>(row.payload, {});
+            const variants = Array.isArray(payload.variants) ? payload.variants as Array<Record<string, unknown>> : [];
+            const lastImagePrompt = [...variants].reverse().find((item) => item.kind === "image" && item.usage !== "reference_input" && typeof item.prompt === "string")?.prompt;
+            const existingDrafts = payload.mediaDrafts && typeof payload.mediaDrafts === "object" ? payload.mediaDrafts as Record<string, unknown> : {};
+            const existingImage = existingDrafts.image && typeof existingDrafts.image === "object" ? existingDrafts.image as Record<string, unknown> : {};
+            const existingAudio = existingDrafts.audio && typeof existingDrafts.audio === "object" ? existingDrafts.audio as Record<string, unknown> : {};
+            const mediaDrafts = {
+                image: {
+                    prompt: typeof existingImage.prompt === "string" ? existingImage.prompt : typeof lastImagePrompt === "string" && lastImagePrompt.trim() ? lastImagePrompt : "",
+                    model: typeof existingImage.model === "string" ? existingImage.model : typeof payload.imageModel === "string" ? payload.imageModel : null,
+                    params: existingImage.params && typeof existingImage.params === "object" ? existingImage.params : {},
+                },
+                audio: {
+                    prompt: typeof existingAudio.prompt === "string" ? existingAudio.prompt : typeof payload.voiceDescription === "string" ? payload.voiceDescription : "",
+                    model: typeof existingAudio.model === "string" ? existingAudio.model : typeof payload.audioModel === "string" ? payload.audioModel : null,
+                    params: existingAudio.params && typeof existingAudio.params === "object" ? existingAudio.params : {},
+                    audioMode: row.kind === "character" ? "speech" : row.kind === "scene" ? "ambient" : "sfx",
+                    transcript: typeof existingAudio.transcript === "string" ? existingAudio.transcript : typeof payload.voiceSampleText === "string" ? payload.voiceSampleText : "",
+                },
+            };
+            const { voiceDescription: _voiceDescription, voiceSampleText: _voiceSampleText, imageModel: _imageModel, audioModel: _audioModel, ...next } = payload;
+            db.prepare("UPDATE creative_assets SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...next, mediaDrafts }), row.id, row.user_id);
+        }
+        for (const provider of providers) {
+            const models = parseJson<Array<Record<string, unknown>>>(provider.models, []).map((model) => model.output === "audio" && !Array.isArray(model.audioModes) ? { ...model, audioModes: ["speech"] } : model);
+            db.prepare("UPDATE ai_providers SET models=? WHERE id=?").run(JSON.stringify(models), provider.id);
+        }
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(12, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionThirteen() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=13").get()) return;
+    const assets = db.prepare("SELECT id,user_id,kind,name,payload FROM creative_assets").all() as Array<{ id: string; user_id: string; kind: string; name: string; payload: string }>;
+    db.transaction(() => {
+        for (const row of assets) {
+            const payload = parseJson<Record<string, unknown>>(row.payload, {});
+            const drafts = payload.mediaDrafts && typeof payload.mediaDrafts === "object" ? payload.mediaDrafts as Record<string, unknown> : {};
+            const image = drafts.image && typeof drafts.image === "object" ? drafts.image as Record<string, unknown> : {};
+            const prompt = typeof image.prompt === "string" ? image.prompt.trim() : "";
+            const description = typeof payload.description === "string" ? payload.description.trim() : "";
+            const subject = row.kind === "character" ? "角色" : row.kind === "scene" ? "场景" : "道具";
+            const generatedPrefixes = [`${subject}「${row.name}」的视觉设计参考。`, `为${subject}“${row.name}”制作可用于后续镜头保持一致性的设计图。`, `为${subject}「${row.name}」制作可用于后续镜头保持一致性的设计图。`];
+            if (prompt && prompt !== description && !generatedPrefixes.some((prefix) => prompt.startsWith(prefix))) continue;
+            db.prepare("UPDATE creative_assets SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...payload, mediaDrafts: { ...drafts, image: { ...image, prompt: "" } } }), row.id, row.user_id);
+        }
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(13, ?)").run(new Date().toISOString());
     })();
 }
 

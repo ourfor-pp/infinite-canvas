@@ -55,7 +55,7 @@ const BUILTIN_DEFINITIONS: CanvasNodeDefinition[] = [
             { id: "reference-image", label: "参考图", direction: "input", dataType: "image", multiple: true, position: 0.27 },
             { id: "setting", label: "设定文本", direction: "input", dataType: "text", multiple: true, position: 0.56 },
             { id: "style", label: "视觉风格", direction: "input", dataType: "visual-style", multiple: false, position: 0.67 },
-            ...(kind === "character" ? [{ id: "reference-audio", label: "参考声音", direction: "input", dataType: "audio", multiple: false, position: 0.77 } satisfies CanvasNodePort] : []),
+            { id: "reference-audio", label: kind === "character" ? "参考声音" : kind === "scene" ? "参考环境声" : "参考音效", direction: "input", dataType: "audio", multiple: false, position: 0.77 } satisfies CanvasNodePort,
             { id: "asset", label: `${CREATIVE_ASSET_NODE_LAYOUT[kind].title}资产`, direction: "output", dataType: "creative-asset", multiple: true, position: 0.5 },
         ],
     })),

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ConfigServerServices } from "@/components/layout/config-server-services";
-import { serverApi, type AiProvider, type ComfyServer, type ModelCapability, type ModelEndpoint, type ModelEndpointDefinition } from "@/services/api/server";
+import { serverApi, type AiProvider, type AudioMode, type ComfyServer, type ModelCapability, type ModelEndpoint, type ModelEndpointDefinition } from "@/services/api/server";
 import { AgentManager } from "./components/agent-manager";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -19,6 +19,7 @@ const providerTypes = [
 ] as const;
 const capabilityLabels: Record<ModelCapability, string> = { text: "文本", image: "生图", video: "视频", audio: "语音" };
 const inputLabels: Record<ModelCapability, string> = { text: "文本", image: "图片", video: "视频", audio: "音频" };
+const audioModeOptions: Array<{ value: AudioMode; label: string }> = [{ value: "speech", label: "语音/对白" }, { value: "ambient", label: "环境声" }, { value: "sfx", label: "音效" }];
 const comfyModels = [
     { value: "qwen-image-2512-local", label: "Qwen Image 2512 FP8", output: "image" },
     { value: "z-image-turbo-local", label: "Z-Image Turbo", output: "image" },
@@ -181,6 +182,7 @@ function ProviderManager() {
             endpoint: inferredEndpoint(id, providerType),
             enabled: true,
             agentEnabled: false,
+            ...(inferredOutput(id) === "audio" ? { audioModes: ["speech" as const] } : {}),
         }));
         form.setFieldValue("models", [...current, ...additions]);
         message.success(`已追加 ${additions.length} 个模型，保存后生效`);
@@ -342,13 +344,13 @@ function ProviderManager() {
                                     <Form.Item {...field} name={[field.name, "enabled"]} valuePropName="checked" className="mb-0 flex h-8 items-center"><Checkbox aria-label="启用模型" /></Form.Item>
                                     <Form.Item {...field} name={[field.name, "id"]} className="mb-0" rules={[{ required: true, message: "请选择或输入模型 ID" }, { validator: (_, value) => selectedModels.filter((model) => model?.id === value).length > 1 ? Promise.reject(new Error("模型 ID 不能重复")) : Promise.resolve() }]}><AutoComplete options={availableModels.map((value) => ({ value }))} placeholder="模型 ID" filterOption={(input, option) => String(option?.value || "").toLowerCase().includes(input.toLowerCase())} onSelect={(value) => { if (!form.getFieldValue(["models", field.name, "name"])) form.setFieldValue(["models", field.name, "name"], value); }} /></Form.Item>
                                     <Form.Item {...field} name={[field.name, "name"]} className="mb-0" rules={[{ required: true, message: "请输入显示名称" }]}><Input placeholder="显示名称" /></Form.Item>
-                                    <Form.Item {...field} name={[field.name, "endpoint"]} className="mb-0" rules={[{ required: true, message: "请选择调用方案" }]}><Select showSearch optionFilterProp="label" options={endpointOptions} placeholder="调用方案" onChange={(value: ModelEndpoint) => { const definition = endpointMap.get(value); const derived = endpointFields(definition); form.setFieldValue(["models", field.name, "output"], derived.output); form.setFieldValue(["models", field.name, "inputs"], derived.inputs); if (!definition?.agent) form.setFieldValue(["models", field.name, "agentEnabled"], false); }} /></Form.Item>
+                                    <Form.Item {...field} name={[field.name, "endpoint"]} className="mb-0" rules={[{ required: true, message: "请选择调用方案" }]}><Select showSearch optionFilterProp="label" options={endpointOptions} placeholder="调用方案" onChange={(value: ModelEndpoint) => { const definition = endpointMap.get(value); const derived = endpointFields(definition); form.setFieldValue(["models", field.name, "output"], derived.output); form.setFieldValue(["models", field.name, "inputs"], derived.inputs); form.setFieldValue(["models", field.name, "audioModes"], derived.output === "audio" ? ["speech"] : undefined); if (!definition?.agent) form.setFieldValue(["models", field.name, "agentEnabled"], false); }} /></Form.Item>
                                     <Form.Item {...field} name={[field.name, "agentEnabled"]} valuePropName="checked" className="mb-0 flex h-8 items-center"><Checkbox disabled={!endpoint?.agent}>Agent</Checkbox></Form.Item>
                                     <Button danger type="text" icon={<Trash2 className="size-4" />} onClick={() => remove(field.name)} />
                                 </div>
-                                {endpoint ? <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 pl-8 text-xs text-stone-500"><Tag className="m-0">画布 · {capabilityLabels[endpoint.output]}</Tag><span className="font-mono text-[11px]">{endpoint.method} {endpoint.path}</span><span>支持{endpoint.inputs.map((input) => inputLabels[input]).join("、")}输入</span>{endpoint.agent ? <span>可用于 Agent</span> : null}</div> : null}
+                                {endpoint ? <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pl-8 text-xs text-stone-500"><Tag className="m-0">画布 · {capabilityLabels[endpoint.output]}</Tag><span className="font-mono text-[11px]">{endpoint.method} {endpoint.path}</span><span>支持{endpoint.inputs.map((input) => inputLabels[input]).join("、")}输入</span>{endpoint.agent ? <span>可用于 Agent</span> : null}{endpoint.output === "audio" ? <Form.Item {...field} name={[field.name, "audioModes"]} className="mb-0 basis-full"><Checkbox.Group options={audioModeOptions} /></Form.Item> : null}</div> : null}
                             </List.Item>}}
-                            footer={<Button block type="text" icon={<Plus className="size-4" />} disabled={!endpointCatalog.length} onClick={() => { const endpoint = inferredEndpoint("", providerType); add({ id: "", name: "", endpoint, ...endpointFields(endpointMap.get(endpoint)), enabled: true, agentEnabled: false }); }}>添加模型</Button>}
+                            footer={<Button block type="text" icon={<Plus className="size-4" />} disabled={!endpointCatalog.length} onClick={() => { const endpoint = inferredEndpoint("", providerType); const fields = endpointFields(endpointMap.get(endpoint)); add({ id: "", name: "", endpoint, ...fields, enabled: true, agentEnabled: false, ...(fields.output === "audio" ? { audioModes: ["speech"] } : {}) }); }}>添加模型</Button>}
                         />}</Form.List>
                     </section>
                 </Form>

@@ -39,10 +39,11 @@ export type ServerGeneration = {
 export type ComfyServer = { id: string; name: string; url: string; enabled: boolean; models: string[]; createdAt: string; updatedAt: string };
 export type ComfyTestResult = { available: boolean; workflows: Array<{ id: string; available: boolean; missing: string[] }> };
 export type ModelCapability = "text" | "image" | "video" | "audio";
+export type AudioMode = "speech" | "ambient" | "sfx";
 export type ModelEndpoint = "openai-chat" | "anthropic-messages" | "gemini-generate" | "openai-images" | "openai-images-generations" | "openai-images-edits" | "gemini-image" | "ark-image" | "openai-video" | "ark-seedance" | "gemini-video" | "openai-tts" | "gemini-audio";
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: ModelCapability; inputs: ModelCapability[]; method: "POST"; path: string; agent: boolean };
 export type AiGlobalSettings = { config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string }; promptSources: { sources: Array<Record<string, unknown>>; schedule: Record<string, unknown> } };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: ModelCapability; inputs: ModelCapability[]; enabled: boolean; agentEnabled?: boolean };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: ModelCapability; inputs: ModelCapability[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[] };
 export type PublicAiModel = Omit<AiModelDefinition, "endpoint" | "agentEnabled"> & { value: string; providerId: string; providerName: string };
 export type AiProvider = {
     id: string;
@@ -60,6 +61,20 @@ export type AiProvider = {
 export type AdminGeneration = Omit<ServerGeneration, "request" | "result"> & { user: { id: string; username: string }; request?: undefined; result?: undefined };
 export type BackupSettings = { url: string; username: string; directory: string; passwordConfigured: boolean; updatedAt: string };
 export type BackupSnapshot = { id: string; createdAt: string; files: number; bytes: number };
+export type CreativeAssetGenerationPreview = {
+    assetId: string;
+    assetRevision: number;
+    kind: "image" | "audio";
+    audioMode?: AudioMode;
+    model: { value: string; name: string; providerName: string; inputs: ModelCapability[]; audioModes?: AudioMode[] };
+    prompt: string;
+    instructions: string;
+    references: Array<{ fileId: string; kind: "image" | "audio"; source: "style" | "asset" | "canvas" | "primary"; label: string }>;
+    style: { id: string; revision: number; name: string; description: string; referenceFileId: string | null; imageApplied: boolean } | null;
+    canvasInputs: { texts: string[]; imageFileIds: string[]; audioFileIds: string[] };
+    warnings: Array<{ code: string; message: string; blocking: boolean }>;
+    params: Record<string, unknown>;
+};
 
 export class ServerApiError extends Error {
     constructor(
@@ -104,6 +119,7 @@ export const serverApi = {
     updateCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<CreativeAsset>(`/creative-assets/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
     deleteCreativeAsset: (id: string) => serverRequest(`/creative-assets/${encodeURIComponent(id)}`, { method: "DELETE" }),
     placeCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<{ nodeId: string; projectId: string }>(`/creative-assets/${encodeURIComponent(id)}/place`, { method: "POST", body: JSON.stringify(input) }),
+    previewCreativeAssetGeneration: (id: string, input: Record<string, unknown>) => serverRequest<CreativeAssetGenerationPreview>(`/creative-assets/${encodeURIComponent(id)}/generation-preview`, { method: "POST", body: JSON.stringify(input) }),
     generateCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<ServerGeneration>(`/creative-assets/${encodeURIComponent(id)}/generations`, { method: "POST", body: JSON.stringify(input) }),
     setCreativeAssetPrimary: (id: string, variantId: string, revision: number) => serverRequest<CreativeAsset>(`/creative-assets/${encodeURIComponent(id)}/variants/${encodeURIComponent(variantId)}/primary`, { method: "POST", body: JSON.stringify({ revision }) }),
     visualStyleTemplates: () => serverRequest<VisualStyleTemplate[]>("/visual-style-templates"),

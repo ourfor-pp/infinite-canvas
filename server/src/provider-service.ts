@@ -7,13 +7,15 @@ import { COMFY_MODEL_DEFINITIONS, PURPOSE_MODELS, type GenerationPurpose } from 
 
 export const providerTypes = ["openai", "openai-compatible", "anthropic", "gemini", "ark"] as const;
 export const mediaKinds = ["text", "image", "video", "audio"] as const;
+export const audioModes = ["speech", "ambient", "sfx"] as const;
 export const modelEndpoints = ["openai-chat", "anthropic-messages", "gemini-generate", "openai-images", "openai-images-generations", "openai-images-edits", "gemini-image", "ark-image", "openai-video", "ark-seedance", "gemini-video", "openai-tts", "gemini-audio"] as const;
 export type ProviderType = (typeof providerTypes)[number];
 export type MediaKind = (typeof mediaKinds)[number];
+export type AudioMode = (typeof audioModes)[number];
 export type ModelEndpoint = (typeof modelEndpoints)[number];
 export type ProviderCredentials = { apiKey?: string; authToken?: string };
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: MediaKind; inputs: MediaKind[]; method: "POST"; path: string; agent: boolean };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[] };
 export type AiGlobalSettings = {
     config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string };
     promptSources: { sources: Array<Record<string, unknown>>; schedule: Record<string, unknown> };
@@ -53,6 +55,7 @@ export const modelSchema = z.object({
     endpoint: z.enum(modelEndpoints),
     enabled: z.boolean().default(true),
     agentEnabled: z.boolean().default(false),
+    audioModes: z.array(z.enum(audioModes)).optional(),
 });
 
 export const providerInputSchema = z.object({
@@ -106,7 +109,7 @@ export function saveProvider(input: ProviderInput, id?: string) {
     const baseUrl = normalizeProviderUrl(value.baseUrl, value.type);
     const models = value.models.map((model) => {
         const endpoint = modelEndpointRegistry[model.endpoint];
-        return { ...model, output: endpoint.output, inputs: endpoint.inputs };
+        return { ...model, output: endpoint.output, inputs: endpoint.inputs, ...(endpoint.output === "audio" ? { audioModes: model.audioModes?.length ? model.audioModes : ["speech" as const] } : { audioModes: undefined }) };
     });
     if (current) {
         assertProviderIdle(providerId);
@@ -160,14 +163,14 @@ export function listPublicModels() {
     const providers = db.prepare("SELECT * FROM ai_providers WHERE enabled=1 ORDER BY created_at").all() as ProviderRow[];
     const publicModels = providers.flatMap((provider) => providerModels(provider)
         .filter((model) => model.enabled)
-        .map((model) => ({ id: model.id, name: model.name, output: model.output, inputs: model.inputs, enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
+        .map((model) => ({ id: model.id, name: model.name, output: model.output, inputs: model.inputs, audioModes: model.output === "audio" ? model.audioModes?.length ? model.audioModes : ["speech" as const] : undefined, enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
     const comfyRows = db.prepare("SELECT name, models FROM comfy_servers WHERE enabled=1 ORDER BY created_at").all() as Array<{ name: string; models: string }>;
     const comfyNames = new Set(comfyRows.flatMap((row) => parseJson<string[]>(row.models, [])));
     return [
         ...publicModels,
         ...Array.from(comfyNames).map((id) => {
             const output = comfyModelOutput(id);
-            return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), enabled: true };
+            return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, enabled: true };
         }),
     ];
 }

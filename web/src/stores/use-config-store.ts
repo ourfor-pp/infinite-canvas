@@ -5,6 +5,7 @@ import { scheduleServerSettingsSave } from "@/services/server-settings";
 
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ModelInputCapability = ModelCapability;
+export type AudioMode = "speech" | "ambient" | "sfx";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 export type AiModelOption = {
     id: string;
@@ -15,6 +16,7 @@ export type AiModelOption = {
     output: ModelCapability;
     inputs: ModelInputCapability[];
     enabled: boolean;
+    audioModes?: AudioMode[];
 };
 
 export type AiConfig = {
@@ -132,8 +134,8 @@ export function useEffectiveConfig() {
     return useMemo(() => config, [config]);
 }
 
-export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability) {
-    const available = capability ? modelCatalog.filter((model) => model.output === capability).map((model) => model.value) : modelCatalog.map((model) => model.value);
+export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability, audioMode?: AudioMode) {
+    const available = capability ? modelCatalog.filter((model) => model.output === capability && (!audioMode || (model.audioModes || ["speech"]).includes(audioMode))).map((model) => model.value) : modelCatalog.map((model) => model.value);
     return available.length ? available : capability ? [] : config.models;
 }
 

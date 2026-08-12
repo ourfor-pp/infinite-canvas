@@ -1,13 +1,13 @@
 import { create } from "zustand";
 
-import { serverApi, type ServerGeneration } from "@/services/api/server";
+import { serverApi, type CreativeAssetGenerationPreview, type ServerGeneration } from "@/services/api/server";
 import type { CreativeAsset } from "@/types/creative-asset";
 
 type CreativeAssetStore = {
     projectId: string;
     loading: boolean;
     assets: CreativeAsset[];
-    activeGenerations: Record<string, Partial<Record<"image" | "audio", { status: ServerGeneration["status"]; progress: number }>>>;
+    activeGenerations: Record<string, Partial<Record<"image" | "audio", { id: string; status: ServerGeneration["status"]; progress: number }>>>;
     load: (projectId: string) => Promise<void>;
     apply: (asset: CreativeAsset | { id: string; projectId: string; deleted: true }) => void;
     applyGeneration: (generation: ServerGeneration) => void;
@@ -15,6 +15,7 @@ type CreativeAssetStore = {
     remove: (id: string) => Promise<void>;
     place: (id: string, position?: { x?: number; y?: number }) => Promise<{ nodeId: string; projectId: string }>;
     generate: (id: string, input: Record<string, unknown>) => Promise<void>;
+    previewGeneration: (id: string, input: Record<string, unknown>) => Promise<CreativeAssetGenerationPreview>;
     setPrimary: (id: string, variantId: string) => Promise<void>;
 };
 
@@ -31,7 +32,7 @@ export const useCreativeAssetStore = create<CreativeAssetStore>((set, get) => ({
             const activeGenerations: CreativeAssetStore["activeGenerations"] = {};
             generations.filter((generation) => ["queued", "running"].includes(generation.status)).forEach((generation) => {
                 const target = (generation.request.params as { __creativeAsset?: { projectId?: string; assetId?: string } } | undefined)?.__creativeAsset;
-                if (target?.projectId === projectId && target.assetId && (generation.kind === "image" || generation.kind === "audio")) activeGenerations[target.assetId] = { ...activeGenerations[target.assetId], [generation.kind]: { status: generation.status, progress: generation.progress } };
+                if (target?.projectId === projectId && target.assetId && (generation.kind === "image" || generation.kind === "audio")) activeGenerations[target.assetId] = { ...activeGenerations[target.assetId], [generation.kind]: { id: generation.id, status: generation.status, progress: generation.progress } };
             });
             if (get().projectId === projectId) set({ assets, activeGenerations });
         }
@@ -49,7 +50,7 @@ export const useCreativeAssetStore = create<CreativeAssetStore>((set, get) => ({
         const activeGenerations = { ...state.activeGenerations };
         if (generation.kind !== "image" && generation.kind !== "audio") return state;
         const current = { ...activeGenerations[target.assetId] };
-        if (["queued", "running"].includes(generation.status)) current[generation.kind] = { status: generation.status, progress: generation.progress };
+        if (["queued", "running"].includes(generation.status)) current[generation.kind] = { id: generation.id, status: generation.status, progress: generation.progress };
         else delete current[generation.kind];
         if (Object.keys(current).length) activeGenerations[target.assetId] = current;
         else delete activeGenerations[target.assetId];
@@ -64,7 +65,16 @@ export const useCreativeAssetStore = create<CreativeAssetStore>((set, get) => ({
     },
     remove: async (id) => { await serverApi.deleteCreativeAsset(id); set((state) => ({ assets: state.assets.filter((item) => item.id !== id) })); },
     place: (id, position) => serverApi.placeCreativeAsset(id, position || {}),
-    generate: async (id, input) => { await serverApi.generateCreativeAsset(id, input); },
+    generate: async (id, input) => {
+        const current = get().assets.find((item) => item.id === id);
+        if (!current) throw new Error("创作资产不存在");
+        await serverApi.generateCreativeAsset(id, { ...input, revision: current.revision });
+    },
+    previewGeneration: async (id, input) => {
+        const current = get().assets.find((item) => item.id === id);
+        if (!current) throw new Error("创作资产不存在");
+        return serverApi.previewCreativeAssetGeneration(id, { ...input, revision: current.revision });
+    },
     setPrimary: async (id, variantId) => {
         const current = get().assets.find((item) => item.id === id);
         if (!current) throw new Error("创作资产不存在");

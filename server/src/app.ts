@@ -14,7 +14,6 @@ import { agentAdminRouter, agentRouter } from "./agent/routes.js";
 import { handleAgentProviderProxy } from "./agent/provider-proxy.js";
 import { removeAgentProjectWorkspace } from "./agent/service.js";
 import {
-    buildCreativeAssetPrompt,
     createCreativeAsset,
     deleteCanvasNodes,
     deleteCreativeAsset,
@@ -24,7 +23,8 @@ import {
     setCreativeAssetPrimary,
     updateCreativeAsset,
 } from "./creative-assets.js";
-import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, placeVisualStyle, resolveCreativeAssetNodeInputs, setDefaultVisualStyle, updateVisualStyle } from "./visual-styles.js";
+import { createCreativeAssetGeneration, previewCreativeAssetGeneration } from "./creative-asset-generation.js";
+import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, placeVisualStyle, setDefaultVisualStyle, updateVisualStyle } from "./visual-styles.js";
 
 type ProjectRow = { id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type AssetRow = { id: string; kind: string; title: string; payload: string; created_at: string; updated_at: string };
@@ -160,7 +160,8 @@ api.put("/creative-assets/:id", route((req) => updateCreativeAsset(req.user.id, 
 api.delete("/creative-assets/:id", route((req) => deleteCreativeAsset(req.user.id, routeId(req))));
 api.post("/creative-assets/:id/place", route((req) => placeCreativeAsset(req.user.id, routeId(req), z.object({ x: z.number().optional(), y: z.number().optional() }).parse(req.body || {})), 201));
 api.post("/creative-assets/:id/variants/:variantId/primary", route((req) => setCreativeAssetPrimary(req.user.id, routeId(req), routeParam(req, "variantId"), z.number().int().positive().parse(req.body?.revision), true)));
-api.post("/creative-assets/:id/generations", route((req) => createCreativeAssetGeneration(req), 201));
+api.post("/creative-assets/:id/generation-preview", route((req) => previewCreativeAssetGeneration(req.user.id, routeId(req), req.body)));
+api.post("/creative-assets/:id/generations", route((req) => createCreativeAssetGeneration(req.user.id, routeId(req), req.body), 201));
 
 api.get("/visual-style-templates", route(() => listVisualStyleTemplates()));
 api.get("/projects/:id/visual-styles", route((req) => listVisualStyles(req.user.id, routeId(req))));
@@ -369,59 +370,6 @@ function routeId(req: Request) {
 function routeParam(req: Request, key: string) {
     const value = req.params[key];
     return Array.isArray(value) ? value[0] || "" : value;
-}
-
-function createCreativeAssetGeneration(req: Request) {
-    const asset = getCreativeAsset(req.user.id, routeId(req));
-    const value = z.object({
-        kind: z.enum(["image", "audio"]),
-        prompt: z.string().trim().max(200_000).optional(),
-        model: z.string().trim().min(3).optional(),
-        label: z.string().trim().max(200).optional(),
-        usage: z.string().trim().max(100).optional(),
-        transcript: z.string().max(20_000).optional(),
-        nodeId: idSchema.optional(),
-        params: generationParamsSchema.optional(),
-    }).parse(req.body);
-    const model = value.model || (value.kind === "image" ? asset.payload.imageModel : asset.payload.audioModel) || listModelDefaults()[value.kind];
-    if (!model) throw apiError(409, "AI_MODEL_NOT_CONFIGURED", `管理员尚未配置默认${value.kind === "image" ? "图片" : "音频"}模型`);
-    const selectedModel = listPublicModels().find((item) => item.value === model && item.output === value.kind);
-    if (!selectedModel) throw apiError(400, "AI_MODEL_NOT_AVAILABLE", "所选模型不存在、未启用或能力不匹配");
-    const variants = asset.payload.variants;
-    const primaryImage = variants.find((item) => item.id === asset.payload.primaryImageId && item.kind === "image");
-    const referenceImages = variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
-    const referenceAudios = variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
-    const connected = resolveCreativeAssetNodeInputs(req.user.id, asset.projectId, asset.id, value.nodeId);
-    const requestedReferences = value.kind === "image" ? [...referenceImages, ...connected.imageFileIds.map((fileId) => ({ fileId }))] : [...referenceAudios, ...connected.audioFileIds.map((fileId) => ({ fileId }))];
-    if (value.kind === "audio" && !value.transcript?.trim()) throw apiError(400, "CREATIVE_ASSET_TRANSCRIPT_REQUIRED", "请先填写试听台词");
-    if (value.kind === "audio" && !requestedReferences.length && !asset.payload.voiceDescription.trim()) throw apiError(400, "CREATIVE_ASSET_VOICE_DESCRIPTION_REQUIRED", "没有参考音频时，请先填写音色设计");
-    if (requestedReferences.length && !selectedModel.inputs.includes(value.kind)) throw apiError(400, "AI_MODEL_REFERENCE_UNSUPPORTED", `所选模型不支持${value.kind === "image" ? "图片" : "音频"}参考，请更换模型或移除参考文件`);
-    const styleImageApplied = value.kind === "image" && Boolean(connected.style?.referenceFileId && selectedModel.inputs.includes("image"));
-    const references = dedupeReferences<{ fileId: string; kind: "image" | "audio" }>(value.kind === "image"
-        ? [...(styleImageApplied ? [{ fileId: connected.style!.referenceFileId!, kind: "image" as const }] : []), ...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...connected.imageFileIds.map((fileId) => ({ fileId, kind: "image" as const })), ...(primaryImage && selectedModel.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])]
-        : [...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...connected.audioFileIds.map((fileId) => ({ fileId, kind: "audio" as const }))]);
-    const extraPrompt = [connected.style?.description ? `视觉风格：${connected.style.description}` : "", ...connected.texts, value.prompt || ""].filter(Boolean).join("\n\n");
-    const prompt = value.kind === "audio" && value.transcript?.trim() ? value.transcript.trim() : buildCreativeAssetPrompt(asset, value.kind, extraPrompt);
-    const params = {
-        ...(value.params || {}),
-        ...(value.kind === "image" ? { size: "16:9" } : {}),
-        ...(value.kind === "audio" && [asset.payload.voiceDescription, value.prompt].filter(Boolean).length ? { instructions: [asset.payload.voiceDescription, value.prompt].filter(Boolean).join("；") } : {}),
-        __creativeAsset: { projectId: asset.projectId, assetId: asset.id, nodeId: value.nodeId, usage: value.kind === "image" ? (value.usage || "design_sheet") : "voice_sample", label: value.label, transcript: value.transcript },
-        __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: connected.style.referenceFileId, styleImageApplied } : null,
-        __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds },
-    };
-    return createGeneration(req.user.id, {
-        kind: value.kind,
-        model,
-        prompt,
-        references,
-        params,
-    });
-}
-
-function dedupeReferences<T extends { fileId: string }>(references: T[]) {
-    const seen = new Set<string>();
-    return references.filter((reference) => !seen.has(reference.fileId) && Boolean(seen.add(reference.fileId)));
 }
 
 function importBrowserData(req: Request) {

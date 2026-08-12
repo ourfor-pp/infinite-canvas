@@ -1,10 +1,18 @@
 export type CreativeAssetKind = "character" | "scene" | "prop";
 export type CreativeAssetStatus = "draft" | "confirmed" | "locked";
+export type CreativeAssetAudioMode = "speech" | "ambient" | "sfx";
+export type CreativeAssetMediaDraft = {
+    prompt: string;
+    model: string | null;
+    params: Record<string, unknown>;
+    audioMode?: CreativeAssetAudioMode;
+    transcript?: string;
+};
 
 export const CREATIVE_ASSET_NODE_LAYOUT = {
-    character: { width: 420, height: 690, title: "角色" },
-    scene: { width: 420, height: 500, title: "场景" },
-    prop: { width: 420, height: 500, title: "道具" },
+    character: { width: 420, height: 540, title: "角色" },
+    scene: { width: 420, height: 540, title: "场景" },
+    prop: { width: 420, height: 540, title: "道具" },
 } satisfies Record<CreativeAssetKind, { width: number; height: number; title: string }>;
 
 export function isCreativeAssetNodeType(type: string): type is CreativeAssetKind {
@@ -25,13 +33,10 @@ export type CreativeAssetVariant = {
 
 export type CreativeAssetPayload = {
     description: string;
-    voiceDescription: string;
-    voiceSampleText: string;
     variants: CreativeAssetVariant[];
     primaryImageId: string | null;
     primaryAudioId: string | null;
-    imageModel: string | null;
-    audioModel: string | null;
+    mediaDrafts: { image: CreativeAssetMediaDraft; audio: CreativeAssetMediaDraft };
 };
 
 export type CreativeAsset = {

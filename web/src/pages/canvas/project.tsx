@@ -1297,7 +1297,7 @@ function InfiniteCanvasPage() {
         };
     }, [finishNodeDrag, handleGlobalMouseMove, handleGlobalMouseUp, handleGlobalPointerMove]);
 
-    const createImageFileNode = useCallback(async (file: File, position: Position) => {
+    const createImageFileNode = useCallback(async (file: File, position: Position, targetNodeId?: string) => {
         const image = await uploadImage(file);
         const size = fitNodeSize(image.width, image.height);
         const id = `image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1312,9 +1312,13 @@ function InfiniteCanvasPage() {
         };
 
         setNodes((prev) => [...prev, newNode]);
-        setSelectedNodeIds(new Set([id]));
+        if (targetNodeId) {
+            const connection = normalizeConnection(id, targetNodeId, [...nodesRef.current, newNode], "source", "output", connectionsRef.current);
+            if (connection) setConnections((prev) => [...prev, { id: nanoid(), ...connection }]);
+        }
+        setSelectedNodeIds(new Set([targetNodeId || id]));
         setSelectedConnectionId(null);
-        setDialogNodeId(id);
+        setDialogNodeId(targetNodeId || id);
     }, []);
 
     const createVideoFileNode = useCallback(async (file: File, position: Position) => {
@@ -1338,13 +1342,11 @@ function InfiniteCanvasPage() {
         setDialogNodeId(id);
     }, []);
 
-    const createAudioFileNode = useCallback(async (file: File, position: Position) => {
+    const createAudioFileNode = useCallback(async (file: File, position: Position, targetNodeId?: string) => {
         const audio = await uploadMediaFile(file, "audio");
         const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Audio];
         const id = `audio-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        setNodes((prev) => [
-            ...prev,
-            {
+        const newNode: CanvasNodeData = {
                 id,
                 type: CanvasNodeType.Audio,
                 title: file.name,
@@ -1352,11 +1354,24 @@ function InfiniteCanvasPage() {
                 width: spec.width,
                 height: spec.height,
                 metadata: audioMetadata(audio),
-            },
-        ]);
-        setSelectedNodeIds(new Set([id]));
+            };
+        setNodes((prev) => [...prev, newNode]);
+        if (targetNodeId) {
+            const connection = normalizeConnection(id, targetNodeId, [...nodesRef.current, newNode], "source", "output", connectionsRef.current);
+            if (connection) setConnections((prev) => [...prev, { id: nanoid(), ...connection }]);
+        }
+        setSelectedNodeIds(new Set([targetNodeId || id]));
         setSelectedConnectionId(null);
+        if (targetNodeId) setDialogNodeId(targetNodeId);
     }, []);
+
+    const uploadNodeReference = useCallback(async (nodeId: string, kind: "image" | "audio", file: File) => {
+        const target = nodesRef.current.find((node) => node.id === nodeId);
+        if (!target) throw new Error("目标节点不存在");
+        const position = { x: target.position.x - 180, y: target.position.y + target.height / 2 };
+        if (kind === "image") await createImageFileNode(file, position, nodeId);
+        else await createAudioFileNode(file, position, nodeId);
+    }, [createAudioFileNode, createImageFileNode]);
 
     const createTextNodeFromClipboard = useCallback(
         (text: string) => {
@@ -2849,6 +2864,7 @@ function InfiniteCanvasPage() {
                     onConfigChange={handleConfigNodeChange}
                     onGenerate={handleGenerateNode}
                     onStop={confirmStopGeneration}
+                    onUploadReference={uploadNodeReference}
                     modeOverride={getNodeDefinition(panelNode.type)?.useBuiltinPanel?.mode}
                     onImageSettingsOpenChange={(open) => {
                         setNodeImageSettingsOpen(open);
@@ -2856,7 +2872,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId, uploadNodeReference],
     );
 
     const renderNodeContentPanel = useCallback(

@@ -7,6 +7,14 @@ import { publishAgentProject } from "./agent/project-events.js";
 
 export type CreativeAssetKind = "character" | "scene" | "prop";
 export type CreativeAssetStatus = "draft" | "confirmed" | "locked";
+export type CreativeAssetAudioMode = "speech" | "ambient" | "sfx";
+export type CreativeAssetMediaDraft = {
+    prompt: string;
+    model: string | null;
+    params: Record<string, unknown>;
+    audioMode?: CreativeAssetAudioMode;
+    transcript?: string;
+};
 export type CreativeAssetVariant = {
     id: string;
     kind: "image" | "audio";
@@ -20,13 +28,10 @@ export type CreativeAssetVariant = {
 };
 export type CreativeAssetPayload = {
     description: string;
-    voiceDescription: string;
-    voiceSampleText: string;
     variants: CreativeAssetVariant[];
     primaryImageId: string | null;
     primaryAudioId: string | null;
-    imageModel: string | null;
-    audioModel: string | null;
+    mediaDrafts: { image: CreativeAssetMediaDraft; audio: CreativeAssetMediaDraft };
 };
 export type CreativeAssetRow = {
     id: string; user_id: string; project_id: string; kind: CreativeAssetKind; name: string; status: CreativeAssetStatus;
@@ -35,13 +40,28 @@ export type CreativeAssetRow = {
 type SavedProject = Record<string, unknown> & { nodes: Array<{ id: string; metadata?: Record<string, unknown> }>; connections: Array<{ fromNodeId?: string; toNodeId?: string }> };
 
 const nodeLayout = {
-    character: { width: 420, height: 690 },
-    scene: { width: 420, height: 500 },
-    prop: { width: 420, height: 500 },
+    character: { width: 420, height: 540 },
+    scene: { width: 420, height: 540 },
+    prop: { width: 420, height: 540 },
 } satisfies Record<CreativeAssetKind, { width: number; height: number }>;
 
 const id = z.string().trim().min(1).max(128);
 const text = z.string().max(20_000);
+const jsonRecord = z.record(z.string(), z.unknown());
+const mediaDraft = z.object({
+    prompt: text.default(""),
+    model: z.string().max(300).nullable().default(null),
+    params: jsonRecord.default({}),
+    audioMode: z.enum(["speech", "ambient", "sfx"]).optional(),
+    transcript: text.optional(),
+});
+const mediaDraftPatch = z.object({
+    prompt: text.optional(),
+    model: z.string().max(300).nullable().optional(),
+    params: jsonRecord.optional(),
+    audioMode: z.enum(["speech", "ambient", "sfx"]).optional(),
+    transcript: text.optional(),
+});
 const variant = z.object({
     id,
     kind: z.enum(["image", "audio"]),
@@ -55,23 +75,17 @@ const variant = z.object({
 });
 export const creativeAssetPayloadSchema = z.object({
     description: text.default(""),
-    voiceDescription: text.default(""),
-    voiceSampleText: text.default(""),
     variants: z.array(variant).max(500).default([]),
     primaryImageId: id.nullable().default(null),
     primaryAudioId: id.nullable().default(null),
-    imageModel: z.string().max(300).nullable().default(null),
-    audioModel: z.string().max(300).nullable().default(null),
+    mediaDrafts: z.object({ image: mediaDraft, audio: mediaDraft }),
 });
 const creativeAssetPayloadPatchSchema = z.object({
     description: text.optional(),
-    voiceDescription: text.optional(),
-    voiceSampleText: text.optional(),
     variants: z.array(variant).max(500).optional(),
     primaryImageId: id.nullable().optional(),
     primaryAudioId: id.nullable().optional(),
-    imageModel: z.string().max(300).nullable().optional(),
-    audioModel: z.string().max(300).nullable().optional(),
+    mediaDrafts: z.object({ image: mediaDraftPatch.optional(), audio: mediaDraftPatch.optional() }).partial().optional(),
 });
 export const creativeAssetInputSchema = z.object({
     kind: z.enum(["character", "scene", "prop"]),
@@ -100,8 +114,8 @@ export function createCreativeAsset(userId: string, projectId: string, raw: unkn
     const input = creativeAssetInputSchema.parse(raw);
     const assetId = nanoid();
     const now = new Date().toISOString();
-    const payload = creativeAssetPayloadSchema.parse(input.payload);
-    if (payload.primaryAudioId && !payload.variants.some((item) => item.id === payload.primaryAudioId && item.kind === "audio" && item.usage === "voice_sample")) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_AUDIO", "角色主声音必须是生成的台词音频");
+    const payload = normalizeCreativeAssetPayload(input.kind, input.name, input.payload);
+    assertPrimaryVariants(payload);
     db.prepare("INSERT INTO creative_assets(id, user_id, project_id, kind, name, status, payload, revision, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?, ?)")
         .run(assetId, userId, projectId, input.kind, input.name, input.status, JSON.stringify(payload), now, now);
     syncFileRefs(userId, "creative_asset", assetId, payload);
@@ -116,8 +130,15 @@ export function updateCreativeAsset(userId: string, assetId: string, raw: unknow
     const currentPayload = creativeAssetPayloadSchema.parse(parseJson(current.payload, {}));
     const nextKind = input.kind || current.kind;
     const payloadPatch = input.payload || {};
-    const payload = creativeAssetPayloadSchema.parse({ ...currentPayload, ...payloadPatch });
-    if (payload.primaryAudioId && !payload.variants.some((item) => item.id === payload.primaryAudioId && item.kind === "audio" && item.usage === "voice_sample")) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_AUDIO", "角色主声音必须是生成的台词音频");
+    const payload = creativeAssetPayloadSchema.parse({
+        ...currentPayload,
+        ...payloadPatch,
+        mediaDrafts: payloadPatch.mediaDrafts ? {
+            image: { ...currentPayload.mediaDrafts.image, ...payloadPatch.mediaDrafts.image },
+            audio: { ...currentPayload.mediaDrafts.audio, ...payloadPatch.mediaDrafts.audio },
+        } : currentPayload.mediaDrafts,
+    });
+    assertPrimaryVariants(payload);
     const now = new Date().toISOString();
     const result = db.prepare("UPDATE creative_assets SET kind=?, name=?, status=?, payload=?, revision=revision+1, updated_at=? WHERE id=? AND user_id=? AND revision=?")
         .run(nextKind, input.name || current.name, input.status || current.status, JSON.stringify(payload), now, assetId, userId, input.revision);
@@ -144,7 +165,7 @@ export function setCreativeAssetPrimary(userId: string, assetId: string, variant
     const payload = creativeAssetPayloadSchema.parse(parseJson(row.payload, {}));
     const selected = payload.variants.find((item) => item.id === variantId);
     if (!selected) throw creativeAssetError(404, "CREATIVE_ASSET_VARIANT_NOT_FOUND", "媒体版本不存在");
-    if (selected.kind === "audio" && selected.usage !== "voice_sample") throw creativeAssetError(400, "CREATIVE_ASSET_REFERENCE_NOT_PRIMARY", "参考音频不能设为角色声音");
+    if (selected.kind === "audio" && selected.usage === "reference_input") throw creativeAssetError(400, "CREATIVE_ASSET_REFERENCE_NOT_PRIMARY", "参考音频不能设为主音频");
     return updateCreativeAsset(userId, assetId, { revision, payload: selected.kind === "image" ? { primaryImageId: variantId } : { primaryAudioId: variantId } }, true);
 }
 
@@ -225,7 +246,7 @@ export function createCreativeAssetsBatch(userId: string, projectId: string, raw
             const layout = nodeLayout[kind];
             subset.forEach((input, index) => {
                 const assetId = nanoid();
-                const payload = creativeAssetPayloadSchema.parse(input.payload);
+                const payload = normalizeCreativeAssetPayload(kind, input.name, input.payload);
                 db.prepare("INSERT INTO creative_assets(id, user_id, project_id, kind, name, status, payload, revision, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?, ?)")
                     .run(assetId, userId, projectId, kind, input.name, input.status, JSON.stringify(payload), now, now);
                 syncFileRefs(userId, "creative_asset", assetId, payload);
@@ -257,8 +278,6 @@ export function syncCreativeAssetGeneration(row: { id: string; user_id: string; 
     if (!additions.length) return;
     const added = additions.map((fileId, index) => ({ id: nanoid(), kind, fileId, label: target.label || `${kind === "image" ? "生成图片" : "生成声音"}${additions.length > 1 ? ` ${index + 1}` : ""}`, prompt: request.prompt || "", generationId: row.id, usage: target.usage, transcript: target.transcript, createdAt: new Date().toISOString() } satisfies CreativeAssetVariant));
     payload.variants.push(...added);
-    if (target.usage === "design_sheet" && kind === "image") payload.primaryImageId = added.at(-1)?.id || payload.primaryImageId;
-    if (target.usage === "voice_sample" && kind === "audio") payload.primaryAudioId = added.at(-1)?.id || payload.primaryAudioId;
     updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
 }
 
@@ -269,7 +288,7 @@ export function creativeAssetResponse(row: CreativeAssetRow) {
 export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetResponse>, kind: "image" | "audio", extra = "") {
     const description = asset.payload.description.trim();
     const requirement = extra.trim();
-    if (kind === "audio") return requirement || asset.payload.voiceDescription || asset.payload.description;
+    if (kind === "audio") return requirement || asset.payload.mediaDrafts.audio.prompt || asset.payload.description;
     const layout = {
         character: "横版 16:9 四格角色设计稿，纯白背景：左侧约 40% 为胸像特写，右侧三个等宽面板依次为正面、四分之三侧面、背面的 A-Pose 全身视图。四个面板中的面部、发型、服装和配饰必须完全一致。",
         scene: "横版 16:9 场景设计稿：主画面占四分之三区域，完整展示空间结构、固定陈设、光线和氛围；右下角嵌入标志性局部细节图。画面中没有人物出镜。",
@@ -282,6 +301,38 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
         layout,
         "画面避免：水印、多余文字、Logo。",
     ].filter(Boolean).join("\n\n");
+}
+
+export function creativeAssetAudioMode(kind: CreativeAssetKind): CreativeAssetAudioMode {
+    return kind === "character" ? "speech" : kind === "scene" ? "ambient" : "sfx";
+}
+
+function normalizeCreativeAssetPayload(kind: CreativeAssetKind, name: string, raw: unknown) {
+    const value = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+    const drafts = value.mediaDrafts && typeof value.mediaDrafts === "object" ? value.mediaDrafts as Record<string, unknown> : {};
+    const image = drafts.image && typeof drafts.image === "object" ? drafts.image as Record<string, unknown> : {};
+    const audio = drafts.audio && typeof drafts.audio === "object" ? drafts.audio as Record<string, unknown> : {};
+    const description = typeof value.description === "string" ? value.description : "";
+    return creativeAssetPayloadSchema.parse({
+        ...value,
+        mediaDrafts: {
+            image: { model: null, params: {}, ...image, prompt: cleanImageDraftPrompt(kind, name, description, image.prompt) },
+            audio: { prompt: "", model: null, params: {}, transcript: "", ...audio, audioMode: creativeAssetAudioMode(kind) },
+        },
+    });
+}
+
+function cleanImageDraftPrompt(kind: CreativeAssetKind, name: string, description: string, value: unknown) {
+    const prompt = typeof value === "string" ? value.trim() : "";
+    if (!prompt || prompt === description.trim()) return "";
+    const subject = kind === "character" ? "角色" : kind === "scene" ? "场景" : "道具";
+    const generatedPrefixes = [`${subject}「${name}」的视觉设计参考。`, `为${subject}“${name}”制作可用于后续镜头保持一致性的设计图。`, `为${subject}「${name}」制作可用于后续镜头保持一致性的设计图。`];
+    return generatedPrefixes.some((prefix) => prompt.startsWith(prefix)) ? "" : prompt;
+}
+
+function assertPrimaryVariants(payload: CreativeAssetPayload) {
+    if (payload.primaryImageId && !payload.variants.some((item) => item.id === payload.primaryImageId && item.kind === "image" && item.usage !== "reference_input")) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_IMAGE", "主设计图必须来自生成或上传的设计版本");
+    if (payload.primaryAudioId && !payload.variants.some((item) => item.id === payload.primaryAudioId && item.kind === "audio" && item.usage !== "reference_input")) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_AUDIO", "主音频必须来自生成的媒体版本");
 }
 
 function creativeAssetRow(userId: string, assetId: string) {

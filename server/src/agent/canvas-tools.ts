@@ -3,10 +3,9 @@ import { z } from "zod";
 import { db, parseJson } from "../database.js";
 import { syncFileRefs } from "../file-store.js";
 import { createGeneration, generationResponse, getGenerationForAgent } from "../generation-service.js";
-import { listModelDefaults, listPublicModels } from "../provider-service.js";
+import { listPublicModels } from "../provider-service.js";
 import { publishAgentProject } from "./project-events.js";
 import {
-    buildCreativeAssetPrompt,
     createCreativeAssetsBatch,
     creativeAssetInputSchema,
     deleteCanvasNodes,
@@ -17,7 +16,8 @@ import {
     setCreativeAssetPrimary,
     updateCreativeAsset,
 } from "../creative-assets.js";
-import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, placeVisualStyle, resolveCreativeAssetNodeInputs, setDefaultVisualStyle, updateVisualStyle } from "../visual-styles.js";
+import { createCreativeAssetGeneration } from "../creative-asset-generation.js";
+import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, placeVisualStyle, setDefaultVisualStyle, updateVisualStyle } from "../visual-styles.js";
 
 type ProjectRow = { id: string; user_id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type CanvasNode = { id: string; type?: string; title?: string; position?: { x?: number; y?: number }; metadata?: Record<string, unknown>; [key: string]: unknown };
@@ -58,7 +58,7 @@ export const canvasToolSchemas = {
     creative_assets_create_batch: z.object({ projectId: z.string().optional(), sourceNodeId: z.string().optional(), items: z.array(creativeAssetInputSchema).min(1).max(200) }),
     creative_asset_update: z.object({ projectId: z.string().optional(), assetId: z.string(), revision: z.number().int().positive(), patch: creativeAssetInputSchema.partial() }),
     creative_asset_place: z.object({ projectId: z.string().optional(), assetId: z.string(), x: z.number().optional(), y: z.number().optional() }),
-    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), nodeId: z.string().optional(), kind: z.enum(["image", "audio"]), prompt: z.string().optional(), model: z.string().optional(), label: z.string().optional(), usage: z.string().optional(), transcript: z.string().optional() }),
+    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), nodeId: z.string().optional(), kind: z.enum(["image", "audio"]), revision: z.number().int().positive() }),
     creative_asset_set_primary: z.object({ projectId: z.string().optional(), assetId: z.string(), variantId: z.string(), revision: z.number().int().positive() }),
     creative_asset_delete: z.object({ projectId: z.string().optional(), assetId: z.string() }),
     visual_styles_list: z.object({ projectId: z.string().optional() }),
@@ -204,34 +204,9 @@ export function placeAgentCreativeAsset(userId: string, projectId: string, input
 }
 
 export function generateAgentCreativeAsset(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_generate>) {
-    const asset = getAgentCreativeAsset(userId, projectId, input.assetId);
-    const model = input.model || (input.kind === "image" ? asset.payload.imageModel : asset.payload.audioModel) || listModelDefaults()[input.kind];
-    const selected = listPublicModels().find((item) => item.value === model && item.output === input.kind);
-    if (!selected) throw agentToolError("AI_MODEL_NOT_AVAILABLE", `没有可用的${input.kind === "image" ? "图片" : "音频"}模型`);
-    const primaryImage = asset.payload.variants.find((item) => item.id === asset.payload.primaryImageId && item.kind === "image");
-    const referenceImages = asset.payload.variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
-    const referenceAudios = asset.payload.variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
-    const connected = resolveCreativeAssetNodeInputs(userId, projectId, asset.id, input.nodeId);
-    const requestedReferences = input.kind === "image" ? [...referenceImages, ...connected.imageFileIds] : [...referenceAudios, ...connected.audioFileIds];
-    if (input.kind === "audio" && !input.transcript?.trim()) throw agentToolError("CREATIVE_ASSET_TRANSCRIPT_REQUIRED", "请先填写试听台词");
-    if (input.kind === "audio" && !requestedReferences.length && !asset.payload.voiceDescription.trim()) throw agentToolError("CREATIVE_ASSET_VOICE_DESCRIPTION_REQUIRED", "没有参考音频时，请先填写音色设计");
-    if (requestedReferences.length && !selected.inputs.includes(input.kind)) throw agentToolError("AI_MODEL_REFERENCE_UNSUPPORTED", `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`);
-    const styleImage = connected.style?.referenceFileId && selected.inputs.includes("image") ? [{ fileId: connected.style.referenceFileId, kind: "image" as const }] : [];
-    const references = input.kind === "image"
-        ? dedupeGenerationRefs([...styleImage, ...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...connected.imageFileIds.map((fileId) => ({ fileId, kind: "image" as const })), ...(primaryImage && selected.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])])
-        : dedupeGenerationRefs([...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...connected.audioFileIds.map((fileId) => ({ fileId, kind: "audio" as const }))]);
-    const prompt = input.kind === "audio" && input.transcript?.trim() ? input.transcript.trim() : [connected.style?.description, ...connected.texts, buildCreativeAssetPrompt(asset, input.kind, input.prompt)].filter(Boolean).join("\n\n");
-    const params = {
-        ...(input.kind === "image" ? { size: "16:9" } : {}),
-        ...(input.kind === "audio" && [asset.payload.voiceDescription, input.prompt].filter(Boolean).length ? { instructions: [asset.payload.voiceDescription, input.prompt].filter(Boolean).join("；") } : {}),
-        __creativeAsset: { projectId, assetId: asset.id, nodeId: input.nodeId, usage: input.kind === "image" ? (input.usage || "design_sheet") : "voice_sample", label: input.label, transcript: input.transcript },
-        __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: connected.style.referenceFileId, styleImageApplied: Boolean(styleImage.length) } : null,
-        __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds },
-    };
-    return createGeneration(userId, { kind: input.kind, model, prompt, references, params });
+    getAgentCreativeAsset(userId, projectId, input.assetId);
+    return createCreativeAssetGeneration(userId, input.assetId, { kind: input.kind, nodeId: input.nodeId, revision: input.revision });
 }
-
-function dedupeGenerationRefs<T extends { fileId: string }>(references: T[]) { const seen = new Set<string>(); return references.filter((item) => seen.has(item.fileId) ? false : Boolean(seen.add(item.fileId))); }
 
 export function setAgentCreativeAssetPrimary(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_set_primary>) {
     getAgentCreativeAsset(userId, projectId, input.assetId);
@@ -315,7 +290,7 @@ function agentNodePorts(node: CanvasNode): AgentPort[] {
         { id: "reference-image", direction: "input", dataType: "image", multiple: true },
         { id: "setting", direction: "input", dataType: "text", multiple: true },
         { id: "style", direction: "input", dataType: "visual-style", multiple: false },
-        ...(node.type === "character" ? [{ id: "reference-audio", direction: "input" as const, dataType: "audio", multiple: false }] : []),
+        { id: "reference-audio", direction: "input", dataType: "audio", multiple: false },
         { id: "asset", direction: "output", dataType: "creative-asset", multiple: true },
     ];
     if (node.type === "group") return [];

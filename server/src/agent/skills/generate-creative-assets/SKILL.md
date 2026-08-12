@@ -1,12 +1,12 @@
 ---
 name: generate-creative-assets
-description: 为画布中的角色、场景和道具生成或重新生成标准多视图设计图，或为角色生成声音参考；用户提到角色设计图、场景设计图、道具三视图、人物四视图、定妆图、参考声音或资产一致性时使用。
+description: 为画布中的角色、场景和道具生成标准多视图设计图、角色声音、场景环境声或道具音效；用户提到设计图、人物四视图、定妆图、参考声音、环境声、音效或资产一致性时使用。
 allowed-tools: [mcp__infinite_canvas__creative_asset_get, mcp__infinite_canvas__creative_asset_generate, mcp__infinite_canvas__generation_get_status]
 ---
 
 # 生成创作资产
 
-先用 `creative_asset_get` 读取资产，再按需要调用 `creative_asset_generate`。用户没有指定额外要求时不要重写完整提示词，服务端会把资产名称、描述、项目固定版式和防崩约束组合为最终提示词。
+先用 `creative_asset_get` 读取资产及最新 `revision`。媒体生成只读取资产已经保存的 `payload.mediaDrafts`；需要优化提示词时，先用 `creative_asset_update` 修改对应草稿，再使用最新 revision 调用 `creative_asset_generate`。服务端会把资产名称、描述、视觉风格、语义连线和固定版式组合为最终请求。
 
 ## 设计图版式
 
@@ -17,15 +17,15 @@ allowed-tools: [mcp__infinite_canvas__creative_asset_get, mcp__infinite_canvas__
 生成设计图时使用：
 
 ```text
-creative_asset_generate({"assetId": "...", "kind": "image", "usage": "design_sheet"})
+creative_asset_generate({"assetId": "...", "kind": "image", "revision": 3})
 ```
 
-仅当用户提出额外视觉要求时传 `prompt`；它会作为附加要求进入服务端固定模板，不会替换资产描述和版式。
+仅当用户提出额外视觉要求时更新 `payload.mediaDrafts.image.prompt`；不要把完整资产描述重复写进媒体草稿。
 
-角色声音使用：
+角色声音、场景环境声或道具音效使用：
 
 ```text
-creative_asset_generate({"assetId": "...", "kind": "audio", "usage": "voice_sample", "transcript": "示例台词"})
+creative_asset_generate({"assetId": "...", "kind": "audio", "revision": 4})
 ```
 
-参考音频的 `usage` 是 `reference_input`，只作为可选生成输入，不能当作角色声音。生成得到的 `voice_sample` 才会成为当前主声音；重新生成只使用明确上传或连接的参考音频，不会暗中把上一版角色声音作为参考。生成成功后设计图或角色声音自动成为当前主版本，旧结果保留为可回看的变体。用户只要求局部修改时，先用 `creative_asset_update` 修改描述或明确把修改要求作为额外 `prompt`，不要同时改写无关设定。
+角色的音频草稿使用 `audioMode: speech`，同时填写音色 `prompt` 与试听 `transcript`；场景使用 `ambient`，道具使用 `sfx`。参考音频的 `usage` 是 `reference_input`，只作为可选生成输入。生成成功只会追加候选变体，不会自动切换主图或主音频；只有用户明确要求后才能通过 `creative_asset_set_primary` 选择主版本。
