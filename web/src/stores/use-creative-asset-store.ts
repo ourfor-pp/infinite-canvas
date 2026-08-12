@@ -7,7 +7,7 @@ type CreativeAssetStore = {
     projectId: string;
     loading: boolean;
     assets: CreativeAsset[];
-    activeGenerations: Record<string, { status: ServerGeneration["status"]; progress: number }>;
+    activeGenerations: Record<string, Partial<Record<"image" | "audio", { status: ServerGeneration["status"]; progress: number }>>>;
     load: (projectId: string) => Promise<void>;
     apply: (asset: CreativeAsset | { id: string; projectId: string; deleted: true }) => void;
     applyGeneration: (generation: ServerGeneration) => void;
@@ -31,7 +31,7 @@ export const useCreativeAssetStore = create<CreativeAssetStore>((set, get) => ({
             const activeGenerations: CreativeAssetStore["activeGenerations"] = {};
             generations.filter((generation) => ["queued", "running"].includes(generation.status)).forEach((generation) => {
                 const target = (generation.request.params as { __creativeAsset?: { projectId?: string; assetId?: string } } | undefined)?.__creativeAsset;
-                if (target?.projectId === projectId && target.assetId) activeGenerations[target.assetId] = { status: generation.status, progress: generation.progress };
+                if (target?.projectId === projectId && target.assetId && (generation.kind === "image" || generation.kind === "audio")) activeGenerations[target.assetId] = { ...activeGenerations[target.assetId], [generation.kind]: { status: generation.status, progress: generation.progress } };
             });
             if (get().projectId === projectId) set({ assets, activeGenerations });
         }
@@ -47,7 +47,11 @@ export const useCreativeAssetStore = create<CreativeAssetStore>((set, get) => ({
         const target = (generation.request.params as { __creativeAsset?: { projectId?: string; assetId?: string } } | undefined)?.__creativeAsset;
         if (!target?.assetId || target.projectId !== state.projectId) return state;
         const activeGenerations = { ...state.activeGenerations };
-        if (["queued", "running"].includes(generation.status)) activeGenerations[target.assetId] = { status: generation.status, progress: generation.progress };
+        if (generation.kind !== "image" && generation.kind !== "audio") return state;
+        const current = { ...activeGenerations[target.assetId] };
+        if (["queued", "running"].includes(generation.status)) current[generation.kind] = { status: generation.status, progress: generation.progress };
+        else delete current[generation.kind];
+        if (Object.keys(current).length) activeGenerations[target.assetId] = current;
         else delete activeGenerations[target.assetId];
         return { activeGenerations };
     }),

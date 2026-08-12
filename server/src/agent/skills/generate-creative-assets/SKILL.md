@@ -25,7 +25,7 @@ creative_asset_generate({"assetId": "...", "kind": "image", "usage": "design_she
 角色声音使用：
 
 ```text
-creative_asset_generate({"assetId": "...", "kind": "audio", "usage": "voice_reference", "transcript": "示例台词"})
+creative_asset_generate({"assetId": "...", "kind": "audio", "usage": "voice_sample", "transcript": "示例台词"})
 ```
 
-生成成功后设计图或声音自动成为当前主版本，旧结果保留为可回看的变体。用户只要求局部修改时，先用 `creative_asset_update` 修改描述或明确把修改要求作为额外 `prompt`，不要同时改写无关设定。
+参考音频的 `usage` 是 `reference_input`，只作为可选生成输入，不能当作角色声音。生成得到的 `voice_sample` 才会成为当前主声音；重新生成只使用明确上传或连接的参考音频，不会暗中把上一版角色声音作为参考。生成成功后设计图或角色声音自动成为当前主版本，旧结果保留为可回看的变体。用户只要求局部修改时，先用 `creative_asset_update` 修改描述或明确把修改要求作为额外 `prompt`，不要同时改写无关设定。

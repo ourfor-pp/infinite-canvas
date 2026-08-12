@@ -329,12 +329,13 @@ export function AgentDecisionCard({ pending, value, theme, busy, onChange, onDec
     );
 }
 
-type ProposalItem = { included: boolean; kind: "character" | "scene" | "prop"; name: string; status: "draft"; payload: { description: string; voiceDescription: string; [key: string]: unknown } };
+type ProposalItem = { included: boolean; kind: "character" | "scene" | "prop"; name: string; status: "draft"; payload: { description: string; voiceDescription: string; voiceSampleText: string; [key: string]: unknown } };
 function CreativeAssetProposal({ pending, theme, busy, onReject, onConfirm }: { pending: AgentPendingDecision; theme: CanvasTheme; busy: boolean; onReject: () => void; onConfirm: (items: unknown[]) => void }) {
     const source = recordOf(pending.toolInput) || {};
     const [items, setItems] = useState<ProposalItem[]>(() => arrayOf<Record<string, unknown>>(source.items).map(normalizeProposalItem));
     useEffect(() => setItems(arrayOf<Record<string, unknown>>((recordOf(pending.toolInput) || {}).items).map(normalizeProposalItem)), [pending.id, pending.toolInput]);
     const selected = items.filter((item) => item.included);
+    const ready = selected.every((item) => item.kind !== "character" || (item.payload.voiceDescription.trim() && item.payload.voiceSampleText.trim()));
     const update = (index: number, patch: Partial<ProposalItem>) => setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
     const mergePrevious = (index: number) => setItems((current) => {
         const item = current[index];
@@ -351,18 +352,18 @@ function CreativeAssetProposal({ pending, theme, busy, onReject, onConfirm }: { 
                 return <section key={kind}><div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold opacity-55"><span>{kind === "character" ? "角色" : kind === "scene" ? "场景" : "道具"}</span><span>{rows.filter(({ item }) => item.included).length}/{rows.length}</span></div><div className="space-y-2">{rows.map(({ item, index }) => <div key={`${kind}-${index}`} className="rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}>
                     <div className="flex items-center gap-2"><Checkbox checked={item.included} onChange={(event) => update(index, { included: event.target.checked })} /><Input size="small" value={item.name} onChange={(event) => update(index, { name: event.target.value })} /><Select size="small" value={item.kind} className="w-20" onChange={(value) => update(index, { kind: value })} options={[{ value: "character", label: "角色" }, { value: "scene", label: "场景" }, { value: "prop", label: "道具" }]} /></div>
                     <Input.TextArea className="mt-2" value={item.payload.description} onChange={(event) => update(index, { payload: { ...item.payload, description: event.target.value } })} autoSize={{ minRows: 2, maxRows: 5 }} placeholder="完整视觉描述" />
-                    {item.kind === "character" ? <Input.TextArea className="mt-2" value={item.payload.voiceDescription} onChange={(event) => update(index, { payload: { ...item.payload, voiceDescription: event.target.value } })} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="声音描述（可选）" /> : null}
+                    {item.kind === "character" ? <><Input.TextArea className="mt-2" value={item.payload.voiceDescription} onChange={(event) => update(index, { payload: { ...item.payload, voiceDescription: event.target.value } })} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="音色、语速、口音和情绪质感" /><Input className="mt-2" size="small" value={item.payload.voiceSampleText} onChange={(event) => update(index, { payload: { ...item.payload, voiceSampleText: event.target.value } })} placeholder="一句符合角色身份的试听台词" /></> : null}
                     <button type="button" className="mt-1.5 text-[10px] opacity-45 hover:opacity-80" onClick={() => mergePrevious(index)}>合并到上一项同类设定</button>
                 </div>)}</div></section>;
             })}
         </div>
-        <div className="flex items-center border-t px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}><span className="text-xs opacity-45">将在画布创建 {selected.length} 张独立业务卡片</span><Button className="ml-auto" type="text" size="small" disabled={busy} onClick={onReject}>拒绝</Button><Button type="primary" size="small" disabled={!selected.length || busy} onClick={() => onConfirm(selected.map(({ included: _included, ...item }) => item))}>确认创建</Button></div>
+        <div className="flex items-center border-t px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}><span className="text-xs opacity-45">{ready ? `将在画布创建 ${selected.length} 张独立业务卡片` : "角色需要音色设计和试听台词"}</span><Button className="ml-auto" type="text" size="small" disabled={busy} onClick={onReject}>拒绝</Button><Button type="primary" size="small" disabled={!selected.length || !ready || busy} onClick={() => onConfirm(selected.map(({ included: _included, ...item }) => item))}>确认创建</Button></div>
     </div>;
 }
 
 function normalizeProposalItem(value: Record<string, unknown>): ProposalItem {
     const payload = recordOf(value.payload) || {};
-    return { included: true, kind: value.kind === "scene" || value.kind === "prop" ? value.kind : "character", name: String(value.name || "未命名设定"), status: "draft", payload: { ...payload, description: String(payload.description || ""), voiceDescription: String(payload.voiceDescription || "") } };
+    return { included: true, kind: value.kind === "scene" || value.kind === "prop" ? value.kind : "character", name: String(value.name || "未命名设定"), status: "draft", payload: { ...payload, description: String(payload.description || ""), voiceDescription: String(payload.voiceDescription || ""), voiceSampleText: String(payload.voiceSampleText || "") } };
 }
 
 export function AgentComposer({

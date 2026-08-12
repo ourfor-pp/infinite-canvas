@@ -362,23 +362,24 @@ function createCreativeAssetGeneration(req: Request) {
     if (!selectedModel) throw apiError(400, "AI_MODEL_NOT_AVAILABLE", "所选模型不存在、未启用或能力不匹配");
     const variants = asset.payload.variants;
     const primaryImage = variants.find((item) => item.id === asset.payload.primaryImageId && item.kind === "image");
-    const primaryAudio = variants.find((item) => item.id === asset.payload.primaryAudioId && item.kind === "audio");
     const referenceImages = variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
     const referenceAudios = variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
     const connected = resolveCreativeAssetNodeInputs(req.user.id, asset.projectId, asset.id, value.nodeId);
     const requestedReferences = value.kind === "image" ? [...referenceImages, ...connected.imageFileIds.map((fileId) => ({ fileId }))] : [...referenceAudios, ...connected.audioFileIds.map((fileId) => ({ fileId }))];
+    if (value.kind === "audio" && !value.transcript?.trim()) throw apiError(400, "CREATIVE_ASSET_TRANSCRIPT_REQUIRED", "请先填写试听台词");
+    if (value.kind === "audio" && !requestedReferences.length && !asset.payload.voiceDescription.trim()) throw apiError(400, "CREATIVE_ASSET_VOICE_DESCRIPTION_REQUIRED", "没有参考音频时，请先填写音色设计");
     if (requestedReferences.length && !selectedModel.inputs.includes(value.kind)) throw apiError(400, "AI_MODEL_REFERENCE_UNSUPPORTED", `所选模型不支持${value.kind === "image" ? "图片" : "音频"}参考，请更换模型或移除参考文件`);
     const styleImageApplied = value.kind === "image" && Boolean(connected.style?.referenceFileId && selectedModel.inputs.includes("image"));
     const references = dedupeReferences<{ fileId: string; kind: "image" | "audio" }>(value.kind === "image"
         ? [...(styleImageApplied ? [{ fileId: connected.style!.referenceFileId!, kind: "image" as const }] : []), ...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...connected.imageFileIds.map((fileId) => ({ fileId, kind: "image" as const })), ...(primaryImage && selectedModel.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])]
-        : [...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...connected.audioFileIds.map((fileId) => ({ fileId, kind: "audio" as const })), ...(primaryAudio && selectedModel.inputs.includes("audio") ? [{ fileId: primaryAudio.fileId, kind: "audio" as const }] : [])]);
+        : [...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...connected.audioFileIds.map((fileId) => ({ fileId, kind: "audio" as const }))]);
     const extraPrompt = [connected.style?.description ? `视觉风格：${connected.style.description}` : "", ...connected.texts, value.prompt || ""].filter(Boolean).join("\n\n");
     const prompt = value.kind === "audio" && value.transcript?.trim() ? value.transcript.trim() : buildCreativeAssetPrompt(asset, value.kind, extraPrompt);
     const params = {
         ...(value.params || {}),
         ...(value.kind === "image" ? { size: "16:9" } : {}),
         ...(value.kind === "audio" && [asset.payload.voiceDescription, value.prompt].filter(Boolean).length ? { instructions: [asset.payload.voiceDescription, value.prompt].filter(Boolean).join("；") } : {}),
-        __creativeAsset: { projectId: asset.projectId, assetId: asset.id, nodeId: value.nodeId, usage: value.usage || (value.kind === "image" ? "design_sheet" : "voice_reference"), label: value.label, transcript: value.transcript },
+        __creativeAsset: { projectId: asset.projectId, assetId: asset.id, nodeId: value.nodeId, usage: value.kind === "image" ? (value.usage || "design_sheet") : "voice_sample", label: value.label, transcript: value.transcript },
         __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: connected.style.referenceFileId, styleImageApplied } : null,
         __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds },
     };

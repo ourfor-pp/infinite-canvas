@@ -70,10 +70,11 @@ test("项目按用户隔离并检测 revision 冲突", async () => {
 });
 
 test("创作资产按项目隔离、保存自然语言描述并检测 revision", async () => {
-    const created = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "character", name: "林夏", payload: { description: "二十八岁的清瘦调查记者，短发，深色风衣。", voiceDescription: "冷静、低声线" } }) });
+    const created = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "character", name: "林夏", payload: { description: "二十八岁的清瘦调查记者，短发，深色风衣。", voiceDescription: "冷静、低声线", voiceSampleText: "这件事，我会亲自查清楚。" } }) });
     assert.equal(created.response.status, 201);
     assert.equal(created.body.data.revision, 1);
     assert.equal(created.body.data.payload.voiceDescription, "冷静、低声线");
+    assert.equal(created.body.data.payload.voiceSampleText, "这件事，我会亲自查清楚。");
     const assetId = created.body.data.id;
     assert.equal((await api(`/creative-assets/${assetId}`, userTwo)).response.status, 404);
 
@@ -83,6 +84,12 @@ test("创作资产按项目隔离、保存自然语言描述并检测 revision",
     const conflict = await api(`/creative-assets/${assetId}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, name: "旧名称" }) });
     assert.equal(conflict.response.status, 409);
     assert.equal(conflict.body.error.details.current.revision, 2);
+    const referenceVariant = { id: "reference-audio-1", kind: "audio", fileId: "reference-file-1", label: "参考音频", prompt: "", usage: "reference_input", createdAt: new Date().toISOString() };
+    const withReference = await api(`/creative-assets/${assetId}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, payload: { variants: [referenceVariant] } }) });
+    assert.equal(withReference.response.status, 200);
+    const invalidPrimary = await api(`/creative-assets/${assetId}/variants/${referenceVariant.id}/primary`, userOne, { method: "POST", body: JSON.stringify({ revision: 3 }) });
+    assert.equal(invalidPrimary.response.status, 400);
+    assert.equal(invalidPrimary.body.error.code, "CREATIVE_ASSET_REFERENCE_NOT_PRIMARY");
 
     const firstView = await api(`/creative-assets/${assetId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 120, y: 160 }) });
     const secondView = await api(`/creative-assets/${assetId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 520, y: 160 }) });
@@ -91,7 +98,7 @@ test("创作资产按项目隔离、保存自然语言描述并检测 revision",
     assert.equal(project.body.data.nodes.filter((node: { metadata?: { assetId?: string } }) => node.metadata?.assetId === assetId).length, 2);
     assert.equal(project.body.data.nodes.some((node: { type: string; title: string }) => node.type === "group" && node.title === "角色设定"), false);
     const businessNode = project.body.data.nodes.find((node: { id: string }) => node.id === firstView.body.data.nodeId);
-    assert.deepEqual({ type: businessNode.type, width: businessNode.width, height: businessNode.height }, { type: "character", width: 420, height: 620 });
+    assert.deepEqual({ type: businessNode.type, width: businessNode.width, height: businessNode.height }, { type: "character", width: 420, height: 690 });
 
     assert.equal((await api(`/creative-assets/${assetId}`, userOne, { method: "DELETE" })).response.status, 200);
     const afterDelete = await api("/projects/project-1", userOne);

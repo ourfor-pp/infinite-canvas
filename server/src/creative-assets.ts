@@ -21,6 +21,7 @@ export type CreativeAssetVariant = {
 export type CreativeAssetPayload = {
     description: string;
     voiceDescription: string;
+    voiceSampleText: string;
     variants: CreativeAssetVariant[];
     primaryImageId: string | null;
     primaryAudioId: string | null;
@@ -33,7 +34,7 @@ export type CreativeAssetRow = {
 };
 
 const nodeLayout = {
-    character: { width: 420, height: 620 },
+    character: { width: 420, height: 690 },
     scene: { width: 420, height: 500 },
     prop: { width: 420, height: 500 },
 } satisfies Record<CreativeAssetKind, { width: number; height: number }>;
@@ -54,6 +55,7 @@ const variant = z.object({
 export const creativeAssetPayloadSchema = z.object({
     description: text.default(""),
     voiceDescription: text.default(""),
+    voiceSampleText: text.default(""),
     variants: z.array(variant).max(500).default([]),
     primaryImageId: id.nullable().default(null),
     primaryAudioId: id.nullable().default(null),
@@ -63,6 +65,7 @@ export const creativeAssetPayloadSchema = z.object({
 const creativeAssetPayloadPatchSchema = z.object({
     description: text.optional(),
     voiceDescription: text.optional(),
+    voiceSampleText: text.optional(),
     variants: z.array(variant).max(500).optional(),
     primaryImageId: id.nullable().optional(),
     primaryAudioId: id.nullable().optional(),
@@ -97,6 +100,7 @@ export function createCreativeAsset(userId: string, projectId: string, raw: unkn
     const assetId = nanoid();
     const now = new Date().toISOString();
     const payload = creativeAssetPayloadSchema.parse(input.payload);
+    if (payload.primaryAudioId && !payload.variants.some((item) => item.id === payload.primaryAudioId && item.kind === "audio" && item.usage === "voice_sample")) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_AUDIO", "角色主声音必须是生成的台词音频");
     db.prepare("INSERT INTO creative_assets(id, user_id, project_id, kind, name, status, payload, revision, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?, ?)")
         .run(assetId, userId, projectId, input.kind, input.name, input.status, JSON.stringify(payload), now, now);
     syncFileRefs(userId, "creative_asset", assetId, payload);
@@ -112,6 +116,7 @@ export function updateCreativeAsset(userId: string, assetId: string, raw: unknow
     const nextKind = input.kind || current.kind;
     const payloadPatch = input.payload || {};
     const payload = creativeAssetPayloadSchema.parse({ ...currentPayload, ...payloadPatch });
+    if (payload.primaryAudioId && !payload.variants.some((item) => item.id === payload.primaryAudioId && item.kind === "audio" && item.usage === "voice_sample")) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_AUDIO", "角色主声音必须是生成的台词音频");
     const now = new Date().toISOString();
     const result = db.prepare("UPDATE creative_assets SET kind=?, name=?, status=?, payload=?, revision=revision+1, updated_at=? WHERE id=? AND user_id=? AND revision=?")
         .run(nextKind, input.name || current.name, input.status || current.status, JSON.stringify(payload), now, assetId, userId, input.revision);
@@ -138,6 +143,7 @@ export function setCreativeAssetPrimary(userId: string, assetId: string, variant
     const payload = creativeAssetPayloadSchema.parse(parseJson(row.payload, {}));
     const selected = payload.variants.find((item) => item.id === variantId);
     if (!selected) throw creativeAssetError(404, "CREATIVE_ASSET_VARIANT_NOT_FOUND", "媒体版本不存在");
+    if (selected.kind === "audio" && selected.usage !== "voice_sample") throw creativeAssetError(400, "CREATIVE_ASSET_REFERENCE_NOT_PRIMARY", "参考音频不能设为角色声音");
     return updateCreativeAsset(userId, assetId, { revision, payload: selected.kind === "image" ? { primaryImageId: variantId } : { primaryAudioId: variantId } }, true);
 }
 
@@ -222,7 +228,7 @@ export function syncCreativeAssetGeneration(row: { id: string; user_id: string; 
     const added = additions.map((fileId, index) => ({ id: nanoid(), kind, fileId, label: target.label || `${kind === "image" ? "生成图片" : "生成声音"}${additions.length > 1 ? ` ${index + 1}` : ""}`, prompt: request.prompt || "", generationId: row.id, usage: target.usage, transcript: target.transcript, createdAt: new Date().toISOString() } satisfies CreativeAssetVariant));
     payload.variants.push(...added);
     if (target.usage === "design_sheet" && kind === "image") payload.primaryImageId = added.at(-1)?.id || payload.primaryImageId;
-    if (target.usage === "voice_reference" && kind === "audio") payload.primaryAudioId = added.at(-1)?.id || payload.primaryAudioId;
+    if (target.usage === "voice_sample" && kind === "audio") payload.primaryAudioId = added.at(-1)?.id || payload.primaryAudioId;
     updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
 }
 

@@ -101,8 +101,16 @@ export function buildAgentMcpServer(context: AgentMcpContext) {
                 const decision = await context.requireDecision("creative_assets_create_batch", value, "proposal");
                 const items = decision.proposalEdits || value.items;
                 const result = createAgentCreativeAssetBatch(run.userId, targetProjectId, items, value.sourceNodeId);
-                context.appendEvent("tool_result", { toolId, toolName: "creative_assets_create_batch", output: result, isError: false, finishedAt: new Date().toISOString() });
-                return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true, data: result }, null, 2) }] };
+                const voiceGenerations = result.filter((asset) => asset.kind === "character").map((asset) => {
+                    if (!asset.payload.voiceDescription.trim() || !asset.payload.voiceSampleText.trim()) return { assetId: asset.id, status: "skipped", error: "缺少音色设计或试听台词" };
+                    try {
+                        const generation = generateAgentCreativeAsset(run.userId, targetProjectId, { assetId: asset.id, kind: "audio", usage: "voice_sample", label: "角色声音", transcript: asset.payload.voiceSampleText });
+                        return { assetId: asset.id, status: "queued", generationId: generation.id };
+                    } catch (error) { return { assetId: asset.id, status: "failed", error: error instanceof Error ? error.message : String(error) }; }
+                });
+                const output = { assets: result, voiceGenerations };
+                context.appendEvent("tool_result", { toolId, toolName: "creative_assets_create_batch", output, isError: false, finishedAt: new Date().toISOString() });
+                return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true, data: output }, null, 2) }] };
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 context.appendEvent("tool_result", { toolId, toolName: "creative_assets_create_batch", output: message, isError: true, finishedAt: new Date().toISOString() });
@@ -111,7 +119,7 @@ export function buildAgentMcpServer(context: AgentMcpContext) {
         }),
         call("creative_asset_update", "按 revision 更新角色、场景或道具的文字设定；受保护设定由 SDK 自动审核。", canvasToolSchemas.creative_asset_update.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_update>; return updateAgentCreativeAsset(run.userId, project(value), value); }),
         call("creative_asset_place", "把已有创作资产重新放到画布，不复制实体。", canvasToolSchemas.creative_asset_place.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_place>; return placeAgentCreativeAsset(run.userId, project(value), value); }),
-        call("creative_asset_generate", "为创作资产生成图片或声音，只追加媒体变体，不自动替换主版本。", canvasToolSchemas.creative_asset_generate.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_generate>; return generateAgentCreativeAsset(run.userId, project(value), value); }),
+        call("creative_asset_generate", "为创作资产生成图片或角色声音；结果追加为媒体变体，并成为对应的当前主版本。", canvasToolSchemas.creative_asset_generate.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_generate>; return generateAgentCreativeAsset(run.userId, project(value), value); }),
         call("creative_asset_set_primary", "选择创作资产的主图片或主声音；受保护设定由 SDK 自动审核。", canvasToolSchemas.creative_asset_set_primary.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_set_primary>; return setAgentCreativeAssetPrimary(run.userId, project(value), value); }),
         call("creative_asset_delete", "永久删除创作资产、全部画布视图和引用；此操作由 SDK 自动审核。", canvasToolSchemas.creative_asset_delete.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_delete>; return deleteAgentCreativeAsset(run.userId, project(value), value.assetId); }),
         call("visual_styles_list", "列出当前项目的视觉风格。", canvasToolSchemas.visual_styles_list.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_styles_list>; return listAgentVisualStyles(run.userId, project(value)); }),

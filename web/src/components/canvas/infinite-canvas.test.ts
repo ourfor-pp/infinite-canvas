@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { isCanvasImagePreviewTarget } from "@/lib/canvas/canvas-interaction";
 import { getCanvasPointerAction } from "./infinite-canvas";
 
 describe("getCanvasPointerAction", () => {
@@ -19,5 +20,20 @@ describe("getCanvasPointerAction", () => {
         expect(getCanvasPointerAction(0, false, "pan", false, false)).toBe("pan");
         expect(getCanvasPointerAction(0, false, "select", true, false)).toBe("pan");
         expect(getCanvasPointerAction(1, false, "select", false, false)).toBe("pan");
+    });
+});
+
+describe("isCanvasImagePreviewTarget", () => {
+    it.each(["ant-image-preview", "ant-image-preview-root", "ant-image-preview-wrap"])("recognizes %s and its controls as outside the canvas interaction layer", (className) => {
+        const preview = document.createElement("div");
+        preview.className = className;
+        const close = document.createElement("button");
+        preview.append(close);
+
+        expect(isCanvasImagePreviewTarget(close)).toBe(true);
+    });
+
+    it("does not treat ordinary canvas content as an image preview", () => {
+        expect(isCanvasImagePreviewTarget(document.createElement("button"))).toBe(false);
     });
 });

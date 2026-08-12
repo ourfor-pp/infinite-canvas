@@ -204,21 +204,22 @@ export function generateAgentCreativeAsset(userId: string, projectId: string, in
     const selected = listPublicModels().find((item) => item.value === model && item.output === input.kind);
     if (!selected) throw agentToolError("AI_MODEL_NOT_AVAILABLE", `没有可用的${input.kind === "image" ? "图片" : "音频"}模型`);
     const primaryImage = asset.payload.variants.find((item) => item.id === asset.payload.primaryImageId && item.kind === "image");
-    const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId && item.kind === "audio");
     const referenceImages = asset.payload.variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
     const referenceAudios = asset.payload.variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
     const connected = resolveCreativeAssetNodeInputs(userId, projectId, asset.id, input.nodeId);
     const requestedReferences = input.kind === "image" ? [...referenceImages, ...connected.imageFileIds] : [...referenceAudios, ...connected.audioFileIds];
+    if (input.kind === "audio" && !input.transcript?.trim()) throw agentToolError("CREATIVE_ASSET_TRANSCRIPT_REQUIRED", "请先填写试听台词");
+    if (input.kind === "audio" && !requestedReferences.length && !asset.payload.voiceDescription.trim()) throw agentToolError("CREATIVE_ASSET_VOICE_DESCRIPTION_REQUIRED", "没有参考音频时，请先填写音色设计");
     if (requestedReferences.length && !selected.inputs.includes(input.kind)) throw agentToolError("AI_MODEL_REFERENCE_UNSUPPORTED", `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`);
     const styleImage = connected.style?.referenceFileId && selected.inputs.includes("image") ? [{ fileId: connected.style.referenceFileId, kind: "image" as const }] : [];
     const references = input.kind === "image"
         ? dedupeGenerationRefs([...styleImage, ...referenceImages.map((item) => ({ fileId: item.fileId, kind: "image" as const })), ...connected.imageFileIds.map((fileId) => ({ fileId, kind: "image" as const })), ...(primaryImage && selected.inputs.includes("image") ? [{ fileId: primaryImage.fileId, kind: "image" as const }] : [])])
-        : dedupeGenerationRefs([...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...connected.audioFileIds.map((fileId) => ({ fileId, kind: "audio" as const })), ...(primaryAudio && selected.inputs.includes("audio") ? [{ fileId: primaryAudio.fileId, kind: "audio" as const }] : [])]);
+        : dedupeGenerationRefs([...referenceAudios.map((item) => ({ fileId: item.fileId, kind: "audio" as const })), ...connected.audioFileIds.map((fileId) => ({ fileId, kind: "audio" as const }))]);
     const prompt = input.kind === "audio" && input.transcript?.trim() ? input.transcript.trim() : [connected.style?.description, ...connected.texts, buildCreativeAssetPrompt(asset, input.kind, input.prompt)].filter(Boolean).join("\n\n");
     const params = {
         ...(input.kind === "image" ? { size: "16:9" } : {}),
         ...(input.kind === "audio" && [asset.payload.voiceDescription, input.prompt].filter(Boolean).length ? { instructions: [asset.payload.voiceDescription, input.prompt].filter(Boolean).join("；") } : {}),
-        __creativeAsset: { projectId, assetId: asset.id, nodeId: input.nodeId, usage: input.usage || (input.kind === "image" ? "design_sheet" : "voice_reference"), label: input.label, transcript: input.transcript },
+        __creativeAsset: { projectId, assetId: asset.id, nodeId: input.nodeId, usage: input.kind === "image" ? (input.usage || "design_sheet") : "voice_sample", label: input.label, transcript: input.transcript },
         __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: connected.style.referenceFileId, styleImageApplied: Boolean(styleImage.length) } : null,
         __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds },
     };

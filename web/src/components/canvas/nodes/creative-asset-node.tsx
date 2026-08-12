@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { App, Button, Dropdown, Image as AntImage, Input, Tooltip } from "antd";
-import { AudioLines, BookmarkPlus, Bot, Box, Check, CircleDot, ImagePlus, LockKeyhole, MapPinned, MoreHorizontal, Sparkles, Star, Upload, UserRound } from "lucide-react";
+import { AudioLines, BookmarkPlus, Bot, Box, Check, CircleDot, ImagePlus, LockKeyhole, MapPinned, MoreHorizontal, Sparkles, Star, Trash2, Upload, UserRound } from "lucide-react";
 
 import { serverFileUrl, uploadServerFile } from "@/services/api/server";
 import { randomId } from "@/lib/utils";
@@ -19,7 +19,7 @@ const META = {
 export function CreativeAssetNodeContent({ ctx }: { ctx: CanvasNodeContext }) {
     const assetId = ctx.node.metadata?.assetId || "";
     const asset = useCreativeAssetStore((state) => state.assets.find((item) => item.id === assetId));
-    const generation = useCreativeAssetStore((state) => state.activeGenerations[assetId]);
+    const generations = useCreativeAssetStore((state) => state.activeGenerations[assetId]);
     const normalized = useRef(false);
     useEffect(() => {
         if (!asset || normalized.current) return;
@@ -28,10 +28,10 @@ export function CreativeAssetNodeContent({ ctx }: { ctx: CanvasNodeContext }) {
         if (ctx.node.width !== layout.width || ctx.node.height !== layout.height) ctx.updateNode(layout);
     }, [asset, ctx]);
     if (!asset) return <LoadingAsset kind={(ctx.node.metadata?.assetKind || ctx.node.type) as CreativeAssetKind} ctx={ctx} />;
-    return <CreativeAssetCard asset={asset} generation={generation} ctx={ctx} />;
+    return <CreativeAssetCard asset={asset} imageGeneration={generations?.image} audioGeneration={generations?.audio} ctx={ctx} />;
 }
 
-function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; generation?: { status: string; progress: number }; ctx: CanvasNodeContext }) {
+function CreativeAssetCard({ asset, imageGeneration, audioGeneration, ctx }: { asset: CreativeAsset; imageGeneration?: { status: string; progress: number }; audioGeneration?: { status: string; progress: number }; ctx: CanvasNodeContext }) {
     const { message, modal } = App.useApp();
     const update = useCreativeAssetStore((state) => state.update);
     const generate = useCreativeAssetStore((state) => state.generate);
@@ -39,7 +39,6 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
     const remove = useCreativeAssetStore((state) => state.remove);
     const prepareComposer = useAgentStore((state) => state.prepareComposer);
     const [draft, setDraft] = useState(asset);
-    const [sampleLine, setSampleLine] = useState("");
     const [busy, setBusy] = useState<"image" | "audio" | "upload" | "">("");
     const [dirty, setDirty] = useState(false);
     const draftRef = useRef(asset);
@@ -52,12 +51,14 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
     const meta = META[asset.kind];
     const Icon = meta.icon;
     const primaryImage = primaryVariant(asset, "image");
-    const primaryAudio = primaryVariant(asset, "audio");
+    const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId && item.kind === "audio" && item.usage === "voice_sample");
     const designVersions = asset.payload.variants.filter((item) => item.kind === "image" && item.usage !== "reference_input");
     const imageReferences = asset.payload.variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
     const audioReferences = asset.payload.variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
+    const audioReference = audioReferences.at(-1);
     const inbound = ctx.getConnections().filter((connection) => connection.toNodeId === ctx.node.id);
     const linked = (portId: string) => inbound.filter((connection) => connection.toPortId === portId).length;
+    const hasAudioReference = Boolean(audioReference || linked("reference-audio"));
 
     useEffect(() => {
         if (dirtyRef.current) return;
@@ -84,7 +85,7 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
         const version = editVersionRef.current;
         const snapshot = draftRef.current;
         dirtyRef.current = false;
-        savePromiseRef.current = update(asset.id, { name: snapshot.name, status: snapshot.status, payload: { description: snapshot.payload.description, voiceDescription: snapshot.payload.voiceDescription } })
+        savePromiseRef.current = update(asset.id, { name: snapshot.name, status: snapshot.status, payload: { description: snapshot.payload.description, voiceDescription: snapshot.payload.voiceDescription, voiceSampleText: snapshot.payload.voiceSampleText } })
             .then((saved) => {
                 ctx.updateNode({ title: saved.name });
                 if (editVersionRef.current === version) { draftRef.current = saved; setDraft(saved); setDirty(false); }
@@ -100,13 +101,13 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
         return savePromiseRef.current;
     };
     const runGeneration = async (kind: "image" | "audio") => {
-        if (kind === "audio" && !sampleLine.trim()) return message.warning("请先输入一句试听台词");
+        if (kind === "audio" && !draftRef.current.payload.voiceSampleText.trim()) return message.warning("请先输入一句试听台词");
+        if (kind === "audio" && !hasAudioReference && !draftRef.current.payload.voiceDescription.trim()) return message.warning("没有参考音频时，请先描述角色音色");
         if (!await commit()) return;
         setBusy(kind);
         try {
-            await generate(asset.id, { nodeId: ctx.node.id, kind, usage: kind === "image" ? "design_sheet" : "voice_reference", label: kind === "image" ? meta.sheet : "角色声音", ...(kind === "audio" ? { transcript: sampleLine.trim() } : {}) });
+            await generate(asset.id, { nodeId: ctx.node.id, kind, usage: kind === "image" ? "design_sheet" : "voice_sample", label: kind === "image" ? meta.sheet : "角色声音", ...(kind === "audio" ? { transcript: draftRef.current.payload.voiceSampleText.trim() } : {}) });
             message.success(kind === "image" ? `${meta.sheet}生成已开始` : "角色声音生成已开始");
-            if (kind === "audio") setSampleLine("");
         } catch (error) { message.error(error instanceof Error ? error.message : "生成失败"); }
         finally { setBusy(""); }
     };
@@ -117,10 +118,19 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
             const uploaded = await uploadServerFile(file, file.name);
             const current = useCreativeAssetStore.getState().assets.find((item) => item.id === asset.id) || asset;
             const variant: CreativeAssetVariant = { id: randomId(), kind, fileId: uploaded.fileId, label: kind === "image" ? "参考图" : "参考声音", prompt: "", usage: "reference_input", createdAt: new Date().toISOString() };
-            await update(asset.id, { payload: { variants: [...current.payload.variants, variant] } });
+            const variants = kind === "audio" ? [...current.payload.variants.filter((item) => item.kind !== "audio" || item.usage !== "reference_input"), variant] : [...current.payload.variants, variant];
+            await update(asset.id, { payload: { variants } });
             message.success(kind === "image" ? "参考图已上传" : "参考声音已上传");
         } catch (error) { message.error(error instanceof Error ? error.message : "上传失败"); }
         finally { setBusy(""); }
+    };
+    const removeAudioReference = async () => {
+        if (!await commit()) return;
+        try {
+            const current = useCreativeAssetStore.getState().assets.find((item) => item.id === asset.id) || asset;
+            await update(asset.id, { payload: { variants: current.payload.variants.filter((item) => item.kind !== "audio" || item.usage !== "reference_input") } });
+            message.success("参考音频已移除");
+        } catch (error) { message.error(error instanceof Error ? error.message : "移除失败"); }
     };
     const askAgent = async () => {
         if (!await commit()) return;
@@ -159,7 +169,7 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
             <Input variant="borderless" className="min-w-0 flex-1 !px-1 !text-lg !font-semibold" value={draft.name} onChange={(event) => change({ name: event.target.value })} aria-label={`${meta.label}名称`} />
             {dirty ? <span className="size-1.5 rounded-full" title="正在自动保存" style={{ background: meta.accent }} /> : null}
             {asset.status === "locked" ? <LockKeyhole className="size-3.5 opacity-45" /> : asset.status === "confirmed" ? <Check className="size-3.5 opacity-45" /> : null}
-            {primaryImage ? <Tooltip title={generation ? `生成中 ${Math.round(generation.progress * 100)}%` : `重新生成${meta.sheet}`}><Button type="text" size="small" aria-label={`重新生成${meta.sheet}`} icon={<Sparkles className="size-4" />} loading={busy === "image" || Boolean(generation)} onClick={() => void runGeneration("image")} /></Tooltip> : null}
+            {primaryImage ? <Tooltip title={imageGeneration ? `生成中 ${Math.round(imageGeneration.progress * 100)}%` : `重新生成${meta.sheet}`}><Button type="text" size="small" aria-label={`重新生成${meta.sheet}`} icon={<Sparkles className="size-4" />} loading={busy === "image" || Boolean(imageGeneration)} onClick={() => void runGeneration("image")} /></Tooltip> : null}
             <Tooltip title="交给 Agent"><Button type="text" size="small" aria-label="交给 Agent" icon={<Bot className="size-4" />} onClick={() => void askAgent()} /></Tooltip>
             <Dropdown trigger={["click"]} menu={menu}><Button type="text" size="small" icon={<MoreHorizontal className="size-4" />} /></Dropdown>
         </header>
@@ -167,8 +177,8 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
         <div className="mb-2 mt-4 flex items-center justify-between text-[10px] font-medium tracking-wide" style={{ color: ctx.theme.node.muted }}><span>{meta.sheet}</span><PortHint label="参考图" count={linked("reference-image")} icon={<ImagePlus className="size-3" />} /></div>
         <AntImage.PreviewGroup>
             <div className="relative aspect-video shrink-0 overflow-hidden rounded-xl border" style={{ borderColor: ctx.theme.node.stroke, background: `${meta.accent}0c` }}>
-                {primaryImage ? <AntImage rootClassName="size-full" src={serverFileUrl(`server:${primaryImage.fileId}`)} alt={asset.name} className="!size-full !object-contain" preview={{ mask: "查看设计图" }} /> : <EmptySheet asset={asset} generation={generation} busy={busy === "image"} onGenerate={() => void runGeneration("image")} />}
-                {generation ? <div className="absolute inset-x-0 bottom-0 h-1 bg-black/10"><span className="block h-full transition-[width]" style={{ width: `${Math.max(4, Math.round(generation.progress * 100))}%`, background: meta.accent }} /></div> : null}
+                {primaryImage ? <AntImage rootClassName="size-full" src={serverFileUrl(`server:${primaryImage.fileId}`)} alt={asset.name} className="!size-full !object-contain" preview={{ mask: "查看设计图" }} /> : <EmptySheet asset={asset} generation={imageGeneration} busy={busy === "image"} onGenerate={() => void runGeneration("image")} />}
+                {imageGeneration ? <div className="absolute inset-x-0 bottom-0 h-1 bg-black/10"><span className="block h-full transition-[width]" style={{ width: `${Math.max(4, Math.round(imageGeneration.progress * 100))}%`, background: meta.accent }} /></div> : null}
             </div>
             {previewItems.length > 1 || imageReferences.length ? <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                 {previewItems.map((variant) => <div key={variant.id} className="group relative aspect-video w-16 shrink-0 overflow-hidden rounded border" style={{ borderColor: variant.id === asset.payload.primaryImageId ? meta.accent : ctx.theme.node.stroke }}>
@@ -181,10 +191,11 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
         <label className="mt-3 block"><span className="mb-1.5 flex items-center justify-between text-[10px] font-medium" style={{ color: ctx.theme.node.muted }}><span>描述</span><span className="flex gap-1"><PortHint label="设定文字" count={linked("setting")} /><PortHint label="风格" count={linked("style")} /></span></span><Input.TextArea value={draft.payload.description} onChange={(event) => changePayload({ description: event.target.value })} autoSize={{ minRows: asset.kind === "character" ? 5 : 6, maxRows: asset.kind === "character" ? 5 : 6 }} placeholder={descriptionPlaceholder(asset.kind)} /></label>
 
         {asset.kind === "character" ? <section className="mt-3 border-t pt-3" style={{ borderColor: ctx.theme.node.stroke }}>
-            <div className="flex items-center gap-2"><AudioLines className="size-4" style={{ color: meta.accent }} /><span className="text-[10px] font-medium" style={{ color: ctx.theme.node.muted }}>声音</span><PortHint label="参考声音" count={linked("reference-audio")} />{audioReferences.length ? <span className="text-[9px] opacity-45">已上传参考</span> : null}<button type="button" className="ml-auto flex items-center gap-1 text-[10px] opacity-50 hover:opacity-100" onClick={() => audioInputRef.current?.click()}><Upload className="size-3" />上传参考</button></div>
-            <Input.TextArea className="mt-2" value={draft.payload.voiceDescription} onChange={(event) => changePayload({ voiceDescription: event.target.value })} autoSize={{ minRows: 2, maxRows: 2 }} placeholder="音色、语速、口音和情绪质感" />
-            {primaryAudio ? <audio src={serverFileUrl(`server:${primaryAudio.fileId}`)} controls className="mt-2 h-8 w-full" /> : null}
-            <div className="mt-2 flex items-center gap-2"><Input className="min-w-0 flex-1" size="small" value={sampleLine} onChange={(event) => setSampleLine(event.target.value)} placeholder="输入一句试听台词" /><Button size="small" icon={<Sparkles className="size-3" />} loading={busy === "audio"} onClick={() => void runGeneration("audio")}>{primaryAudio ? "重新生成" : "生成声音"}</Button></div>
+            <div className="flex items-center gap-2"><AudioLines className="size-4" style={{ color: meta.accent }} /><span className="text-[10px] font-medium" style={{ color: ctx.theme.node.muted }}>声音设计</span><span className="text-[9px] opacity-40">{hasAudioReference ? "使用参考音频" : "使用音色描述"}</span><button type="button" className="ml-auto flex items-center gap-1 text-[10px] opacity-50 hover:opacity-100" onClick={() => audioInputRef.current?.click()}><Upload className="size-3" />{audioReference ? "替换参考" : "添加参考（可选）"}</button></div>
+            <Input.TextArea className="mt-2" value={draft.payload.voiceDescription} onChange={(event) => changePayload({ voiceDescription: event.target.value })} autoSize={{ minRows: 1, maxRows: 2 }} placeholder={hasAudioReference ? "可补充语速、口音和情绪要求" : "音色、语速、口音和情绪质感"} />
+            <div className="mt-2 flex min-h-7 items-center gap-2"><span className="shrink-0 text-[9px] opacity-45">参考音频</span>{audioReference ? <><audio src={serverFileUrl(`server:${audioReference.fileId}`)} controls className="h-7 min-w-0 flex-1" /><Tooltip title="移除参考音频"><Button type="text" size="small" aria-label="移除参考音频" icon={<Trash2 className="size-3.5" />} onClick={() => void removeAudioReference()} /></Tooltip></> : <span className="text-[9px] opacity-35">{linked("reference-audio") ? "已连接画布参考音频" : "未添加，将使用音色设计"}</span>}</div>
+            <div className="mt-2 flex items-center gap-2"><Input className="min-w-0 flex-1" size="small" value={draft.payload.voiceSampleText} onChange={(event) => changePayload({ voiceSampleText: event.target.value })} placeholder="输入一句试听台词" /><Button size="small" icon={<Sparkles className="size-3" />} loading={busy === "audio" || Boolean(audioGeneration)} onClick={() => void runGeneration("audio")}>{audioGeneration ? `生成中 ${Math.round(audioGeneration.progress * 100)}%` : primaryAudio ? "重新生成角色声音" : "生成角色声音"}</Button></div>
+            <div className="mt-2 flex min-h-8 items-center gap-2"><span className="shrink-0 text-[9px] opacity-45">角色声音</span>{primaryAudio ? <audio src={serverFileUrl(`server:${primaryAudio.fileId}`)} controls className="h-8 min-w-0 flex-1" /> : <span className="text-[9px] opacity-35">{audioGeneration ? "正在生成试听音频" : "待生成"}</span>}</div>
         </section> : null}
 
         <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void uploadReference("image", file); }} />

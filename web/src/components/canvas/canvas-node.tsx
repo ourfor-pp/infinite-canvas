@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isCanvasImagePreviewTarget } from "@/lib/canvas/canvas-interaction";
 import { formatBytes } from "@/lib/image-utils";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
@@ -320,7 +321,9 @@ export const CanvasNode = React.memo(function CanvasNode({
                 setHovered(false);
                 onHoverEnd(data.id);
             }}
-            onMouseDownCapture={(event) => onSelectCapture?.(event, data.id)}
+            onMouseDownCapture={(event) => {
+                if (!isCanvasImagePreviewTarget(event.target)) onSelectCapture?.(event, data.id);
+            }}
             onContextMenu={(event) => onContextMenu(event, data.id)}
         >
             {!isBusinessNode && (isSelected || hovered || isEditingTitle) && (
@@ -367,7 +370,9 @@ export const CanvasNode = React.memo(function CanvasNode({
                     borderStyle: isGroup ? "dashed" : "solid",
                     boxShadow: isGroupDropTarget ? `0 0 0 2px ${selectionBlue}66, inset 0 0 0 999px ${selectionBlue}10` : isActive ? `0 0 0 1px ${selectionBlue}55` : isRelated ? `0 0 0 1px ${theme.node.muted}55, 0 18px 48px rgba(0,0,0,.14)` : undefined,
                 }}
-                onMouseDown={(event) => onMouseDown(event, data.id)}
+                onMouseDown={(event) => {
+                    if (!isCanvasImagePreviewTarget(event.target)) onMouseDown(event, data.id);
+                }}
                 onDoubleClick={(event) => {
                     if (isBatchRoot) {
                         event.stopPropagation();
