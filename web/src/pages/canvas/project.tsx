@@ -43,7 +43,7 @@ import { CanvasSidePanel } from "@/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
 import { AgentPanel } from "@/components/agent/agent-panel";
 import { useAgentStore } from "@/stores/use-agent-store";
-import { useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
+import { cancelProjectServerMutation, prepareProjectServerMutation, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
 import { useVisualStyleStore } from "@/stores/use-visual-style-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
@@ -762,16 +762,6 @@ function InfiniteCanvasPage() {
         (ids: Set<string>) => {
             if (!ids.size) return;
             const allIds = new Set(ids);
-            const localIds = allIds;
-            if (localIds.size) setNodes((prev) => {
-                const next = prev.filter((node) => !localIds.has(node.id));
-                return next.map((node) => {
-                    const groupId = node.metadata?.groupId;
-                    if (groupId && localIds.has(groupId)) return { ...node, metadata: { ...node.metadata, groupId: undefined } };
-                    return node;
-                });
-            });
-            if (localIds.size) setConnections((prev) => prev.filter((conn) => !localIds.has(conn.fromNodeId) && !localIds.has(conn.toNodeId)));
             setSelectedNodeIds(new Set());
             setSelectedConnectionId(null);
             setHoveredNodeId((current) => (current && allIds.has(current) ? null : current));
@@ -785,9 +775,18 @@ function InfiniteCanvasPage() {
             setPreviewNodeId((current) => (current && allIds.has(current) ? null : current));
             setRunningNodeId((current) => (current && allIds.has(current) ? null : current));
             setContextMenu((current) => (current?.type === "node" && allIds.has(current.nodeId) ? null : current));
-            if (localIds.size) cleanupCanvasFiles({ projectId, nodes: nodesRef.current.filter((node) => !localIds.has(node.id)), chatSessions });
+            void prepareProjectServerMutation(projectId).then(async () => {
+                const current = useCanvasStore.getState().projects.find((item) => item.id === projectId);
+                if (!current) return;
+                const saved = await serverApi.deleteProjectNodes(projectId, [...ids], current.revision) as unknown as CanvasProject;
+                if (useCanvasStore.getState().applyServerProject(saved)) window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: saved }));
+                cleanupCanvasFiles({ projectId, nodes: saved.nodes, chatSessions: saved.chatSessions || [] });
+            }).catch((error) => {
+                cancelProjectServerMutation(projectId);
+                message.error(error instanceof Error ? error.message : "删除节点失败");
+            });
         },
-        [chatSessions, cleanupCanvasFiles, projectId],
+        [cleanupCanvasFiles, message, projectId],
     );
 
     const deleteConnection = useCallback((connectionId: string) => {
@@ -810,18 +809,9 @@ function InfiniteCanvasPage() {
     }, [cancelPendingConnectionCreate]);
 
     const clearCanvas = useCallback(() => {
-        setNodes([]);
-        setConnections([]);
-        setInfoNodeId(null);
-        setCropNodeId(null);
-        setMaskEditNodeId(null);
-        setAngleNodeId(null);
-        setPreviewNodeId(null);
-        setRunningNodeId(null);
-        deselectCanvas();
         setClearConfirmOpen(false);
-        cleanupCanvasFiles({ projectId, nodes: [], chatSessions: [] });
-    }, [cleanupCanvasFiles, deselectCanvas, projectId]);
+        deleteNodes(new Set(nodesRef.current.map((node) => node.id)));
+    }, [deleteNodes]);
 
     const duplicateNode = useCallback((nodeId: string) => {
         const source = nodesRef.current.find((node) => node.id === nodeId);

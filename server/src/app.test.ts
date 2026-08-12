@@ -100,6 +100,16 @@ test("创作资产按项目隔离、保存自然语言描述并检测 revision",
     const businessNode = project.body.data.nodes.find((node: { id: string }) => node.id === firstView.body.data.nodeId);
     assert.deepEqual({ type: businessNode.type, width: businessNode.width, height: businessNode.height }, { type: "character", width: 420, height: 690 });
 
+    const disposable = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "character", name: "删除即消失", payload: { description: "临时角色" } }) });
+    const disposableId = disposable.body.data.id;
+    const disposableViewA = await api(`/creative-assets/${disposableId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 80, y: 900 }) });
+    await api(`/creative-assets/${disposableId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 520, y: 900 }) });
+    const beforeNodeDelete = await api("/projects/project-1", userOne);
+    const nodeDelete = await api("/projects/project-1/nodes", userOne, { method: "DELETE", body: JSON.stringify({ ids: [disposableViewA.body.data.nodeId], revision: beforeNodeDelete.body.data.revision }) });
+    assert.equal(nodeDelete.response.status, 200);
+    assert.equal(nodeDelete.body.data.nodes.some((node: { metadata?: { assetId?: string } }) => node.metadata?.assetId === disposableId), false);
+    assert.equal((await api(`/creative-assets/${disposableId}`, userOne)).response.status, 404);
+
     assert.equal((await api(`/creative-assets/${assetId}`, userOne, { method: "DELETE" })).response.status, 200);
     const afterDelete = await api("/projects/project-1", userOne);
     assert.equal(afterDelete.body.data.nodes.some((node: { metadata?: { assetId?: string } }) => node.metadata?.assetId === assetId), false);

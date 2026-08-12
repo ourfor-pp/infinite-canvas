@@ -7,6 +7,9 @@ description: Implemented changes that still need manual verification
 
 The current release needs manual verification in these areas:
 
+- Agent header: the conversation title should align directly to the left edge; the header must not show a robot icon, connection-status dot, provider/model name, or empty placeholder.
+- Agent reply actions: the completed-round copy button must remain fully visible below the reply on hover and keyboard focus, including the last reply above the composer and conversations long enough to enable virtualization.
+- Creative business-node deletion: deleting any character, scene, or prop node must remove its backing creative asset, all duplicate views and connected edges, while an explicitly collected asset-library snapshot remains reusable.
 - Canvas image preview: open a creative-asset sheet or visual-style reference, then close it with the top-right button, the mask, and Escape. Preview clicks and wheel gestures must not select, drag, pan, zoom, or trigger canvas shortcuts.
 - Agent turn completion: after approving an operation, the final Assistant Markdown must remain visible both live and after refresh; the handled approval should move into the collapsed process history, and the temporary completion pill should disappear.
 - Agent conversation and composer: verify grouped rounds, collapsible thinking/tool process, inline approvals and questions, stable streaming/history scroll, virtualization beyond 80 items, unread return-to-bottom, local error recovery, atomic Skill/canvas/asset/style mentions, IME-safe editing, structured copy/paste, attachment drag-and-drop, and per-session drafts.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Drawer, Tooltip } from "antd";
-import { Bot, History, Plus, X } from "lucide-react";
+import { History, Plus, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -398,15 +398,10 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
     return (
         <AgentErrorBoundary resetKey={`${projectId}:${session?.id || "loading"}:${streamVersion}`} onReload={() => void reloadConversation()}><div className="agent-panel-shell relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: theme.node.panel, color: theme.node.text }}>
             <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3" style={{ borderColor: theme.node.stroke }}>
-                <span className="grid size-8 shrink-0 place-items-center rounded-xl" style={{ background: theme.toolbar.itemHover }}><Bot className="size-4" /></span>
                 <div className="min-w-0 flex-1">
                     <button type="button" className="flex max-w-full items-center gap-1 text-left" onClick={() => setHistoryOpen(true)}>
                         <span className="truncate text-sm font-medium">{session?.title || "Canvas Agent"}</span>
                     </button>
-                    <div className="flex items-center gap-1.5 truncate text-[11px]" style={{ color: theme.node.muted }}>
-                        <span className={`size-1.5 shrink-0 rounded-full ${!model.ready ? "bg-amber-500" : busy ? "animate-pulse bg-blue-500" : "bg-emerald-500"}`} />
-                        <span className="truncate">{busy ? statusLabel(session?.status) : model.ready ? `${model.providerName} · ${model.modelName}` : "管理员尚未配置 Agent 模型"}</span>
-                    </div>
                 </div>
                 <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={newSession} disabled={busy} /></Tooltip>
                 <Tooltip title="历史会话"><Button type="text" shape="circle" icon={<History className="size-4" />} onClick={() => setHistoryOpen(true)} /></Tooltip>

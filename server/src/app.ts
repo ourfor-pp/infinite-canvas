@@ -16,6 +16,7 @@ import { removeAgentProjectWorkspace } from "./agent/service.js";
 import {
     buildCreativeAssetPrompt,
     createCreativeAsset,
+    deleteCanvasNodes,
     deleteCreativeAsset,
     getCreativeAsset,
     listCreativeAssets,
@@ -93,6 +94,13 @@ api.get("/projects/:id", route((req) => {
     if (!row) throw apiError(404, "PROJECT_NOT_FOUND", "画布不存在");
     return projectResponse(row);
 }));
+
+api.delete("/projects/:id/nodes", route((req) => deleteCanvasNodes(
+    req.user.id,
+    routeId(req),
+    z.array(idSchema).min(1).max(500).parse(req.body?.ids),
+    z.number().int().positive().parse(req.body?.revision),
+)));
 
 api.put("/projects/:id", route((req) => {
     const value = withoutClientUserId(projectSchema.parse({ ...req.body, id: req.params.id }));

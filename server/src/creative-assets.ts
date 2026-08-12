@@ -32,6 +32,7 @@ export type CreativeAssetRow = {
     id: string; user_id: string; project_id: string; kind: CreativeAssetKind; name: string; status: CreativeAssetStatus;
     payload: string; revision: number; created_at: string; updated_at: string;
 };
+type SavedProject = Record<string, unknown> & { nodes: Array<{ id: string; metadata?: Record<string, unknown> }>; connections: Array<{ fromNodeId?: string; toNodeId?: string }> };
 
 const nodeLayout = {
     character: { width: 420, height: 690 },
@@ -162,6 +163,35 @@ export function deleteCreativeAsset(userId: string, assetId: string) {
     publishProjectRow(userId, row.project_id);
     emitAsset(userId, { id: assetId, projectId: row.project_id, deleted: true });
     return { id: assetId, projectId: row.project_id };
+}
+
+export function deleteCanvasNodes(userId: string, projectId: string, nodeIds: string[], expectedRevision: number): SavedProject & { id: string; title: string; revision: number; createdAt: string; updatedAt: string } {
+    const row = db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as { id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string } | undefined;
+    if (!row) throw creativeAssetError(404, "PROJECT_NOT_FOUND", "画布不存在");
+    if (row.revision !== expectedRevision) throw creativeAssetError(409, "PROJECT_CONFLICT", `画布版本已从 ${expectedRevision} 更新为 ${row.revision}`);
+    const project = parseJson<SavedProject>(row.payload, { nodes: [], connections: [] });
+    const requested = new Set(nodeIds);
+    const assetIds = new Set(project.nodes.filter((node) => requested.has(node.id)).map((node) => String(node.metadata?.assetId || "")).filter(Boolean));
+    const removedNodeIds = new Set(project.nodes.filter((node) => requested.has(node.id) || assetIds.has(String(node.metadata?.assetId || ""))).map((node) => node.id));
+    project.nodes = project.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
+        if (!removedNodeIds.has(String(node.metadata?.groupId || ""))) return node;
+        return { ...node, metadata: { ...node.metadata, groupId: undefined } };
+    });
+    project.connections = project.connections.filter((connection) => !removedNodeIds.has(String(connection.fromNodeId || "")) && !removedNodeIds.has(String(connection.toNodeId || "")));
+    const now = new Date().toISOString();
+    db.transaction(() => {
+        const updated = db.prepare("UPDATE projects SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?").run(JSON.stringify({ ...project, updatedAt: now }), now, projectId, userId, expectedRevision);
+        if (!updated.changes) throw creativeAssetError(409, "PROJECT_CONFLICT", "画布已更新，请重新加载后再删除");
+        for (const assetId of assetIds) {
+            db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='creative_asset' AND owner_id=?").run(userId, assetId);
+            db.prepare("DELETE FROM creative_assets WHERE id=? AND user_id=? AND project_id=?").run(assetId, userId, projectId);
+        }
+        syncFileRefs(userId, "project", projectId, project);
+    })();
+    publishProjectRow(userId, projectId);
+    for (const assetId of assetIds) emitAsset(userId, { id: assetId, projectId, deleted: true });
+    const saved = db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as typeof row;
+    return { ...parseJson<SavedProject>(saved.payload, { nodes: [], connections: [] }), id: saved.id, title: saved.title, revision: saved.revision, createdAt: saved.created_at, updatedAt: saved.updated_at };
 }
 
 export function placeCreativeAsset(userId: string, assetId: string, input: { x?: number; y?: number } = {}) {

@@ -9,6 +9,7 @@ import {
     buildCreativeAssetPrompt,
     createCreativeAssetsBatch,
     creativeAssetInputSchema,
+    deleteCanvasNodes,
     deleteCreativeAsset,
     getCreativeAsset,
     listCreativeAssets,
@@ -115,6 +116,10 @@ export function createTextNodes(userId: string, projectId: string, input: z.infe
         height: item.height ?? 200,
         metadata: { content: item.text, status: "success", fontSize: item.fontSize ?? 14 },
     })), input.expectedRevision);
+}
+
+export function deleteAgentCanvasNodes(userId: string, projectId: string, ids: string[], expectedRevision: number) {
+    return deleteCanvasNodes(userId, projectId, ids, expectedRevision);
 }
 
 export function listAssets(userId: string, input: z.infer<typeof canvasToolSchemas.assets_list>) {

@@ -49,7 +49,10 @@ describe("Agent 助手回合", () => {
         const events = [...processEvents, { sessionId: "session-1", seq: 4, runId: "run-1", kind: "run_state" as const, payload: { state: "completed", finalAssistantEventSeq: 3 }, createdAt: new Date().toISOString() }];
         await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="completed" />));
         expect(holder.querySelector(".agent-process-toggle")?.getAttribute("aria-expanded")).toBe("false");
-        expect(holder.querySelector("button[aria-label='复制本轮回复内容']")).not.toBeNull();
+        const copyButton = holder.querySelector("button[aria-label='复制本轮回复内容']");
+        expect(copyButton).not.toBeNull();
+        expect(copyButton?.className).not.toContain("absolute");
+        expect(copyButton?.parentElement?.className).toContain("h-6");
         await act(async () => root.unmount()); holder.remove();
     });
 

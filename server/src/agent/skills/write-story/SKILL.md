@@ -28,8 +28,8 @@ allowed-tools: [mcp__infinite_canvas__canvas_get_state, mcp__infinite_canvas__ca
 canvas_create_text_nodes({
   "expectedRevision": 12,
   "items": [{
-    "title": "小雨的伞",
-    "text": "# 小雨的伞\n\n## 一\n\n……\n\n## 尾声\n\n……",
+    "title": "故事标题",
+    "text": "# 故事标题\n\n## 第一章\n\n……\n\n## 尾声\n\n……",
     "width": 520,
     "height": 680,
     "fontSize": 15

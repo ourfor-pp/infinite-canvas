@@ -95,6 +95,7 @@ export const serverApi = {
     project: (id: string) => serverRequest<Record<string, unknown>>(`/projects/${encodeURIComponent(id)}`),
     createProject: (project: Record<string, unknown>) => serverRequest<Record<string, unknown>>("/projects", { method: "POST", body: JSON.stringify(project) }),
     updateProject: (id: string, project: Record<string, unknown>, force = false) => serverRequest<Record<string, unknown>>(`/projects/${encodeURIComponent(id)}${force ? "/force" : ""}`, { method: "PUT", body: JSON.stringify(project) }),
+    deleteProjectNodes: (id: string, ids: string[], revision: number) => serverRequest<Record<string, unknown>>(`/projects/${encodeURIComponent(id)}/nodes`, { method: "DELETE", body: JSON.stringify({ ids, revision }) }),
     deleteProject: (id: string) => serverRequest(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
     creativeAssets: (projectId: string) => serverRequest<CreativeAsset[]>(`/projects/${encodeURIComponent(projectId)}/creative-assets`),
     createCreativeAsset: (projectId: string, input: Record<string, unknown>) => serverRequest<CreativeAsset>(`/projects/${encodeURIComponent(projectId)}/creative-assets`, { method: "POST", body: JSON.stringify(input) }),
