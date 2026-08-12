@@ -33,9 +33,9 @@ export type CreativeAssetRow = {
 };
 
 const nodeLayout = {
-    character: { width: 420, height: 760 },
-    scene: { width: 420, height: 610 },
-    prop: { width: 420, height: 610 },
+    character: { width: 420, height: 620 },
+    scene: { width: 420, height: 500 },
+    prop: { width: 420, height: 500 },
 } satisfies Record<CreativeAssetKind, { width: number; height: number }>;
 
 const id = z.string().trim().min(1).max(128);

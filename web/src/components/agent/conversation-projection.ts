@@ -21,7 +21,14 @@ export function projectAgentEvents(events: AgentEvent[]) {
                 continue;
             }
             const streamed = streams.get(`${event.kind}:${streamId}`);
-            if (streamed) { streamed.text = eventText(event); streamed.payload = { ...event.payload, delta: false }; continue; }
+            if (streamed) {
+                streamed.seq = event.seq;
+                streamed.runId = event.runId;
+                streamed.createdAt = event.createdAt;
+                streamed.text = eventText(event);
+                streamed.payload = { ...event.payload, delta: false };
+                continue;
+            }
         }
         if (event.kind === "tool_call") {
             const key = String(event.payload.toolId || event.seq);
@@ -79,7 +86,8 @@ export function splitAssistantRoundEvents(events: ProjectedAgentEvent[]) {
     const assistants = events.filter((event) => event.kind === "assistant_text");
     if (!completed) return { processMessages: [] as ProjectedAgentEvent[], answers: assistants };
     const explicitSeq = Number(completed.payload.finalAssistantEventSeq);
-    const final = Number.isFinite(explicitSeq) ? assistants.find((event) => event.seq === explicitSeq) : [...assistants].reverse().find((event) => !completed.runId || !event.runId || event.runId === completed.runId);
+    const final = (Number.isFinite(explicitSeq) ? assistants.find((event) => event.seq === explicitSeq) : undefined)
+        || [...assistants].reverse().find((event) => !completed.runId || !event.runId || event.runId === completed.runId);
     return { processMessages: assistants.filter((event) => event !== final), answers: final ? [final] : [] };
 }
 

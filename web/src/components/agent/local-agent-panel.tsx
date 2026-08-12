@@ -429,7 +429,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
                         decisionBusy={decisionBusy}
                         onDecisionValue={setAnswer}
                         onDecide={(decision, scope, proposalEdits) => void decide(decision, scope, proposalEdits)}
-                        canLoadEarlier={Boolean(events[0]?.seq && events[0].seq > 1)}
+                        canLoadEarlier={false}
                         loadingEarlier={olderLoading}
                         onLoadEarlier={() => void loadEarlier()}
                         onSuggestion={(text) => { setComposerDocument({ version: 1, segments: [{ type: "text", text }] }); setDraft(projectId, text); setComposerFocusRequest((value) => value + 1); }}

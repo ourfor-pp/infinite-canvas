@@ -864,10 +864,33 @@ function appendEvent(sessionId: string, runId: string | null, kind: AgentEventKi
     return event;
 }
 
-function sessionEvents(sessionId: string, beforeSeq = Number.MAX_SAFE_INTEGER, limit = 500) {
-    const rows = db.prepare("SELECT * FROM (SELECT * FROM agent_events WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?) ORDER BY seq")
-        .all(sessionId, beforeSeq, Math.min(Math.max(limit, 1), 1000)) as Array<{ session_id: string; seq: number; run_id: string | null; kind: AgentEventKind; payload: string; created_at: string }>;
-    return rows.map((row) => ({ sessionId: row.session_id, seq: row.seq, runId: row.run_id, kind: row.kind, payload: parseJson(row.payload, {}), createdAt: row.created_at }));
+function sessionEvents(sessionId: string, beforeSeq = Number.MAX_SAFE_INTEGER, limit?: number) {
+    const rows = limit === undefined
+        ? db.prepare("SELECT * FROM agent_events WHERE session_id=? AND seq<? ORDER BY seq").all(sessionId, beforeSeq)
+        : db.prepare("SELECT * FROM (SELECT * FROM agent_events WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?) ORDER BY seq").all(sessionId, beforeSeq, Math.min(Math.max(limit, 1), 1000));
+    return compactStreamEvents(rows as Array<{ session_id: string; seq: number; run_id: string | null; kind: AgentEventKind; payload: string; created_at: string }>);
+}
+
+function compactStreamEvents(rows: Array<{ session_id: string; seq: number; run_id: string | null; kind: AgentEventKind; payload: string; created_at: string }>) {
+    const events: AgentEvent[] = [];
+    const streams = new Map<string, AgentEvent>();
+    for (const row of rows) {
+        const payload = parseJson<Record<string, unknown>>(row.payload, {});
+        const event = { sessionId: row.session_id, seq: row.seq, runId: row.run_id, kind: row.kind, payload, createdAt: row.created_at } satisfies AgentEvent;
+        const streamId = (row.kind === "assistant_text" || row.kind === "thinking") ? String(payload.streamId || "") : "";
+        if (!streamId) { events.push(event); continue; }
+        const key = `${row.kind}:${streamId}`;
+        const current = streams.get(key);
+        if (!current) { streams.set(key, event); events.push(event); continue; }
+        if (payload.delta) current.payload = { ...current.payload, text: `${String(current.payload.text || "")}${String(payload.text || "")}` };
+        else {
+            current.seq = event.seq;
+            current.runId = event.runId;
+            current.createdAt = event.createdAt;
+            current.payload = { ...payload, delta: false };
+        }
+    }
+    return events;
 }
 
 function publishProjectSnapshot(userId: string, projectId: string) {

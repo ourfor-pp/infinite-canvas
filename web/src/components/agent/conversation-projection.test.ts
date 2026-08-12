@@ -7,7 +7,7 @@ const event = (seq: number, kind: AgentEvent["kind"], payload: Record<string, un
 describe("conversation projection", () => {
     it("merges streaming text and tool results", () => {
         const result = projectAgentEvents([event(1, "assistant_text", { streamId: "a", delta: true, text: "你" }), event(2, "assistant_text", { streamId: "a", delta: true, text: "好" }), event(3, "assistant_text", { streamId: "a", text: "你好" }), event(4, "tool_call", { toolId: "t", toolName: "Read" }), event(5, "tool_result", { toolId: "t", output: "ok" })]);
-        expect(result).toHaveLength(2); expect(result[0].text).toBe("你好"); expect(result[1].result?.seq).toBe(5);
+        expect(result).toHaveLength(2); expect(result[0].text).toBe("你好"); expect(result[0].seq).toBe(3); expect(result[1].result?.seq).toBe(5);
     });
     it("keeps approvals and questions inside their round", () => {
         const items = buildConversationItems([event(1, "user_text", { text: "开始" }), event(2, "approval_request", { id: "d" }), event(3, "approval_response", { decision: "approved" })]);
@@ -22,5 +22,14 @@ describe("conversation projection", () => {
     it("falls back to the last assistant text for legacy completed rounds", () => {
         const result = splitAssistantRoundEvents(projectAgentEvents([event(1, "assistant_text", { text: "过程" }), event(2, "assistant_text", { text: "最终" }), event(3, "run_state", { state: "completed" })]));
         expect(result.answers.map((item) => item.seq)).toEqual([2]); expect(result.processMessages.map((item) => item.seq)).toEqual([1]);
+    });
+    it("keeps the final streamed reply when a stale snapshot points at a missing sequence", () => {
+        const result = splitAssistantRoundEvents(projectAgentEvents([
+            event(1, "assistant_text", { streamId: "reply", delta: true, text: "最终" }),
+            event(2, "assistant_text", { streamId: "reply", delta: true, text: "正文" }),
+            event(3, "run_state", { state: "completed", finalAssistantEventSeq: 9 }),
+        ]));
+        expect(result.answers).toHaveLength(1);
+        expect(result.answers[0].text).toBe("最终正文");
     });
 });

@@ -14,7 +14,7 @@ const events: AgentEvent[] = [
     { sessionId: "s", runId: "done", seq: 3, kind: "thinking", payload: { text: "先读取故事和创作资产" }, createdAt: new Date().toISOString() },
     { sessionId: "s", runId: "done", seq: 4, kind: "tool_call", payload: { toolId: "t", toolName: "canvas_read", input: {} }, createdAt: new Date().toISOString() },
     { sessionId: "s", runId: "done", seq: 5, kind: "tool_result", payload: { toolId: "t", output: "ok" }, createdAt: new Date().toISOString() },
-    { sessionId: "s", runId: "done", seq: 6, kind: "assistant_text", payload: { text: "画布结构已经读取完成。" }, createdAt: new Date().toISOString() },
+    { sessionId: "s", runId: "done", seq: 6, kind: "assistant_text", payload: { text: "## 画布结构\n\n画布结构已经读取完成。" }, createdAt: new Date().toISOString() },
     { sessionId: "s", runId: "done", seq: 7, kind: "run_state", payload: { state: "completed", content: "Agent 执行完成", finalAssistantEventSeq: 6 }, createdAt: new Date().toISOString() },
     { sessionId: "s", runId: "running", seq: 8, kind: "user_text", payload: { text: "继续完善" }, createdAt: new Date().toISOString() },
     { sessionId: "s", runId: "running", seq: 9, kind: "run_state", payload: { state: "running", content: "Agent 已开始处理" }, createdAt: new Date().toISOString() },

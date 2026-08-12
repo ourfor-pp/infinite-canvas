@@ -2,9 +2,9 @@ export type CreativeAssetKind = "character" | "scene" | "prop";
 export type CreativeAssetStatus = "draft" | "confirmed" | "locked";
 
 export const CREATIVE_ASSET_NODE_LAYOUT = {
-    character: { width: 420, height: 760, title: "角色" },
-    scene: { width: 420, height: 610, title: "场景" },
-    prop: { width: 420, height: 610, title: "道具" },
+    character: { width: 420, height: 620, title: "角色" },
+    scene: { width: 420, height: 500, title: "场景" },
+    prop: { width: 420, height: 500, title: "道具" },
 } satisfies Record<CreativeAssetKind, { width: number; height: number; title: string }>;
 
 export function isCreativeAssetNodeType(type: string): type is CreativeAssetKind {

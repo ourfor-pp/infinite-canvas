@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { App, Button, Dropdown, Image as AntImage, Input } from "antd";
+import { App, Button, Dropdown, Image as AntImage, Input, Tooltip } from "antd";
 import { AudioLines, BookmarkPlus, Bot, Box, Check, CircleDot, ImagePlus, LockKeyhole, MapPinned, MoreHorizontal, Sparkles, Star, Upload, UserRound } from "lucide-react";
 
 import { serverFileUrl, uploadServerFile } from "@/services/api/server";
@@ -159,13 +159,15 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
             <Input variant="borderless" className="min-w-0 flex-1 !px-1 !text-lg !font-semibold" value={draft.name} onChange={(event) => change({ name: event.target.value })} aria-label={`${meta.label}名称`} />
             {dirty ? <span className="size-1.5 rounded-full" title="正在自动保存" style={{ background: meta.accent }} /> : null}
             {asset.status === "locked" ? <LockKeyhole className="size-3.5 opacity-45" /> : asset.status === "confirmed" ? <Check className="size-3.5 opacity-45" /> : null}
+            {primaryImage ? <Tooltip title={generation ? `生成中 ${Math.round(generation.progress * 100)}%` : `重新生成${meta.sheet}`}><Button type="text" size="small" aria-label={`重新生成${meta.sheet}`} icon={<Sparkles className="size-4" />} loading={busy === "image" || Boolean(generation)} onClick={() => void runGeneration("image")} /></Tooltip> : null}
+            <Tooltip title="交给 Agent"><Button type="text" size="small" aria-label="交给 Agent" icon={<Bot className="size-4" />} onClick={() => void askAgent()} /></Tooltip>
             <Dropdown trigger={["click"]} menu={menu}><Button type="text" size="small" icon={<MoreHorizontal className="size-4" />} /></Dropdown>
         </header>
 
         <div className="mb-2 mt-4 flex items-center justify-between text-[10px] font-medium tracking-wide" style={{ color: ctx.theme.node.muted }}><span>{meta.sheet}</span><PortHint label="参考图" count={linked("reference-image")} icon={<ImagePlus className="size-3" />} /></div>
         <AntImage.PreviewGroup>
             <div className="relative aspect-video shrink-0 overflow-hidden rounded-xl border" style={{ borderColor: ctx.theme.node.stroke, background: `${meta.accent}0c` }}>
-                {primaryImage ? <AntImage rootClassName="size-full" src={serverFileUrl(`server:${primaryImage.fileId}`)} alt={asset.name} className="!size-full !object-contain" preview={{ mask: "查看设计图" }} /> : <EmptySheet asset={asset} />}
+                {primaryImage ? <AntImage rootClassName="size-full" src={serverFileUrl(`server:${primaryImage.fileId}`)} alt={asset.name} className="!size-full !object-contain" preview={{ mask: "查看设计图" }} /> : <EmptySheet asset={asset} generation={generation} busy={busy === "image"} onGenerate={() => void runGeneration("image")} />}
                 {generation ? <div className="absolute inset-x-0 bottom-0 h-1 bg-black/10"><span className="block h-full transition-[width]" style={{ width: `${Math.max(4, Math.round(generation.progress * 100))}%`, background: meta.accent }} /></div> : null}
             </div>
             {previewItems.length > 1 || imageReferences.length ? <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
@@ -185,15 +187,13 @@ function CreativeAssetCard({ asset, generation, ctx }: { asset: CreativeAsset; g
             <div className="mt-2 flex items-center gap-2"><Input className="min-w-0 flex-1" size="small" value={sampleLine} onChange={(event) => setSampleLine(event.target.value)} placeholder="输入一句试听台词" /><Button size="small" icon={<Sparkles className="size-3" />} loading={busy === "audio"} onClick={() => void runGeneration("audio")}>{primaryAudio ? "重新生成" : "生成声音"}</Button></div>
         </section> : null}
 
-        <div className="mt-auto grid grid-cols-[auto_1fr] gap-2 pt-3"><Button icon={<Bot className="size-3.5" />} onClick={() => void askAgent()}>交给 Agent</Button><Button type="primary" icon={<Sparkles className="size-3.5" />} loading={busy === "image" || Boolean(generation)} onClick={() => void runGeneration("image")}>{generation ? `生成中 ${Math.round(generation.progress * 100)}%` : primaryImage ? `重新生成${meta.sheet}` : `生成${meta.sheet}`}</Button></div>
-
         <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void uploadReference("image", file); }} />
         <input ref={audioInputRef} type="file" accept="audio/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void uploadReference("audio", file); }} />
     </article>;
 }
 
 function PortHint({ label, count, icon }: { label: string; count: number; icon?: ReactNode }) { return count ? <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] opacity-65">{icon}{label} · {count}</span> : null; }
-function EmptySheet({ asset }: { asset: CreativeAsset }) { const meta = META[asset.kind]; const Icon = meta.icon; return <span className="grid size-full place-items-center"><span className="text-center"><Icon className="mx-auto size-12 opacity-15" /><span className="mt-2 block text-[10px] opacity-45">{meta.empty}</span></span></span>; }
+function EmptySheet({ asset, generation, busy, onGenerate }: { asset: CreativeAsset; generation?: { status: string; progress: number }; busy: boolean; onGenerate: () => void }) { const meta = META[asset.kind]; return <span className="grid size-full place-items-center"><button type="button" className="group flex flex-col items-center gap-2.5 rounded-xl px-5 py-4 text-xs font-medium transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-50" style={{ color: meta.accent }} disabled={busy || Boolean(generation)} onClick={onGenerate}><span className="relative grid size-12 place-items-center"><span className="absolute inset-1 rounded-full border opacity-25 transition-transform duration-300 group-hover:scale-125" style={{ borderColor: meta.accent }} /><span className="absolute inset-0 rounded-full border opacity-10 transition-transform duration-300 group-hover:scale-110" style={{ borderColor: meta.accent }} /><Sparkles className={`size-5 ${generation ? "animate-pulse" : ""}`} /></span><span>{generation ? `生成中 ${Math.round(generation.progress * 100)}%` : meta.empty}</span></button></span>; }
 function LoadingAsset({ kind, ctx }: { kind: CreativeAssetKind; ctx: CanvasNodeContext }) { const meta = META[kind] || META.character; const Icon = meta.icon; return <div className="grid size-full place-items-center" style={{ background: ctx.theme.node.panel, color: ctx.theme.node.muted }}><div className="text-center"><Icon className="mx-auto size-8 opacity-20" /><p className="mt-3 text-[10px] tracking-[0.18em]">正在读取{meta.label}设定</p></div></div>; }
 function primaryVariant(asset: CreativeAsset, kind: "image" | "audio") { const id = kind === "image" ? asset.payload.primaryImageId : asset.payload.primaryAudioId; return asset.payload.variants.find((item) => item.kind === kind && item.id === id); }
 function descriptionPlaceholder(kind: CreativeAssetKind) { return kind === "character" ? "描述年龄感、体态、面部、发型、服装、配饰和标志性色彩" : kind === "scene" ? "描述空间结构、固定陈设、材质、光线、色调和标志性细节" : "描述形态、材质、尺寸、颜色、纹理、磨损和可识别细节"; }

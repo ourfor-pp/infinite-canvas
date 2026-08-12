@@ -131,9 +131,9 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
     const images = attachments.filter((item) => String(item.mimeType || "").startsWith("image/") && item.fileId);
     const files = attachments.filter((item) => !String(item.mimeType || "").startsWith("image/") || !item.fileId);
     return (
-        <div className="agent-user-row scroll-mt-4" data-agent-user-seq={event.seq}>
-            <article className="agent-user-item">
-                <div className="agent-user-bubble" style={{ background: theme.toolbar.itemHover }}>
+        <div className="flex w-full scroll-mt-4 justify-end pl-10" data-agent-user-seq={event.seq}>
+            <article className="group flex min-w-0 max-w-[88%] flex-col items-end">
+                <div className="agent-user-bubble w-fit max-w-full rounded-[18px_18px_5px_18px] px-3.5 py-2.5 text-sm leading-6">
                 {text ? <div className={`whitespace-pre-wrap break-words ${long && !expanded ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_75%,transparent)]" : ""}`}>{visibleText}</div> : null}
                 {long ? <button type="button" className="mt-1 text-xs font-medium opacity-55 hover:opacity-80" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开全文"}</button> : null}
                 {images.length ? <Image.PreviewGroup><div className="mt-2 grid grid-cols-3 gap-1.5">{images.map((item, index) => <Image key={String(item.fileId || index)} src={fileUrl(String(item.fileId))} alt={String(item.name || "图片附件")} className="!h-20 !w-full rounded-lg object-cover" />)}</div></Image.PreviewGroup> : null}
@@ -147,16 +147,16 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
                     </div>
                 ) : null}
                 </div>
-                {text ? <div className="agent-user-actions">
-                    <Tooltip title="复制消息内容"><button type="button" aria-label="复制消息内容" onClick={() => copyText(text, "已复制消息内容")}><Copy className="size-3.5" /></button></Tooltip>
-                    {onRestart ? <Popconfirm title="确认重新开始聊天线程？" description="会新建分支并把这条消息填回输入框；画布和工作目录不会回滚。" okText="确认重新开始" cancelText="取消" onConfirm={() => onRestart(event)}><Tooltip title="从这条消息重新开始"><button type="button" aria-label="从这条消息重新开始" disabled={restarting}><Pencil className="size-3.5" /></button></Tooltip></Popconfirm> : null}
+                {text ? <div className="mt-1.5 flex gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    <Tooltip title="复制消息内容"><button type="button" aria-label="复制消息内容" onClick={() => copyText(text, "已复制消息内容")} className="grid size-7 place-items-center rounded-full border transition hover:-translate-y-px" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.muted }}><Copy className="size-3.5" /></button></Tooltip>
+                    {onRestart ? <Popconfirm title="确认重新开始聊天线程？" description="会新建分支并把这条消息填回输入框；画布和工作目录不会回滚。" okText="确认重新开始" cancelText="取消" onConfirm={() => onRestart(event)}><Tooltip title="从这条消息重新开始"><button type="button" aria-label="从这条消息重新开始" disabled={restarting} className="grid size-7 place-items-center rounded-full border transition hover:-translate-y-px disabled:cursor-wait disabled:opacity-40" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.muted }}><Pencil className="size-3.5" /></button></Tooltip></Popconfirm> : null}
                 </div> : null}
             </article>
         </div>
     );
 }, (previous, next) => previous.theme === next.theme && previous.event.seq === next.event.seq && previous.event.payload === next.event.payload && previous.restarting === next.restarting && previous.onRestart === next.onRestart);
 
-const AssistantRound = memo(function AssistantRound({ events, theme, status, pendingDecision, decisionValue = "", decisionBusy = false, onDecisionValue, onDecide, onBeforeProcessAutoCollapse }: { events: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; pendingDecision?: AgentPendingDecision | null; decisionValue?: string; decisionBusy?: boolean; onDecisionValue?: (value: string) => void; onDecide?: (decision: "approved" | "rejected", scope?: "once" | "session" | "project", proposalEdits?: unknown) => void; onBeforeProcessAutoCollapse?: (element: HTMLElement) => void }) {
+export const AssistantRound = memo(function AssistantRound({ events, theme, status, pendingDecision, decisionValue = "", decisionBusy = false, onDecisionValue, onDecide, onBeforeProcessAutoCollapse }: { events: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; pendingDecision?: AgentPendingDecision | null; decisionValue?: string; decisionBusy?: boolean; onDecisionValue?: (value: string) => void; onDecide?: (decision: "approved" | "rejected", scope?: "once" | "session" | "project", proposalEdits?: unknown) => void; onBeforeProcessAutoCollapse?: (element: HTMLElement) => void }) {
     const process = events.filter((event) => event.kind === "thinking" || event.kind === "tool_call");
     const { processMessages, answers } = splitAssistantRoundEvents(events);
     const artifacts = events.filter((event) => event.kind === "artifact");
@@ -164,7 +164,15 @@ const AssistantRound = memo(function AssistantRound({ events, theme, status, pen
     const states = events.filter((event) => event.kind === "run_state");
     const requests = events.filter((event) => event.kind === "approval_request" || event.kind === "question_request");
     const responses = events.filter((event) => event.kind === "approval_response" || event.kind === "question_response");
+    const decisionHistory = requests.flatMap((event, index) => {
+        const request = decisionFromRequest(event);
+        if (!request || pendingDecision?.id === request.id) return [];
+        const nextRequest = requests[index + 1];
+        const response = responses.find((item) => item.runId === event.runId && item.seq > event.seq && (!nextRequest || item.seq < nextRequest.seq));
+        return [{ request, event, response }];
+    });
     const latestState = states.at(-1);
+    const roundCompleted = latestState?.payload.state === "completed" || status === "completed";
     const copyText = answers.map(eventText).filter(Boolean).join("\n\n");
     const [copied, setCopied] = useState(false);
     const copy = async () => {
@@ -175,27 +183,27 @@ const AssistantRound = memo(function AssistantRound({ events, theme, status, pen
     };
     return (
         <div className="group/round pr-1">
-            {process.length || processMessages.length ? <ProcessGroup events={process} processMessages={processMessages} roundEvents={events} theme={theme} status={status} onBeforeAutoCollapse={onBeforeProcessAutoCollapse} /> : null}
+            {process.length || processMessages.length || decisionHistory.length ? <ProcessGroup events={process} processMessages={processMessages} decisions={decisionHistory} roundEvents={events} theme={theme} status={status} onBeforeAutoCollapse={onBeforeProcessAutoCollapse} /> : null}
             <div className="agent-streamdown relative mt-2 text-sm leading-6">
                 {answers.map((event) => <Streamdown key={`${event.sessionId}:${event.seq}`} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } }} isAnimating={Boolean(event.payload.delta)}>{eventText(event)}</Streamdown>)}
-                {copyText ? <Tooltip title={copied ? "已复制" : "复制回复"}><button type="button" onClick={() => void copy()} className="absolute -bottom-6 left-0 grid size-6 place-items-center rounded-md opacity-0 transition hover:bg-black/5 group-hover/round:opacity-50 dark:hover:bg-white/10">{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}</button></Tooltip> : null}
+                {copyText && roundCompleted ? <Tooltip title={copied ? "已复制" : "复制回复"}><button type="button" aria-label="复制本轮回复内容" onClick={() => void copy()} className="absolute -bottom-6 left-0 grid size-6 place-items-center rounded-md opacity-0 transition hover:bg-black/5 group-hover/round:opacity-50 focus-visible:opacity-50 dark:hover:bg-white/10">{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}</button></Tooltip> : null}
             </div>
             {artifacts.length ? <ArtifactStrip events={artifacts} theme={theme} /> : null}
             {requests.map((event) => {
-                const request = decisionFromRequest(event); const response = responses.find((item) => item.runId === event.runId && item.seq > event.seq);
+                const request = decisionFromRequest(event);
                 if (!request) return null;
                 if (pendingDecision?.id === request.id && onDecisionValue && onDecide) return <AgentDecisionCard key={event.seq} pending={pendingDecision} value={decisionValue} theme={theme} busy={decisionBusy} onChange={onDecisionValue} onDecide={onDecide} />;
-                return <div key={event.seq} className="agent-decision-history"><ShieldAlert className="size-4" /><span><strong>{request.kind === "question" ? "Agent 追问" : "操作确认"}</strong><small>{request.content}</small>{response ? <em>{String(response.payload.decision || "completed") === "approved" ? "已允许" : "已处理"}</em> : <em>已结束</em>}</span></div>;
+                return null;
             })}
             {errors.map((event) => <div key={event.seq} className="mt-3 rounded-xl border border-red-500/25 bg-red-500/5 px-3 py-2.5 text-sm text-red-600 dark:text-red-300"><div className="flex items-center gap-2 font-medium"><CircleAlert className="size-4" />{String(event.payload.code || "Agent 执行失败")}</div><div className="mt-1 opacity-80">{eventText(event)}</div></div>)}
-            {latestState ? <RunState event={latestState} hasAnswer={answers.length > 0} /> : null}
+            {latestState ? <RunState event={latestState} /> : null}
         </div>
     );
 });
 
-function ProcessGroup({ events, processMessages, roundEvents, theme, status, onBeforeAutoCollapse }: { events: ProjectedEvent[]; processMessages: ProjectedEvent[]; roundEvents: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; onBeforeAutoCollapse?: (element: HTMLElement) => void }) {
+function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, status, onBeforeAutoCollapse }: { events: ProjectedEvent[]; processMessages: ProjectedEvent[]; decisions: Array<{ request: AgentPendingDecision; event: ProjectedEvent; response?: ProjectedEvent }>; roundEvents: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; onBeforeAutoCollapse?: (element: HTMLElement) => void }) {
     const groupRef = useRef<HTMLElement>(null);
-    const [open, setOpen] = useState(status === "running" || status === "waiting_for_user");
+    const [open, setOpen] = useState(false);
     const wasRunning = useRef(status === "running");
     const [now, setNow] = useState(Date.now());
     const tools = events.filter((event) => event.kind === "tool_call");
@@ -210,15 +218,15 @@ function ProcessGroup({ events, processMessages, roundEvents, theme, status, onB
         return () => window.clearInterval(timer);
     }, [running]);
     useEffect(() => {
-        if (running) { wasRunning.current = true; setOpen(true); }
-        else if (wasRunning.current && !failed) { wasRunning.current = false; if (groupRef.current) onBeforeAutoCollapse?.(groupRef.current); setOpen(false); }
-    }, [failed, onBeforeAutoCollapse, running]);
+        if (wasRunning.current && !running && open && !failed) { if (groupRef.current) onBeforeAutoCollapse?.(groupRef.current); setOpen(false); }
+        wasRunning.current = running;
+    }, [failed, onBeforeAutoCollapse, open, running]);
     return (
         <section ref={groupRef} className="agent-process-group">
             <button type="button" className="agent-process-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
                 <ChevronRight className={`size-3.5 transition ${open ? "rotate-90" : ""}`} />
                 {running ? <LoaderCircle className="size-3.5 animate-spin" /> : failed ? <CircleAlert className="size-3.5 text-red-500" /> : <Check className="size-3.5 text-emerald-500" />}
-                <span>{running ? "正在执行" : "已完成"}{thinking.length ? ` ${thinking.length} 段思考` : ""}{tools.length ? ` · ${tools.length} 次工具调用` : ""}{processMessages.length ? ` · ${processMessages.length} 条过程记录` : ""}</span>
+                <span>{running ? "正在执行" : "已完成"}{thinking.length ? ` ${thinking.length} 段思考` : ""}{tools.length ? ` · ${tools.length} 次工具调用` : ""}{processMessages.length + decisions.length ? ` · ${processMessages.length + decisions.length} 条过程记录` : ""}</span>
                 {duration ? <em>本轮耗时 {duration}</em> : null}
             </button>
             {open ? (
@@ -227,6 +235,7 @@ function ProcessGroup({ events, processMessages, roundEvents, theme, status, onB
                         ? <ThinkingStep key={`${event.seq}`} event={event} theme={theme} />
                         : <ToolStep key={`${event.seq}`} event={event} theme={theme} now={now} terminalStatus={terminal ? status : undefined} />)}
                     {processMessages.length ? <div className="agent-process-records">{processMessages.map((event) => <div key={event.seq} className="agent-process-record"><Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } }}>{eventText(event)}</Streamdown></div>)}</div> : null}
+                    {decisions.length ? <div className="agent-process-records">{decisions.map(({ request, event, response }) => <div key={event.seq} className="agent-process-record flex items-start gap-2"><ShieldAlert className="mt-1 size-3.5 shrink-0" /><span className="min-w-0"><strong className="block font-medium text-current">{request.kind === "question" ? "Agent 追问" : "操作确认"}</strong><span className="block break-words">{request.content}</span><em className="mt-0.5 block text-[10px] not-italic opacity-60">{response ? String(response.payload.decision || "completed") === "approved" ? "已允许" : "已处理" : "已结束"}</em></span></div>)}</div> : null}
                 </div>
             ) : null}
         </section>
@@ -285,9 +294,9 @@ function ArtifactStrip({ events, theme }: { events: ProjectedEvent[]; theme: Can
     );
 }
 
-function RunState({ event, hasAnswer }: { event: ProjectedEvent; hasAnswer: boolean }) {
+function RunState({ event }: { event: ProjectedEvent }) {
     const state = String(event.payload.state || "");
-    if (state === "completed" && hasAnswer) return null;
+    if (state === "completed") return null;
     const text = eventText(event) || (state === "running" ? "模型正在处理中…" : state === "failed" ? "Agent 执行失败" : "Agent 已停止");
     return <div className="agent-status-row"><span className={`agent-status-pill is-${state || "idle"}`}>{state === "running" ? <i aria-hidden="true" /> : state === "failed" ? <CircleAlert className="size-3.5" /> : <Check className="size-3.5" />}<span>{text}</span></span></div>;
 }
@@ -557,7 +566,7 @@ function resolveSuggestion(value: string, cursor: number, skills: AgentSkill[], 
 function arrayOf<T>(value: unknown): T[] { return Array.isArray(value) ? value as T[] : []; }
 function recordOf(value: unknown): Record<string, unknown> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function fileUrl(id: string) { return serverApiUrl(`/files/${encodeURIComponent(id)}/content`); }
-function MetaChip({ icon, text }: { icon: ReactNode; text: string }) { return <span className="inline-flex max-w-44 items-center gap-1 truncate rounded-md bg-black/5 px-1.5 py-0.5 text-[10px] dark:bg-white/10">{icon}<span className="truncate">{text}</span></span>; }
+function MetaChip({ icon, text }: { icon: ReactNode; text: string }) { return <span className="agent-user-meta-chip inline-flex max-w-44 items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[10px]">{icon}<span className="truncate">{text}</span></span>; }
 function formatUnknown(value: unknown) { if (typeof value === "string") return value; return JSON.stringify(value, null, 2) ?? String(value ?? ""); }
 function formatBytes(bytes: number) { if (!bytes) return "文件"; if (bytes < 1024) return `${bytes} B`; if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`; return `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
 function fileIcon(mime: string) { if (mime.startsWith("image/")) return <ImageIcon className="size-3.5" />; if (mime.startsWith("video/")) return <FileVideo className="size-3.5" />; if (mime.startsWith("audio/")) return <FileAudio className="size-3.5" />; if (mime.includes("pdf") || mime.startsWith("text/")) return <FileText className="size-3.5" />; return <File className="size-3.5" />; }

@@ -91,7 +91,7 @@ test("创作资产按项目隔离、保存自然语言描述并检测 revision",
     assert.equal(project.body.data.nodes.filter((node: { metadata?: { assetId?: string } }) => node.metadata?.assetId === assetId).length, 2);
     assert.equal(project.body.data.nodes.some((node: { type: string; title: string }) => node.type === "group" && node.title === "角色设定"), false);
     const businessNode = project.body.data.nodes.find((node: { id: string }) => node.id === firstView.body.data.nodeId);
-    assert.deepEqual({ type: businessNode.type, width: businessNode.width, height: businessNode.height }, { type: "character", width: 420, height: 760 });
+    assert.deepEqual({ type: businessNode.type, width: businessNode.width, height: businessNode.height }, { type: "character", width: 420, height: 620 });
 
     assert.equal((await api(`/creative-assets/${assetId}`, userOne, { method: "DELETE" })).response.status, 200);
     const afterDelete = await api("/projects/project-1", userOne);
@@ -315,6 +315,22 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     const branchRow = db.prepare("SELECT sdk_session_id, fork_pending, fork_resume_at FROM agent_sessions WHERE id=?").get(branch.body.data.id) as { sdk_session_id: string; fork_pending: number; fork_resume_at: string };
     assert.deepEqual(branchRow, { sdk_session_id: "sdk-session-1", fork_pending: 1, fork_resume_at: "sdk-anchor-1" });
     assert.equal((await api(`/agent/sessions/${heldSession}/fork`, userTwo, { method: "POST", body: JSON.stringify({ fromEventSeq: 3 }) })).response.status, 404);
+
+    const longSession = await api("/agent/projects/project-1/sessions", userOne, { method: "POST", body: "{}" });
+    const insertLongEvent = db.prepare("INSERT INTO agent_events(session_id,seq,run_id,kind,payload,created_at) VALUES(?,?,?,?,?,datetime('now'))");
+    db.transaction(() => {
+        insertLongEvent.run(longSession.body.data.id, 1, "long-run", "user_text", JSON.stringify({ text: "不能被流式事件挤掉的用户消息" }));
+        for (let seq = 2; seq <= 602; seq += 1) insertLongEvent.run(longSession.body.data.id, seq, "long-run", "assistant_text", JSON.stringify({ text: "字", delta: true, streamId: "long-answer" }));
+        insertLongEvent.run(longSession.body.data.id, 603, "long-run", "assistant_text", JSON.stringify({ text: "完整回答", delta: false, streamId: "long-answer" }));
+        insertLongEvent.run(longSession.body.data.id, 604, "long-run", "run_state", JSON.stringify({ state: "completed", finalAssistantEventSeq: 603 }));
+        db.prepare("UPDATE agent_sessions SET event_seq=604, status='completed' WHERE id=?").run(longSession.body.data.id);
+    })();
+    const longConversation = await api(`/agent/projects/project-1/conversation?sessionId=${longSession.body.data.id}`, userOne);
+    assert.deepEqual(longConversation.body.data.session.events.map((item: { kind: string }) => item.kind), ["user_text", "assistant_text", "run_state"]);
+    assert.equal(longConversation.body.data.session.events[0].payload.text, "不能被流式事件挤掉的用户消息");
+    assert.equal(longConversation.body.data.session.events[1].payload.text, "完整回答");
+    assert.equal(longConversation.body.data.session.events[1].seq, 603);
+    assert.equal(longConversation.body.data.session.events[2].payload.finalAssistantEventSeq, longConversation.body.data.session.events[1].seq);
 
     const skills = await api("/agent/skills", userTwo);
     assert.equal(skills.response.status, 200);
