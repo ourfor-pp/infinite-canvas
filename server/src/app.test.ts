@@ -143,6 +143,22 @@ test("视觉风格支持项目默认、画布放置、隔离和删除回收", as
     assert.equal(deleted.body.data.nodes.some((node: { metadata?: { visualStyleId?: string } }) => node.metadata?.visualStyleId === styleId), false);
 });
 
+test("内置视觉风格提供原创预览和完整 DNA，创建时展开为项目快照", async () => {
+    const templates = (await api("/visual-style-templates", userOne)).body.data as Array<{ id: string; category: string; preview: string; tagline: string; description: string; dna: Record<string, string | string[]> }>;
+    assert.equal(templates.length, 25);
+    assert.deepEqual(new Set(templates.map((item) => item.category)), new Set(["cinematic", "genre", "eastern", "animation", "handmade", "graphic"]));
+    assert.equal(templates.every((item) => item.preview === `visual-styles/${item.id}.webp` && item.tagline && item.description), true);
+    assert.equal(templates.every((item) => Object.entries(item.dna).every(([key, value]) => key === "exclusions" ? (value as string[]).length > 0 : String(value).trim().length > 0)), true);
+
+    const projectId = "built-in-style-project";
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "内置风格", nodes: [], connections: [] }) });
+    const created = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "未命名风格", mode: "template", templateId: "ink-wash" }) });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.data.description, templates.find((item) => item.id === "ink-wash")?.description);
+    assert.equal(created.body.data.dna.medium, "水墨与淡彩动画");
+    assert.equal(created.body.data.dna.exclusions.includes("文字"), true);
+});
+
 test("Agent 画布操作校验语义端口类型和单连接限制", async () => {
     const projectId = "semantic-port-project";
     await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "端口测试", nodes: [], connections: [] }) });

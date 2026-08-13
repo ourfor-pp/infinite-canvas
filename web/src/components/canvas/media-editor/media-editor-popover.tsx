@@ -17,7 +17,8 @@ export function MediaEditorPopover({ anchorRef, open, onClose, target }: { ancho
         const sync = () => setRect(anchorRef.current?.getBoundingClientRect() || null);
         const outside = (event: PointerEvent) => {
             const node = event.target;
-            if (!(node instanceof Node) || anchorRef.current?.contains(node) || panelRef.current?.contains(node) || (node instanceof Element && node.closest("[role=listbox],[data-canvas-resource-mention-menu],.ant-select-dropdown,.media-image-preview,.ant-image-preview-root,.ant-image-preview-wrap,.ant-image-preview-mask,.ant-image-preview-close,.ant-image-preview-operations-wrapper,.ant-popover"))) return;
+            if (!(node instanceof Node) || anchorRef.current?.contains(node) || panelRef.current?.contains(node) || (node instanceof Element && node.closest("[data-canvas-floating-control],[role=listbox],[data-canvas-resource-mention-menu],.ant-select-dropdown,.media-image-preview,.ant-image-preview-root,.ant-image-preview-wrap,.ant-image-preview-mask,.ant-image-preview-close,.ant-image-preview-operations-wrapper,.ant-popover"))) return;
+            if (document.querySelector('[data-canvas-floating-control][data-state="open"], [data-canvas-floating-control].canvas-image-settings-popover, .ant-popover:not(.ant-popover-hidden)')) return;
             onClose();
         };
         window.dispatchEvent(new CustomEvent(eventName, { detail: target.key }));

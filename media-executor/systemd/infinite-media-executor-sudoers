@@ -1,0 +1,2 @@
+# Install as /etc/sudoers.d/infinite-media-executor with mode 0440 after replacing MEDIA_USER.
+MEDIA_USER ALL=(root) NOPASSWD: /usr/bin/systemctl is-active comfyui.service, /usr/bin/systemctl stop comfyui.service, /usr/bin/systemctl start comfyui.service, /usr/bin/systemctl is-active comfyui-h3.service, /usr/bin/systemctl stop comfyui-h3.service, /usr/bin/systemctl start comfyui-h3.service

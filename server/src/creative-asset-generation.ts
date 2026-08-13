@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { buildCreativeAssetPrompt, creativeAssetAudioMode, getCreativeAsset } from "./creative-assets.js";
 import { createGeneration } from "./generation-service.js";
-import { listModelDefaults, listPublicModels, type AudioMode } from "./provider-service.js";
+import { getAiGlobalSettings, listModelDefaults, listPublicModels, type AudioMode } from "./provider-service.js";
 import { resolveCreativeAssetNodeInputs } from "./visual-styles.js";
 
 const inputSchema = z.object({
@@ -19,21 +19,24 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     const asset = getCreativeAsset(userId, assetId);
     if (asset.revision !== input.revision) throw generationError(409, "CREATIVE_ASSET_CONFLICT", `创作资产版本已从 ${input.revision} 更新为 ${asset.revision}`, { current: asset });
     const draft = asset.payload.mediaDrafts[input.kind];
-    const modelRef = draft.model || listModelDefaults()[input.kind];
-    if (!modelRef) throw generationError(409, "AI_MODEL_NOT_CONFIGURED", `管理员尚未配置默认${input.kind === "image" ? "图片" : "音频"}模型`);
-    const model = listPublicModels().find((item) => item.value === modelRef && item.output === input.kind);
-    if (!model) throw generationError(400, "AI_MODEL_NOT_AVAILABLE", "所选模型不存在、未启用或能力不匹配");
-
     const connected = resolveCreativeAssetNodeInputs(userId, asset.projectId, asset.id, input.nodeId);
     const variants = asset.payload.variants;
-    const primaryImage = variants.find((item) => item.id === asset.payload.primaryImageId && item.kind === "image");
+    const audioMode = creativeAssetAudioMode(asset.kind);
+    const hasAudioReference = variants.some((item) => item.kind === "audio" && item.usage === "reference_input") || connected.audioReferences.length > 0;
+    const audioOperation = audioMode === "speech" && hasAudioReference ? "clone" : "generate";
+    const models = listPublicModels();
+    const audioDefault = getAiGlobalSettings().audioDefaults[audioMode]?.[audioOperation];
+    const modelRef = draft.model || (input.kind === "audio" && models.some((item) => item.value === audioDefault) ? audioDefault : listModelDefaults()[input.kind]);
+    if (!modelRef) throw generationError(409, "AI_MODEL_NOT_CONFIGURED", `管理员尚未配置默认${input.kind === "image" ? "图片" : "音频"}模型`);
+    const model = models.find((item) => item.value === modelRef && item.output === input.kind);
+    if (!model) throw generationError(400, "AI_MODEL_NOT_AVAILABLE", "所选模型不存在、未启用或能力不匹配");
+
     const imageReferences = variants.filter((item) => item.kind === "image" && item.usage === "reference_input");
     const audioReferences = variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
-    const audioMode = creativeAssetAudioMode(asset.kind);
     const styleReferenceFileId = connected.style?.references?.[asset.kind] || connected.style?.references?.source || null;
-    const supportsImageReferences = model.inputs.includes("image");
+    const supportsImageReferences = model.inputs.includes("image") && model.imageModes?.includes("edit") === true;
     const styleImageSupported = input.kind === "image" && Boolean(styleReferenceFileId && supportsImageReferences);
-    const requestedSubjectReferences = [...imageReferences.map((item) => ({ fileId: item.fileId, kind: "image" as const, source: "asset" as const, label: item.label || "资产参考图" })), ...(primaryImage ? [{ fileId: primaryImage.fileId, kind: "image" as const, source: "primary" as const, label: "当前主设计图" }] : [])];
+    const requestedSubjectReferences = imageReferences.map((item) => ({ fileId: item.fileId, kind: "image" as const, source: "asset" as const, label: item.label || "资产参考图" }));
     const requestedCompositionReferences = connected.imageReferences.map((item) => ({ ...item, kind: "image" as const, source: "canvas" as const }));
     const requestedImageReferences = dedupe([
         ...(styleReferenceFileId ? [{ fileId: styleReferenceFileId, kind: "image" as const, source: "style" as const, label: "视觉风格参考" }] : []),
@@ -43,7 +46,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     let references = input.kind === "image"
         ? supportsImageReferences ? requestedImageReferences : []
         : dedupe([
-            ...audioReferences.map((item) => ({ fileId: item.fileId, kind: "audio" as const, source: "asset" as const, label: item.label || "资产参考音频" })),
+            ...audioReferences.map((item) => ({ fileId: item.fileId, kind: "audio" as const, source: "asset" as const, label: item.label || "资产参考音频", transcript: item.transcript })),
             ...connected.audioReferences.map((item) => ({ ...item, kind: "audio" as const, source: "canvas" as const })),
         ]);
     const warnings: Array<{ code: string; message: string; blocking: boolean }> = [];
@@ -53,7 +56,8 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
         warnings.push({ code: "AI_MODEL_REFERENCE_LIMIT", message: `所选模型最多接收 ${referenceLimit} 张参考图，已按风格、主体、构图顺序截取`, blocking: false });
     }
     const styleImageApplied = input.kind === "image" && references.some((item) => item.source === "style");
-    if ((input.kind === "image" ? requestedImageReferences.length : references.length) && !model.inputs.includes(input.kind)) warnings.push({ code: "AI_MODEL_REFERENCE_UNSUPPORTED", message: `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`, blocking: true });
+    const requiredImageReferences = requestedSubjectReferences.length + requestedCompositionReferences.length;
+    if ((input.kind === "image" ? requiredImageReferences : references.length) && (input.kind === "image" ? !supportsImageReferences : !model.inputs.includes(input.kind))) warnings.push({ code: "AI_MODEL_REFERENCE_UNSUPPORTED", message: `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`, blocking: true });
     if (input.kind === "image" && styleReferenceFileId && !styleImageApplied) warnings.push({ code: "STYLE_IMAGE_NOT_APPLIED", message: "所选模型不支持风格参考图，本次只应用风格文字描述", blocking: false });
     if (input.kind === "image" && connected.style?.status === "draft" && !input.allowDraftStyle) warnings.push({ code: "VISUAL_STYLE_NOT_CONFIRMED", message: "当前视觉风格尚未确认；确认继续后仍可生成，但结果的一致性可能变化", blocking: true });
     if (input.kind === "audio" && !(model.audioModes || ["speech"]).includes(audioMode as AudioMode)) warnings.push({ code: "AI_MODEL_AUDIO_MODE_UNSUPPORTED", message: `所选模型不支持${audioModeLabel(audioMode)}`, blocking: true });
@@ -74,6 +78,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
         count: 1,
         ...(input.kind === "image" ? { size: "16:9" } : {}),
         ...(instructions ? { instructions } : {}),
+        ...(input.kind === "audio" ? { audioMode, audioOperation } : {}),
         __creativeAsset: { projectId: asset.projectId, assetId: asset.id, nodeId: input.nodeId, usage, label, transcript: draft.transcript, assetRevision: asset.revision, audioMode: input.kind === "audio" ? audioMode : undefined },
         __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: styleReferenceFileId, styleImageApplied } : null,
         __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds, imageReferences: connected.imageReferences, audioReferences: connected.audioReferences },
@@ -127,7 +132,7 @@ export function createCreativeAssetGeneration(userId: string, assetId: string, r
         kind: preview.kind,
         model: preview.model.value,
         prompt: preview.prompt,
-        references: preview.references.map(({ fileId, kind }) => ({ fileId, kind })),
+        references: preview.references.map(({ fileId, kind, ...reference }) => ({ fileId, kind, ...("transcript" in reference && typeof reference.transcript === "string" ? { transcript: reference.transcript } : {}) })),
         params: preview.params,
     });
 }

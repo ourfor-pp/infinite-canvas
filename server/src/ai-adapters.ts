@@ -10,7 +10,7 @@ import { modelEndpointRegistry, providerBaseUrl, providerPath, type AiModelDefin
 import type { GenerationPurpose } from "./comfy-workflows.js";
 
 export type GenerationMessage = { role: "system" | "user" | "assistant"; content: unknown };
-export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text"> };
+export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text">; transcript?: string };
 export type AiGenerationRequest = {
     kind: MediaKind;
     model?: string;

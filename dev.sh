@@ -4,6 +4,7 @@ set -euo pipefail
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 web_dir="$project_dir/web"
 server_dir="$project_dir/server"
+executor_dir="$project_dir/media-executor"
 server_data_dir="${SERVER_DATA_DIR:-$project_dir/data}"
 comfy_dir="${COMFYUI_DIR:-/home/cec/ComfyUI-H3}"
 comfy_models_dir="${COMFYUI_MODELS_DIR:-/data/sas/ComfyUI/models}"
@@ -11,6 +12,15 @@ comfy_unit="${COMFYUI_UNIT:-arcreel-comfyui-8189.service}"
 comfy_local_url="http://127.0.0.1:8189"
 comfy_log="$comfy_dir/comfyui-8189.log"
 comfy_python="$comfy_dir/.venv/bin/python"
+executor_local_url="http://127.0.0.1:8290"
+executor_env="${MEDIA_EXECUTOR_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/infinite-canvas/media-executor.env}"
+if [[ -r "$executor_env" ]]; then
+    executor_token="$(sed -n 's/^MEDIA_EXECUTOR_TOKEN=//p' "$executor_env" | tail -1)"
+    executor_data_dir="$(sed -n 's/^MEDIA_EXECUTOR_DATA_DIR=//p' "$executor_env" | tail -1)"
+else
+    executor_token="${MEDIA_EXECUTOR_TOKEN:-infinite-canvas-local-development}"
+    executor_data_dir="${MEDIA_EXECUTOR_DATA_DIR:-$server_data_dir/media-executor}"
+fi
 cuda_lib="$comfy_dir/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:$comfy_dir/.venv/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib"
 
 require_command() {
@@ -92,13 +102,64 @@ start_comfyui() {
     exit 1
 }
 
+start_media_executor() {
+    if curl -fsS -H "Authorization: Bearer $executor_token" "$executor_local_url/health" >/dev/null 2>&1; then
+        echo "媒体执行器已运行：$executor_local_url"
+        return
+    fi
+    if [[ ! -x "$executor_dir/.venv/bin/infinite-media-executor" ]]; then
+        echo "正在安装媒体执行器轻量依赖..."
+        (cd "$executor_dir" && uv sync --extra test)
+    fi
+    if systemctl --user cat infinite-media-executor.service >/dev/null 2>&1 && ! curl -sS -o /dev/null "$executor_local_url/health"; then
+        echo "正在启动常驻媒体执行器：$executor_local_url"
+        systemctl --user start infinite-media-executor.service
+        for _ in {1..60}; do
+            if curl -fsS -H "Authorization: Bearer $executor_token" "$executor_local_url/health" >/dev/null 2>&1; then
+                echo "媒体执行器已就绪"
+                return
+            fi
+            sleep 0.25
+        done
+        echo "常驻媒体执行器启动失败，请查看：journalctl --user -u infinite-media-executor" >&2
+        exit 1
+    fi
+    echo "正在启动媒体执行器：$executor_local_url"
+    (
+        cd "$executor_dir"
+        MEDIA_EXECUTOR_HOST=127.0.0.1 \
+        MEDIA_EXECUTOR_PORT=8290 \
+        MEDIA_EXECUTOR_TOKEN="$executor_token" \
+        MEDIA_EXECUTOR_DATA_DIR="$executor_data_dir" \
+        COMFYUI_URL="$comfy_local_url" \
+        exec .venv/bin/infinite-media-executor
+    ) &
+    executor_pid="$!"
+    for _ in {1..60}; do
+        if curl -fsS -H "Authorization: Bearer $executor_token" "$executor_local_url/health" >/dev/null 2>&1; then
+            echo "媒体执行器已就绪"
+            return
+        fi
+        if ! kill -0 "$executor_pid" >/dev/null 2>&1; then
+            echo "媒体执行器启动失败" >&2
+            exit 1
+        fi
+        sleep 0.25
+    done
+    echo "媒体执行器启动超时" >&2
+    exit 1
+}
+
 require_command bun
 require_command curl
 require_command python3
 require_command systemctl
 require_command systemd-run
+require_command uv
 
 start_comfyui
+executor_pid=""
+start_media_executor
 
 if [[ ! -d "$server_dir/node_modules" ]]; then
     echo "正在安装后端依赖..."
@@ -117,6 +178,9 @@ cleanup() {
     if [[ -n "$server_pid" ]]; then
         kill "$server_pid" >/dev/null 2>&1 || true
     fi
+    if [[ -n "$executor_pid" ]]; then
+        kill "$executor_pid" >/dev/null 2>&1 || true
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -126,7 +190,7 @@ else
     echo "正在启动 Infinite Canvas 后端"
     (
         cd "$server_dir"
-        PORT=3001 AUTH_MODE=dev DATA_DIR="$server_data_dir" COMFYUI_URL="$comfy_local_url" exec bun run dev
+        PORT=3001 AUTH_MODE=dev DATA_DIR="$server_data_dir" MEDIA_EXECUTOR_URL="$executor_local_url" MEDIA_EXECUTOR_TOKEN="$executor_token" exec bun run dev
     ) &
     server_pid="$!"
     for _ in {1..60}; do
@@ -144,6 +208,12 @@ else
         exit 1
     fi
 fi
+
+curl -fsS -X PUT "http://127.0.0.1:3001/api/admin/media-executor/settings" \
+    -H "Content-Type: application/json" \
+    --data "{\"url\":\"$executor_local_url\",\"token\":\"$executor_token\",\"stableAudio3LicenseAccepted\":false}" \
+    >/dev/null
+echo "媒体执行器已注册为本地供应商"
 
 echo "正在启动 Infinite Canvas"
 echo "本机访问：http://localhost:3000"

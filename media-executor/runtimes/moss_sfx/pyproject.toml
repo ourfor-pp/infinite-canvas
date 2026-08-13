@@ -1,0 +1,8 @@
+[project]
+name = "infinite-moss-sfx-runtime"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["fastapi>=0.116,<1", "moss-soundeffect-v2 @ git+https://github.com/OpenMOSS/MOSS-TTS.git@58b20a0d5fcc6766658d50967a90a9d890009a46#subdirectory=moss_soundeffect_v2", "soundfile>=0.13", "uvicorn[standard]>=0.35,<1"]
+
+[tool.uv]
+package = false

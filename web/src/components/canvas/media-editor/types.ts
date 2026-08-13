@@ -1,6 +1,7 @@
 import type { AiConfig, AudioMode } from "@/stores/use-config-store";
 import type { CreativeAssetGenerationPreview } from "@/services/api/server";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import type { VisualStyleTemplate } from "@/types/visual-style";
 
 export type MediaEditorKind = "image" | "audio";
 export type MediaEditorDraft = { prompt: string; model: string; params: Record<string, unknown>; audioMode?: AudioMode; transcript?: string };
@@ -21,8 +22,11 @@ export type MediaEditorTarget = {
     imageMode?: "generate" | "edit";
     allowEmptyPrompt?: boolean;
     separateSpeechTranscript?: boolean;
-    visualStyle?: { id: string; name: string; status: "draft" | "confirmed"; source: "linked" | "default" } | null;
+    visualStyle?: { id: string; name: string; status: "draft" | "confirmed"; source: "linked" | "default"; templateId?: string | null } | null;
+    projectVisualStyle?: { id: string; name: string; status: "draft" | "confirmed"; templateId?: string | null } | null;
     configureVisualStyle?: () => void;
+    selectVisualStyleTemplate?: (template: VisualStyleTemplate) => Promise<void> | void;
+    inheritProjectVisualStyle?: () => Promise<void> | void;
     snapshot: MediaEditorSnapshot;
     config: AiConfig;
     mentionReferences?: CanvasResourceReference[];

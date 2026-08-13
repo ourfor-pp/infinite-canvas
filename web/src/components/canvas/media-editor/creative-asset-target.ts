@@ -10,6 +10,7 @@ import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { useVisualStyleStore } from "@/stores/use-visual-style-store";
 import type { CreativeAsset, CreativeAssetKind, CreativeAssetVariant } from "@/types/creative-asset";
+import type { VisualStyleTemplate } from "@/types/visual-style";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { MediaEditorDraft, MediaEditorReference, MediaEditorTarget } from "./types";
 
@@ -21,8 +22,11 @@ const META = {
 
 type CreativeAssetMediaConnections = {
     references: CanvasResourceReference[];
+    visualStyleId?: string;
     connect: (reference: CanvasResourceReference) => void;
     disconnect: (nodeId: string) => void;
+    connectVisualStyle: (styleId: string, name: string) => void;
+    disconnectVisualStyle: () => void;
 };
 
 export function useCreativeAssetMediaTarget(asset: CreativeAsset, nodeId: string, kind: "image" | "audio", connections: CreativeAssetMediaConnections, running?: { id: string; status: string; progress: number }): MediaEditorTarget {
@@ -41,9 +45,9 @@ export function useCreativeAssetMediaTarget(asset: CreativeAsset, nodeId: string
         references.push(...connections.references.filter((item) => item.kind === kind && item.active).map((item) => ({ id: `canvas:${item.nodeId}`, nodeId: item.nodeId, label: item.label, kind, url: item.previewUrl, source: "canvas" as const })));
         const primaryId = kind === "image" ? asset.payload.primaryImageId : asset.payload.primaryAudioId;
         const variants = asset.payload.variants.filter((item) => item.kind === kind && item.usage !== "reference_input").map((item) => ({ id: item.id, label: item.label, kind, url: serverFileUrl(`server:${item.fileId}`), prompt: item.prompt, primary: item.id === primaryId, review: item.review }));
-        const styleConnection = project?.connections.find((item) => item.toNodeId === nodeId && item.toPortId === "style");
-        const linkedStyleId = project?.nodes.find((item) => item.id === styleConnection?.fromNodeId)?.metadata?.visualStyleId;
-        const style = styles.find((item) => item.id === (linkedStyleId || project?.defaultVisualStyleId));
+        const linkedStyleId = connections.visualStyleId;
+        const projectStyle = styles.find((item) => item.id === project?.defaultVisualStyleId);
+        const style = styles.find((item) => item.id === linkedStyleId) || projectStyle;
         const saveDraft = async (next: MediaEditorDraft) => {
             const current = useCreativeAssetStore.getState().assets.find((item) => item.id === asset.id) || asset;
             await update(asset.id, { payload: { mediaDrafts: { [kind]: { ...current.payload.mediaDrafts[kind], ...next, model: next.model || null } } } });
@@ -56,8 +60,18 @@ export function useCreativeAssetMediaTarget(asset: CreativeAsset, nodeId: string
             imageMode: kind === "image" ? references.length ? "edit" : "generate" : undefined,
             allowEmptyPrompt: kind === "image",
             separateSpeechTranscript: kind === "audio" && asset.kind === "character",
-            visualStyle: style ? { id: style.id, name: style.name, status: style.status, source: linkedStyleId ? "linked" : "default" } : null,
+            visualStyle: style ? { id: style.id, name: style.name, status: style.status, source: linkedStyleId ? "linked" : "default", templateId: style.templateId } : null,
+            projectVisualStyle: projectStyle ? { id: projectStyle.id, name: projectStyle.name, status: projectStyle.status, templateId: projectStyle.templateId } : null,
             configureVisualStyle: kind === "image" ? () => requestVisualStyleFocus(style?.id) : undefined,
+            selectVisualStyleTemplate: kind === "image" ? async (template: VisualStyleTemplate) => {
+                const store = useVisualStyleStore.getState();
+                const current = store.styles.find((item) => item.id === linkedStyleId);
+                const patch = { name: template.name, mode: "template", templateId: template.id, description: template.description, dna: { ...template.dna, exclusions: [...template.dna.exclusions] }, status: "confirmed" as const };
+                if (current) return void await store.update(current.id, patch);
+                const created = await store.create(asset.projectId, patch);
+                connections.connectVisualStyle(created.id, created.name);
+            } : undefined,
+            inheritProjectVisualStyle: kind === "image" && linkedStyleId ? async () => connections.disconnectVisualStyle() : undefined,
             snapshot: { draft: { ...draft, model: draft.model || "" }, references, variants, running },
             config,
             mentionReferences: connections.references.filter((item) => item.kind === kind),

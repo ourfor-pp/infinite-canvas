@@ -1,0 +1,17 @@
+[Unit]
+Description=ACE-Step 1.5 Official API
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/ACE-Step-1.5
+EnvironmentFile=/etc/infinite-canvas/media-executor.env
+Environment=ACESTEP_API_HOST=127.0.0.1
+Environment=ACESTEP_API_PORT=8001
+Environment=ACESTEP_CONFIG_PATH=acestep-v15-xl-sft
+Environment=ACESTEP_QUEUE_WORKERS=1
+ExecStart=/opt/ACE-Step-1.5/.venv/bin/acestep-api
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

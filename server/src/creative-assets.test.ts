@@ -45,7 +45,7 @@ test("媒体草稿预览按业务语义组装且生成结果直接替换主版�
     db.prepare("INSERT INTO ai_providers(id,name,type,base_url,encrypted_credentials,enabled,models,concurrency,created_at,updated_at) VALUES(?,?,?,?,?,1,?,2,?,?)")
         .run("provider-1", "测试渠道", "openai-compatible", "http://127.0.0.1:9/v1", "{}", JSON.stringify([
             { id: "image-model", name: "图片模型", endpoint: "openai-images-generations", output: "image", inputs: ["text"], imageModes: ["generate"], enabled: true },
-            { id: "image-reference-model", name: "参考图模型", endpoint: "openai-images-generations", output: "image", inputs: ["text", "image"], imageModes: ["generate"], maxReferenceImages: 1, enabled: true },
+            { id: "image-reference-model", name: "参考图模型", endpoint: "openai-images-generations", output: "image", inputs: ["text", "image"], imageModes: ["generate", "edit"], maxReferenceImages: 1, enabled: true },
             { id: "sound-model", name: "声音模型", endpoint: "openai-tts", output: "audio", inputs: ["text"], audioModes: ["speech", "ambient"], enabled: true },
         ]), now, now);
     db.prepare("INSERT INTO ai_model_defaults(kind,model_ref,updated_at) VALUES('image','provider-1::image-model',?),('audio','provider-1::sound-model',?)").run(now, now);
@@ -73,6 +73,9 @@ test("媒体草稿预览按业务语义组装且生成结果直接替换主版�
     assert.equal(replaced.payload.variants.length, 1);
     assert.equal(replaced.payload.variants[0].fileId, "generated-image-2");
     assert.equal(replaced.payload.primaryImageId, replaced.payload.variants[0].id);
+    const regeneratePreview = previewCreativeAssetGeneration(userId, replaced.id, { kind: "image", revision: replaced.revision });
+    assert.equal(regeneratePreview.references.length, 0, "已有主设计图不应把重新生成隐式切换成图生图");
+    assert.equal(regeneratePreview.warnings.some((warning) => warning.code === "AI_MODEL_REFERENCE_UNSUPPORTED"), false);
 
     for (const fileId of ["reference-one", "reference-two"]) db.prepare("INSERT INTO stored_files(id,user_id,path,original_name,mime_type,bytes,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)")
         .run(fileId, userId, join(testData, `${fileId}.png`), `${fileId}.png`, "image/png", 0, "{}", now);

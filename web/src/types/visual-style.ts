@@ -1,6 +1,7 @@
 export type VisualStyleMode = "template" | "custom";
 export type VisualStyleStatus = "draft" | "confirmed";
 export type VisualStyleReferenceRole = "source" | "character" | "scene" | "prop";
+export type VisualStyleTemplateCategory = "cinematic" | "genre" | "eastern" | "animation" | "handmade" | "graphic";
 export type VisualStyleDna = { medium: string; rendering: string; palette: string; lighting: string; contrast: string; texture: string; lensAndDepth: string; composition: string; postProcessing: string; exclusions: string[] };
 export type VisualStyle = {
     id: string;
@@ -17,4 +18,4 @@ export type VisualStyle = {
     createdAt: string;
     updatedAt: string;
 };
-export type VisualStyleTemplate = { id: string; name: string; category: "live" | "anim"; colors: readonly [string, string, string]; description: string };
+export type VisualStyleTemplate = { id: string; name: string; category: VisualStyleTemplateCategory; tagline: string; colors: readonly [string, string, string]; description: string; preview: string; dna: VisualStyleDna };

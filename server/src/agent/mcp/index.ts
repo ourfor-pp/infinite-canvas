@@ -30,6 +30,7 @@ import {
     defaultAgentVisualStyle,
     deleteAgentVisualStyle,
     getAgentVisualStyle,
+    listAgentVisualStyleTemplates,
     listAgentVisualStyles,
     placeAgentVisualStyle,
     updateAgentVisualStyle,
@@ -37,7 +38,7 @@ import {
     generateAgentVisualStyleReferences,
 } from "../canvas-tools.js";
 
-const toolNames = ["canvas_list_projects", "canvas_get_state", "canvas_apply_ops", "canvas_create_text_nodes", "canvas_delete_nodes", "canvas_delete_connections", "canvas_connect_nodes", "assets_list", "assets_add", "assets_delete", "prompts_search", "generation_list_models", "generation_get_status", "generation_create", "creative_assets_list", "creative_asset_get", "creative_assets_create_batch", "creative_asset_update", "creative_asset_place", "creative_asset_generate", "creative_asset_set_primary", "creative_asset_delete", "visual_styles_list", "visual_style_get", "visual_style_create", "visual_style_update", "visual_style_place", "visual_style_set_default", "visual_style_analyze", "visual_style_generate_references", "visual_style_delete", "site_navigate", "canvas_select_nodes", "canvas_focus_nodes", "workspace_write_text", "artifact_publish", "ask_user"] as const;
+const toolNames = ["canvas_list_projects", "canvas_get_state", "canvas_apply_ops", "canvas_create_text_nodes", "canvas_delete_nodes", "canvas_delete_connections", "canvas_connect_nodes", "assets_list", "assets_add", "assets_delete", "prompts_search", "generation_list_models", "generation_get_status", "generation_create", "creative_assets_list", "creative_asset_get", "creative_assets_create_batch", "creative_asset_update", "creative_asset_place", "creative_asset_generate", "creative_asset_set_primary", "creative_asset_delete", "visual_styles_list", "visual_style_templates_list", "visual_style_get", "visual_style_create", "visual_style_update", "visual_style_place", "visual_style_set_default", "visual_style_analyze", "visual_style_generate_references", "visual_style_delete", "site_navigate", "canvas_select_nodes", "canvas_focus_nodes", "workspace_write_text", "artifact_publish", "ask_user"] as const;
 
 const policyTools = new Set(["canvas_delete_nodes", "canvas_delete_connections", "assets_delete", "creative_asset_update", "creative_asset_set_primary", "creative_asset_delete", "visual_style_delete"]);
 export const agentAutoAllowedTools = [...toolNames.filter((name) => !policyTools.has(name)).map((name) => `mcp__infinite_canvas__${name}`), "Read"];
@@ -119,6 +120,7 @@ export function buildAgentMcpServer(context: AgentMcpContext) {
         call("creative_asset_set_primary", "选择创作资产的主图片或主声音；受保护设定由 SDK 自动审核。", canvasToolSchemas.creative_asset_set_primary.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_set_primary>; return setAgentCreativeAssetPrimary(run.userId, project(value), value); }),
         call("creative_asset_delete", "永久删除创作资产、全部画布视图和引用；此操作由 SDK 自动审核。", canvasToolSchemas.creative_asset_delete.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.creative_asset_delete>; return deleteAgentCreativeAsset(run.userId, project(value), value.assetId); }),
         call("visual_styles_list", "列出当前项目的视觉风格。", canvasToolSchemas.visual_styles_list.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_styles_list>; return listAgentVisualStyles(run.userId, project(value)); }),
+        call("visual_style_templates_list", "搜索可直接使用的内置影视视觉风格模板及完整 Style DNA。", canvasToolSchemas.visual_style_templates_list.shape, (input) => listAgentVisualStyleTemplates(input as z.infer<typeof canvasToolSchemas.visual_style_templates_list>)),
         call("visual_style_get", "读取视觉风格的权威描述、参考图和 revision。", canvasToolSchemas.visual_style_get.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_style_get>; return getAgentVisualStyle(run.userId, project(value), value.styleId); }),
         call("visual_style_create", "创建模板或自定义视觉风格实体。", canvasToolSchemas.visual_style_create.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_style_create>; return createAgentVisualStyle(run.userId, project(value), value); }),
         call("visual_style_update", "按 revision 更新视觉风格描述，可用于分析参考图后写回风格。", canvasToolSchemas.visual_style_update.shape, (input) => { const value = input as z.infer<typeof canvasToolSchemas.visual_style_update>; return updateAgentVisualStyle(run.userId, project(value), value); }),

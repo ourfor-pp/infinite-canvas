@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Image as AntImage, Popover, Tag, Tooltip } from "antd";
-import { ArrowUp, Bot, Check, ChevronDown, ImageIcon, LoaderCircle, Music2, Palette, Paperclip, Sparkles, Square, X } from "lucide-react";
+import { App, Button, Image as AntImage, Input, Popover, Tag, Tooltip } from "antd";
+import { ArrowUp, Bot, Check, ChevronDown, ImageIcon, LoaderCircle, Music2, Palette, Paperclip, Search, Sparkles, Square, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "@/components/canvas/canvas-audio-settings-popover";
 import { CanvasImageSettingsPopover } from "@/components/canvas/canvas-image-settings-popover";
 import { CanvasPromptChipInput } from "@/components/canvas/canvas-prompt-chip-input";
+import { filterVisualStyleTemplates } from "@/lib/canvas/visual-style-templates";
 import { resolveModelForCapability } from "@/stores/use-config-store";
+import { useVisualStyleStore } from "@/stores/use-visual-style-store";
+import type { VisualStyleTemplateCategory } from "@/types/visual-style";
 import type { MediaEditorDraft, MediaEditorReference, MediaEditorTarget } from "./types";
 
 export function MediaEditor({ target }: { target: MediaEditorTarget }) {
@@ -98,7 +101,6 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
 
     return <section className="w-full" data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
         <div className="mb-2 flex items-center justify-between gap-3"><div><div className="text-sm font-semibold">{target.semanticLabel}</div><div className="mt-0.5 text-[11px] opacity-45">{saving ? "正在保存草稿" : "修改只影响下一次生成"}</div></div>{target.askAgent ? <Button type="text" size="small" icon={<Bot className="size-3.5" />} onClick={() => void target.askAgent?.(draftRef.current)}>交给 Agent</Button> : null}</div>
-        {target.kind === "image" ? <VisualStyleStatus target={target} /> : null}
         {target.separateSpeechTranscript ? <input value={draft.transcript || ""} onChange={(event) => change({ transcript: event.target.value })} className="mb-2 h-9 w-full rounded-xl border border-current/10 bg-transparent px-3 text-sm outline-none focus:border-blue-400/70" placeholder="输入一句试听台词" /> : null}
         {target.snapshot.references.length ? <ReferenceShelf references={target.snapshot.references} onRemove={target.removeReference ? async (reference) => {
             change({ prompt: removeReferenceLabel(draftRef.current.prompt, reference.label) });
@@ -107,9 +109,10 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
         <CanvasPromptChipInput value={draft.prompt} references={target.mentionReferences || []} onActivateReference={target.activateReference} onChange={(prompt) => change({ prompt })} onSubmit={() => void run()} className="thin-scrollbar h-56 w-full resize-none rounded-xl border border-current/10 bg-transparent px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400/70" placeholder={promptPlaceholder} />
 
         <div className="mt-3 flex min-w-0 items-center gap-3 border-t border-current/10 pt-3">
-            <div className="thin-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-0.5">
-                <ModelPicker config={editorConfig} value={editorConfig.model} onChange={(model) => updateConfig("model", model)} capability={target.kind} audioMode={draft.audioMode} imageMode={imageMode} className="!h-10 !min-w-48 !max-w-60 shrink-0" />
-                {target.kind === "image" ? <CanvasImageSettingsPopover config={editorConfig} onConfigChange={(key, value) => updateConfig(String(key), value)} buttonClassName="!h-10 !max-w-[180px] shrink-0" /> : <CanvasAudioSettingsPopover config={editorConfig} onConfigChange={(key, value) => updateConfig(audioSettingKey(key), value)} buttonClassName="!h-10 !max-w-[180px] shrink-0" />}
+            <div className="thin-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
+                {target.kind === "image" && target.selectVisualStyleTemplate ? <VisualStyleControl target={target} /> : null}
+                <ModelPicker config={editorConfig} value={editorConfig.model} onChange={(model) => updateConfig("model", model)} capability={target.kind} audioMode={draft.audioMode} imageMode={imageMode} appearance="toolbar" className="!h-9 !min-w-44 !max-w-60 shrink-0" />
+                {target.kind === "image" ? <CanvasImageSettingsPopover config={editorConfig} onConfigChange={(key, value) => updateConfig(String(key), value)} appearance="toolbar" buttonClassName="shrink-0" /> : <CanvasAudioSettingsPopover config={editorConfig} onConfigChange={(key, value) => updateConfig(audioSettingKey(key), value)} appearance="toolbar" buttonClassName="shrink-0" />}
                 {target.uploadReference ? <Tooltip title={`上传参考${target.kind === "image" ? "图" : "音频"}`}><Button type="text" className="!size-10 shrink-0 !p-0" icon={<Paperclip className="size-4" />} onClick={() => uploadRef.current?.click()} /></Tooltip> : null}
                 {target.preview ? <Popover open={previewOpen} onOpenChange={(open) => void setPreviewVisible(open)} placement="topLeft" trigger="click" arrow={false} zIndex={1280} content={<PreviewDetails preview={preview} />} overlayClassName="media-request-preview-popover"><Button type="text" className="shrink-0 !h-10 !px-2" icon={<ChevronDown className={`size-3.5 transition-transform ${previewOpen ? "rotate-180" : ""}`} />}>最终提示词</Button></Popover> : null}
             </div>
@@ -120,13 +123,41 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
     </section>;
 }
 
-function VisualStyleStatus({ target }: { target: MediaEditorTarget }) {
-    const style = target.visualStyle;
-    return <div className="mb-2 flex min-h-10 items-center gap-2 rounded-xl border border-current/10 px-3 py-2 text-xs">
-        <Palette className="size-4 shrink-0 opacity-55" />
-        <div className="min-w-0 flex-1"><div className="truncate font-medium">{style ? style.name : "尚未应用视觉风格"}</div><div className="mt-0.5 text-[10px] opacity-45">{!style ? "建议先确定风格，保证角色、场景和道具一致" : style.status === "confirmed" ? `${style.source === "linked" ? "节点单独风格" : "项目默认风格"} · 已确认` : "待确认：选择模板、分析参考图或交给 Agent 设计"}</div></div>
-        {style?.status === "confirmed" ? <Check className="size-4 text-emerald-600" /> : <Button type="text" size="small" className="shrink-0 !px-2" onClick={target.configureVisualStyle}>配置风格</Button>}
+const mediaStyleCategories: Array<{ value: "all" | VisualStyleTemplateCategory; label: string }> = [{ value: "all", label: "全部" }, { value: "cinematic", label: "电影" }, { value: "genre", label: "类型" }, { value: "eastern", label: "东方" }, { value: "animation", label: "动画" }, { value: "handmade", label: "手工" }, { value: "graphic", label: "图形" }];
+const mediaStyleAssetUrl = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
+
+function VisualStyleControl({ target }: { target: MediaEditorTarget }) {
+    const { message } = App.useApp();
+    const templates = useVisualStyleStore((state) => state.templates);
+    const [open, setOpen] = useState(false);
+    const [category, setCategory] = useState<"all" | VisualStyleTemplateCategory>("all");
+    const [query, setQuery] = useState("");
+    const [applying, setApplying] = useState(false);
+    const visible = filterVisualStyleTemplates(templates, category, query);
+    const projectTemplate = templates.find((item) => item.id === target.projectVisualStyle?.templateId);
+    const content = <div style={{ width: "min(620px, calc(100vw - 32px))" }}>
+        <div className="flex items-center gap-3 px-1 pb-3"><div className="min-w-0 flex-1"><div className="text-[13px] font-semibold">视觉风格</div><div className="mt-0.5 truncate text-[10px] opacity-40">{target.visualStyle?.source === "linked" ? `当前节点 · ${target.visualStyle.name}` : `继承项目 · ${target.projectVisualStyle?.name || "未设置"}`}</div></div><Input value={query} onChange={(event) => setQuery(event.target.value)} allowClear prefix={<Search className="size-3 opacity-35" />} placeholder="搜索" size="small" style={{ width: 168, flex: "none" }} /></div>
+        <div className="thin-scrollbar flex max-w-full flex-nowrap gap-4 overflow-x-auto border-y border-current/10 px-1 py-2">{mediaStyleCategories.map((item) => <button key={item.value} type="button" className={`relative shrink-0 whitespace-nowrap py-0.5 text-[11px] transition-opacity ${category === item.value ? "font-medium opacity-100 after:absolute after:inset-x-0 after:-bottom-2 after:h-0.5 after:rounded-full after:bg-blue-500" : "opacity-45 hover:opacity-80"}`} onClick={() => setCategory(item.value)}>{item.label}</button>)}</div>
+        <div className="thin-scrollbar grid max-h-[min(390px,48vh)] grid-cols-2 gap-x-2 gap-y-3 overflow-y-auto px-1 py-3 sm:grid-cols-3">
+            <StyleTile name="项目风格" tagline={target.projectVisualStyle?.name || "尚未设置默认风格"} preview={projectTemplate?.preview} selected={target.visualStyle?.source === "default"} disabled={!target.projectVisualStyle && !target.inheritProjectVisualStyle} badge="默认" onClick={async () => { if (!target.inheritProjectVisualStyle) return; setApplying(true); try { await target.inheritProjectVisualStyle(); setOpen(false); message.success("已恢复使用项目风格"); } catch (error) { message.error(error instanceof Error ? error.message : "恢复项目风格失败"); } finally { setApplying(false); } }} />
+            {visible.map((item) => <StyleTile key={item.id} name={item.name} tagline={item.tagline} preview={item.preview} selected={target.visualStyle?.source === "linked" && target.visualStyle.templateId === item.id} disabled={applying} onClick={async () => { setApplying(true); try { await target.selectVisualStyleTemplate?.(item); setOpen(false); message.success(`已为当前节点使用“${item.name}”`); } catch (error) { message.error(error instanceof Error ? error.message : "应用风格失败"); } finally { setApplying(false); } }} />)}
+            {!visible.length ? <div className="col-span-full py-16 text-center text-xs opacity-35">没有匹配的风格</div> : null}
+        </div>
+        <div className="flex items-center justify-between border-t border-current/10 px-1 pt-2 text-[10px] opacity-45"><span>{target.visualStyle?.source === "linked" ? "仅覆盖当前节点" : "随项目风格更新"}</span>{target.configureVisualStyle ? <button type="button" className="transition-opacity hover:opacity-100" onClick={() => { setOpen(false); target.configureVisualStyle?.(); }}>高级设置</button> : null}</div>
     </div>;
+    const buttonLabel = target.visualStyle?.source === "linked" ? target.visualStyle.name : "项目风格";
+    return <Popover open={open} onOpenChange={setOpen} content={content} placement="topLeft" trigger="click" arrow={false} zIndex={1290}><Button data-control-appearance="toolbar" type="text" loading={applying} className="!h-9 shrink-0 !rounded-lg !border-0 !bg-transparent !px-2 !shadow-none hover:!bg-black/5 dark:hover:!bg-white/10" icon={<Palette className="size-4" />}>{buttonLabel}<ChevronDown className={`ml-0.5 size-3.5 opacity-45 transition-transform ${open ? "rotate-180" : ""}`} /></Button></Popover>;
+}
+
+function StyleTile({ name, tagline, preview, selected, disabled, badge, onClick }: { name: string; tagline: string; preview?: string; selected?: boolean; disabled?: boolean; badge?: string; onClick: () => void | Promise<void> }) {
+    return <button type="button" disabled={disabled} className={`group min-w-0 text-left disabled:cursor-not-allowed disabled:opacity-35 ${selected ? "opacity-100" : "opacity-85 hover:opacity-100"}`} onClick={() => void onClick()}>
+        <span className={`relative block aspect-video overflow-hidden rounded-xl bg-black/[0.035] ring-1 transition-all dark:bg-white/[0.055] ${selected ? "ring-2 ring-blue-500" : "ring-black/10 group-hover:ring-black/25 dark:ring-white/10 dark:group-hover:ring-white/25"}`}>
+            {preview ? <img src={mediaStyleAssetUrl(preview)} alt={`${name}预览`} loading="lazy" className="size-full object-cover transition duration-300 group-hover:scale-[1.025]" /> : <span className="grid size-full place-items-center"><Palette className="size-5 opacity-25" /></span>}
+            {badge ? <span className="absolute left-1.5 top-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[8px] tracking-wide text-white backdrop-blur-sm">{badge}</span> : null}
+            {selected ? <span className="absolute right-1.5 top-1.5 grid size-5 place-items-center rounded-full bg-blue-600 text-white shadow-sm"><Check className="size-3" /></span> : null}
+        </span>
+        <span className="block min-w-0 px-0.5 pt-1.5"><strong className="block truncate text-[11px] font-medium">{name}</strong><span className="mt-0.5 block truncate text-[9px] opacity-40">{tagline}</span></span>
+    </button>;
 }
 
 function PreviewDetails({ preview }: { preview: Awaited<ReturnType<NonNullable<MediaEditorTarget["preview"]>>> | null }) {

@@ -5,7 +5,8 @@ import { scheduleServerSettingsSave } from "@/services/server-settings";
 
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ModelInputCapability = ModelCapability;
-export type AudioMode = "speech" | "ambient" | "sfx";
+export type AudioMode = "speech" | "ambient" | "sfx" | "music";
+export type AudioOperation = "generate" | "clone" | "transform" | "extend" | "inpaint" | "cover" | "remix";
 export type ImageMode = "generate" | "edit";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 export type AiModelOption = {
@@ -18,6 +19,11 @@ export type AiModelOption = {
     inputs: ModelInputCapability[];
     enabled: boolean;
     audioModes?: AudioMode[];
+    audioOperations?: AudioOperation[];
+    maxReferenceAudios?: number;
+    maxDurationSeconds?: number;
+    languages?: string[];
+    voices?: string[];
     imageModes?: ImageMode[];
 };
 

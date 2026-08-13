@@ -1,0 +1,64 @@
+diff --git a/acestep/api/http/release_task_models.py b/acestep/api/http/release_task_models.py
+index 87042c0..70c5688 100644
+--- a/acestep/api/http/release_task_models.py
++++ b/acestep/api/http/release_task_models.py
+@@ -86,6 +86,11 @@ class GenerateMusicRequest(BaseModel):
+     extract_codes_only: bool = False
+ 
+     use_adg: bool = False
++    dcw_enabled: bool = False
++    dcw_mode: str = "double"
++    dcw_scaler: float = 0.05
++    dcw_high_scaler: float = 0.02
++    dcw_wavelet: str = "haar"
+     cfg_interval_start: float = 0.0
+     cfg_interval_end: float = 1.0
+     infer_method: str = "ode"  # "ode" or "sde" - diffusion inference method
+diff --git a/acestep/api/http/release_task_param_parser.py b/acestep/api/http/release_task_param_parser.py
+index 3b94d53..9cc6763 100644
+--- a/acestep/api/http/release_task_param_parser.py
++++ b/acestep/api/http/release_task_param_parser.py
+@@ -27,6 +27,11 @@ PARAM_ALIASES: Dict[str, list[str]] = {
+     "use_random_seed": ["use_random_seed", "useRandomSeed"],
+     "seed": ["seed"],
+     "audio_cover_strength": ["audio_cover_strength", "audioCoverStrength", "cover_strength", "coverStrength"],
++    "dcw_enabled": ["dcw_enabled", "dcwEnabled"],
++    "dcw_mode": ["dcw_mode", "dcwMode"],
++    "dcw_scaler": ["dcw_scaler", "dcwScaler"],
++    "dcw_high_scaler": ["dcw_high_scaler", "dcwHighScaler"],
++    "dcw_wavelet": ["dcw_wavelet", "dcwWavelet"],
+     "cover_noise_strength": ["cover_noise_strength", "coverNoiseStrength"],
+     "audio_code_string": ["audio_code_string", "audioCodeString", "audio_codes"],
+     "reference_audio_path": ["reference_audio_path", "ref_audio_path", "referenceAudioPath", "refAudioPath"],
+diff --git a/acestep/api/http/release_task_request_builder.py b/acestep/api/http/release_task_request_builder.py
+index a22862a..2fb48ff 100644
+--- a/acestep/api/http/release_task_request_builder.py
++++ b/acestep/api/http/release_task_request_builder.py
+@@ -77,6 +77,11 @@ def build_generate_music_request(
+         repaint_mode=parser.str("repaint_mode", "balanced"),
+         repaint_strength=parser.float("repaint_strength", 0.5),
+         use_adg=parser.bool("use_adg"),
++        dcw_enabled=parser.bool("dcw_enabled", False),
++        dcw_mode=parser.str("dcw_mode", "double"),
++        dcw_scaler=parser.float("dcw_scaler", 0.05),
++        dcw_high_scaler=parser.float("dcw_high_scaler", 0.02),
++        dcw_wavelet=parser.str("dcw_wavelet", "haar"),
+         cfg_interval_start=parser.float("cfg_interval_start", 0.0),
+         cfg_interval_end=parser.float("cfg_interval_end", 1.0),
+         infer_method=parser.str("infer_method", "ode"),
+diff --git a/acestep/api/job_generation_setup.py b/acestep/api/job_generation_setup.py
+index 34ee446..1daf052 100644
+--- a/acestep/api/job_generation_setup.py
++++ b/acestep/api/job_generation_setup.py
+@@ -170,6 +170,11 @@ def build_generation_setup(
+         seed=req.seed,
+         guidance_scale=req.guidance_scale,
+         use_adg=req.use_adg,
++        dcw_enabled=req.dcw_enabled,
++        dcw_mode=req.dcw_mode,
++        dcw_scaler=req.dcw_scaler,
++        dcw_high_scaler=req.dcw_high_scaler,
++        dcw_wavelet=req.dcw_wavelet,
+         cfg_interval_start=req.cfg_interval_start,
+         cfg_interval_end=req.cfg_interval_end,
+         shift=req.shift,

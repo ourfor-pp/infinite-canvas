@@ -25,32 +25,20 @@
 | 日志 | `/home/cec/ComfyUI-H3/comfyui-8189.log` |
 | 本机 API | `http://127.0.0.1:8189` |
 | 浏览器访问 | 禁止，由 Express 后端代理任务 |
-| systemd 用户服务 | `arcreel-comfyui-8189.service` |
+| systemd 系统服务 | `comfyui-h3.service` |
 
-服务当前是 transient user unit，不是开机永久 unit。运行中可检查：
+服务当前是开机启用的正式 system unit。运行中可检查：
 
 ```bash
-systemctl --user status arcreel-comfyui-8189
+systemctl status comfyui-h3.service
 curl -sS http://127.0.0.1:8189/system_stats
 curl -sS http://127.0.0.1:8189/queue
 ```
 
-若 unit 已停止并被 `--collect` 回收，使用下面的完整命令重建；不要漏掉 CUDA 13 NVRTC 路径，否则 VoxCPM2 会在运行期报 `libnvrtc-builtins.so.13.0` 找不到：
+部署或修复服务配置时运行仓库安装器；不要漏掉 CUDA 13 NVRTC 路径，否则 VoxCPM2 会在运行期报 `libnvrtc-builtins.so.13.0` 找不到：
 
 ```bash
-systemd-run --user \
-  --unit=arcreel-comfyui-8189 \
-  --collect \
-  --working-directory=/home/cec/ComfyUI-H3 \
-  --setenv=LD_LIBRARY_PATH=/home/cec/ComfyUI-H3/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:/home/cec/ComfyUI-H3/.venv/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib \
-  --property=StandardOutput=append:/home/cec/ComfyUI-H3/comfyui-8189.log \
-  --property=StandardError=append:/home/cec/ComfyUI-H3/comfyui-8189.log \
-  /home/cec/ComfyUI-H3/.venv/bin/python main.py \
-  --listen 127.0.0.1 \
-  --port 8189 \
-  --models-directory /data/sas/ComfyUI/models \
-  --reserve-vram 2 \
-  --disable-auto-launch
+media-executor/scripts/install-comfyui-h3-dropin.sh
 ```
 
 不要重新加回 `--disable-all-custom-nodes`，否则 VoxCPM2 和 SageAttention 工作流会失效。

@@ -8,7 +8,7 @@ export type GenerationInput = {
     prompt?: string;
     messages?: Array<{ role: "system" | "user" | "assistant"; content: unknown }>;
     params?: Record<string, unknown>;
-    references?: Array<{ fileId: string; kind: "image" | "video" | "audio" }>;
+    references?: Array<{ fileId: string; kind: "image" | "video" | "audio"; transcript?: string }>;
 };
 
 export async function runServerGeneration(input: GenerationInput, options?: { signal?: AbortSignal; onDelta?: (text: string) => void }) {

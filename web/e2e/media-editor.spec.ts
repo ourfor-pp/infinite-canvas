@@ -7,6 +7,17 @@ test("业务卡媒体编辑器通过 Portal 打开且不改变节点尺寸", asy
     const popover = page.getByTestId("media-editor-popover");
     const before = await card.boundingBox();
     await page.getByRole("button", { name: /调\s*图/ }).click();
+    const toolbarControls = popover.locator('[data-control-appearance="toolbar"]');
+    await expect(toolbarControls).toHaveCount(3);
+    for (const control of await toolbarControls.all()) {
+        await expect(control).toHaveCSS("height", "36px");
+        await expect(control).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+        const boxShadow = await control.evaluate((element) => getComputedStyle(element).boxShadow);
+        expect(boxShadow === "none" || !boxShadow.replaceAll("rgba(0, 0, 0, 0)", "").match(/rgba?\(/)).toBeTruthy();
+    }
+    await toolbarControls.nth(1).click();
+    await page.getByRole("option", { name: /备用图片/ }).click();
+    await expect(popover).toBeVisible();
     await expect(page.getByRole("button", { name: "最终提示词" })).toBeVisible();
     await page.getByRole("button", { name: "最终提示词" }).click();
     await expect(page.getByText("后端最终使用的提示词")).toBeVisible();
@@ -56,4 +67,18 @@ test("@ 选择画布图片会建立引用，移除顶部缩略图会断开引用
     await expect(page.getByRole("button", { name: "移除图片2" })).toBeVisible();
     await page.getByRole("button", { name: "移除图片2" }).click();
     await expect(page.getByTestId("connected-images")).toHaveText("image-1");
+});
+
+test("下拉菜单展开时第一次点击外部只关闭菜单", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 860 });
+    await page.goto("/__media-editor-test.html");
+    await page.getByRole("button", { name: /调\s*图/ }).click();
+    const popover = page.getByTestId("media-editor-popover");
+    await popover.locator('[data-control-appearance="toolbar"]').nth(1).click();
+    await expect(page.getByRole("option", { name: /备用图片/ })).toBeVisible();
+    await page.mouse.click(12, 180);
+    await expect(page.getByRole("option", { name: /备用图片/ })).toBeHidden();
+    await expect(popover).toBeVisible();
+    await page.mouse.click(12, 180);
+    await expect(popover).toBeHidden();
 });

@@ -1,0 +1,24 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 990f800..8cd26b0 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -3,7 +3,7 @@ name = "ace-step"
+ version = "1.5.0"
+ description = "ACE-Step 1.5"
+ readme = "README.md"
+-requires-python = ">=3.11,<3.13"
++requires-python = ">=3.12,<3.13"
+ license = {text = "MIT"}
+ dependencies = [
+     # PyTorch for Windows with CUDA 12.8
+@@ -72,10 +72,7 @@ explicit = true
+ 
+ [tool.uv]
+ required-environments = [
+-    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+     "sys_platform == 'linux' and platform_machine == 'x86_64'",
+-    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+-    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+ ]
+ 
+ [tool.uv.sources]

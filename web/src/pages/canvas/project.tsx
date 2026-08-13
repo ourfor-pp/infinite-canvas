@@ -753,7 +753,7 @@ function InfiniteCanvasPage() {
     const createVisualStyleNode = useCallback(async () => {
         const center = getCanvasCenter();
         try {
-            const style = await useVisualStyleStore.getState().create(projectId, { name: "项目视觉风格", mode: "custom", description: "" });
+            const style = await useVisualStyleStore.getState().create(projectId, { name: "克制当代电影", mode: "template", templateId: "contemporary-naturalism", description: "" });
             const placed = await serverApi.placeVisualStyle(style.id, { x: center.x - 190, y: center.y - 310 });
             window.setTimeout(() => { setSelectedNodeIds(new Set([placed.nodeId])); setSelectedConnectionId(null); }, 120);
         } catch (error) { message.error(error instanceof Error ? error.message : "创建视觉风格节点失败"); }

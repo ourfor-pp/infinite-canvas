@@ -18,9 +18,10 @@ type ModelPickerProps = {
     fullWidth?: boolean;
     placeholder?: string;
     onMissingConfig?: () => void;
+    appearance?: "default" | "toolbar";
 };
 
-export function ModelPicker({ config, value, onChange, capability, audioMode, imageMode, className, fullWidth = false, placeholder, onMissingConfig }: ModelPickerProps) {
+export function ModelPicker({ config, value, onChange, capability, audioMode, imageMode, className, fullWidth = false, placeholder, onMissingConfig, appearance = "default" }: ModelPickerProps) {
     const { t } = useTranslation();
     const pickerId = useId();
     const [open, setOpen] = useState(false);
@@ -48,10 +49,13 @@ export function ModelPicker({ config, value, onChange, capability, audioMode, im
             onValueChange={onChange}
         >
             <SelectTrigger
+                data-control-appearance={appearance}
                 className={cn(
-                    "canvas-composer-model-picker h-8 w-fit max-w-full gap-2 rounded-full border border-input bg-transparent px-3 text-sm font-normal shadow-sm transition-colors",
+                    "canvas-composer-model-picker h-8 w-fit max-w-full gap-2 text-sm font-normal transition-colors",
+                    appearance === "toolbar"
+                        ? "rounded-lg border-0 bg-transparent px-2 shadow-none hover:bg-black/5 focus-visible:border-0 focus-visible:ring-0 data-[state=open]:bg-black/5 dark:bg-transparent dark:hover:bg-white/10 dark:data-[state=open]:bg-white/10"
+                        : "rounded-full border border-input bg-transparent px-3 shadow-sm data-[state=open]:border-ring data-[state=open]:ring-2 data-[state=open]:ring-ring/20",
                     fullWidth ? "w-full min-w-0 justify-start" : "min-w-[9rem] justify-start",
-                    "data-[state=open]:border-ring data-[state=open]:ring-2 data-[state=open]:ring-ring/20",
                     className,
                 )}
                 onMouseDown={(event) => event.stopPropagation()}

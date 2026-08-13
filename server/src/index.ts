@@ -4,7 +4,6 @@ import { WebSocket as WebSocketClient, WebSocketServer, type WebSocket } from "w
 import { app } from "./app.js";
 import { parseGatewayUser } from "./auth.js";
 import { config } from "./config.js";
-import { encryptJson } from "./crypto.js";
 import { db } from "./database.js";
 import { resumeGenerations, setGenerationEmitter } from "./generation-service.js";
 import { cleanupUnreferencedFiles } from "./file-store.js";
@@ -12,7 +11,10 @@ import { recoverAgentRuns } from "./agent/service.js";
 import { setAgentProjectEmitter } from "./agent/project-events.js";
 import { setCreativeAssetEmitter } from "./creative-assets.js";
 import { setVisualStyleEmitter } from "./visual-styles.js";
-import { COMFY_MODELS } from "./comfy-workflows.js";
+import { refreshMediaExecutorCatalog, syncMediaExecutorComfyServer } from "./media-executor-settings.js";
+
+syncMediaExecutorComfyServer();
+await refreshMediaExecutorCatalog();
 
 const server = config.socketPath
     ? (() => {
@@ -22,15 +24,7 @@ const server = config.socketPath
       })()
     : app.listen(config.port, "127.0.0.1");
 
-if (config.defaultComfyUrl && !(db.prepare("SELECT 1 FROM comfy_servers LIMIT 1").get())) {
-    const now = new Date().toISOString();
-    db.prepare("INSERT INTO comfy_servers(id, name, encrypted_url, enabled, models, created_at, updated_at) VALUES('development', '开发机 ComfyUI', ?, 1, ?, ?, ?)").run(
-        encryptJson({ url: config.defaultComfyUrl }, config.appSecret),
-        JSON.stringify(COMFY_MODELS),
-        now,
-        now,
-    );
-}
+setInterval(refreshMediaExecutorCatalog, 15_000).unref();
 
 const clients = new Map<string, Set<WebSocket>>();
 const wss = new WebSocketServer({ noServer: true });

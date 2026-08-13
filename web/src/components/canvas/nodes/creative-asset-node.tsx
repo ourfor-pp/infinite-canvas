@@ -9,6 +9,8 @@ import { serverFileUrl } from "@/services/api/server";
 import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
 import { editCreativeAssetMediaEvent } from "@/lib/canvas/canvas-ui-events";
 import { focusVisualStyleEvent } from "@/lib/canvas/canvas-ui-events";
+import { createVisualStyleOverrideOps, inheritProjectVisualStyleOps } from "@/lib/canvas/visual-style-overrides";
+import { randomId } from "@/lib/utils";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
@@ -59,8 +61,11 @@ function CreativeAssetCard({ asset, generations, ctx }: { asset: CreativeAsset; 
     const canvasReferences = buildCanvasResourceReferences(ctx.getNodes()).map((reference) => ({ ...reference, active: inbound.some((connection) => connection.fromNodeId === reference.nodeId && connection.toPortId === (reference.kind === "audio" ? "reference-audio" : "reference-image")) }));
     const mediaConnections = (kind: "image" | "audio") => ({
         references: canvasReferences,
+        visualStyleId: ctx.getNodes().find((node) => node.id === inbound.find((connection) => connection.toPortId === "style")?.fromNodeId)?.metadata?.visualStyleId,
         connect: (reference: (typeof canvasReferences)[number]) => ctx.applyOps([{ type: "connect_nodes", fromNodeId: reference.nodeId, fromPortId: "output", toNodeId: ctx.node.id, toPortId: kind === "image" ? "reference-image" : "reference-audio" }]),
         disconnect: (sourceNodeId: string) => ctx.applyOps([{ type: "delete_connections", ids: inbound.filter((connection) => connection.fromNodeId === sourceNodeId && connection.toPortId === (kind === "image" ? "reference-image" : "reference-audio")).map((connection) => connection.id) }]),
+        connectVisualStyle: (styleId: string, name: string) => ctx.applyOps(createVisualStyleOverrideOps(ctx.node, styleId, name, `visual-style-${randomId()}`)),
+        disconnectVisualStyle: () => ctx.applyOps(inheritProjectVisualStyleOps(inbound, ctx.node.id)),
     });
     const imageTarget = useCreativeAssetMediaTarget(asset, ctx.node.id, "image", mediaConnections("image"), generations?.image);
     const audioTarget = useCreativeAssetMediaTarget(asset, ctx.node.id, "audio", mediaConnections("audio"), generations?.audio);

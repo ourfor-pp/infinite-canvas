@@ -7,10 +7,12 @@ import { decryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
 import { buildComfyWorkflow, type GenerationPurpose } from "./comfy-workflows.js";
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
-import { decryptCredentials, getProviderRow, resolveImageModel, resolveProviderModel, resolvePurposeModel, resolveSelectableModel, type AiModelDefinition, type MediaKind } from "./provider-service.js";
+import { decryptCredentials, getProviderRow, resolveImageModel, resolveProviderModel, resolvePurposeModel, resolveSelectableModel, type AiModelDefinition, type AudioMode, type AudioOperation, type MediaKind } from "./provider-service.js";
 import { syncAgentGenerationCanvas } from "./agent/generation-canvas.js";
 import { syncCreativeAssetGeneration } from "./creative-assets.js";
 import { syncVisualStyleGeneration } from "./visual-styles.js";
+import { acknowledgeLocalMediaGeneration, cancelLocalMediaGeneration, runLocalMediaGeneration } from "./local-media.js";
+import { getMediaExecutorSettings } from "./media-executor-settings.js";
 
 export type GenerationRow = {
     id: string;
@@ -67,7 +69,16 @@ export function createGeneration(userId: string, input: AiGenerationRequest) {
             : resolveSelectableModel(input.model || "", input.kind)
         : resolvePurposeModel(purpose, input.kind);
     const imageReferenceCount = (input.references || []).filter((reference) => (reference.kind || "image") === "image").length;
+    const audioReferenceCount = (input.references || []).filter((reference) => reference.kind === "audio").length;
     if (purpose === "default" && input.kind === "image" && selection.model.maxReferenceImages && imageReferenceCount > selection.model.maxReferenceImages) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选图生图模型最多支持 ${selection.model.maxReferenceImages} 张参考图`);
+    if (input.kind === "audio") {
+        const audioModel = selection.model as AiModelDefinition;
+        const mode = String(input.params?.audioMode || "speech");
+        const operation = String(input.params?.audioOperation || (audioReferenceCount ? "clone" : "generate"));
+        if (audioModel.audioModes?.length && !audioModel.audioModes.includes(mode as AudioMode)) throw generationError("AI_MODEL_AUDIO_MODE_UNSUPPORTED", "所选模型不支持当前声音类型");
+        if (audioModel.audioOperations?.length && !audioModel.audioOperations.includes(operation as AudioOperation)) throw generationError("AI_MODEL_AUDIO_OPERATION_UNSUPPORTED", "所选模型不支持当前声音操作");
+        if (audioModel.maxReferenceAudios && audioReferenceCount > audioModel.maxReferenceAudios) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选模型最多支持 ${audioModel.maxReferenceAudios} 段参考音频`);
+    }
     if ((input.prompt?.trim() || input.messages?.length) && !selection.model.inputs.includes("text")) throw generationError("AI_MODEL_INPUT_UNSUPPORTED", "所选模型不支持文本输入");
     for (const reference of input.references || []) {
         const kind = reference.kind || "image";
@@ -97,6 +108,7 @@ function cancelRow(row: GenerationRow | undefined) {
     if (!row || !["queued", "running"].includes(row.status)) return null;
     running.get(row.id)?.controller.abort(new DOMException("Aborted", "AbortError"));
     if (row.provider_id === "comfyui" && row.remote_task_id) void cancelComfyPrompt(row);
+    else if (row.provider_id === "local-media") void cancelLocalMediaGeneration(row);
     else if (row.provider_id && row.remote_task_id) void cancelProviderTask(row);
     updateGeneration(row, { status: "canceled", error: "用户已取消任务", errorCode: "GENERATION_CANCELED" });
     schedulePump();
@@ -140,7 +152,8 @@ function canRun(row: GenerationRow) {
     const userActive = Array.from(running.values()).filter((item) => item.row.user_id === row.user_id).length;
     if (userActive >= config.aiUserConcurrency) return false;
     if (!row.provider_id) return true;
-    if (row.provider_id === "comfyui") return !Array.from(running.values()).some((item) => item.row.id !== row.id && item.row.provider_id === "comfyui" && item.row.comfy_server_id === row.comfy_server_id);
+    if (row.provider_id === "comfyui") return !Array.from(running.values()).some((item) => item.row.id !== row.id && (item.row.provider_id === "local-media" || (item.row.provider_id === "comfyui" && item.row.comfy_server_id === row.comfy_server_id)));
+    if (row.provider_id === "local-media") return !Array.from(running.values()).some((item) => item.row.id !== row.id && ["local-media", "comfyui"].includes(item.row.provider_id || ""));
     const provider = getProviderRow(row.provider_id);
     if (!provider?.enabled) return true;
     const providerActive = Array.from(running.values()).filter((item) => item.row.provider_id === row.provider_id).length;
@@ -154,11 +167,14 @@ async function runGeneration(initialRow: GenerationRow, controller: AbortControl
         const request = parseJson<AiGenerationRequest>(row.request, {} as AiGenerationRequest);
         const result = row.provider_id === "comfyui"
             ? await runComfyGeneration(row, request, controller.signal)
+            : row.provider_id === "local-media"
+                ? await runLocalMediaGeneration(row, request, controller.signal, (id) => updateGeneration(row, { remoteTaskId: id }), (progress) => updateGeneration(row, { progress }))
             : await runPublicGeneration(row, request, controller.signal);
         const current = getGenerationRow(row.user_id, row.id);
         if (!current || current.status === "canceled") return;
         updateGeneration(current, { status: "succeeded", result, progress: 1, usage: asUsage((result as Record<string, unknown>).usage) });
         syncFileRefs(row.user_id, "generation", row.id, { request, result });
+        if (row.provider_id === "local-media") void acknowledgeLocalMediaGeneration(row.id);
     } catch (error) {
         const row = getGenerationRow(initialRow.user_id, initialRow.id);
         if (!row || row.status === "canceled") return;
@@ -217,24 +233,25 @@ async function runComfyGeneration(row: GenerationRow, request: AiGenerationReque
     const server = selectComfyServer(row.comfy_server_id, row.model_id);
     if (!server) throw generationError("COMFY_UNAVAILABLE", "没有可用的 ComfyUI 节点");
     const baseUrl = decryptJson<{ url: string }>(server.encrypted_url, config.appSecret).url.replace(/\/+$/, "");
+    const comfyHeaders: Record<string, string> = server.id === "media-executor" ? { Authorization: `Bearer ${getMediaExecutorSettings().token}` } : {};
     let promptId = row.remote_task_id;
     if (!promptId) {
         const uploaded = await uploadComfyReferences(baseUrl, row.user_id, request.references || [], signal);
         const workflow = buildComfyWorkflow({
             model: row.model_id,
             prompt: request.prompt || "",
-            params: request.params || {},
+            params: { ...(request.params || {}), referenceTranscript: request.references?.find((reference) => reference.kind === "audio")?.transcript || request.params?.referenceTranscript },
             files: uploaded,
         });
-        const created = await comfyJson<{ prompt_id?: string; node_errors?: unknown }>(`${baseUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow, client_id: `infinite-canvas-${row.id}` }), signal });
+        const created = await comfyJson<{ prompt_id?: string; node_errors?: unknown }>(`${baseUrl}/prompt`, { method: "POST", headers: { ...comfyHeaders, "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow, client_id: `infinite-canvas-${row.id}` }), signal });
         if (!created.prompt_id) throw generationError("COMFY_REJECTED", `ComfyUI 拒绝工作流：${JSON.stringify(created.node_errors || created)}`);
         promptId = created.prompt_id;
         updateGeneration(row, { remoteTaskId: promptId });
     }
-    const outputFiles = await waitForComfyOutput(baseUrl, promptId, signal, (progress) => updateGeneration(row, { progress }));
+    const outputFiles = await waitForComfyOutput(baseUrl, promptId, comfyHeaders, signal, (progress) => updateGeneration(row, { progress }));
     const files = await Promise.all(outputFiles.map(async (file) => {
         const url = `${baseUrl}/view?${new URLSearchParams({ filename: file.filename, subfolder: file.subfolder || "", type: file.type || "output" })}`;
-        return storeRemoteFile(row.user_id, await fetch(url, { signal, redirect: "error" }), basename(file.filename));
+        return storeRemoteFile(row.user_id, await fetch(url, { headers: comfyHeaders, signal, redirect: "error" }), basename(file.filename));
     }));
     return { files };
 }
@@ -245,21 +262,22 @@ function selectComfyServer(id: string | null, model: string) {
 }
 
 async function uploadComfyReferences(baseUrl: string, userId: string, references: NonNullable<AiGenerationRequest["references"]>, signal: AbortSignal) {
+    const headers: Record<string, string> = baseUrl.includes("/v1/comfy") ? { Authorization: `Bearer ${getMediaExecutorSettings().token}` } : {};
     return Promise.all(references.map(async (reference, index) => {
         const stored = getStoredFile(userId, reference.fileId);
         if (!stored) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
         const form = new FormData();
         form.set("type", "input");
         form.set("image", await openAsBlob(stored.path, { type: stored.mime_type }), stored.original_name || `reference-${index}`);
-        const result = await comfyJson<{ name?: string; subfolder?: string }>(`${baseUrl}/upload/image`, { method: "POST", body: form, signal });
+        const result = await comfyJson<{ name?: string; subfolder?: string }>(`${baseUrl}/upload/image`, { method: "POST", headers, body: form, signal });
         if (!result.name) throw generationError("COMFY_UPLOAD_FAILED", "ComfyUI 素材上传失败");
         return { fileId: reference.fileId, kind: reference.kind || storedKind(stored.mime_type), name: result.subfolder ? `${result.subfolder}/${result.name}` : result.name };
     }));
 }
 
-async function waitForComfyOutput(baseUrl: string, promptId: string, signal: AbortSignal, onProgress: (value: number) => void) {
+async function waitForComfyOutput(baseUrl: string, promptId: string, headers: Record<string, string>, signal: AbortSignal, onProgress: (value: number) => void) {
     for (let attempt = 0; attempt < 7200; attempt += 1) {
-        const history = await comfyJson<Record<string, { status?: { status_str?: string; messages?: unknown[] }; outputs?: Record<string, unknown> }>>(`${baseUrl}/history/${encodeURIComponent(promptId)}`, { signal });
+        const history = await comfyJson<Record<string, { status?: { status_str?: string; messages?: unknown[] }; outputs?: Record<string, unknown> }>>(`${baseUrl}/history/${encodeURIComponent(promptId)}`, { headers, signal });
         const entry = history[promptId];
         if (entry?.status?.status_str === "error") throw generationError("COMFY_WORKFLOW_FAILED", comfyErrorMessage(entry.status.messages) || "ComfyUI 工作流执行失败");
         const files = collectOutputFiles(entry?.outputs);
@@ -274,10 +292,11 @@ async function cancelComfyPrompt(row: GenerationRow) {
     const server = selectComfyServer(row.comfy_server_id, row.model_id);
     if (!server || !row.remote_task_id) return;
     const baseUrl = decryptJson<{ url: string }>(server.encrypted_url, config.appSecret).url.replace(/\/+$/, "");
+    const headers: Record<string, string> = server.id === "media-executor" ? { Authorization: `Bearer ${getMediaExecutorSettings().token}` } : {};
     try {
-        await fetch(`${baseUrl}/queue`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ delete: [row.remote_task_id] }), signal: AbortSignal.timeout(5000), redirect: "error" });
-        const queue = await comfyJson<{ queue_running?: unknown[] }>(`${baseUrl}/queue`, { signal: AbortSignal.timeout(5000) });
-        if (JSON.stringify(queue.queue_running || []).includes(row.remote_task_id)) await fetch(`${baseUrl}/interrupt`, { method: "POST", signal: AbortSignal.timeout(5000), redirect: "error" });
+        await fetch(`${baseUrl}/queue`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ delete: [row.remote_task_id] }), signal: AbortSignal.timeout(5000), redirect: "error" });
+        const queue = await comfyJson<{ queue_running?: unknown[] }>(`${baseUrl}/queue`, { headers, signal: AbortSignal.timeout(5000) });
+        if (JSON.stringify(queue.queue_running || []).includes(row.remote_task_id)) await fetch(`${baseUrl}/interrupt`, { method: "POST", headers, signal: AbortSignal.timeout(5000), redirect: "error" });
     } catch {
         // The local task remains canceled even when the node is offline.
     }

@@ -13,6 +13,7 @@ import { clearProviderCredentials, deleteProvider, discoverProviderModels, getAi
 import { agentAdminRouter, agentRouter } from "./agent/routes.js";
 import { handleAgentProviderProxy } from "./agent/provider-proxy.js";
 import { removeAgentProjectWorkspace } from "./agent/service.js";
+import { getMediaExecutorSettings, publicMediaExecutorSettings, refreshMediaExecutorCatalog, saveMediaExecutorSettings } from "./media-executor-settings.js";
 import {
     createCreativeAsset,
     deleteCanvasNodes,
@@ -51,7 +52,7 @@ const generationSchema = z.object({
     prompt: z.string().max(200_000).optional(),
     messages: z.array(z.object({ role: z.enum(["system", "user", "assistant"]), content: z.string().max(200_000) })).max(500).optional(),
     params: generationParamsSchema.optional(),
-    references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional() })).optional(),
+    references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional(), transcript: z.string().max(20_000).optional() })).optional(),
 }).superRefine((value, context) => {
     if (value.purpose === "default" && !value.model) context.addIssue({ code: "custom", path: ["model"], message: "普通生成必须指定模型" });
     if (!value.prompt?.trim() && !value.messages?.length && !value.purpose.startsWith("image-upscale-")) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });
@@ -257,9 +258,10 @@ api.post("/admin/comfyui/servers/:id/test", requireAdmin, asyncRoute(async (req)
     if (!row) throw apiError(404, "COMFY_NOT_FOUND", "ComfyUI 节点不存在");
     const { url } = decryptJson<{ url: string }>(row.encrypted_url, config.appSecret);
     const baseUrl = url.replace(/\/+$/, "");
+    const headers: Record<string, string> = row.id === "media-executor" ? { Authorization: `Bearer ${getMediaExecutorSettings().token}` } : {};
     const [statsResponse, infoResponse] = await Promise.all([
-        fetch(`${baseUrl}/system_stats`, { signal: AbortSignal.timeout(10_000), redirect: "error" }),
-        fetch(`${baseUrl}/object_info`, { signal: AbortSignal.timeout(10_000), redirect: "error" }),
+        fetch(`${baseUrl}/system_stats`, { headers, signal: AbortSignal.timeout(10_000), redirect: "error" }),
+        fetch(`${baseUrl}/object_info`, { headers, signal: AbortSignal.timeout(10_000), redirect: "error" }),
     ]);
     if (!statsResponse.ok || !infoResponse.ok) throw apiError(502, "COMFY_UNAVAILABLE", `ComfyUI 返回 ${statsResponse.ok ? infoResponse.status : statsResponse.status}`);
     const info = await infoResponse.json() as Record<string, unknown>;
@@ -273,6 +275,22 @@ api.post("/admin/comfyui/servers/:id/test", requireAdmin, asyncRoute(async (req)
         return { id, available: !missing.length, missing };
     });
     return { available: true, workflows };
+}));
+
+api.get("/admin/media-executor/status", requireAdmin, asyncRoute(async () => {
+    const executor = getMediaExecutorSettings();
+    if (!executor.url || !executor.token) return { ...publicMediaExecutorSettings(executor), configured: false, available: false, models: [] };
+    try {
+        const value = await refreshMediaExecutorCatalog(executor);
+        return { ...publicMediaExecutorSettings(executor), configured: true, available: value.available, models: Object.keys(value.models), modelDetails: value.models, runtimes: value.runtimes };
+    } catch {
+        return { ...publicMediaExecutorSettings(executor), configured: true, available: false, models: [] };
+    }
+}));
+api.put("/admin/media-executor/settings", requireAdmin, asyncRoute(async (req) => {
+    const result = saveMediaExecutorSettings(req.body);
+    await refreshMediaExecutorCatalog();
+    return result;
 }));
 
 api.get("/generations", (req, res) => {

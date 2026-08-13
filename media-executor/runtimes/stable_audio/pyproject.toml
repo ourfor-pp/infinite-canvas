@@ -1,0 +1,8 @@
+[project]
+name = "infinite-stable-audio-runtime"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["fastapi>=0.116,<1", "stable-audio-3 @ git+https://github.com/Stability-AI/stable-audio-3.git", "soundfile>=0.13", "torchaudio>=2.9", "uvicorn[standard]>=0.35,<1"]
+
+[tool.uv]
+package = false

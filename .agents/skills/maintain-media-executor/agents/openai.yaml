@@ -1,0 +1,4 @@
+interface:
+  display_name: "维护媒体执行器"
+  short_description: "部署、升级、巡检并恢复本地 GPU 媒体执行器服务"
+  default_prompt: "Use $maintain-media-executor to inspect and maintain the Infinite Canvas GPU media executor."

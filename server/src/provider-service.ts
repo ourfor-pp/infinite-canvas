@@ -4,22 +4,34 @@ import { config } from "./config.js";
 import { decryptJson, encryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
 import { COMFY_MODEL_DEFINITIONS, PURPOSE_MODELS, type GenerationPurpose, type ImageMode, type ImageWorkflowPurpose } from "./comfy-workflows.js";
+import { getMediaExecutorSettings, isMediaExecutorModelAvailable } from "./media-executor-settings.js";
 
 export const providerTypes = ["openai", "openai-compatible", "anthropic", "gemini", "ark"] as const;
 export const mediaKinds = ["text", "image", "video", "audio"] as const;
-export const audioModes = ["speech", "ambient", "sfx"] as const;
+export const audioModes = ["speech", "ambient", "sfx", "music"] as const;
+export const audioOperations = ["generate", "clone", "transform", "extend", "inpaint", "cover", "remix"] as const;
 export const modelEndpoints = ["openai-chat", "anthropic-messages", "gemini-generate", "openai-images", "openai-images-generations", "openai-images-edits", "gemini-image", "ark-image", "openai-video", "ark-seedance", "gemini-video", "openai-tts", "gemini-audio"] as const;
 export type ProviderType = (typeof providerTypes)[number];
 export type MediaKind = (typeof mediaKinds)[number];
 export type AudioMode = (typeof audioModes)[number];
+export type AudioOperation = (typeof audioOperations)[number];
 export type ModelEndpoint = (typeof modelEndpoints)[number];
 export type ProviderCredentials = { apiKey?: string; authToken?: string };
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: MediaKind; inputs: MediaKind[]; method: "POST"; path: string; agent: boolean };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; imageModes?: ImageMode[]; maxReferenceImages?: number };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number };
+
+const LOCAL_MEDIA_MODELS: Record<string, Omit<AiModelDefinition, "endpoint" | "enabled">> = {
+    "qwen3-tts-1.7b-customvoice-local": { id: "qwen3-tts-1.7b-customvoice-local", name: "Qwen3-TTS 1.7B CustomVoice", output: "audio", inputs: ["text"], audioModes: ["speech"], audioOperations: ["generate"], languages: ["Auto", "Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"], voices: ["Vivian", "Serena", "Ryan", "Aiden", "Dylan", "Eric", "Ono_Anna", "Sohee", "Uncle_Fu"] },
+    "qwen3-tts-1.7b-base-local": { id: "qwen3-tts-1.7b-base-local", name: "Qwen3-TTS 1.7B 声音克隆", output: "audio", inputs: ["text", "audio"], audioModes: ["speech"], audioOperations: ["clone"], maxReferenceAudios: 1, languages: ["Auto", "Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"] },
+    "moss-soundeffect-v2-local": { id: "moss-soundeffect-v2-local", name: "MOSS SoundEffect v2", output: "audio", inputs: ["text"], audioModes: ["ambient", "sfx"], audioOperations: ["generate"], maxDurationSeconds: 30, languages: ["Chinese", "English"] },
+    "stable-audio-3-medium-local": { id: "stable-audio-3-medium-local", name: "Stable Audio 3 Medium", output: "audio", inputs: ["text", "audio"], audioModes: ["ambient", "sfx"], audioOperations: ["generate", "transform", "extend", "inpaint"], maxReferenceAudios: 1, maxDurationSeconds: 300, languages: ["English"] },
+    "ace-step-v15-xl-sft-local": { id: "ace-step-v15-xl-sft-local", name: "ACE-Step 1.5 XL SFT", output: "audio", inputs: ["text", "audio"], audioModes: ["music"], audioOperations: ["generate", "cover", "remix"], maxReferenceAudios: 1 },
+};
 export type AiGlobalSettings = {
     config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string; creativeAssetReviewModel: string };
     imageEditModel: string;
     imageWorkflows: Record<ImageWorkflowPurpose, string>;
+    audioDefaults: Record<AudioMode, Partial<Record<AudioOperation, string>>>;
     promptSources: { sources: Array<Record<string, unknown>>; schedule: Record<string, unknown> };
 };
 export type ProviderRow = {
@@ -109,8 +121,14 @@ const imageWorkflowsInputSchema = z.object({
     "image-upscale-generative": z.string().optional(),
     "image-angle": z.string().optional(),
 });
-const globalSettingsInputSchema = z.object({ config: globalGenerationSchema.partial().optional(), imageEditModel: z.string().optional(), imageWorkflows: imageWorkflowsInputSchema.optional(), promptSources: promptSourcesSchema.optional() });
-const defaultGlobalSettings: AiGlobalSettings = { config: globalGenerationSchema.parse({}), imageEditModel: "comfyui::qwen-image-edit-2511-local", imageWorkflows: imageWorkflowsSchema.parse({}), promptSources: { sources: [], schedule: {} } };
+const audioDefaultsSchema = z.object({
+    speech: z.object({ generate: z.string().default("local-media::qwen3-tts-1.7b-customvoice-local"), clone: z.string().default("local-media::qwen3-tts-1.7b-base-local") }).default({ generate: "local-media::qwen3-tts-1.7b-customvoice-local", clone: "local-media::qwen3-tts-1.7b-base-local" }),
+    ambient: z.object({ generate: z.string().default("local-media::moss-soundeffect-v2-local"), transform: z.string().default(""), extend: z.string().default(""), inpaint: z.string().default("") }).default({ generate: "local-media::moss-soundeffect-v2-local", transform: "", extend: "", inpaint: "" }),
+    sfx: z.object({ generate: z.string().default("local-media::moss-soundeffect-v2-local"), transform: z.string().default(""), extend: z.string().default(""), inpaint: z.string().default("") }).default({ generate: "local-media::moss-soundeffect-v2-local", transform: "", extend: "", inpaint: "" }),
+    music: z.object({ generate: z.string().default(""), cover: z.string().default(""), remix: z.string().default("") }).default({ generate: "", cover: "", remix: "" }),
+});
+const globalSettingsInputSchema = z.object({ config: globalGenerationSchema.partial().optional(), imageEditModel: z.string().optional(), imageWorkflows: imageWorkflowsInputSchema.optional(), audioDefaults: audioDefaultsSchema.partial().optional(), promptSources: promptSourcesSchema.optional() });
+const defaultGlobalSettings: AiGlobalSettings = { config: globalGenerationSchema.parse({}), imageEditModel: "comfyui::qwen-image-edit-2511-local", imageWorkflows: imageWorkflowsSchema.parse({}), audioDefaults: audioDefaultsSchema.parse({}), promptSources: { sources: [], schedule: {} } };
 
 export function listAdminProviders() {
     return (db.prepare("SELECT * FROM ai_providers ORDER BY created_at").all() as ProviderRow[]).map(adminProviderResponse);
@@ -184,6 +202,7 @@ export function clearProviderCredentials(id: string) {
 }
 
 export function listPublicModels() {
+    const executor = getMediaExecutorSettings();
     const providers = db.prepare("SELECT * FROM ai_providers WHERE enabled=1 ORDER BY created_at").all() as ProviderRow[];
     const publicModels = providers.flatMap((provider) => providerModels(provider)
         .filter((model) => model.enabled)
@@ -192,6 +211,7 @@ export function listPublicModels() {
     const comfyNames = new Set(comfyRows.flatMap((row) => parseJson<string[]>(row.models, [])).filter((id) => COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable));
     return [
         ...publicModels,
+        ...(executor.url && executor.token ? Object.values(LOCAL_MEDIA_MODELS).filter((model) => isMediaExecutorModelAvailable(model.id) && (model.id !== "stable-audio-3-medium-local" || executor.stableAudio3LicenseAccepted)).map((model) => ({ ...model, value: `local-media::${model.id}`, providerId: "local-media", providerName: "本地媒体执行器", enabled: true })) : []),
         ...Array.from(comfyNames).map((id) => {
             const output = comfyModelOutput(id);
             return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imageModes: comfyImageModes(id), maxReferenceImages: comfyMaxReferenceImages(id), enabled: true };
@@ -215,9 +235,19 @@ export function listModelDefaults() {
 
 export function getAiGlobalSettings(): AiGlobalSettings {
     const row = db.prepare("SELECT encrypted_payload FROM ai_global_settings WHERE id=1").get() as { encrypted_payload: string } | undefined;
-    if (!row) return defaultGlobalSettings;
+    if (!row) return sanitizeAudioDefaults(defaultGlobalSettings);
     const stored = decryptJson<Partial<AiGlobalSettings>>(row.encrypted_payload, config.appSecret);
-    return { config: globalGenerationSchema.parse(stored.config || {}), imageEditModel: typeof stored.imageEditModel === "string" ? stored.imageEditModel : defaultGlobalSettings.imageEditModel, imageWorkflows: imageWorkflowsSchema.parse(stored.imageWorkflows || {}), promptSources: promptSourcesSchema.parse(stored.promptSources || {}) };
+    return sanitizeAudioDefaults({ config: globalGenerationSchema.parse(stored.config || {}), imageEditModel: typeof stored.imageEditModel === "string" ? stored.imageEditModel : defaultGlobalSettings.imageEditModel, imageWorkflows: imageWorkflowsSchema.parse(stored.imageWorkflows || {}), audioDefaults: audioDefaultsSchema.parse(stored.audioDefaults || {}), promptSources: promptSourcesSchema.parse(stored.promptSources || {}) });
+}
+
+function sanitizeAudioDefaults(settings: AiGlobalSettings): AiGlobalSettings {
+    const audioDefaults = structuredClone(settings.audioDefaults);
+    Object.values(audioDefaults).forEach((operations) => Object.entries(operations).forEach(([operation, modelRef]) => {
+        if (!modelRef) return;
+        try { resolveProviderModel(modelRef, "audio"); }
+        catch { operations[operation as AudioOperation] = ""; }
+    }));
+    return { ...settings, audioDefaults };
 }
 
 export function saveAiGlobalSettings(input: unknown) {
@@ -235,10 +265,19 @@ export function saveAiGlobalSettings(input: unknown) {
         if (model && model !== PURPOSE_MODELS[purpose as ImageWorkflowPurpose]) throw providerError(400, "AI_WORKFLOW_INVALID", "所选图片工具工作流与场景不匹配");
         if (model) resolveProviderModel(`comfyui::${model}`, "image");
     });
+    const audioDefaults = audioDefaultsSchema.parse({ ...current.audioDefaults, ...value.audioDefaults });
+    if (value.audioDefaults) Object.entries(audioDefaults).forEach(([mode, operations]) => Object.entries(operations).forEach(([operation, modelRef]) => {
+            if (!modelRef) return;
+            const selection = resolveProviderModel(modelRef, "audio");
+            const model = selection.model as AiModelDefinition;
+            if (model.audioModes?.length && !model.audioModes.includes(mode as AudioMode)) throw providerError(400, "AI_MODEL_AUDIO_MODE_UNSUPPORTED", "默认声音模型与声音类型不匹配");
+            if (model.audioOperations?.length && !model.audioOperations.includes(operation as AudioOperation)) throw providerError(400, "AI_MODEL_AUDIO_OPERATION_UNSUPPORTED", "默认声音模型与操作不匹配");
+        }));
     const next: AiGlobalSettings = {
         config: globalGenerationSchema.parse({ ...current.config, ...value.config }),
         imageEditModel,
         imageWorkflows,
+        audioDefaults,
         promptSources: value.promptSources ? promptSourcesSchema.parse(value.promptSources) : current.promptSources,
     };
     const now = new Date().toISOString();
@@ -272,6 +311,12 @@ export function resolveProviderModel(value: string, expectedOutput: MediaKind) {
     const [providerId, ...modelParts] = value.split("::");
     const modelId = modelParts.join("::");
     if (!providerId || !modelId) throw providerError(400, "AI_MODEL_INVALID", "模型标识不正确");
+    if (providerId === "local-media") {
+        const executor = getMediaExecutorSettings();
+        const model = LOCAL_MEDIA_MODELS[modelId];
+        if (!executor.url || !executor.token || !model || model.output !== expectedOutput || !isMediaExecutorModelAvailable(modelId) || (modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted)) throw providerError(400, modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted ? "STABLE_AUDIO_LICENSE_REQUIRED" : "AI_MODEL_UNAVAILABLE", modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted ? "管理员尚未确认 Stable Audio 3 模型许可" : "本地媒体模型尚未部署或运行时离线");
+        return { providerId, modelId, model: { ...model, endpoint: "openai-tts" as const, enabled: true } };
+    }
     if (providerId === "comfyui") {
         const output = comfyModelOutput(modelId);
         const node = db.prepare("SELECT id FROM comfy_servers WHERE enabled=1 AND models LIKE ? ORDER BY created_at LIMIT 1").get(`%${modelId}%`) as { id: string } | undefined;

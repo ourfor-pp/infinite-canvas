@@ -118,6 +118,11 @@ CREATE TABLE IF NOT EXISTS ai_global_settings (
   encrypted_payload TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS media_executor_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  encrypted_payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS backup_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   encrypted_payload TEXT NOT NULL,
