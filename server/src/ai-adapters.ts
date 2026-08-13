@@ -10,7 +10,7 @@ import { modelEndpointRegistry, providerBaseUrl, providerPath, type AiModelDefin
 import type { GenerationPurpose } from "./comfy-workflows.js";
 
 export type GenerationMessage = { role: "system" | "user" | "assistant"; content: unknown };
-export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text">; transcript?: string };
+export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text">; role?: "reference" | "first-frame" | "last-frame" | "continuation"; transcript?: string };
 export type AiGenerationRequest = {
     kind: MediaKind;
     model?: string;
@@ -185,9 +185,9 @@ async function generateOpenAIVideo(context: ProviderContext) {
         if (context.request.params?.size) form.set("size", String(context.request.params.size));
         if (context.request.params?.resolution) form.set("resolution_name", String(context.request.params.resolution));
         for (const reference of context.request.references || []) {
-            if ((reference.kind || "image") !== "image") continue;
             const file = requireStoredFile(context.userId, reference.fileId);
-            form.append("input_reference[]", await openAsBlob(file.path, { type: file.mime_type }), file.original_name);
+            const field = reference.role === "last-frame" ? "last_frame" : reference.role === "continuation" ? "video" : "input_reference[]";
+            form.append(field, await openAsBlob(file.path, { type: file.mime_type }), file.original_name);
         }
         const created = await jsonBody(await providerFetch(context, "/videos", { method: "POST", body: form }));
         taskId = String(created.id || asRecord(created.data).id || "");
@@ -220,7 +220,8 @@ async function generateArkVideo(context: ProviderContext) {
         for (const reference of context.request.references || []) {
             const file = requireStoredFile(context.userId, reference.fileId);
             const kind = reference.kind || mediaKind(file.mime_type);
-            content.push({ type: `${kind}_url`, [`${kind}_url`]: { url: fileDataUrl(file.path, file.mime_type) }, role: `reference_${kind}` });
+            const role = reference.role === "first-frame" ? "first_frame" : reference.role === "last-frame" ? "last_frame" : reference.role === "continuation" ? "continuation" : `reference_${kind}`;
+            content.push({ type: `${kind}_url`, [`${kind}_url`]: { url: fileDataUrl(file.path, file.mime_type) }, role });
         }
         const params = context.request.params || {};
         const created = await jsonBody(await providerFetch(context, endpoint, { method: "POST", json: { model: context.model.id, content, ratio: params.ratio || params.size, resolution: params.resolution, duration: params.seconds, generate_audio: params.generateAudio !== false, watermark: params.watermark === true } }));
@@ -235,8 +236,11 @@ async function generateGeminiVideo(context: ProviderContext) {
     let taskId = context.remoteTaskId || "";
     if (!taskId) {
         const instance: Record<string, unknown> = { prompt: withSystemPrompt(context) };
-        const image = (await referenceParts(context, "image"))[0];
-        if (image) instance.image = { bytesBase64Encoded: Buffer.from(image.bytes).toString("base64"), mimeType: image.mimeType };
+        const images = await Promise.all((context.request.references || []).filter((item) => (item.kind || "image") === "image").map(async (item) => ({ item, file: requireStoredFile(context.userId, item.fileId) })));
+        const first = images.find(({ item }) => item.role === "first-frame") || images.find(({ item }) => item.role !== "last-frame");
+        const last = images.find(({ item }) => item.role === "last-frame");
+        if (first) instance.image = { bytesBase64Encoded: readFileSync(first.file.path).toString("base64"), mimeType: first.file.mime_type };
+        if (last) instance.lastFrame = { bytesBase64Encoded: readFileSync(last.file.path).toString("base64"), mimeType: last.file.mime_type };
         const created = await jsonBody(await providerFetch(context, `/models/${encodeURIComponent(context.model.id)}:predictLongRunning`, { method: "POST", json: { instances: [instance], parameters: { aspectRatio: context.request.params?.ratio || context.request.params?.size } } }));
         taskId = String(created.name || "");
         if (!taskId) throw adapterError("AI_VIDEO_TASK_EMPTY", "Gemini 没有返回任务 ID");

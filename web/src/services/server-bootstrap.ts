@@ -33,7 +33,7 @@ export async function bootstrapServerState() {
 }
 
 export async function hydrateFromServer() {
-    const [summaries, rawAssets, settings, models, modelDefaults, globalSettings] = await Promise.all([serverApi.projects(), serverApi.assets(), serverApi.settings(), serverApi.aiModels(), serverApi.aiModelDefaults(), serverApi.aiGlobalSettings()]);
+    const [summaries, rawAssets, settings, models, modelDefaults, globalSettings] = await Promise.all([serverApi.projects("canvas"), serverApi.assets(), serverApi.settings(), serverApi.aiModels(), serverApi.aiModelDefaults(), serverApi.aiGlobalSettings()]);
     const projects = await Promise.all(summaries.map((project) => serverApi.project(String(project.id)))) as unknown as CanvasProject[];
     useCanvasStore.getState().replaceProjects(projects);
     useCanvasStore.getState().setHydrated(true);

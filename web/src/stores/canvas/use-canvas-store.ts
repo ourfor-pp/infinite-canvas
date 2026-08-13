@@ -8,6 +8,7 @@ import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, Viewport
 
 export type CanvasProject = {
     id: string;
+    kind: "canvas";
     title: string;
     createdAt: string;
     updatedAt: string;
@@ -49,6 +50,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
         const now = new Date().toISOString();
         const project: CanvasProject = {
             id: nanoid(),
+            kind: "canvas",
             title,
             createdAt: now,
             updatedAt: now,
@@ -70,6 +72,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
         const now = new Date().toISOString();
         const project: CanvasProject = {
             id: nanoid(),
+            kind: "canvas",
             title: source.title || i18n.t("canvas.project.imported"),
             createdAt: source.createdAt || now,
             updatedAt: now,
@@ -103,6 +106,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
     },
     replaceProjects: (projects) => set({ projects }),
     applyServerProject: (project) => {
+        if (project.kind !== "canvas") return false;
         const current = get().projects.find((item) => item.id === project.id);
         if (current && current.revision >= project.revision) return false;
         if (serverMutationProjects.delete(project.id)) {

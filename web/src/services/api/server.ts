@@ -46,7 +46,8 @@ export type AudioOperation = "generate" | "clone" | "transform" | "extend" | "in
 export type ModelEndpoint = "openai-chat" | "anthropic-messages" | "gemini-generate" | "openai-images" | "openai-images-generations" | "openai-images-edits" | "gemini-image" | "ark-image" | "openai-video" | "ark-seedance" | "gemini-video" | "openai-tts" | "gemini-audio";
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: ModelCapability; inputs: ModelCapability[]; method: "POST"; path: string; agent: boolean };
 export type AiGlobalSettings = { config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string; creativeAssetReviewModel: string }; imageEditModel: string; imageWorkflows: Record<ImageWorkflowPurpose, string>; audioDefaults: Record<AudioMode, Partial<Record<AudioOperation, string>>>; promptSources: { sources: Array<Record<string, unknown>>; schedule: Record<string, unknown> } };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: ModelCapability; inputs: ModelCapability[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number };
+export type VideoReferenceRole = "reference" | "first-frame" | "last-frame" | "continuation";
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: ModelCapability; inputs: ModelCapability[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean };
 export type PublicAiModel = Omit<AiModelDefinition, "endpoint" | "agentEnabled"> & { value: string; providerId: string; providerName: string };
 export type AiProvider = {
     id: string;
@@ -110,7 +111,7 @@ export async function serverRequest<T>(path: string, init?: RequestInit): Promis
 
 export const serverApi = {
     session: () => serverRequest<ServerSession>("/session"),
-    projects: () => serverRequest<Array<Record<string, unknown>>>("/projects"),
+    projects: (kind?: "canvas" | "director") => serverRequest<Array<Record<string, unknown>>>(`/projects${kind ? `?kind=${kind}` : ""}`),
     project: (id: string) => serverRequest<Record<string, unknown>>(`/projects/${encodeURIComponent(id)}`),
     createProject: (project: Record<string, unknown>) => serverRequest<Record<string, unknown>>("/projects", { method: "POST", body: JSON.stringify(project) }),
     updateProject: (id: string, project: Record<string, unknown>, force = false) => serverRequest<Record<string, unknown>>(`/projects/${encodeURIComponent(id)}${force ? "/force" : ""}`, { method: "PUT", body: JSON.stringify(project) }),
@@ -198,7 +199,7 @@ export function serverFileIdFromUrl(source: string) {
     }
 }
 
-export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void, onProject?: (project: Record<string, unknown>) => void, onCreativeAsset?: (asset: CreativeAsset | { id: string; projectId: string; deleted: true }) => void, onVisualStyle?: (style: VisualStyle | { id: string; projectId: string; deleted: true }) => void) {
+export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void, onProject?: (project: Record<string, unknown>) => void, onCreativeAsset?: (asset: CreativeAsset | { id: string; projectId: string; deleted: true }) => void, onVisualStyle?: (style: VisualStyle | { id: string; projectId: string; deleted: true }) => void, onDirector?: (entity: { type: string; projectId: string; data: unknown }) => void) {
     let socket: WebSocket | null = null;
     let retryTimer = 0;
     let stopped = false;
@@ -213,6 +214,7 @@ export function subscribeServerEvents(onGeneration: (generation: ServerGeneratio
                 if (message.type === "project.updated" && message.data) onProject?.(message.data as Record<string, unknown>);
                 if (message.type === "creative_asset.updated" && message.data) onCreativeAsset?.(message.data as CreativeAsset | { id: string; projectId: string; deleted: true });
                 if (message.type === "visual_style.updated" && message.data) onVisualStyle?.(message.data as VisualStyle | { id: string; projectId: string; deleted: true });
+                if (message.type === "director.updated" && message.data) onDirector?.(message.data as { type: string; projectId: string; data: unknown });
             } catch {
                 // Ignore malformed server events and keep the connection alive.
             }

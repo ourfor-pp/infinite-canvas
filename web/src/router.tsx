@@ -1,3 +1,4 @@
+import { lazy, Suspense, type ReactNode } from "react";
 import { createBrowserRouter, Outlet } from "react-router-dom";
 
 import { AnalyticsTracker } from "@/components/layout/analytics-tracker";
@@ -12,6 +13,10 @@ import PromptsPage from "@/pages/prompts";
 import VideoPage from "@/pages/video";
 import AudioPage from "@/pages/audio";
 import AdminAiPage from "@/pages/admin/ai";
+
+const DirectorPage = lazy(() => import("@/pages/director"));
+const DirectorProjectPage = lazy(() => import("@/pages/director/project"));
+const deferred = (element: ReactNode) => <Suspense fallback={<div className="grid h-full place-items-center bg-[#09090a] text-sm text-white/40">正在进入导演台…</div>}>{element}</Suspense>;
 
 export const router = createBrowserRouter([
     {
@@ -30,6 +35,8 @@ export const router = createBrowserRouter([
             { path: "/prompts", element: <PromptsPage /> },
             { path: "/canvas", element: <CanvasPage /> },
             { path: "/canvas/:id", element: <CanvasProjectPage /> },
+            { path: "/director", element: deferred(<DirectorPage />) },
+            { path: "/director/:id/:section?", element: deferred(<DirectorProjectPage />) },
             { path: "/admin/ai", element: <AdminAiPage /> },
         ],
     },

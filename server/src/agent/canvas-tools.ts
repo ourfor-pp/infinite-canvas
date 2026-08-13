@@ -53,7 +53,7 @@ export const canvasToolSchemas = {
     prompts_search: z.object({ keyword: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(50).optional() }),
     generation_get_status: z.object({ id: z.string().optional(), limit: z.number().int().min(1).max(100).optional() }),
     generation_list_models: z.object({ kind: z.enum(["text", "image", "video", "audio"]).optional() }),
-    generation_create: z.object({ kind: z.enum(["text", "image", "video", "audio"]), model: z.string(), prompt: z.string(), projectId: z.string().optional(), nodeId: z.string().optional(), references: z.array(z.object({ fileId: z.string(), kind: z.enum(["image", "video", "audio"]).optional() })).optional() }),
+    generation_create: z.object({ kind: z.enum(["text", "image", "video", "audio"]), model: z.string(), prompt: z.string(), projectId: z.string().optional(), nodeId: z.string().optional(), references: z.array(z.object({ fileId: z.string(), kind: z.enum(["image", "video", "audio"]).optional(), role: z.enum(["reference", "first-frame", "last-frame", "continuation"]).optional() })).optional() }),
     creative_assets_list: z.object({ projectId: z.string().optional(), kind: z.enum(["character", "scene", "prop"]).optional() }),
     creative_asset_get: z.object({ projectId: z.string().optional(), assetId: z.string() }),
     creative_assets_create_batch: z.object({ projectId: z.string().optional(), sourceNodeId: z.string().optional(), items: z.array(creativeAssetInputSchema).min(1).max(200) }),
@@ -311,5 +311,6 @@ function agentToolError(code: string, message: string) {
 }
 
 function generationProjectId(request: string) {
-    return parseJson<{ params?: { __agentCanvas?: { projectId?: string } | null } }>(request, {}).params?.__agentCanvas?.projectId || "";
+    const params = parseJson<{ params?: { __agentCanvas?: { projectId?: string } | null; __directorShot?: { projectId?: string } | null } }>(request, {}).params;
+    return params?.__agentCanvas?.projectId || params?.__directorShot?.projectId || "";
 }

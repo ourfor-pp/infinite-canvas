@@ -60,4 +60,14 @@ export const canvasThemes = {
     },
 } as const;
 
-export type CanvasTheme = (typeof canvasThemes)[CanvasColorTheme];
+export type CanvasTheme = {
+    canvas: Record<keyof typeof canvasThemes.light.canvas, string>;
+    node: Record<keyof typeof canvasThemes.light.node, string>;
+    toolbar: Record<keyof typeof canvasThemes.light.toolbar, string>;
+};
+
+export const sxhAgentLightTheme: CanvasTheme = {
+    canvas: { background: "#f1f5f9", dot: "rgba(15,23,42,.16)", line: "rgba(15,23,42,.08)", selectionStroke: "#2563eb", selectionFill: "rgba(37,99,235,.08)" },
+    node: { label: "#334155", fill: "#f8fafc", panel: "#ffffff", stroke: "#e2e8f0", activeStroke: "#2563eb", placeholder: "#94a3b8", text: "#0f172a", muted: "#64748b", faint: "#94a3b8" },
+    toolbar: { panel: "rgba(255,255,255,.98)", border: "#e2e8f0", item: "#64748b", itemHover: "#f1f5f9", activeBg: "#eff6ff", activeText: "#2563eb" },
+};

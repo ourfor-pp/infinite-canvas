@@ -84,8 +84,15 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
                 window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: project }));
             }
         },
-        (asset) => useCreativeAssetStore.getState().apply(asset),
-        (style) => useVisualStyleStore.getState().apply(style),
+        (asset) => {
+            useCreativeAssetStore.getState().apply(asset);
+            window.dispatchEvent(new CustomEvent("infinite-canvas:creative-asset-updated", { detail: asset }));
+        },
+        (style) => {
+            useVisualStyleStore.getState().apply(style);
+            window.dispatchEvent(new CustomEvent("infinite-canvas:visual-style-updated", { detail: style }));
+        },
+        (entity) => window.dispatchEvent(new CustomEvent("infinite-canvas:director-updated", { detail: entity })),
     ), []);
 
     const migrate = async () => {

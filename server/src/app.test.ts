@@ -4,13 +4,15 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import PDFDocument from "pdfkit";
+import AdmZip from "adm-zip";
 
 const testData = mkdtempSync(join(tmpdir(), "infinite-canvas-server-"));
 process.env.DATA_DIR = testData;
 process.env.AUTH_MODE = "fnos";
 process.env.APP_SECRET = "test-secret";
 
-const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createTextNodes }, { recoverAgentRuns, resolveAgentToolSearchMode }, { parseSkillAllowedTools }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js")]);
+const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createTextNodes }, { recoverAgentRuns, resolveAgentToolSearchMode }, { parseSkillAllowedTools }, { providerInputSchema }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js")]);
 let origin = "";
 const server = app.listen(0, "127.0.0.1");
 
@@ -47,6 +49,12 @@ test("Agent Skill 解析单行和列表 allowed-tools", () => {
     assert.deepEqual(parseSkillAllowedTools("---\nname: demo\nallowed-tools:\n  - ToolSearch\n  - mcp__infinite_canvas__generation_create\n---\n"), ["ToolSearch", "mcp__infinite_canvas__generation_create"]);
 });
 
+test("视频模型必须显式声明首尾帧与 Extend 能力", () => {
+    const base = { name: "视频渠道", type: "openai-compatible", baseUrl: "http://127.0.0.1:9/v1", enabled: false, models: [{ id: "video-model", name: "视频模型", endpoint: "openai-video", enabled: true, videoExtend: true, videoReferenceRoles: ["first-frame"] }] };
+    assert.equal(providerInputSchema.safeParse(base).success, false);
+    assert.equal(providerInputSchema.safeParse({ ...base, models: [{ ...base.models[0], videoReferenceRoles: ["first-frame", "last-frame", "continuation"] }] }).success, true);
+});
+
 test("缺少 fnOS 身份时拒绝访问", async () => {
     const response = await fetch(`${origin}/session`);
     assert.equal(response.status, 401);
@@ -67,6 +75,92 @@ test("项目按用户隔离并检测 revision 冲突", async () => {
     const conflict = await api("/projects/project-1", userOne, { method: "PUT", body: JSON.stringify({ ...project, revision: 1 }) });
     assert.equal(conflict.response.status, 409);
     assert.equal(conflict.body.error.details.current.revision, 2);
+});
+
+test("导演项目隔离、长篇分块、阶段确认与过期依赖", async () => {
+    const projectId = "director-project-1";
+    const created = await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "长片测试" }) });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.data.kind, "director");
+    assert.equal((await api("/projects?kind=canvas", userOne)).body.data.some((item: { id: string }) => item.id === projectId), false);
+    assert.equal((await api("/projects?kind=director", userOne)).body.data.some((item: { id: string }) => item.id === projectId), true);
+    assert.equal((await api(`/director/projects/${projectId}`, userTwo)).response.status, 404);
+
+    const initial = await api(`/director/projects/${projectId}`, userOne);
+    assert.deepEqual(initial.body.data.documents.map((item: { kind: string }) => item.kind).sort(), ["script", "story"]);
+    assert.equal(initial.body.data.timeline.revision, 1);
+
+    const chapter = "林夏走进雨夜车站。她看见旧怀表，决定追查失踪案。".repeat(450);
+    const novel = Array.from({ length: 100 }, (_, index) => `第${index + 1}章 雨夜\n${chapter}`).join("\n");
+    assert.ok(novel.length > 1_000_000);
+    const form = new FormData();
+    form.set("file", new Blob([novel], { type: "text/plain" }), "百万字小说.txt");
+    const uploaded = await api("/files", userOne, { method: "POST", body: form });
+    const sourceCreated = await api(`/director/projects/${projectId}/sources`, userOne, { method: "POST", body: JSON.stringify({ fileId: uploaded.body.data.fileId }) });
+    assert.equal(sourceCreated.response.status, 202);
+    let source = sourceCreated.body.data;
+    for (let index = 0; index < 100 && source.status === "processing"; index += 1) {
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+        source = (await api(`/director/projects/${projectId}`, userOne)).body.data.sources[0];
+    }
+    assert.equal(source.status, "ready");
+    assert.equal(source.chapterCount, 100);
+    assert.equal(source.charCount > 1_000_000, true);
+    const chunks = await api(`/director/sources/${source.id}/chunks?q=${encodeURIComponent("旧怀表")}&limit=5`, userOne);
+    assert.equal(chunks.response.status, 200);
+    assert.equal(chunks.body.data.length, 5);
+
+    const story = await api(`/director/projects/${projectId}/documents/story`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "# 故事\n林夏追查旧怀表。" }) });
+    assert.equal(story.body.data.revision, 2);
+    assert.equal(story.body.data.status, "draft");
+    const storyConflict = await api(`/director/projects/${projectId}/documents/story`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "旧稿" }) });
+    assert.equal(storyConflict.response.status, 409);
+    const gatedSequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ title: "雨夜车站" }) });
+    assert.equal(gatedSequence.response.status, 409);
+    const script = await api(`/director/projects/${projectId}/documents/script`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "## 场 1 · 雨夜车站\n林夏：我会找到真相。", status: "confirmed" }) });
+    assert.equal(script.response.status, 200);
+    const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ title: "雨夜车站", summary: "线索出现", payload: { storyboard: Array.from({ length: 6 }, (_, position) => ({ id: `panel-${position}`, position, title: `镜头 ${position + 1}` })) } }) });
+    assert.equal(sequence.response.status, 201);
+    const gatedShot = await api(`/director/projects/${projectId}/shots`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "车站全景" }) });
+    assert.equal(gatedShot.response.status, 409);
+    const confirmed = await api(`/director/sequences/${sequence.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "confirmed" }) });
+    const shot = await api(`/director/projects/${projectId}/shots`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: confirmed.body.data.id, title: "车站全景", payload: { boundary: "cut", characterRefs: [{ id: "character-stable-id", revision: 3 }] } }) });
+    assert.equal(shot.response.status, 201);
+    assert.deepEqual(shot.body.data.payload.characterRefs, [{ id: "character-stable-id", revision: 3 }]);
+    const lockedShot = await api(`/director/shots/${shot.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "locked" }) });
+    assert.equal(lockedShot.response.status, 200);
+    const rejectedLockedEdit = await api(`/director/shots/${shot.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, title: "未经审批的改名" }) });
+    assert.equal(rejectedLockedEdit.response.status, 423);
+    await api(`/director/projects/${projectId}/documents/story`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, content: "# 故事\n林夏在雪夜追查旧怀表。" }) });
+    const stale = await api(`/director/projects/${projectId}`, userOne);
+    assert.equal(stale.body.data.sequences[0].payload.needsReview, true);
+    assert.equal(stale.body.data.shots[0].payload.needsReview, true);
+});
+
+test("导演来源解析 Markdown、PDF 与 EPUB", async () => {
+    const projectId = "director-source-formats";
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "格式测试" }) });
+    const markdown = await uploadDirectorSource(projectId, new Blob(["# 第一章\n雨夜车站。\n\n# 第二章\n旧怀表。"], { type: "text/markdown" }), "小说.md");
+    assert.equal(markdown.status, "ready");
+    assert.equal(markdown.chapterCount, 2);
+
+    const pdf = new PDFDocument({ autoFirstPage: true }); const pdfChunks: Buffer[] = [];
+    pdf.on("data", (chunk) => pdfChunks.push(chunk));
+    const pdfReady = new Promise<Buffer>((resolvePromise) => pdf.on("end", () => resolvePromise(Buffer.concat(pdfChunks))));
+    pdf.fontSize(18).text("Chapter 1"); pdf.fontSize(12).text("A rainy station and an old watch."); pdf.end();
+    const pdfSource = await uploadDirectorSource(projectId, new Blob([Uint8Array.from(await pdfReady)], { type: "application/pdf" }), "novel.pdf");
+    assert.equal(pdfSource.status, "ready");
+    assert.equal(pdfSource.charCount > 20, true);
+
+    const epub = new AdmZip();
+    epub.addFile("mimetype", Buffer.from("application/epub+zip"));
+    epub.addFile("META-INF/container.xml", Buffer.from(`<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`));
+    epub.addFile("OEBPS/content.opf", Buffer.from(`<?xml version="1.0"?><package version="2.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>雨夜</dc:title><dc:identifier id="bookid">test-book</dc:identifier><dc:language>zh</dc:language></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest><spine toc="ncx"><itemref idref="chapter1"/></spine></package>`));
+    epub.addFile("OEBPS/toc.ncx", Buffer.from(`<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head/><docTitle><text>雨夜</text></docTitle><navMap><navPoint id="nav1" playOrder="1"><navLabel><text>第一章</text></navLabel><content src="chapter1.xhtml"/></navPoint></navMap></ncx>`));
+    epub.addFile("OEBPS/chapter1.xhtml", Buffer.from(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>第一章</title></head><body><h1>第一章 雨夜</h1><p>林夏走进车站，发现一枚旧怀表。</p></body></html>`));
+    const epubSource = await uploadDirectorSource(projectId, new Blob([Uint8Array.from(epub.toBuffer())], { type: "application/epub+zip" }), "novel.epub");
+    assert.equal(epubSource.status, "ready");
+    assert.equal(epubSource.chapterCount, 1);
 });
 
 test("创作资产按项目隔离、保存自然语言描述并检测 revision", async () => {
@@ -550,6 +644,18 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
         await new Promise<void>((resolvePromise) => fakeComfy.close(() => resolvePromise()));
     }
 });
+
+async function uploadDirectorSource(projectId: string, blob: Blob, name: string) {
+    const form = new FormData(); form.set("file", blob, name);
+    const uploaded = await api("/files", userOne, { method: "POST", body: form });
+    const created = await api(`/director/projects/${projectId}/sources`, userOne, { method: "POST", body: JSON.stringify({ fileId: uploaded.body.data.fileId }) });
+    let source = created.body.data;
+    for (let index = 0; index < 100 && source.status === "processing"; index += 1) {
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+        source = (await api(`/director/projects/${projectId}`, userOne)).body.data.sources.find((item: { id: string }) => item.id === source.id);
+    }
+    return source;
+}
 
 async function api(path: string, headers: Record<string, string>, init: RequestInit = {}) {
     const requestHeaders = new Headers(init.headers);

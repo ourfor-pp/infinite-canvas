@@ -28,14 +28,22 @@ import {
 import { createCreativeAssetGeneration, previewCreativeAssetGeneration } from "./creative-asset-generation.js";
 import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, placeVisualStyle, setDefaultVisualStyle, updateVisualStyle } from "./visual-styles.js";
 import { createVisualStyleAnalysis, createVisualStyleReferences } from "./visual-style-generation.js";
+import {
+    createDirectorSequence, createDirectorShot, createDirectorSource, deleteDirectorSequence, deleteDirectorShot,
+    getDirectorDocument, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
+    updateDirectorDocument, updateDirectorSequence, updateDirectorShot, updateDirectorTimeline, updateDirectorWorkspace,
+} from "./director.js";
+import { cancelDirectorRender, createDirectorRender, createDirectorShotGeneration, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 
-type ProjectRow = { id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
+type ProjectKind = "canvas" | "director";
+type ProjectRow = { id: string; kind: ProjectKind; title: string; payload: string; revision: number; created_at: string; updated_at: string };
 type AssetRow = { id: string; kind: string; title: string; payload: string; created_at: string; updated_at: string };
 type ComfyServerRow = { id: string; name: string; encrypted_url: string; enabled: number; models: string; created_at: string; updated_at: string };
 
 const idSchema = z.string().trim().min(1).max(128);
 const jsonRecord = z.record(z.string(), z.unknown());
-const projectSchema = z.object({ id: idSchema, title: z.string().trim().min(1).max(200) }).passthrough();
+const projectKindSchema = z.enum(["canvas", "director"]);
+const projectSchema = z.object({ id: idSchema, kind: projectKindSchema.default("canvas"), title: z.string().trim().min(1).max(200) }).passthrough();
 const assetSchema = z.object({ id: idSchema, kind: z.enum(["text", "image", "video", "character", "scene", "prop"]), title: z.string().trim().min(1).max(200) }).passthrough();
 const settingsSchema = z.object({ config: jsonRecord, promptSources: jsonRecord.optional() });
 const comfyServerSchema = z.object({ name: z.string().trim().min(1).max(100), url: z.string().url(), enabled: z.boolean().default(true), models: z.array(z.enum(COMFY_MODELS)).min(1) });
@@ -52,7 +60,7 @@ const generationSchema = z.object({
     prompt: z.string().max(200_000).optional(),
     messages: z.array(z.object({ role: z.enum(["system", "user", "assistant"]), content: z.string().max(200_000) })).max(500).optional(),
     params: generationParamsSchema.optional(),
-    references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional(), transcript: z.string().max(20_000).optional() })).optional(),
+    references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional(), role: z.enum(["reference", "first-frame", "last-frame", "continuation"]).optional(), transcript: z.string().max(20_000).optional() })).optional(),
 }).superRefine((value, context) => {
     if (value.purpose === "default" && !value.model) context.addIssue({ code: "custom", path: ["model"], message: "普通生成必须指定模型" });
     if (!value.prompt?.trim() && !value.messages?.length && !value.purpose.startsWith("image-upscale-")) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });
@@ -82,8 +90,11 @@ api.get("/session", (req, res) => {
 });
 
 api.get("/projects", (req, res) => {
-    const rows = db.prepare("SELECT id, title, revision, created_at, updated_at FROM projects WHERE user_id=? ORDER BY updated_at DESC").all(req.user.id) as Array<Omit<ProjectRow, "payload">>;
-    res.json({ data: rows.map((row) => ({ id: row.id, title: row.title, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })) });
+    const kind = req.query.kind === undefined ? undefined : projectKindSchema.parse(req.query.kind);
+    const rows = (kind
+        ? db.prepare("SELECT id, kind, title, revision, created_at, updated_at FROM projects WHERE user_id=? AND kind=? ORDER BY updated_at DESC").all(req.user.id, kind)
+        : db.prepare("SELECT id, kind, title, revision, created_at, updated_at FROM projects WHERE user_id=? ORDER BY updated_at DESC").all(req.user.id)) as Array<Omit<ProjectRow, "payload">>;
+    res.json({ data: rows.map((row) => ({ id: row.id, kind: row.kind, title: row.title, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })) });
 });
 
 api.post("/projects", route((req) => {
@@ -91,7 +102,8 @@ api.post("/projects", route((req) => {
     const now = new Date().toISOString();
     const payload = { ...value, createdAt: value.createdAt || now, updatedAt: now };
     return db.transaction(() => {
-        db.prepare("INSERT INTO projects(id, user_id, title, payload, revision, created_at, updated_at) VALUES(?, ?, ?, ?, 1, ?, ?)").run(value.id, req.user.id, value.title, JSON.stringify(payload), payload.createdAt, now);
+        db.prepare("INSERT INTO projects(id, user_id, kind, title, payload, revision, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 1, ?, ?)").run(value.id, req.user.id, value.kind, value.title, JSON.stringify(payload), payload.createdAt, now);
+        if (value.kind === "director") initializeDirectorProject(req.user.id, value.id, now);
         syncFileRefs(req.user.id, "project", value.id, payload);
         return projectResponse(db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(value.id, req.user.id) as ProjectRow);
     })();
@@ -99,13 +111,13 @@ api.post("/projects", route((req) => {
 
 api.get("/projects/:id", route((req) => {
     const row = db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(req.params.id, req.user.id) as ProjectRow | undefined;
-    if (!row) throw apiError(404, "PROJECT_NOT_FOUND", "画布不存在");
+    if (!row) throw apiError(404, "PROJECT_NOT_FOUND", "项目不存在");
     return projectResponse(row);
 }));
 
 api.delete("/projects/:id/nodes", route((req) => deleteCanvasNodes(
     req.user.id,
-    routeId(req),
+    assertProjectKind(req.user.id, routeId(req), "canvas").id,
     z.array(idSchema).min(1).max(500).parse(req.body?.ids),
     z.number().int().positive().parse(req.body?.revision),
 )));
@@ -116,12 +128,14 @@ api.put("/projects/:id", route((req) => {
     const now = new Date().toISOString();
     const payload = { ...value, updatedAt: now };
     return db.transaction(() => {
+        const project = assertProjectKind(req.user.id, routeId(req));
+        if (value.kind !== project.kind) throw apiError(400, "PROJECT_KIND_IMMUTABLE", "项目类型不能修改");
         const result = db.prepare(`UPDATE projects SET title=?, payload=?, revision=revision+1, updated_at=?
             WHERE id=? AND user_id=? AND revision=?`).run(value.title, JSON.stringify(payload), now, req.params.id, req.user.id, expectedRevision);
         if (!result.changes) {
             const current = db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(req.params.id, req.user.id) as ProjectRow | undefined;
-            if (!current) throw apiError(404, "PROJECT_NOT_FOUND", "画布不存在");
-            throw apiError(409, "PROJECT_CONFLICT", "画布已在其他页面更新", { current: projectResponse(current) });
+            if (!current) throw apiError(404, "PROJECT_NOT_FOUND", "项目不存在");
+            throw apiError(409, "PROJECT_CONFLICT", "项目已在其他页面更新", { current: projectResponse(current) });
         }
         syncFileRefs(req.user.id, "project", routeId(req), payload);
         return projectResponse(db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(req.params.id, req.user.id) as ProjectRow);
@@ -133,8 +147,10 @@ api.put("/projects/:id/force", route((req) => {
     const now = new Date().toISOString();
     const payload = { ...value, updatedAt: now };
     return db.transaction(() => {
+        const project = assertProjectKind(req.user.id, routeId(req));
+        if (value.kind !== project.kind) throw apiError(400, "PROJECT_KIND_IMMUTABLE", "项目类型不能修改");
         const result = db.prepare("UPDATE projects SET title=?, payload=?, revision=revision+1, updated_at=? WHERE id=? AND user_id=?").run(value.title, JSON.stringify(payload), now, req.params.id, req.user.id);
-        if (!result.changes) throw apiError(404, "PROJECT_NOT_FOUND", "画布不存在");
+        if (!result.changes) throw apiError(404, "PROJECT_NOT_FOUND", "项目不存在");
         syncFileRefs(req.user.id, "project", routeId(req), payload);
         return projectResponse(db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(req.params.id, req.user.id) as ProjectRow);
     })();
@@ -142,10 +158,12 @@ api.put("/projects/:id/force", route((req) => {
 
 api.delete("/projects/:id", route((req) => {
     const projectId = routeId(req);
-    if (db.prepare("SELECT 1 FROM agent_sessions WHERE user_id=? AND project_id=? AND status IN ('running','waiting_for_user')").get(req.user.id, projectId)) throw apiError(409, "PROJECT_AGENT_BUSY", "Agent 正在使用这个画布，请先停止任务");
+    if (db.prepare("SELECT 1 FROM agent_sessions WHERE user_id=? AND project_id=? AND status IN ('running','waiting_for_user')").get(req.user.id, projectId)) throw apiError(409, "PROJECT_AGENT_BUSY", "Agent 正在使用这个项目，请先停止任务");
     const result = db.transaction(() => {
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='creative_asset' AND owner_id IN (SELECT id FROM creative_assets WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='visual_style' AND owner_id IN (SELECT id FROM visual_styles WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type IN ('director_source','director_render') AND owner_id IN (SELECT id FROM director_sources WHERE user_id=? AND project_id=? UNION SELECT id FROM director_renders WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId, req.user.id, projectId);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='director_shot' AND owner_id IN (SELECT id FROM director_shots WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId);
         db.prepare("DELETE FROM agent_sessions WHERE user_id=? AND project_id=?").run(req.user.id, projectId);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, projectId);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_project' AND owner_id=?").run(req.user.id, projectId);
@@ -155,6 +173,27 @@ api.delete("/projects/:id", route((req) => {
     removeAgentProjectWorkspace(req.user.id, projectId);
     return result;
 }));
+
+api.get("/director/projects/:id", route((req) => getDirectorState(req.user.id, routeId(req))));
+api.put("/director/projects/:id/workspace", route((req) => updateDirectorWorkspace(req.user.id, routeId(req), req.body)));
+api.post("/director/projects/:id/sources", route((req) => createDirectorSource(req.user.id, routeId(req), req.body), 202));
+api.post("/director/sources/:id/retry", route((req) => retryDirectorSource(req.user.id, routeId(req)), 202));
+api.get("/director/sources/:id/chunks", route((req) => listDirectorSourceChunks(req.user.id, routeId(req), req.query)));
+api.get("/director/projects/:id/documents/:kind", route((req) => getDirectorDocument(req.user.id, routeId(req), routeParam(req, "kind"))));
+api.put("/director/projects/:id/documents/:kind", route((req) => updateDirectorDocument(req.user.id, routeId(req), routeParam(req, "kind"), req.body)));
+api.get("/director/projects/:id/sequences", route((req) => listDirectorSequences(req.user.id, routeId(req))));
+api.post("/director/projects/:id/sequences", route((req) => createDirectorSequence(req.user.id, routeId(req), req.body), 201));
+api.put("/director/sequences/:id", route((req) => updateDirectorSequence(req.user.id, routeId(req), req.body)));
+api.delete("/director/sequences/:id", route((req) => deleteDirectorSequence(req.user.id, routeId(req))));
+api.post("/director/projects/:id/shots", route((req) => createDirectorShot(req.user.id, routeId(req), req.body), 201));
+api.put("/director/shots/:id", route((req) => updateDirectorShot(req.user.id, routeId(req), req.body)));
+api.delete("/director/shots/:id", route((req) => deleteDirectorShot(req.user.id, routeId(req))));
+api.post("/director/shots/:id/generate", route((req) => createDirectorShotGeneration(req.user.id, routeId(req), req.body), 201));
+api.put("/director/projects/:id/timeline", route((req) => updateDirectorTimeline(req.user.id, routeId(req), req.body)));
+api.get("/director/projects/:id/renders", route((req) => listDirectorRenders(req.user.id, routeId(req))));
+api.post("/director/projects/:id/renders", route((req) => createDirectorRender(req.user.id, routeId(req), req.body), 202));
+api.post("/director/renders/:id/cancel", route((req) => cancelDirectorRender(req.user.id, routeId(req))));
+api.post("/director/renders/:id/retry", route((req) => retryDirectorRender(req.user.id, routeId(req)), 202));
 
 api.get("/projects/:id/creative-assets", route((req) => listCreativeAssets(req.user.id, routeId(req))));
 api.post("/projects/:id/creative-assets", route((req) => createCreativeAsset(req.user.id, routeId(req), req.body), 201));
@@ -442,7 +481,22 @@ function importBrowserData(req: Request) {
 }
 
 function projectResponse(row: ProjectRow) {
-    return { ...parseJson<Record<string, unknown>>(row.payload, {}), id: row.id, title: row.title, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at };
+    return { ...parseJson<Record<string, unknown>>(row.payload, {}), id: row.id, kind: row.kind, title: row.title, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at };
+}
+
+function initializeDirectorProject(userId: string, projectId: string, now: string) {
+    db.prepare("INSERT INTO director_workspaces(project_id, user_id, created_at, updated_at) VALUES(?, ?, ?, ?)").run(projectId, userId, now, now);
+    const document = db.prepare("INSERT INTO director_documents(project_id, user_id, kind, created_at, updated_at) VALUES(?, ?, ?, ?, ?)");
+    document.run(projectId, userId, "story", now, now);
+    document.run(projectId, userId, "script", now, now);
+    db.prepare("INSERT INTO director_timelines(project_id, user_id, payload, created_at, updated_at) VALUES(?, ?, ?, ?, ?)").run(projectId, userId, JSON.stringify({ tracks: [], shotOrder: [] }), now, now);
+}
+
+function assertProjectKind(userId: string, projectId: string, expected?: ProjectKind) {
+    const row = db.prepare("SELECT id, kind FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as Pick<ProjectRow, "id" | "kind"> | undefined;
+    if (!row) throw apiError(404, "PROJECT_NOT_FOUND", "项目不存在");
+    if (expected && row.kind !== expected) throw apiError(409, "PROJECT_KIND_MISMATCH", expected === "canvas" ? "这不是画布项目" : "这不是导演项目");
+    return row;
 }
 
 function assetResponse(row: AssetRow) {

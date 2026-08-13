@@ -40,3 +40,10 @@ Interpret creatively and make unexpected choices that feel genuinely designed fo
 **IMPORTANT**: Match implementation complexity to the aesthetic vision. Maximalist designs need elaborate code with extensive animations and effects. Minimalist or refined designs need restraint, precision, and careful attention to spacing, typography, and subtle details. Elegance comes from executing the vision well.
 
 Remember: Claude is capable of extraordinary creative work. Don't hold back, show what can truly be created when thinking outside the box and committing fully to a distinctive vision.
+
+## Infinite Canvas project baseline
+
+- When a user points to a local reference application, inspect its actual tokens and component styles before choosing a visual direction. The reference overrides the generic advice to invent a new aesthetic.
+- Agent and chat surfaces in this repository must follow `.res/sxhAIAPP/packages/ui/src/theme/theme.css`: white panels, `#f8fafc` soft surfaces, slate text (`#0f172a`, `#334155`, `#64748b`), `#e2e8f0` borders, and blue `#2563eb` interaction emphasis.
+- Do not introduce cream, beige, amber, gold, or yellow as decorative colors in Agent or director-workspace UI. Amber is reserved for a real warning state, never branding, navigation, primary actions, progress, or ordinary status.
+- Director workspace navigation belongs in a compact top bar. Keep the left side available for the project Agent instead of adding a second permanent navigation rail.

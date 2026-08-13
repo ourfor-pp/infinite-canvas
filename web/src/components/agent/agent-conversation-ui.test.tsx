@@ -4,7 +4,7 @@ import { App } from "antd";
 import { describe, expect, it, vi } from "vitest";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import { AssistantRound, UserMessage } from "./agent-conversation-ui";
+import { AgentConversationFlow, AssistantRound, UserMessage } from "./agent-conversation-ui";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver;
@@ -104,6 +104,36 @@ describe("Agent 助手回合", () => {
         await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="running" />));
         expect(holder.querySelector(".agent-status-pill")?.textContent).toBe("思考：正在核对场景和道具资产");
         expect(holder.textContent).not.toContain("Agent 已开始处理");
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("长思考使用可展开胶囊而不是承载全文的黑色 Tooltip", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const longThinking = "正在读取故事、剧本、角色、场景和道具，并检查它们与当前分镜及时间线之间的连续性关系，准备下一步导演方案。";
+        const events = [{ sessionId: "session-1", seq: 3, runId: "run-1", kind: "thinking" as const, payload: { text: longThinking }, createdAt: new Date().toISOString() }];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="running" />));
+        const button = holder.querySelector("button[aria-label='查看完整思考状态']");
+        expect(button).not.toBeNull();
+        expect(button?.className).toContain("agent-status-pill-button");
+        expect(button?.getAttribute("title")).toBeNull();
+        await act(async () => root.unmount()); holder.remove();
+    });
+});
+
+describe("Agent 实时回合归属", () => {
+    it("新消息已发出但新回合事件未到时，不把运行状态套到上一轮", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const events = [
+            { sessionId: "session-1", seq: 1, runId: "run-1", kind: "user_text" as const, payload: { text: "先完成故事" }, createdAt: "2026-08-13T05:00:00.000Z" },
+            { sessionId: "session-1", seq: 2, runId: "run-1", kind: "assistant_text" as const, payload: { text: "故事已完成" }, createdAt: "2026-08-13T05:00:01.000Z" },
+            { sessionId: "session-1", seq: 3, runId: "run-1", kind: "run_state" as const, payload: { state: "completed", content: "Agent 执行完成", finalAssistantEventSeq: 2 }, createdAt: "2026-08-13T05:00:02.000Z" },
+            { sessionId: "session-1", seq: 4, runId: "run-2", kind: "user_text" as const, payload: { text: "继续写剧本" }, createdAt: "2026-08-13T05:01:00.000Z" },
+        ];
+        await act(async () => root.render(<AgentConversationFlow events={events} loading={false} theme={canvasThemes.light} canLoadEarlier={false} loadingEarlier={false} onLoadEarlier={() => undefined} onSuggestion={() => undefined} status="running" currentRunId="run-2" />));
+        expect(holder.textContent).toContain("故事已完成");
+        expect(holder.textContent).toContain("继续写剧本");
+        expect(holder.textContent).not.toContain("Agent 执行完成");
+        expect(holder.querySelector(".agent-status-pill")).toBeNull();
         await act(async () => root.unmount()); holder.remove();
     });
 });

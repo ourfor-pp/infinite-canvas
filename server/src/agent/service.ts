@@ -14,6 +14,7 @@ import { getBuiltInAgentSkill, listBuiltInAgentSkills, syncBuiltInAgentSkills, t
 import { getCanvasState } from "./canvas-tools.js";
 import { creativeAssetInputSchema, getCreativeAsset } from "../creative-assets.js";
 import { getVisualStyle } from "../visual-styles.js";
+import { getDirectorState } from "../director.js";
 import type { AgentComposerDocument, AgentEvent, AgentEventKind, AgentMessageInput, AgentPendingDecision, AgentQueuedMessage, AgentSession, AgentSessionStatus, AgentStreamEvent } from "./types.js";
 import { SdkInputChannel } from "./sdk-input-channel.js";
 
@@ -637,21 +638,24 @@ function mergeAllowedTools(...lists: string[][]) {
 
 type ProviderNonNull = NonNullable<ReturnType<typeof getProviderRow>>;
 
-function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }> }, skill: BuiltInAgentSkill | null) {
+function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
     const sections = [context.input || "请处理本次请求。"];
     if (skill) sections.unshift(`请调用并遵循内置 Skill“${skill.id}”（${skill.name}）完成本次请求。`);
     if (context.references?.length) sections.push(`## 本次画布引用\n${JSON.stringify(context.references, null, 2)}`);
     if (context.assetReferences?.length) sections.push(`## 本次创作资产引用\n${JSON.stringify(context.assetReferences, null, 2)}\n修改前读取最新 revision；不要把新增媒体静默设为主版本。`);
     if (context.styleReferences?.length) sections.push(`## 本次视觉风格引用\n${JSON.stringify(context.styleReferences, null, 2)}\n修改前读取最新 revision；资产生成时优先沿用这个风格。`);
+    if (context.directorReferences?.length) sections.push(`## 本次导演台引用\n${JSON.stringify(context.directorReferences, null, 2)}\n修改前读取最新 revision；交给 Agent 只表示把引用放入本次输入，不代表用户已经确认修改。`);
     const readableAttachments = context.attachments?.filter((file) => isAgentContextFile(file.mimeType)) || [];
     const savedOnlyAttachments = context.attachments?.filter((file) => !isAgentContextFile(file.mimeType)) || [];
     if (readableAttachments.length) sections.push(`## 本次附件\n${readableAttachments.map((file) => `- ${file.name} (${file.mimeType})：${file.path}`).join("\n")}\n只允许通过受控上下文使用这些文件。`);
     if (savedOnlyAttachments.length) sections.push(`以下附件仅保存和展示，不进入本次模型上下文：${savedOnlyAttachments.map((file) => file.name).join("、")}`);
-    sections.push(`当前画布 projectId：${session.project_id}。操作前先读取画布最新 revision。`);
+    sections.push(`当前项目 projectId：${session.project_id}。操作前先读取最新 revision。`);
     return sections.join("\n\n");
 }
 
 function systemPrompt(session: SessionRow) {
+    const project = db.prepare("SELECT kind FROM projects WHERE id=? AND user_id=?").get(session.project_id, session.user_id) as { kind: string } | undefined;
+    if (project?.kind === "director") return `你是 Infinite Canvas 导演项目内置 Agent。你只能使用 infinite_canvas MCP 工具操作当前导演项目。长篇改编必须按小说分块检索与分层摘要工作，禁止把百万字正文一次装入上下文；故事和剧本可编辑，但上游 revision 改变只标记受影响内容需要检查，不能静默批量重新生成；角色、场景、道具与视觉风格沿用创作资产工具，生成媒体会直接替换当前主结果，保留旧方案必须先复制实体；故事写回后即作为当前版本，不要再要求用户确认，剧本、风格资产和故事板确认后才可进入对应下游昂贵生成；镜头必须绑定资产稳定 ID 与 revision；连续镜头要显式区分 cut 和 continue。已锁定内容修改与批量删除必须等待审批。禁止画布节点工具、Shell、宿主文件系统、管理员接口、渠道凭据和任意外部 URL。当前会话绑定导演项目 ${session.project_id}。`;
     return `你是 Infinite Canvas 画布项目内置 Agent。你只能使用 infinite_canvas MCP 工具操作当前项目的数据。优先理解用户目标并直接完成任务；修改画布、创作资产或视觉风格前先读取最新 revision；创作故事、小说或剧本正文时使用 canvas_create_text_nodes，并把标题和全部章节作为一个 Markdown 文档放进唯一一个 item，禁止按章节拆成多个文本节点；小说拆解只调用 creative_assets_create_batch 提交角色、场景、道具候选清单供用户确认，不设计风格、不生成媒体；用户要求进一步设计时按资产类型调用 design-character、design-scene 和 design-prop，并把资产特有的可编辑生图补充提示词写入 mediaDrafts.image.prompt，场景必须补环境声，道具必须补动作音效；用户要求处理多种或全部资产时必须覆盖其要求范围内的每一种类型，不得完成角色后自行停止；资产生成前读取已连接的设定、参考与视觉风格，未显式连接时沿用项目默认风格；工具成功返回即代表创建完成，后续回复不得再声称仍在等待确认；生成媒体会直接替换业务节点当前主媒体，用户要保留旧版本时应先复制业务节点，不要编造工具结果。删除和受保护设定修改由 SDK自动审核，升级人工时等待确认。禁止尝试 Shell、宿主文件系统、管理员接口、渠道凭据和任意外部 URL。当前会话绑定项目 ${session.project_id}。`;
 }
 
@@ -763,6 +767,7 @@ function validateMessageInput(input: AgentMessageInput) {
             z.object({ type: z.literal("canvas"), ...mention, nodeId: z.string().trim().min(1).max(128) }),
             z.object({ type: z.literal("asset"), ...mention, assetId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
             z.object({ type: z.literal("style"), ...mention, styleId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
+            z.object({ type: z.literal("director"), ...mention, entityKind: z.enum(["story", "script", "sequence", "shot", "timeline"]), entityId: z.string().trim().min(1).max(128) }),
         ])).min(1).max(200) }),
         attachmentFileIds: z.array(z.string().max(128)).max(20).optional().default([]),
     }).superRefine((value, issue) => {
@@ -779,6 +784,7 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
     const references: Array<{ projectId: string; nodeId: string; node: unknown }> = [];
     const assetReferences: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }> = [];
     const styleReferences: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }> = [];
+    const directorReferences: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> = [];
     const skills: BuiltInAgentSkill[] = [];
     const displayParts: string[] = [];
     const displaySegments: Array<Record<string, unknown>> = [];
@@ -796,14 +802,24 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
             const asset = getCreativeAsset(userId, segment.assetId);
             if (asset.projectId !== projectId) throw agentError(404, "AGENT_ASSET_REFERENCE_NOT_FOUND", "创作资产不存在或不属于当前项目");
             assetReferences.push({ projectId, assetId: segment.assetId, nodeId: segment.nodeId, asset }); displayParts.push(`@${asset.name}`); displaySegments.push({ ...segment, label: asset.name });
-        } else {
+        } else if (segment.type === "style") {
             const style = getVisualStyle(userId, segment.styleId);
             if (style.projectId !== projectId) throw agentError(404, "AGENT_STYLE_REFERENCE_NOT_FOUND", "视觉风格不存在或不属于当前项目");
             styleReferences.push({ projectId, styleId: segment.styleId, nodeId: segment.nodeId, style }); displayParts.push(`@${style.name}`); displaySegments.push({ ...segment, label: style.name });
+        } else {
+            const state = getDirectorState(userId, projectId);
+            const entity = segment.entityKind === "story" || segment.entityKind === "script"
+                ? state.documents.find((item) => item.kind === segment.entityKind)
+                : segment.entityKind === "sequence" ? state.sequences.find((item) => item.id === segment.entityId)
+                : segment.entityKind === "shot" ? state.shots.find((item) => item.id === segment.entityId)
+                : state.timeline;
+            if (!entity) throw agentError(404, "AGENT_DIRECTOR_REFERENCE_NOT_FOUND", "导演台引用不存在或不属于当前项目");
+            const label = segment.entityKind === "story" ? "故事" : segment.entityKind === "script" ? "剧本" : segment.entityKind === "timeline" ? "时间线" : "title" in entity ? String(entity.title) : segment.entityId;
+            directorReferences.push({ projectId, entityKind: segment.entityKind, entityId: segment.entityId, entity }); displayParts.push(`@${label}`); displaySegments.push({ ...segment, label });
         }
     }
     const displayText = displayParts.join("").trim() || (attachments.length ? `发送了 ${attachments.length} 个附件` : "引用了项目内容");
-    return { displayText, displaySegments, attachments, references, assetReferences, styleReferences, skills, context: { input: composerText(document), attachments, references, assetReferences, styleReferences, skillIds: skills.map((skill) => skill.id) } };
+    return { displayText, displaySegments, attachments, references, assetReferences, styleReferences, directorReferences, skills, context: { input: composerText(document), attachments, references, assetReferences, styleReferences, directorReferences, skillIds: skills.map((skill) => skill.id) } };
 }
 
 function appendUserMessage(sessionId: string, runId: string, input: ReturnType<typeof validateMessageInput>, prepared: ReturnType<typeof prepareMessage>, submissionMode: "direct" | "steer" | "queue") {

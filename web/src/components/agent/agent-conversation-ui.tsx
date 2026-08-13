@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentRef, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Button, Checkbox, Empty, Image, Input, Popconfirm, Select, Tooltip } from "antd";
+import { Button, Checkbox, Empty, Image, Input, Popconfirm, Popover, Select, Tooltip } from "antd";
 import {
     Archive, ArrowDown, AtSign, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Download,
     Clock3, Copy, File, FileAudio, FileText, FileVideo, GitFork, History, ImageIcon, Pencil,
@@ -10,18 +10,18 @@ import { formatAgentToolName } from "./tool-display-name";
 import { buildConversationItems, decisionFromRequest, eventText, projectAgentEvents, splitAssistantRoundEvents, type ProjectedAgentEvent as ProjectedEvent } from "./conversation-projection";
 import { getVirtualWindow } from "./conversation-virtualizer";
 
-import { canvasThemes } from "@/lib/canvas-theme";
+import type { CanvasTheme } from "@/lib/canvas-theme";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { AgentEntityReference } from "@/stores/use-agent-store";
 import type { AgentEvent, AgentPendingDecision, AgentSession, AgentSkill, AgentTurnIndexItem } from "@/services/api/agent";
 import { serverApiUrl, type ServerFile } from "@/services/api/server";
 import { useCopyText } from "@/hooks/use-copy-text";
 
-type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
 export function AgentConversationFlow({
     events,
     loading,
     theme,
+    experience = "canvas",
     canLoadEarlier,
     loadingEarlier,
     onLoadEarlier,
@@ -32,6 +32,7 @@ export function AgentConversationFlow({
     onDecisionValue,
     onDecide,
     status,
+    currentRunId,
     restartingMessageSeq,
     onRestartFromMessage,
     onBeforeProcessAutoCollapse,
@@ -39,6 +40,7 @@ export function AgentConversationFlow({
     events: AgentEvent[];
     loading: boolean;
     theme: CanvasTheme;
+    experience?: "canvas" | "director";
     canLoadEarlier: boolean;
     loadingEarlier: boolean;
     onLoadEarlier: () => void;
@@ -49,15 +51,17 @@ export function AgentConversationFlow({
     onDecisionValue?: (value: string) => void;
     onDecide?: (decision: "approved" | "rejected", scope?: "once" | "session" | "project", proposalEdits?: unknown) => void;
     status?: AgentSession["status"];
+    currentRunId?: string | null;
     restartingMessageSeq?: number | null;
     onRestartFromMessage?: (event: ProjectedEvent) => void;
     onBeforeProcessAutoCollapse?: (element: HTMLElement) => void;
 }) {
     const items = useMemo(() => buildConversationItems(events), [events]);
-    const latestRoundId = useMemo(() => {
-        for (let index = items.length - 1; index >= 0; index -= 1) if (items[index].type === "round") return items[index].id;
+    const activeRoundId = useMemo(() => {
+        if (!currentRunId) return undefined;
+        for (let index = items.length - 1; index >= 0; index -= 1) { const item = items[index]; if (item.type === "round" && item.runId === currentRunId) return item.id; }
         return undefined;
-    }, [items]);
+    }, [currentRunId, items]);
     const viewportRef = useRef<HTMLDivElement>(null);
     const [windowState, setWindowState] = useState({ top: 0, height: 640 });
     const [, refreshMeasurements] = useState(0);
@@ -75,7 +79,7 @@ export function AgentConversationFlow({
         refreshMeasurements((value) => value + 1);
     }, []);
     if (loading) return <div className="grid h-full place-items-center"><LoaderCircle className="size-5 animate-spin opacity-45" /></div>;
-    if (!items.length) return <AgentEmpty theme={theme} onSuggestion={onSuggestion} />;
+    if (!items.length) return <AgentEmpty theme={theme} experience={experience} onSuggestion={onSuggestion} />;
     return (
         <div ref={viewportRef} className="relative space-y-4" style={items.length > 80 ? { height: virtual.total + historyOffset } : undefined}>
             {canLoadEarlier ? (
@@ -87,7 +91,7 @@ export function AgentConversationFlow({
                 const position = top === undefined ? undefined : { position: "absolute" as const, top: top + historyOffset, left: 0, right: 0 };
                 if (item.type === "time") return <div key={item.id} className="agent-time-note"><time>{item.label}</time></div>;
                 if (item.type === "user") return <Measured key={item.id} id={item.id} style={position} onHeight={recordHeight}><UserMessage event={item.event} theme={theme} restarting={restartingMessageSeq === item.event.seq} onRestart={onRestartFromMessage} /></Measured>;
-                return <Measured key={item.id} id={item.id} className="agent-assistant-round" style={position} onHeight={recordHeight}><AssistantRound events={item.events} theme={theme} status={item.id === latestRoundId ? status : "completed"} pendingDecision={item.id === latestRoundId ? pendingDecision : null} decisionValue={decisionValue} decisionBusy={decisionBusy} onDecisionValue={onDecisionValue} onDecide={onDecide} onBeforeProcessAutoCollapse={onBeforeProcessAutoCollapse} /></Measured>;
+                return <Measured key={item.id} id={item.id} className="agent-assistant-round" style={position} onHeight={recordHeight}><AssistantRound events={item.events} theme={theme} status={item.id === activeRoundId ? status : "completed"} pendingDecision={item.id === activeRoundId ? pendingDecision : null} decisionValue={decisionValue} decisionBusy={decisionBusy} onDecisionValue={onDecisionValue} onDecide={onDecide} onBeforeProcessAutoCollapse={onBeforeProcessAutoCollapse} /></Measured>;
             })}
         </div>
     );
@@ -99,18 +103,21 @@ function Measured({ id, className, style, onHeight, children }: { id: string; cl
     return <div ref={ref} className={className} style={{ ...style, contentVisibility: "auto", containIntrinsicSize: "0 112px" }}>{children}</div>;
 }
 
-function AgentEmpty({ theme, onSuggestion }: { theme: CanvasTheme; onSuggestion: (text: string) => void }) {
-    const suggestions = ["拆解小说中的角色、场景和道具", "根据选中节点继续创作", "检查画布结构并给出建议"];
+function AgentEmpty({ theme, experience, onSuggestion }: { theme: CanvasTheme; experience: "canvas" | "director"; onSuggestion: (text: string) => void }) {
+    const director = experience === "director";
+    const suggestions = director
+        ? ["根据小说生成故事总纲和改编方案", "从剧本整理角色、场景和道具", "规划下一段故事板与镜头"]
+        : ["拆解小说中的角色、场景和道具", "根据选中节点继续创作", "检查画布结构并给出建议"];
     return (
         <div className="flex h-full min-h-[360px] items-center justify-center px-6 text-center">
             <div className="max-w-sm">
-                <div className="mx-auto grid size-12 place-items-center rounded-2xl" style={{ background: theme.toolbar.itemHover }}><Sparkles className="size-5" /></div>
-                <h3 className="mt-4 text-base font-medium">和画布一起思考</h3>
+                <div className="mx-auto grid size-12 place-items-center rounded-2xl" style={{ background: director ? "#eff6ff" : theme.toolbar.itemHover, color: director ? "#2563eb" : theme.toolbar.activeText }}><Sparkles className="size-5" /></div>
+                <h3 className="mt-4 text-base font-medium">{director ? "从故事到成片" : "和画布一起思考"}</h3>
                 <p className="mt-2 text-sm leading-6" style={{ color: theme.node.muted }}>
-                    Agent 已绑定当前项目，可以理解节点、修改画布并调用生成任务。
+                    {director ? "Agent 已进入当前导演项目，可以创作故事与剧本、规划资产和分镜，并编排视频时间线。" : "Agent 已绑定当前项目，可以理解节点、修改画布并调用生成任务。"}
                 </p>
                 <div className="mt-5 flex flex-wrap justify-center gap-2">
-                    {suggestions.map((item) => <button key={item} type="button" onClick={() => onSuggestion(item)} className="rounded-full border px-3 py-1.5 text-xs transition hover:bg-black/5 dark:hover:bg-white/10" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>{item}</button>)}
+                    {suggestions.map((item) => <button key={item} type="button" onClick={() => onSuggestion(item)} className="rounded-full border bg-white px-3 py-1.5 text-xs transition hover:!border-blue-200 hover:!bg-blue-50 hover:!text-blue-700" style={{ borderColor: theme.node.stroke, color: director ? "#334155" : theme.node.muted }}>{item}</button>)}
                 </div>
             </div>
         </div>
@@ -316,7 +323,11 @@ function RoundStatus({ events, status }: { events: ProjectedEvent[]; status?: Ag
 }
 
 function StatusPill({ state, text }: { state: "idle" | "running" | "failed" | "canceled"; text: string }) {
-    return <div className="agent-status-row"><Tooltip title={text.length > 40 ? text : undefined}><span className={`agent-status-pill is-${state}`}>{state === "running" ? <i aria-hidden="true" /> : state === "failed" ? <CircleAlert className="size-3.5" /> : <Check className="size-3.5" />}<span>{text}</span></span></Tooltip></div>;
+    const singleLine = text.replace(/\s+/g, " ").trim();
+    const icon = state === "running" ? <i aria-hidden="true" /> : state === "failed" ? <CircleAlert className="size-3.5" /> : <Check className="size-3.5" />;
+    const pill = <button type="button" className={`agent-status-pill agent-status-pill-button is-${state}`} aria-label="查看完整思考状态">{icon}<span>{singleLine}</span></button>;
+    if (!text.includes("\n") && singleLine.length <= 40) return <div className="agent-status-row"><span className={`agent-status-pill is-${state}`}>{icon}<span>{singleLine}</span></span></div>;
+    return <div className="agent-status-row"><Popover content={text.trim()} placement="top" trigger={["hover", "click"]} mouseEnterDelay={0.12} mouseLeaveDelay={0.12} autoAdjustOverflow arrow classNames={{ root: "agent-status-popover", content: "agent-status-popover-content" }} styles={{ root: { maxWidth: "min(560px, calc(100vw - 24px))" }, container: { padding: 0, border: "1px solid #e2e8f0", borderRadius: 12, background: "#ffffff", color: "#334155", boxShadow: "0 10px 24px rgba(15, 23, 42, 0.14)" }, content: { maxHeight: "min(280px, calc(100vh - 48px))", overflow: "auto", padding: "10px 12px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, lineHeight: 1.55 } }}>{pill}</Popover></div>;
 }
 
 export function AgentDecisionCard({ pending, value, theme, busy, onChange, onDecide }: {
@@ -501,7 +512,7 @@ function ComposerContext({ skill, references, entityReferences, attachments, the
     const compact = all > 3 && !expanded;
     return <div className="flex gap-2 overflow-x-auto px-3 pt-3">
         {skill ? <ContextCard icon={<Sparkles className="size-3.5" />} title={`/${skill.name}`} subtitle="Skill" onRemove={() => onSkill(null)} theme={theme} /> : null}
-        {entityReferences.slice(0, compact ? Math.max(0, 2 - (skill ? 1 : 0)) : undefined).map((item) => <ContextCard key={`${item.kind}:${item.kind === "asset" ? item.assetId : item.styleId}`} icon={<Sparkles className="size-3.5" />} title={item.title} subtitle={item.subtitle} onRemove={() => onRemoveEntityReference(item)} theme={theme} />)}
+        {entityReferences.slice(0, compact ? Math.max(0, 2 - (skill ? 1 : 0)) : undefined).map((item) => <ContextCard key={`${item.kind}:${item.kind === "asset" ? item.assetId : item.kind === "style" ? item.styleId : `${item.entityKind}:${item.entityId}`}`} icon={<Sparkles className="size-3.5" />} title={item.title} subtitle={item.subtitle} onRemove={() => onRemoveEntityReference(item)} theme={theme} />)}
         {references.slice(0, compact ? Math.max(0, 2 - (skill ? 1 : 0)) : undefined).map((item) => <ContextCard key={item.nodeId} icon={<AtSign className="size-3.5" />} title={item.title} subtitle="画布节点" onRemove={() => onRemoveReference(item.nodeId)} theme={theme} />)}
         {attachments.slice(0, compact ? Math.max(0, 2 - (skill ? 1 : 0) - Math.min(references.length, 2)) : undefined).map((file) => <ContextCard key={file.id} icon={fileIcon(file.mimeType)} title={file.name} subtitle={formatBytes(file.bytes)} image={file.mimeType.startsWith("image/") ? fileUrl(file.id) : undefined} href={fileUrl(file.id)} onRemove={() => onRemoveAttachment(file.id)} theme={theme} />)}
         {all > 3 ? <button type="button" className="h-12 shrink-0 rounded-xl border px-3 text-xs opacity-60 hover:opacity-90" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }} onClick={() => setExpanded((value) => !value)}>{expanded ? "收起附件" : `查看全部 ${all} 项`}</button> : null}

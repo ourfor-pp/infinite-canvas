@@ -305,6 +305,7 @@ export default {
     },
     navigation: {
         canvas: "My Canvases",
+        director: "Director",
         image: "Image Studio",
         video: "Video Studio",
         audio: "Audio Studio",

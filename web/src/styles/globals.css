@@ -525,6 +525,11 @@
 .agent-status-pill { display: inline-flex; width: auto; max-width: min(96%, 560px); min-width: 0; align-items: center; gap: 7px; border: 1px solid var(--agent-line); border-radius: 999px; background: var(--agent-soft); padding: 5px 10px; color: var(--agent-muted); font-size: 12px; line-height: 1.35; }
 .agent-status-pill > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-status-pill > i { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 999px; background: var(--agent-accent); animation: agent-status-pulse 1s ease-in-out infinite; }
+.agent-status-pill-button { cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
+.agent-status-pill-button:hover { border-color: color-mix(in srgb, var(--agent-accent) 24%, var(--agent-line)); background: var(--agent-accent-soft); }
+.agent-status-pill-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--agent-accent) 24%, transparent); outline-offset: 2px; }
+.agent-status-popover .ant-popover-arrow::before { background: #fff !important; }
+.agent-status-popover-content { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
 .agent-status-pill.is-failed { border-color: color-mix(in srgb, #ef4444 35%, var(--agent-line)); background: color-mix(in srgb, #ef4444 6%, var(--agent-surface)); color: #dc2626; }
 .agent-meta-note, .agent-time-note { width: 100%; padding: 4px 0; text-align: center; color: var(--agent-muted); font-size: 11px; line-height: 1.4; opacity: .5; }
 .agent-meta-note { margin: 8px 0 2px; }

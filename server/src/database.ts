@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT NOT NULL,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'canvas',
   title TEXT NOT NULL,
   payload TEXT NOT NULL,
   revision INTEGER NOT NULL DEFAULT 1,
@@ -248,6 +249,8 @@ applyVersionEleven();
 applyVersionTwelve();
 applyVersionThirteen();
 applyVersionFourteen();
+applyVersionFifteen();
+applyVersionSixteen();
 ensureAgentMetadata(3, 2);
 
 function applyVersionTwo() {
@@ -571,6 +574,152 @@ function applyVersionFourteen() {
         if (!styleColumns.some((column) => column.name === "reference_files")) db.exec("ALTER TABLE visual_styles ADD COLUMN reference_files TEXT NOT NULL DEFAULT '{}'");
         db.prepare("UPDATE visual_styles SET reference_files=json_object('source', reference_file_id) WHERE reference_file_id IS NOT NULL AND reference_files='{}'").run();
         db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(14, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionFifteen() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=15").get()) return;
+    const columns = db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>;
+    db.transaction(() => {
+        if (!columns.some((column) => column.name === "kind")) db.exec("ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'canvas'");
+        db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_projects_user_kind_updated ON projects(user_id, kind, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS director_workspaces (
+              project_id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              target_duration_seconds INTEGER NOT NULL DEFAULT 600,
+              aspect_ratio TEXT NOT NULL DEFAULT '16:9',
+              language TEXT NOT NULL DEFAULT 'zh-CN',
+              stage TEXT NOT NULL DEFAULT 'source',
+              status TEXT NOT NULL DEFAULT 'draft',
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (project_id, user_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS director_sources (
+              id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              raw_file_id TEXT NOT NULL REFERENCES stored_files(id) ON DELETE RESTRICT,
+              name TEXT NOT NULL,
+              mime_type TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'processing',
+              error TEXT,
+              char_count INTEGER NOT NULL DEFAULT 0,
+              chapter_count INTEGER NOT NULL DEFAULT 0,
+              summary TEXT NOT NULL DEFAULT '',
+              outline TEXT NOT NULL DEFAULT '',
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (id, user_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_director_sources_project ON director_sources(user_id, project_id, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS director_source_chunks (
+              id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              source_id TEXT NOT NULL,
+              ordinal INTEGER NOT NULL,
+              heading TEXT NOT NULL DEFAULT '',
+              content TEXT NOT NULL,
+              summary TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'pending',
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (id, user_id),
+              UNIQUE (source_id, ordinal),
+              FOREIGN KEY (source_id, user_id) REFERENCES director_sources(id, user_id) ON DELETE CASCADE,
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_director_chunks_source ON director_source_chunks(user_id, source_id, ordinal);
+            CREATE TABLE IF NOT EXISTS director_documents (
+              project_id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              content TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'draft',
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (project_id, user_id, kind),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS director_sequences (
+              id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              position INTEGER NOT NULL,
+              title TEXT NOT NULL,
+              summary TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'draft',
+              payload TEXT NOT NULL DEFAULT '{}',
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (id, user_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_director_sequences_project ON director_sequences(user_id, project_id, position);
+            CREATE TABLE IF NOT EXISTS director_shots (
+              id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              sequence_id TEXT NOT NULL,
+              position INTEGER NOT NULL,
+              title TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft',
+              payload TEXT NOT NULL DEFAULT '{}',
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (id, user_id),
+              FOREIGN KEY (sequence_id, user_id) REFERENCES director_sequences(id, user_id) ON DELETE CASCADE,
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_director_shots_project ON director_shots(user_id, project_id, sequence_id, position);
+            CREATE TABLE IF NOT EXISTS director_timelines (
+              project_id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              payload TEXT NOT NULL DEFAULT '{}',
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (project_id, user_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS director_renders (
+              id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              status TEXT NOT NULL,
+              payload TEXT NOT NULL,
+              output_file_id TEXT REFERENCES stored_files(id) ON DELETE SET NULL,
+              error TEXT,
+              progress REAL NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (id, user_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_director_renders_project ON director_renders(user_id, project_id, created_at DESC);
+        `);
+        db.prepare("UPDATE projects SET kind='canvas' WHERE kind NOT IN ('canvas','director') OR kind IS NULL").run();
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(15, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionSixteen() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=16").get()) return;
+    const sourceColumns = db.prepare("PRAGMA table_info(director_sources)").all() as Array<{ name: string }>;
+    db.transaction(() => {
+        if (!sourceColumns.some((column) => column.name === "summary")) db.exec("ALTER TABLE director_sources ADD COLUMN summary TEXT NOT NULL DEFAULT ''");
+        if (!sourceColumns.some((column) => column.name === "outline")) db.exec("ALTER TABLE director_sources ADD COLUMN outline TEXT NOT NULL DEFAULT ''");
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(16, ?)").run(new Date().toISOString());
     })();
 }
 

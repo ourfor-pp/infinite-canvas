@@ -3,15 +3,16 @@ import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
 import { LocalAgentPanel } from "./local-agent-panel";
-import { canvasThemes } from "@/lib/canvas-theme";
+import { canvasThemes, sxhAgentLightTheme } from "@/lib/canvas-theme";
 import { CANVAS_AGENT_PANEL_MOTION_MS, useAgentStore } from "@/stores/use-agent-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
 
-export function AgentPanel({ projectId }: { projectId: string }) {
+export function AgentPanel({ projectId, themeMode, experience = "canvas" }: { projectId: string; themeMode?: "light" | "dark"; experience?: "canvas" | "director" }) {
     const { t } = useTranslation();
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const currentTheme = useThemeStore((state) => state.theme);
+    const theme = themeMode === "light" ? sxhAgentLightTheme : canvasThemes[themeMode || currentTheme];
     const width = useAgentStore((state) => state.width);
     const [resizing, setResizing] = useState(false);
     const panelOpen = useAgentStore((state) => Boolean(state.panelOpen[projectId]));
@@ -54,7 +55,7 @@ export function AgentPanel({ projectId }: { projectId: string }) {
                 style={{ width, background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             >
                 <button type="button" className="absolute inset-y-0 right-0 z-40 w-4 translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label={t("agent.panel.resize")} />
-                <LocalAgentPanel projectId={projectId} embedded />
+                <LocalAgentPanel projectId={projectId} embedded themeMode={themeMode} experience={experience} />
             </motion.aside>
         </motion.div>
     );

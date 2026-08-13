@@ -305,6 +305,7 @@ export default {
     },
     navigation: {
         canvas: "我的画布",
+        director: "导演台",
         image: "生图工作台",
         video: "视频创作台",
         audio: "声音工作台",

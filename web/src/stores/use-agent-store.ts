@@ -10,7 +10,8 @@ export type AgentCanvasContext = {
 };
 export type AgentEntityReference =
     | { kind: "asset"; projectId: string; assetId: string; nodeId?: string; title: string; subtitle: string }
-    | { kind: "style"; projectId: string; styleId: string; nodeId?: string; title: string; subtitle: string };
+    | { kind: "style"; projectId: string; styleId: string; nodeId?: string; title: string; subtitle: string }
+    | { kind: "director"; projectId: string; entityKind: "story" | "script" | "sequence" | "shot" | "timeline"; entityId: string; title: string; subtitle: string };
 export const EMPTY_AGENT_ENTITY_REFERENCES: AgentEntityReference[] = [];
 
 type AgentStore = {
@@ -98,11 +99,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }),
     prepareComposer: (projectId, reference) => set((state) => {
         const current = state.entityReferences[projectId] || [];
-        const same = (item: AgentEntityReference) => item.kind === reference.kind && (item.kind === "asset" ? item.assetId === (reference.kind === "asset" ? reference.assetId : "") : item.styleId === (reference.kind === "style" ? reference.styleId : ""));
+        const identity = (item: AgentEntityReference) => item.kind === "asset" ? item.assetId : item.kind === "style" ? item.styleId : `${item.entityKind}:${item.entityId}`;
+        const same = (item: AgentEntityReference) => item.kind === reference.kind && identity(item) === identity(reference);
         const panelOpen = { ...state.panelOpen, [projectId]: true };
         persist("agent-panel-open-by-project", panelOpen);
         return { panelOpen, panelClosing: { ...state.panelClosing, [projectId]: false }, entityReferences: { ...state.entityReferences, [projectId]: current.some(same) ? current : [...current, reference] }, focusRequests: { ...state.focusRequests, [projectId]: (state.focusRequests[projectId] || 0) + 1 } };
     }),
-    removeEntityReference: (projectId, reference) => set((state) => ({ entityReferences: { ...state.entityReferences, [projectId]: (state.entityReferences[projectId] || []).filter((item) => item.kind !== reference.kind || (item.kind === "asset" ? item.assetId : item.styleId) !== (reference.kind === "asset" ? reference.assetId : reference.styleId)) } })),
+    removeEntityReference: (projectId, reference) => set((state) => ({ entityReferences: { ...state.entityReferences, [projectId]: (state.entityReferences[projectId] || []).filter((item) => item !== reference) } })),
     clearEntityReferences: (projectId) => set((state) => ({ entityReferences: { ...state.entityReferences, [projectId]: [] } })),
 }));

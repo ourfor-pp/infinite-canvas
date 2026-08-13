@@ -13,6 +13,7 @@ import { syncCreativeAssetGeneration } from "./creative-assets.js";
 import { syncVisualStyleGeneration } from "./visual-styles.js";
 import { acknowledgeLocalMediaGeneration, cancelLocalMediaGeneration, runLocalMediaGeneration } from "./local-media.js";
 import { getMediaExecutorSettings } from "./media-executor-settings.js";
+import { syncDirectorGeneration } from "./director-render.js";
 
 export type GenerationRow = {
     id: string;
@@ -83,6 +84,11 @@ export function createGeneration(userId: string, input: AiGenerationRequest) {
     for (const reference of input.references || []) {
         const kind = reference.kind || "image";
         if (!selection.model.inputs.includes(kind)) throw generationError("AI_MODEL_INPUT_UNSUPPORTED", "所选模型不支持当前参考素材类型");
+        const role = reference.role || "reference";
+        const videoModel = selection.model as AiModelDefinition;
+        if (input.kind === "video" && role !== "reference" && !videoModel.videoReferenceRoles?.includes(role)) throw generationError("AI_MODEL_VIDEO_REFERENCE_UNSUPPORTED", `所选视频模型未声明 ${role} 能力`);
+        if (input.kind === "video" && role === "continuation" && !videoModel.videoExtend) throw generationError("AI_MODEL_VIDEO_EXTEND_UNSUPPORTED", "所选视频模型不支持原生延展");
+        if (["first-frame", "last-frame"].includes(role) && kind !== "image") throw generationError("AI_VIDEO_FRAME_KIND", "首帧和尾帧引用必须是图片");
         if (!getStoredFile(userId, reference.fileId)) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
     }
     const id = nanoid();
@@ -354,6 +360,7 @@ function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["s
         try { syncAgentGenerationCanvas(updated); } catch { /* 结果已持久化，画布回写可由刷新恢复。 */ }
         try { syncCreativeAssetGeneration(updated); } catch { /* 保留已完成任务，避免回写冲突改写任务终态。 */ }
         try { syncVisualStyleGeneration(updated); } catch { /* 保留已完成任务，风格卡可重新生成缺失样张。 */ }
+        void syncDirectorGeneration(updated).catch(() => undefined);
     }
 }
 

@@ -25,7 +25,13 @@ test("蓝白对话回合在窄栏正确展示", async ({ page }) => {
     await expect(assistantHeading).toHaveCSS("line-height", "25.2px");
     await expect(page.getByText("画布结构已经读取完成。")).toBeVisible(); await expect(page.getByText(/1 次工具调用/)).toBeVisible();
     await expect(page.getByText("我先读取画布最新状态。")).toBeHidden();
-    const completedProcess = page.getByRole("button", { name: /已完成.*1 条过程记录/ }); await expect(completedProcess).toHaveAttribute("aria-expanded", "false"); await completedProcess.click(); await expect(page.getByText("我先读取画布最新状态。")).toBeVisible();
-    const status = page.locator(".agent-status-pill"); await expect(status).toContainText("Agent 已开始处理"); await expect(status).toHaveCSS("border-radius", "999px");
+    const completedProcess = page.getByRole("button", { name: /1 次工具调用.*1 条过程记录/ }); await expect(completedProcess).toHaveAttribute("aria-expanded", "false"); await completedProcess.click(); await expect(page.getByText("我先读取画布最新状态。")).toBeVisible();
+    const status = page.locator(".agent-status-pill"); await expect(status).toContainText("思考：正在读取故事"); await expect(status).toHaveCSS("border-radius", "999px");
+    await status.hover();
+    const popover = page.locator(".agent-status-popover"); await expect(popover).toBeVisible();
+    const popoverContent = popover.locator(".agent-status-popover-content");
+    await expect(popoverContent.locator("..")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await expect(popoverContent).toHaveCSS("max-height", "280px");
+    expect((await popover.boundingBox())?.height).toBeLessThanOrEqual(300);
     await expect(page.locator(".agent-composer")).toHaveCSS("border-radius", "20px");
 });

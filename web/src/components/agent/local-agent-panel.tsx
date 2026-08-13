@@ -3,7 +3,7 @@ import { App, Button, Drawer, Tooltip } from "antd";
 import { History, Plus, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-import { canvasThemes } from "@/lib/canvas-theme";
+import { canvasThemes, sxhAgentLightTheme } from "@/lib/canvas-theme";
 import { randomId } from "@/lib/utils";
 import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
 import { agentApi, agentClientId, subscribeAgent, type AgentComposerDocument, type AgentConversation, type AgentEvent, type AgentQueuedMessage, type AgentSession, type AgentSkill, type AgentTurnIndexItem } from "@/services/api/agent";
@@ -23,10 +23,11 @@ import { AgentErrorBoundary } from "./agent-error-boundary";
 import { useAgentScroll } from "./use-agent-scroll";
 import { agentDraftStorage } from "./agent-draft-storage";
 
-export function LocalAgentPanel({ projectId, embedded = false }: { projectId: string; embedded?: boolean }) {
+export function LocalAgentPanel({ projectId, embedded = false, themeMode, experience = "canvas" }: { projectId: string; embedded?: boolean; themeMode?: "light" | "dark"; experience?: "canvas" | "director" }) {
     const { message } = App.useApp();
     const navigate = useNavigate();
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const currentTheme = useThemeStore((state) => state.theme);
+    const theme = themeMode === "light" ? sxhAgentLightTheme : canvasThemes[themeMode || currentTheme];
     const closePanel = useAgentStore((state) => state.closePanel);
     const canvasContext = useAgentStore((state) => state.canvasContext);
     const draft = useAgentStore((state) => state.drafts[projectId] || "");
@@ -81,7 +82,8 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
             version: 1,
             segments: [...current.segments, ...entityReferences.flatMap((item) => [item.kind === "asset"
                 ? { type: "asset" as const, mentionId: randomId(), projectId, assetId: item.assetId, nodeId: item.nodeId, label: item.title }
-                : { type: "style" as const, mentionId: randomId(), projectId, styleId: item.styleId, nodeId: item.nodeId, label: item.title }, { type: "text" as const, text: " " }])],
+                : item.kind === "style" ? { type: "style" as const, mentionId: randomId(), projectId, styleId: item.styleId, nodeId: item.nodeId, label: item.title }
+                : { type: "director" as const, mentionId: randomId(), projectId, entityKind: item.entityKind, entityId: item.entityId, label: item.title }, { type: "text" as const, text: " " }])],
         }));
         clearEntityReferences(projectId);
     }, [entityReferences, projectId, clearEntityReferences]);
@@ -434,7 +436,7 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
             <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3" style={{ borderColor: theme.node.stroke }}>
                 <div className="min-w-0 flex-1">
                     <button type="button" className="flex max-w-full items-center gap-1 text-left" onClick={() => setHistoryOpen(true)}>
-                        <span className="truncate text-sm font-medium">{session?.title || "Canvas Agent"}</span>
+                        <span className="truncate text-sm font-medium">{session?.title || (experience === "director" ? "导演 Agent" : "Canvas Agent")}</span>
                     </button>
                 </div>
                 <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={newSession} disabled={busy} /></Tooltip>
@@ -452,7 +454,9 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
                         events={events}
                         loading={loading}
                         theme={theme}
+                        experience={experience}
                         status={session?.status}
+                        currentRunId={session?.currentRunId}
                         pendingDecision={session?.pendingDecision}
                         decisionValue={answer}
                         decisionBusy={decisionBusy}
@@ -485,6 +489,8 @@ export function LocalAgentPanel({ projectId, embedded = false }: { projectId: st
                     focusRequest={composerFocusRequest + preparedFocusRequest}
                     skills={skills}
                     nodes={nodes}
+                    placeholder={experience === "director" ? "描述导演任务，输入 / 调用 Skill，@ 引用故事、镜头或资产…" : undefined}
+                    referenceLabel={experience === "director" ? "引用导演台内容" : undefined}
                     attachments={attachments}
                     followUpMode={session?.status === "waiting_for_user" ? "queue" : followUpMode}
                     onDocumentChange={(value) => { setComposerDocument(value); setDraft(projectId, composerPlainText(value)); }}

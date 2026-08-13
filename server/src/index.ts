@@ -12,6 +12,8 @@ import { setAgentProjectEmitter } from "./agent/project-events.js";
 import { setCreativeAssetEmitter } from "./creative-assets.js";
 import { setVisualStyleEmitter } from "./visual-styles.js";
 import { refreshMediaExecutorCatalog, syncMediaExecutorComfyServer } from "./media-executor-settings.js";
+import { resumeDirectorSourceProcessing, setDirectorEmitter } from "./director.js";
+import { resumeDirectorRenders, setDirectorRenderEmitter } from "./director-render.js";
 
 syncMediaExecutorComfyServer();
 await refreshMediaExecutorCatalog();
@@ -70,8 +72,22 @@ setVisualStyleEmitter((userId, style) => {
         if (client.readyState === WebSocketClient.OPEN) client.send(message);
     });
 });
+setDirectorEmitter((userId, entity) => {
+    const message = JSON.stringify({ type: "director.updated", data: entity });
+    clients.get(userId)?.forEach((client) => {
+        if (client.readyState === WebSocketClient.OPEN) client.send(message);
+    });
+});
+setDirectorRenderEmitter((userId, entity) => {
+    const message = JSON.stringify({ type: "director.updated", data: entity });
+    clients.get(userId)?.forEach((client) => {
+        if (client.readyState === WebSocketClient.OPEN) client.send(message);
+    });
+});
 
 resumeGenerations();
+resumeDirectorSourceProcessing();
+resumeDirectorRenders();
 recoverAgentRuns();
 cleanupUnreferencedFiles();
 setInterval(cleanupUnreferencedFiles, 60 * 60 * 1000).unref();

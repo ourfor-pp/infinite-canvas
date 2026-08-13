@@ -23,7 +23,7 @@ export function composerHasContent(document: AgentComposerDocument) {
     return document.segments.some((segment) => segment.type === "text" ? Boolean(segment.text.trim()) : true);
 }
 
-export function segmentLabel(segment: Exclude<AgentComposerSegment, { type: "text" }>) { return `${segment.type === "skill" ? "/" : "@"}${segment.label || (segment.type === "skill" ? segment.skillId : segment.type === "canvas" ? segment.nodeId : segment.type === "asset" ? segment.assetId : segment.styleId)}`; }
+export function segmentLabel(segment: Exclude<AgentComposerSegment, { type: "text" }>) { return `${segment.type === "skill" ? "/" : "@"}${segment.label || (segment.type === "skill" ? segment.skillId : segment.type === "canvas" ? segment.nodeId : segment.type === "asset" ? segment.assetId : segment.type === "style" ? segment.styleId : segment.entityId)}`; }
 
 export function serializeComposer(document: AgentComposerDocument) { return JSON.stringify(normalizeComposerDocument(document)); }
 export function parseComposer(value: string | null | undefined) { try { return normalizeComposerDocument(JSON.parse(value || "") as AgentComposerDocument); } catch { return EMPTY_COMPOSER_DOCUMENT; } }
