@@ -8,7 +8,7 @@ import { CanvasNodeType, type CanvasNodeData, type CanvasNodePort } from "@/type
 import type { CanvasNodeDefinition, CanvasNodeResource } from "@/types/canvas-plugin";
 import { CREATIVE_ASSET_NODE_LAYOUT, type CreativeAssetKind } from "@/types/creative-asset";
 import { CreativeAssetNodeContent } from "./creative-asset-node";
-import { VisualStyleNodeContent } from "./visual-style-node";
+import { VISUAL_STYLE_NODE_LAYOUT, VisualStyleNodeContent } from "./visual-style-node";
 
 // Extensible metadata for built-in nodes, reusing NODE_SPECS for size and initial metadata.
 // Rendering remains in canvas-node's internal renderer, so no Content component is provided.
@@ -38,7 +38,7 @@ const STANDARD_DEFINITIONS: CanvasNodeDefinition[] = [
 
 const BUILTIN_DEFINITIONS: CanvasNodeDefinition[] = [
     ...STANDARD_DEFINITIONS,
-    { type: "visual-style", title: "视觉风格", description: "项目统一的画面风格锚点", icon: <Palette className={iconClass} />, defaultSize: { width: 380, height: 620 }, resizable: false, defaultMetadata: {}, minimapColor: "#d26b98", showInCreateMenu: false, hidePanel: true, Content: VisualStyleNodeContent, ports: [{ id: "style", label: "视觉风格", direction: "output", dataType: "visual-style", multiple: true, position: 0.5 }] },
+    { type: "visual-style", title: "视觉风格", description: "项目统一的画面风格锚点", icon: <Palette className={iconClass} />, defaultSize: VISUAL_STYLE_NODE_LAYOUT, resizable: false, defaultMetadata: {}, minimapColor: "#d26b98", showInCreateMenu: false, hidePanel: true, Content: VisualStyleNodeContent, ports: [{ id: "style", label: "视觉风格", direction: "output", dataType: "visual-style", multiple: true, position: 0.5 }] },
     ...(["character", "scene", "prop"] as CreativeAssetKind[]).map((kind): CanvasNodeDefinition => ({
         type: kind,
         title: CREATIVE_ASSET_NODE_LAYOUT[kind].title,
@@ -52,10 +52,11 @@ const BUILTIN_DEFINITIONS: CanvasNodeDefinition[] = [
         hidePanel: true,
         Content: CreativeAssetNodeContent,
         ports: [
-            { id: "reference-image", label: "参考图", direction: "input", dataType: "image", multiple: true, position: 0.27 },
-            { id: "setting", label: "设定文本", direction: "input", dataType: "text", multiple: true, position: 0.56 },
-            { id: "style", label: "视觉风格", direction: "input", dataType: "visual-style", multiple: false, position: 0.67 },
-            { id: "reference-audio", label: kind === "character" ? "参考声音" : kind === "scene" ? "参考环境声" : "参考音效", direction: "input", dataType: "audio", multiple: false, position: 0.77 } satisfies CanvasNodePort,
+            { id: "reference-image", label: "参考图", direction: "input", dataType: "image", multiple: true, position: 0.5 },
+            { id: "setting", label: "设定文本", direction: "input", dataType: "text", multiple: true, position: 0.5 },
+            { id: "style", label: "视觉风格", direction: "input", dataType: "visual-style", multiple: false, position: 0.5 },
+            { id: "reference-audio", label: kind === "character" ? "参考声音" : kind === "scene" ? "参考环境声" : "参考音效", direction: "input", dataType: "audio", multiple: false, position: 0.5 } satisfies CanvasNodePort,
+            { id: "input", label: "输入", direction: "input", dataType: "text", accepts: ["image", "audio", "visual-style"], multiple: true, position: 0.5 },
             { id: "asset", label: `${CREATIVE_ASSET_NODE_LAYOUT[kind].title}资产`, direction: "output", dataType: "creative-asset", multiple: true, position: 0.5 },
         ],
     })),

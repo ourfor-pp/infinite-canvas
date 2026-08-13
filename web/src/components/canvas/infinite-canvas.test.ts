@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isCanvasImagePreviewTarget } from "@/lib/canvas/canvas-interaction";
-import { getCanvasPointerAction } from "./infinite-canvas";
+import { getCanvasPointerAction, shouldIgnoreCanvasWheel } from "./infinite-canvas";
 
 describe("getCanvasPointerAction", () => {
     it("pans from blank canvas without requiring Control", () => {
@@ -35,5 +35,19 @@ describe("isCanvasImagePreviewTarget", () => {
 
     it("does not treat ordinary canvas content as an image preview", () => {
         expect(isCanvasImagePreviewTarget(document.createElement("button"))).toBe(false);
+    });
+});
+
+describe("shouldIgnoreCanvasWheel", () => {
+    it("allows canvas zoom over business nodes that only disable canvas panning", () => {
+        const node = document.createElement("article");
+        node.dataset.canvasNoPan = "true";
+        expect(shouldIgnoreCanvasWheel(node)).toBe(false);
+    });
+
+    it("preserves scrolling inside explicitly marked content", () => {
+        const content = document.createElement("div");
+        content.dataset.canvasNoZoom = "true";
+        expect(shouldIgnoreCanvasWheel(content)).toBe(true);
     });
 });

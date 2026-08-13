@@ -1,5 +1,5 @@
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ConnectionHandle } from "@/types/canvas";
-import { compatibleTargetPort, nodePorts, portById } from "./canvas-ports";
+import { compatibleTargetPort, isCreativeAssetInputProxy, nodePorts, portById } from "./canvas-ports";
 
 export type CanvasFocusBounds = { left: number; top: number; right: number; bottom: number };
 
@@ -87,7 +87,7 @@ export function normalizeConnection(firstNodeId: string, secondNodeId: string, n
     const fixed = portById(first, firstPortId, firstHandleType === "source" ? "output" : "input");
     if (!fixed) return null;
     const sourcePort = firstHandleType === "source" ? fixed : nodePorts(sourceNode).find((port) => port.direction === "output" && (fixed.dataType === port.dataType || fixed.accepts?.includes(port.dataType)));
-    const targetPort = firstHandleType === "target" ? fixed : sourcePort ? compatibleTargetPort(sourcePort, targetNode, connections) : null;
+    const targetPort = firstHandleType === "target" && !isCreativeAssetInputProxy(targetNode, fixed) ? fixed : sourcePort ? compatibleTargetPort(sourcePort, targetNode, connections) : null;
     if (!sourcePort || !targetPort) return null;
     if (!targetPort.multiple && connections.some((connection) => connection.toNodeId === targetNode.id && connection.toPortId === targetPort.id)) return null;
     return { fromNodeId: sourceNode.id, fromPortId: sourcePort.id, toNodeId: targetNode.id, toPortId: targetPort.id };

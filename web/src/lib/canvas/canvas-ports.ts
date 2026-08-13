@@ -11,6 +11,11 @@ const RESOURCE_TYPE: Partial<Record<string, CanvasPortDataType>> = {
     scene: "creative-asset",
     prop: "creative-asset",
 };
+const CREATIVE_ASSET_TYPES = new Set(["character", "scene", "prop"]);
+
+export function isCreativeAssetInputProxy(node: CanvasNodeData, port: CanvasNodePort) {
+    return CREATIVE_ASSET_TYPES.has(node.type) && port.direction === "input" && port.id === "input";
+}
 
 export function nodePorts(node: CanvasNodeData): CanvasNodePort[] {
     const configured = getNodeDefinition(node.type)?.ports;
@@ -29,6 +34,7 @@ export function portById(node: CanvasNodeData, id: string, direction?: CanvasNod
 
 export function compatibleTargetPort(source: CanvasNodePort, node: CanvasNodeData, connections: CanvasConnection[]) {
     return nodePorts(node).find((target) => {
+        if (isCreativeAssetInputProxy(node, target)) return false;
         if (target.direction !== "input" || !(target.dataType === source.dataType || target.accepts?.includes(source.dataType))) return false;
         return target.multiple || !connections.some((connection) => connection.toNodeId === node.id && connection.toPortId === target.id);
     });

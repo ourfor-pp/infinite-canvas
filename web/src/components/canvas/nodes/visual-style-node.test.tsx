@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import type { VisualStyleTemplate } from "@/types/visual-style";
-import { shouldStopVisualStyleNodePointer, TemplatePickerModal } from "./visual-style-node";
+import { shouldStopVisualStyleNodePointer, TemplatePickerModal, visualStyleTags } from "./visual-style-node";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver;
@@ -20,6 +20,12 @@ const template: VisualStyleTemplate = {
 };
 
 describe("视觉风格模板弹窗", () => {
+    it("默认卡片只展示三个关键 DNA 标签", () => {
+        expect(visualStyleTags(template.dna)).toEqual(["低饱和", "自然光", "胶片"]);
+        expect(visualStyleTags({ ...template.dna, palette: "暖灰、胡桃木、低饱和红", lighting: "柔和方向性窗光与高光", texture: "细微 35mm 胶片颗粒与织物" })).toEqual(["暖灰", "柔和方向性窗光与高光", "细微 35mm 胶片颗粒"]);
+        expect(visualStyleTags({ ...template.dna, palette: "", lighting: "", texture: "" })).toEqual(["待提炼 Style DNA"]);
+    });
+
     it("Portal 内的关闭和模板选择不会被风格节点捕获事件拦截", async () => {
         const close = vi.fn();
         const select = vi.fn();

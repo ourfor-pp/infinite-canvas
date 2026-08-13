@@ -29,6 +29,10 @@ export function getCanvasPointerAction(button: number, isBackground: boolean, to
     return activeTool === "pan" || isBackground ? "pan" : null;
 }
 
+export function shouldIgnoreCanvasWheel(target: EventTarget | null) {
+    return isCanvasImagePreviewTarget(target) || (target instanceof Element && Boolean(target.closest("[data-canvas-no-zoom],.ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")));
+}
+
 export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = "lines", onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasDoubleClick, onContextMenu, onDrop, children }: InfiniteCanvasProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const panState = useRef({
@@ -93,7 +97,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
 
     const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
         const target = event.target instanceof Element ? event.target : null;
-        if (isCanvasImagePreviewTarget(target) || target?.closest("[data-canvas-no-zoom],.ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")) return;
+        if (shouldIgnoreCanvasWheel(target)) return;
 
         const delta = -event.deltaY;
         const factor = Math.pow(1.1, delta / 100);
@@ -116,7 +120,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
         const target = event.target instanceof Element ? event.target : null;
         if (isCanvasImagePreviewTarget(target)) return;
-        if (target?.closest("[data-canvas-no-zoom]")) return;
+        if (target?.closest("[data-canvas-no-zoom],[data-canvas-no-pan]")) return;
         if (target?.closest("[data-connection-create-menu]")) return;
         const isBackgroundClick = !target?.closest("[data-node-id],[data-connection-id]");
         const action = getCanvasPointerAction(event.button, isBackgroundClick, tool, isSpacePressed, event.shiftKey);
@@ -202,7 +206,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
         // Prevent canvas scrolling from moving the page while preserving native scrolling inside overlays and dialogs.
         const preventWheelScroll = (event: WheelEvent) => {
             const target = event.target instanceof Element ? event.target : null;
-            if (isCanvasImagePreviewTarget(target) || target?.closest("[data-canvas-no-zoom],.ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")) return;
+            if (shouldIgnoreCanvasWheel(target)) return;
             event.preventDefault();
         };
         container.addEventListener("wheel", preventWheelScroll, { passive: false });

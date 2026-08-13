@@ -21,6 +21,18 @@ describe("语义画布端口", () => {
         expect(connection).toMatchObject({ fromNodeId: "source", fromPortId: sourcePortId, toNodeId: "target", toPortId: expectedTargetPortId });
     });
 
+    it.each([
+        ["text", "setting"],
+        ["image", "reference-image"],
+        ["audio", "reference-audio"],
+        ["visual-style", "style"],
+    ])("从角色统一入口反向连接 %s 时仍解析为对应语义端口", (sourceType, expectedTargetPortId) => {
+        const nodes = [node("source", sourceType), node("target", "character")];
+        const connection = normalizeConnection("target", "source", nodes, "target", "input", []);
+
+        expect(connection).toMatchObject({ fromNodeId: "source", toNodeId: "target", toPortId: expectedTargetPortId });
+    });
+
     it("拒绝不兼容的视频到角色连接", () => {
         expect(normalizeConnection("source", "target", [node("source", "video"), node("target", "character")], "source", "output", [])).toBeNull();
     });
@@ -30,5 +42,6 @@ describe("语义画布端口", () => {
         const existing: CanvasConnection[] = [{ id: "connection-1", fromNodeId: "style-1", fromPortId: "style", toNodeId: "target", toPortId: "style" }];
 
         expect(normalizeConnection("style-2", "target", nodes, "source", "style", existing)).toBeNull();
+        expect(normalizeConnection("target", "style-2", nodes, "target", "input", existing)).toBeNull();
     });
 });

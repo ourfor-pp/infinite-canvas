@@ -48,6 +48,7 @@
 ## 画布 UI 规范
 
 - 做 canvas 前端 UI 时必须遵循当前画布主题。
+- 画布滚轮缩放与指针拖动必须使用独立的事件边界：只有确实需要内部滚动的区域才标记 `data-canvas-no-zoom`，仅需阻止画布拖动的节点或控件使用 `data-canvas-no-pan`，不得用前者包住整个业务节点。
 - 优先使用 `canvasThemes`、`useThemeStore` 或 Ant Design `ConfigProvider` token。
 - 不要硬编码黑白、stone、slate 等颜色导致浅色/深色主题不一致。
 - 新增画布按钮、弹窗、浮层时，尽量复用已有工具栏、节点面板、Modal 的视觉风格。

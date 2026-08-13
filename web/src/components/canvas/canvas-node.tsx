@@ -140,6 +140,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const isGroup = data.type === CanvasNodeType.Group;
     const isBusinessNode = data.type === "character" || data.type === "scene" || data.type === "prop" || data.type === "visual-style";
     const ports = definition?.ports ? (typeof definition.ports === "function" ? definition.ports(data) : definition.ports) : [];
+    const visiblePorts = isBusinessNode ? ports.filter((port) => port.direction === "output" || port.id === "input") : ports;
     const nodeRadius = data.type === "scene" ? "rounded-[18px]" : data.type === "prop" ? "rounded-md" : "rounded-3xl";
     const batchCount = data.type === CanvasNodeType.Image ? data.metadata?.images?.length || 0 : 0;
     const isBatchRoot = batchCount > 1;
@@ -429,7 +430,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 </> : null}
             </div>
 
-            {!isGroup ? (ports.length ? ports : [
+            {!isGroup ? (visiblePorts.length ? visiblePorts : [
                 { id: "input", label: "输入", direction: "input", dataType: "text", multiple: true, position: 0.5 } as CanvasNodePort,
                 ...(definition?.hasSourceHandle === false || data.type === CanvasNodeType.Config ? [] : [{ id: "output", label: "输出", direction: "output", dataType: "text", multiple: true, position: 0.5 } as CanvasNodePort]),
             ]).map((port) => <ConnectionHandleDot key={`${port.direction}:${port.id}`} port={port} visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, port.direction === "output" ? "source" : "target", port.id)} />) : null}

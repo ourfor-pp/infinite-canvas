@@ -3,7 +3,7 @@ import type { CanvasConnection, CanvasNodeData } from "@/types/canvas";
 
 export function createVisualStyleOverrideOps(target: CanvasNodeData, styleId: string, name: string, styleNodeId: string): CanvasAgentOp[] {
     return [
-        { type: "add_node", id: styleNodeId, nodeType: "visual-style", title: name, position: { x: target.position.x - 460, y: target.position.y }, width: 380, height: 620, metadata: { visualStyleId: styleId } },
+        { type: "add_node", id: styleNodeId, nodeType: "visual-style", title: name, position: { x: target.position.x - 500, y: target.position.y }, width: 420, height: 615, metadata: { visualStyleId: styleId } },
         { type: "connect_nodes", fromNodeId: styleNodeId, fromPortId: "style", toNodeId: target.id, toPortId: "style" },
     ];
 }

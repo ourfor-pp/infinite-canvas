@@ -8,7 +8,7 @@ const target = { id: "character-1", type: "character", title: "角色", position
 describe("业务节点视觉风格覆盖", () => {
     it("选择模板时创建局部风格节点并连接业务节点", () => {
         expect(createVisualStyleOverrideOps(target, "style-1", "黑色电影", "style-node-1")).toEqual([
-            { type: "add_node", id: "style-node-1", nodeType: "visual-style", title: "黑色电影", position: { x: 140, y: 120 }, width: 380, height: 620, metadata: { visualStyleId: "style-1" } },
+            { type: "add_node", id: "style-node-1", nodeType: "visual-style", title: "黑色电影", position: { x: 100, y: 120 }, width: 420, height: 615, metadata: { visualStyleId: "style-1" } },
             { type: "connect_nodes", fromNodeId: "style-node-1", fromPortId: "style", toNodeId: "character-1", toPortId: "style" },
         ]);
     });

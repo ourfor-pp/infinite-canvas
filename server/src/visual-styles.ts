@@ -147,7 +147,7 @@ export function placeVisualStyle(userId: string, styleId: string, position: { x?
     const style = getVisualStyle(userId, styleId);
     const project = projectPayload(userId, style.projectId);
     const nodeId = `visual-style-${nanoid()}`;
-    project.nodes.push({ id: nodeId, type: "visual-style", title: style.name, position: { x: position.x ?? 0, y: position.y ?? 0 }, width: 380, height: 620, metadata: { visualStyleId: style.id } });
+    project.nodes.push({ id: nodeId, type: "visual-style", title: style.name, position: { x: position.x ?? 0, y: position.y ?? 0 }, width: 420, height: 615, metadata: { visualStyleId: style.id } });
     saveProject(userId, style.projectId, project);
     return { nodeId, projectId: style.projectId };
 }

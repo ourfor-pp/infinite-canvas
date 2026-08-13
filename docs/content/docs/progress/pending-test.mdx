@@ -7,6 +7,9 @@ description: Implemented changes that still need manual verification
 
 The current release needs manual verification in these areas:
 
+- Visual-style card redesign: the header must remain a safe selection/drag surface, the name below the cover enters editing only after an explicit click, and cover/edit actions must open the floating editor without changing node size or edge positions.
+- Business-card connection handles: character, scene, and prop cards should show one input handle and one output handle. Connections started from either side must still classify text, image, audio, and visual-style sources into their semantic inputs, while video remains incompatible and visual style remains single-connection.
+- Business-node wheel zoom: hovering a character, scene, prop, or visual-style card should keep mouse-wheel canvas zoom available, while its buttons, inputs, dropdowns, and media-editor controls remain operable and do not start canvas panning.
 - Visual-style browser: close button, mask, Escape, category navigation, search, and template selection must work from a canvas style node without selecting, dragging, zooming, or otherwise activating the canvas behind it; selecting a card should write its Style DNA and close the browser.
 - Media executor storage and runtimes: verify `/data/sas/models` entries resolve to NVMe targets, Qwen CustomVoice/Base, MOSS and ACE use isolated Python 3.12 CUDA environments, the gateway remains remotely reachable only on port 8290, and offline runtimes are not presented as usable. ACE-Step XL SFT has passed direct and gateway smoke tests; Stable Audio remains license-gated.
 
