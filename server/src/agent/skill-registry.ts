@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { config } from "../config.js";
 
 export type BuiltInAgentSkill = {
@@ -11,19 +11,22 @@ export type BuiltInAgentSkill = {
 
 type SourceSkill = BuiltInAgentSkill & { directory: string; allowedTools: string[] };
 
-export function listBuiltInAgentSkills() {
-    return readSourceSkills().map(({ directory: _directory, allowedTools: _allowedTools, ...skill }) => skill);
+export function listBuiltInAgentSkills(skillIds?: readonly string[]) {
+    return selectSkills(skillIds).map(({ directory: _directory, allowedTools: _allowedTools, ...skill }) => skill);
 }
 
 export function getBuiltInAgentSkill(id: string) {
-    return listBuiltInAgentSkills().find((skill) => skill.id === id);
+    const skill = readSourceSkills().find((item) => item.id === id);
+    if (!skill) return undefined;
+    const { directory: _directory, allowedTools: _allowedTools, ...metadata } = skill;
+    return metadata;
 }
 
-export function syncBuiltInAgentSkills(workspace: string) {
-    const skills = readSourceSkills();
+export function syncBuiltInAgentSkills(workspace: string, skillIds: readonly string[]) {
+    const skills = selectSkills(skillIds);
     const targetRoot = resolve(workspace, ".claude", "skills");
     const digest = createHash("sha256");
-    skills.forEach((skill) => hashDirectory(digest, skill.directory));
+    skills.forEach((skill) => { digest.update(skill.id); hashDirectory(digest, skill.directory); });
     const hash = digest.digest("hex");
     const result = () => ({ skills: skills.map((skill) => skill.id), allowedTools: resolveAllowedTools(skills, targetRoot) });
     if (existsSync(resolve(targetRoot, ".content-hash")) && readFileSync(resolve(targetRoot, ".content-hash"), "utf8") === hash) return result();
@@ -48,6 +51,15 @@ export function syncBuiltInAgentSkills(workspace: string) {
     return result();
 }
 
+export function validateBuiltInAgentSkills(skillIds: readonly string[], autoAllowedTools: readonly string[]) {
+    const skills = selectSkills(skillIds);
+    const allowed = new Set(autoAllowedTools);
+    for (const skill of skills) {
+        const invalid = skill.allowedTools.filter((tool) => !allowed.has(tool));
+        if (invalid.length) throw new Error(`Skill ${skill.id} 声明了当前场景不可自动执行的工具：${invalid.join("、")}`);
+    }
+}
+
 function hashDirectory(hash: ReturnType<typeof createHash>, directory: string, prefix = "") {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
         const path = resolve(directory, entry.name);
@@ -59,16 +71,28 @@ function hashDirectory(hash: ReturnType<typeof createHash>, directory: string, p
 }
 
 function readSourceSkills(): SourceSkill[] {
-    return readdirSync(config.agentSkillsDir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => {
-            const directory = resolve(config.agentSkillsDir, entry.name);
+    return findSkillDirectories(config.agentSkillsDir)
+        .map((directory) => {
             const source = readFileSync(resolve(directory, "SKILL.md"), "utf8");
             const metadata = parseSkillMetadata(source);
-            if (metadata.id !== entry.name) throw new Error(`Skill 目录名必须与 SKILL.md name 一致：${entry.name}`);
+            if (metadata.id !== basename(directory)) throw new Error(`Skill 目录名必须与 SKILL.md name 一致：${basename(directory)}`);
             return { ...metadata, directory, allowedTools: parseSkillAllowedTools(source) };
         })
         .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+}
+
+function findSkillDirectories(root: string): string[] {
+    if (existsSync(resolve(root, "SKILL.md"))) return [root];
+    return readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => findSkillDirectories(resolve(root, entry.name)));
+}
+
+function selectSkills(skillIds?: readonly string[]) {
+    const skills = readSourceSkills();
+    if (!skillIds) return skills;
+    const byId = new Map(skills.map((skill) => [skill.id, skill]));
+    const missing = skillIds.filter((id) => !byId.has(id));
+    if (missing.length) throw new Error(`Agent 场景引用了不存在的 Skill：${missing.join("、")}`);
+    return skillIds.map((id) => byId.get(id)!);
 }
 
 export function parseSkillAllowedTools(source: string) {

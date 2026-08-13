@@ -26,7 +26,7 @@ export type AgentEvent = {
 export type AgentPendingDecision = {
     id: string;
     kind: "approval" | "question" | "proposal";
-    source: "policy" | "ask_user" | "proposal";
+    source: "policy" | "business" | "ask_user" | "proposal";
     runId: string;
     content: string;
     toolName?: string;

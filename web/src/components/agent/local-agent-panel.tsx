@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { App, Button, Drawer, Tooltip } from "antd";
 import { History, Plus, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { canvasThemes, sxhAgentLightTheme } from "@/lib/canvas-theme";
 import { randomId } from "@/lib/utils";
-import { buildCanvasResourceReferences } from "@/lib/canvas/canvas-resource-references";
-import { agentApi, agentClientId, subscribeAgent, type AgentComposerDocument, type AgentConversation, type AgentEvent, type AgentQueuedMessage, type AgentSession, type AgentSkill, type AgentTurnIndexItem } from "@/services/api/agent";
+import { agentApi, agentClientId, subscribeAgent, type AgentComposerDocument, type AgentConversation, type AgentEvent, type AgentQueuedMessage, type AgentReferenceCandidate, type AgentSceneCapabilities, type AgentSession, type AgentTurnIndexItem } from "@/services/api/agent";
 import { uploadServerFile, type ServerFile } from "@/services/api/server";
 import { selectAgentEntityReferences, useAgentStore, type AgentCanvasContext } from "@/stores/use-agent-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -23,7 +22,7 @@ import { AgentErrorBoundary } from "./agent-error-boundary";
 import { useAgentScroll } from "./use-agent-scroll";
 import { agentDraftStorage } from "./agent-draft-storage";
 
-export function LocalAgentPanel({ projectId, embedded = false, themeMode, experience = "canvas" }: { projectId: string; embedded?: boolean; themeMode?: "light" | "dark"; experience?: "canvas" | "director" }) {
+export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { projectId: string; embedded?: boolean; themeMode?: "light" | "dark" }) {
     const { message } = App.useApp();
     const navigate = useNavigate();
     const currentTheme = useThemeStore((state) => state.theme);
@@ -43,7 +42,8 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
     const [conversation, setConversation] = useState<AgentConversation | null>(null);
     const [session, setSession] = useState<AgentSession | null>(null);
     const [events, setEvents] = useState<AgentEvent[]>([]);
-    const [skills, setSkills] = useState<AgentSkill[]>([]);
+    const [capabilities, setCapabilities] = useState<AgentSceneCapabilities | null>(null);
+    const [references, setReferences] = useState<AgentReferenceCandidate[]>([]);
     const [model, setModel] = useState({ ready: false, modelName: "", providerName: "", protocolVersion: 1, storageVersion: 1 });
     const [composerDocument, setComposerDocument] = useState<AgentComposerDocument>(() => draft ? { version: 1, segments: [{ type: "text", text: draft }] } : EMPTY_COMPOSER_DOCUMENT);
     const [followUpMode, setFollowUpMode] = useState<"steer" | "queue">("steer");
@@ -70,10 +70,9 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
     const backgroundEventsRef = useRef(new Map<string, AgentEvent[]>());
     const hydratedDraftScopeRef = useRef("");
     const activeSessionRef = useRef<AgentSession | null>(null);
-
-    const nodes = useMemo(() => canvasContext ? buildCanvasResourceReferences(canvasContext.snapshot.nodes) : [], [canvasContext]);
+    const staleSkillWarningRef = useRef("");
     const busy = session?.status === "running" || session?.status === "waiting_for_user";
-    const eventKey = `${events.at(-1)?.seq || 0}:${String(events.at(-1)?.payload.text || "").length}:${events.length}`;
+    const eventKey = `${events.at(-1)?.seq || 0}:${String(events.at(-1)?.payload?.text || "").length}:${events.length}`;
     const { scrollRef, atBottomRef, showBottom: showScrollBottom, unread: unreadCount, onScroll: updateScroll, scrollBottom, preserveBeforePrepend, restoreAfterPrepend, beforeCollapse } = useAgentScroll({ sessionId: session?.id, eventKey, contentRef });
 
     useEffect(() => {
@@ -92,6 +91,9 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
         let active = true;
         setLoading(true);
         setConversation(null);
+        setCapabilities(null);
+        setReferences([]);
+        staleSkillWarningRef.current = "";
         activeSessionRef.current = null;
         setSession(null);
         setEvents([]);
@@ -101,8 +103,8 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
         setAnswer("");
         handledClientActionsRef.current.clear();
         atBottomRef.current = true;
-        Promise.all([agentApi.config(), agentApi.skills(), agentApi.conversation(projectId, savedSessionId).catch(() => agentApi.conversation(projectId))])
-            .then(async ([config, nextSkills, nextConversation]) => {
+        Promise.all([agentApi.config(), agentApi.capabilities(projectId), agentApi.references(projectId), agentApi.conversation(projectId, savedSessionId).catch(() => agentApi.conversation(projectId))])
+            .then(async ([config, nextCapabilities, nextReferences, nextConversation]) => {
                 if (config.protocolVersion !== 3) throw new Error(`不支持的 Agent 通信协议版本：${config.protocolVersion}`);
                 if (config.storageVersion !== 2) throw new Error(`不支持的 Agent 存储版本：${config.storageVersion}`);
                 if (!nextConversation.session) {
@@ -111,7 +113,8 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
                 }
                 if (!active) return;
                 setModel(config);
-                setSkills(nextSkills);
+                setCapabilities(nextCapabilities);
+                setReferences(nextReferences);
                 applyConversation(nextConversation);
                 if (nextConversation.session) {
                     setCurrentSession(projectId, nextConversation.session.id);
@@ -147,6 +150,16 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
         });
         return () => { active = false; };
     }, [projectId, session?.id]);
+
+    useEffect(() => {
+        if (!capabilities) return;
+        const available = new Set(capabilities.skills.map((skill) => skill.id));
+        const invalid = composerDocument.segments.filter((segment) => segment.type === "skill" && !available.has(segment.skillId));
+        if (!invalid.length) return;
+        setComposerDocument(normalizeComposerDocument({ version: 1, segments: composerDocument.segments.map((segment) => segment.type === "skill" && !available.has(segment.skillId) ? { type: "text" as const, text: `/${segment.label || segment.skillId}` } : segment) }));
+        const key = `${projectId}:${invalid.map((segment) => segment.type === "skill" ? segment.skillId : "").join(",")}`;
+        if (staleSkillWarningRef.current !== key) { staleSkillWarningRef.current = key; message.info("草稿中的旧 Skill 不适用于当前场景，已保留为普通文字"); }
+    }, [capabilities, composerDocument, message, projectId]);
 
     useEffect(() => {
         if (!session?.id) return;
@@ -189,6 +202,7 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
                 setAgentState({ connected: true, activity: "已同步" });
                 return;
             }
+            if (event.events.some((item) => item.kind === "tool_result")) void agentApi.references(projectId).then(setReferences).catch(() => undefined);
             event.events.filter((item) => item.kind === "client_action").forEach((item) => void runClientAction(event.session.id, item));
             setConversation((current) => current ? { ...current, sessions: upsertSession(current.sessions, event.session), ...(current.session?.id === event.session.id ? { session: event.session } : {}) } : current);
             if (event.session.id === activeSession?.id) {
@@ -436,7 +450,7 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
             <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3" style={{ borderColor: theme.node.stroke }}>
                 <div className="min-w-0 flex-1">
                     <button type="button" className="flex max-w-full items-center gap-1 text-left" onClick={() => setHistoryOpen(true)}>
-                        <span className="truncate text-sm font-medium">{session?.title || (experience === "director" ? "导演 Agent" : "Canvas Agent")}</span>
+                        <span className="truncate text-sm font-medium">{session?.title || (capabilities?.sceneId === "director" ? "导演 Agent" : "Canvas Agent")}</span>
                     </button>
                 </div>
                 <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={newSession} disabled={busy} /></Tooltip>
@@ -454,7 +468,7 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
                         events={events}
                         loading={loading}
                         theme={theme}
-                        experience={experience}
+                        emptyState={capabilities?.composer}
                         status={session?.status}
                         currentRunId={session?.currentRunId}
                         pendingDecision={session?.pendingDecision}
@@ -480,17 +494,16 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
                 {queuedMessages.length ? <QueuedMessages items={queuedMessages} busy={sending} onSteer={(id) => session && void agentApi.steerQueued(session.id, id).then(applyConversation).catch((error) => message.error(error.message))} onRetry={(id) => session && void agentApi.retryQueued(session.id, id).then(setQueuedMessages).catch((error) => message.error(error.message))} onDelete={(id) => session && void agentApi.deleteQueued(session.id, id).then(() => setQueuedMessages((items) => items.filter((item) => item.id !== id))).catch((error) => message.error(error.message))} /> : null}
                 <AgentComposer
                     document={composerDocument}
-                    projectId={projectId}
                     ready={model.ready}
                     busy={busy}
                     waiting={session?.status === "waiting_for_user"}
                     sending={sending}
                     uploading={uploading}
                     focusRequest={composerFocusRequest + preparedFocusRequest}
-                    skills={skills}
-                    nodes={nodes}
-                    placeholder={experience === "director" ? "描述导演任务，输入 / 调用 Skill，@ 引用故事、镜头或资产…" : undefined}
-                    referenceLabel={experience === "director" ? "引用导演台内容" : undefined}
+                    skills={capabilities?.skills || []}
+                    references={references}
+                    placeholder={capabilities?.composer.placeholder}
+                    referenceLabel={capabilities?.composer.referenceLabel}
                     attachments={attachments}
                     followUpMode={session?.status === "waiting_for_user" ? "queue" : followUpMode}
                     onDocumentChange={(value) => { setComposerDocument(value); setDraft(projectId, composerPlainText(value)); }}
@@ -502,7 +515,7 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode, experi
                 />
             </div>
 
-            <Drawer title="历史会话" placement="right" width={Math.min(430, window.innerWidth)} open={historyOpen} onClose={() => setHistoryOpen(false)}>
+            <Drawer title="历史会话" placement="right" size={Math.min(430, window.innerWidth)} open={historyOpen} onClose={() => setHistoryOpen(false)}>
                 <AgentHistoryList sessions={conversation?.sessions || []} activeId={session?.id} unread={backgroundUnread} query={historyQuery} theme={theme} onQuery={setHistoryQuery} onActivate={(id) => void activate(id)} onDelete={(id) => void removeSession(id)} onFork={(id) => { const source = conversation?.sessions.find((item) => item.id === id); if (source) void forkSession(source); }} />
             </Drawer>
 
@@ -516,9 +529,54 @@ function QueuedMessages({ items, busy, onSteer, onRetry, onDelete }: { items: Ag
 
 export function mergeEvents(current: AgentEvent[], incoming: AgentEvent[]) {
     const sessionId = current[0]?.sessionId || incoming[0]?.sessionId;
-    const map = new Map(current.filter((event) => !sessionId || event.sessionId === sessionId).map((event) => [event.seq, event]));
-    incoming.filter((event) => !sessionId || event.sessionId === sessionId).forEach((event) => map.set(event.seq, event));
-    return Array.from(map.values()).sort((a, b) => a.seq - b.seq);
+    const events = current.filter((event) => !sessionId || event.sessionId === sessionId).sort((a, b) => a.seq - b.seq);
+    const bySeq = new Map(events.map((event) => [event.seq, event]));
+    const streams = new Map<string, AgentEvent>();
+    for (const event of events) {
+        const key = streamEventKey(event);
+        if (!key) continue;
+        const previous = streams.get(key);
+        if (!previous) streams.set(key, event);
+        else {
+            bySeq.delete(previous.seq);
+            const merged = mergeStreamEvent(previous, event);
+            bySeq.set(merged.seq, merged);
+            streams.set(key, merged);
+        }
+    }
+    for (const event of incoming.filter((item) => !sessionId || item.sessionId === sessionId).sort((a, b) => a.seq - b.seq)) {
+        const key = streamEventKey(event);
+        const previous = key ? streams.get(key) : undefined;
+        if (!key || !previous) {
+            bySeq.set(event.seq, event);
+            if (key) streams.set(key, event);
+            continue;
+        }
+        if (event.seq < previous.seq || (event.seq === previous.seq && event.payload.delta !== false)) continue;
+        bySeq.delete(previous.seq);
+        const merged = mergeStreamEvent(previous, event);
+        bySeq.set(merged.seq, merged);
+        streams.set(key, merged);
+    }
+    return Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+}
+
+function streamEventKey(event: AgentEvent) {
+    if (event.kind !== "assistant_text" && event.kind !== "thinking") return "";
+    const streamId = String(event.payload?.streamId || "");
+    return streamId ? `${event.kind}:${streamId}` : "";
+}
+
+function mergeStreamEvent(previous: AgentEvent, incoming: AgentEvent): AgentEvent {
+    if (incoming.payload.delta === false) return incoming;
+    return {
+        ...incoming,
+        payload: {
+            ...previous.payload,
+            ...incoming.payload,
+            text: `${String(previous.payload.text || "")}${String(incoming.payload.text || "")}`,
+        },
+    };
 }
 
 function upsertSession(current: AgentSession[], incoming: AgentSession) {

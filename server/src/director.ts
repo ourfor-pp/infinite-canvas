@@ -26,7 +26,7 @@ const workspacePatch = z.object({
     aspectRatio: z.enum(["16:9", "9:16", "1:1", "2.39:1"]).optional(), language: z.string().trim().min(2).max(20).optional(),
     stage: z.enum(["source", "story", "script", "style", "assets", "storyboard", "shots", "timeline", "render"]).optional(), status: status.optional(),
 });
-const documentPatch = z.object({ revision: z.number().int().positive(), content: z.string().max(20_000_000).optional(), status: status.optional() });
+const documentPatch = z.object({ revision: z.number().int().positive(), content: z.string().max(20_000_000).optional(), status: z.enum(["draft", "confirmed"]).optional() });
 const sequenceInput = z.object({ id: id.optional(), position: z.number().int().min(0).optional(), title: z.string().trim().min(1).max(300), summary: z.string().max(20_000).default(""), status: status.default("draft"), payload: record.default({}) });
 const sequencePatch = sequenceInput.partial().extend({ revision: z.number().int().positive() });
 const shotInput = z.object({ id: id.optional(), sequenceId: id, position: z.number().int().min(0).optional(), title: z.string().trim().min(1).max(300), status: status.default("draft"), payload: record.default({}) });
@@ -100,15 +100,15 @@ export function getDirectorDocument(userId: string, projectId: string, kind: str
     return documentResponse(row);
 }
 
-export function updateDirectorDocument(userId: string, projectId: string, kind: string, body: unknown, allowLocked = false) {
+export function updateDirectorDocument(userId: string, projectId: string, kind: string, body: unknown) {
     assertDirectorProject(userId, projectId);
     const documentKind = z.enum(["story", "script"]).parse(kind);
     const value = documentPatch.parse(body);
     const current = db.prepare("SELECT * FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, documentKind) as DocumentRow;
-    if (documentKind === "script" && !allowLocked && current.status === "locked" && (value.content !== undefined || value.status !== "locked")) throw directorError(423, "DIRECTOR_LOCKED", "内容已锁定，需要通过 Agent 审批后修改");
     const now = new Date().toISOString();
+    const nextStatus = documentKind === "story" ? "draft" : value.status ?? (current.status === "locked" ? "confirmed" : current.status);
     const result = db.prepare(`UPDATE director_documents SET content=?, status=?, revision=revision+1, updated_at=?
-        WHERE user_id=? AND project_id=? AND kind=? AND revision=?`).run(value.content ?? current.content, documentKind === "story" ? "draft" : value.status ?? current.status, now, userId, projectId, documentKind, value.revision);
+        WHERE user_id=? AND project_id=? AND kind=? AND revision=?`).run(value.content ?? current.content, nextStatus, now, userId, projectId, documentKind, value.revision);
     if (!result.changes) conflict(documentKind === "story" ? "故事" : "剧本", documentResponse(current));
     if (value.content !== undefined && value.content !== current.content) markDocumentDependentsStale(userId, projectId, documentKind, current.revision + 1);
     const updated = db.prepare("SELECT * FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, documentKind) as DocumentRow;

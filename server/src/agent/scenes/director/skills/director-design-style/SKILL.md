@@ -1,0 +1,11 @@
+---
+name: director-design-style
+description: 建立导演项目的视觉风格并生成可复用的风格参考。
+allowed-tools: [mcp__infinite_canvas__director_list_style_templates, mcp__infinite_canvas__director_list_styles, mcp__infinite_canvas__director_get_style, mcp__infinite_canvas__director_create_style, mcp__infinite_canvas__director_update_style, mcp__infinite_canvas__director_set_active_style, mcp__infinite_canvas__director_analyze_style, mcp__infinite_canvas__director_generate_style_references]
+---
+
+# 导演台视觉风格
+
+把用户意图整理为媒介、时代、色彩、光线、镜头质感、材质和应避免元素。优先复用匹配模板或已有风格；需要新方案时创建风格并设为当前风格。
+
+参考图分析和参考图生成只服务于统一整片视觉语言，不混入角色或单一场景的剧情细节。

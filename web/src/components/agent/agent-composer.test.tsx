@@ -11,8 +11,8 @@ describe("Agent 输入框", () => {
     it("发送成功后即使仍有焦点也会清空正文", async () => {
         const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
         const props = {
-            projectId: "project-1", ready: true, busy: false, waiting: false, sending: false, uploading: false,
-            attachments: [], skills: [], nodes: [], focusRequest: 0, followUpMode: "steer" as const,
+            ready: true, busy: false, waiting: false, sending: false, uploading: false,
+            attachments: [], skills: [], references: [], focusRequest: 0, followUpMode: "steer" as const,
             onDocumentChange: vi.fn(), onFollowUpModeChange: vi.fn(), onSend: vi.fn(), onCancel: vi.fn(), onUpload: vi.fn(), onRemoveAttachment: vi.fn(),
         };
         await act(async () => root.render(<AgentComposer {...props} document={{ version: 1, segments: [{ type: "text", text: "重新发送这条消息" }] }} />));

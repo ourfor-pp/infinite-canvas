@@ -1,6 +1,6 @@
 export type ProjectKind = "canvas" | "director";
 export type DirectorEntityStatus = "draft" | "confirmed" | "locked";
-export type DirectorSection = "overview" | "story" | "script" | "world" | "props" | "storyboard" | "studio";
+export type DirectorSection = "overview" | "story" | "script" | "assets" | "storyboard" | "studio";
 
 export type DirectorProject = {
     id: string;
@@ -73,10 +73,28 @@ export type DirectorShot = {
     title: string;
     status: DirectorEntityStatus;
     payload: {
-        description?: string; action?: string; dialogue?: string; narration?: string; shotSize?: string; cameraAngle?: string; cameraMove?: string;
-        durationSeconds?: number; boundary?: "cut" | "continue"; characterRefs?: DirectorAssetRef[]; sceneRefs?: DirectorAssetRef[]; propRefs?: DirectorAssetRef[];
-        firstFrameFileId?: string; lastFrameFileId?: string; actualFirstFrameFileId?: string; actualLastFrameFileId?: string; videoFileId?: string;
-        continuationFromShotId?: string; audioCues?: Array<Record<string, unknown>>; needsReview?: boolean; videoStale?: boolean; [key: string]: unknown;
+        description?: string;
+        action?: string;
+        dialogue?: string;
+        narration?: string;
+        shotSize?: string;
+        cameraAngle?: string;
+        cameraMove?: string;
+        durationSeconds?: number;
+        boundary?: "cut" | "continue";
+        characterRefs?: DirectorAssetRef[];
+        sceneRefs?: DirectorAssetRef[];
+        propRefs?: DirectorAssetRef[];
+        firstFrameFileId?: string;
+        lastFrameFileId?: string;
+        actualFirstFrameFileId?: string;
+        actualLastFrameFileId?: string;
+        videoFileId?: string;
+        continuationFromShotId?: string;
+        audioCues?: Array<Record<string, unknown>>;
+        needsReview?: boolean;
+        videoStale?: boolean;
+        [key: string]: unknown;
     };
     revision: number;
     createdAt: string;
@@ -84,7 +102,13 @@ export type DirectorShot = {
 };
 
 export type DirectorTimelineClip = { id: string; shotId?: string; fileId?: string; start: number; duration: number; trimIn?: number; trimOut?: number; volume?: number; muted?: boolean; loop?: boolean };
-export type DirectorTimeline = { projectId: string; payload: { shotOrder?: string[]; tracks?: Array<{ id: string; kind: "dialogue" | "narration" | "ambient" | "sfx" | "music"; clips: DirectorTimelineClip[] }> }; revision: number; createdAt: string; updatedAt: string };
+export type DirectorTimeline = {
+    projectId: string;
+    payload: { shotOrder?: string[]; tracks?: Array<{ id: string; kind: "dialogue" | "narration" | "ambient" | "sfx" | "music"; clips: DirectorTimelineClip[] }> };
+    revision: number;
+    createdAt: string;
+    updatedAt: string;
+};
 export type DirectorState = { workspace: DirectorWorkspace; sources: DirectorSource[]; documents: DirectorDocument[]; sequences: DirectorSequence[]; shots: DirectorShot[]; timeline: DirectorTimeline };
 
 export type DirectorRender = { id: string; projectId: string; status: "queued" | "running" | "succeeded" | "failed" | "canceled"; progress: number; outputFileId: string | null; error: string | null; createdAt: string; updatedAt: string };

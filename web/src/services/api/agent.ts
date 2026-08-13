@@ -3,7 +3,7 @@ import { serverApiUrl, serverRequest } from "./server";
 export type AgentStatus = "idle" | "running" | "waiting_for_user" | "completed" | "failed" | "canceled";
 export type AgentEventKind = "user_text" | "assistant_text" | "thinking" | "tool_call" | "tool_result" | "approval_request" | "approval_response" | "question_request" | "question_response" | "client_action" | "artifact" | "run_state" | "error";
 export type AgentEvent = { sessionId: string; seq: number; runId: string | null; kind: AgentEventKind; payload: Record<string, unknown>; createdAt: string };
-export type AgentPendingDecision = { id: string; kind: "approval" | "question" | "proposal"; source: "policy" | "ask_user" | "proposal"; runId: string; content: string; toolName?: string; toolInput?: unknown; scopes?: Array<"once" | "session" | "project">; rulePreview?: string[] };
+export type AgentPendingDecision = { id: string; kind: "approval" | "question" | "proposal"; source: "policy" | "business" | "ask_user" | "proposal"; runId: string; content: string; toolName?: string; toolInput?: unknown; scopes?: Array<"once" | "session" | "project">; rulePreview?: string[] };
 export type AgentSession = { id: string; projectId: string; sdkSessionId: string | null; title: string; status: AgentStatus; eventSeq: number; currentRunId: string | null; pendingDecision: AgentPendingDecision | null; lastError: string | null; lastErrorCode: string | null; createdAt: string; updatedAt: string; events?: AgentEvent[] };
 export type AgentComposerSegment =
     | { type: "text"; text: string }
@@ -17,6 +17,8 @@ export type AgentQueuedMessage = { id: string; sessionId: string; clientMessageI
 export type AgentTurnIndexItem = { seq: number; runId: string | null; text: string; createdAt: string };
 export type AgentConversation = { projectId: string; sessions: AgentSession[]; session: AgentSession | null; queuedMessages: AgentQueuedMessage[] };
 export type AgentSkill = { id: string; name: string; description: string };
+export type AgentSceneCapabilities = { sceneId: "canvas" | "director"; skills: AgentSkill[]; referenceKinds: Array<"canvas" | "asset" | "style" | "director">; composer: { placeholder: string; referenceLabel: string; emptyTitle: string; emptyDescription: string; suggestions: string[] } };
+export type AgentReferenceCandidate = { key: string; label: string; detail: string; segment: Exclude<AgentComposerSegment, { type: "text" } | { type: "skill" }> };
 export type AgentSettings = { modelRef: string; modelName?: string; providerName?: string; toolSearchMode: string; ready: boolean };
 export type AdminAgentRun = { id: string; sessionId: string; status: string; modelRef: string; error: string | null; errorCode: string | null; toolSearchMode: string; toolSearchCallCount: number; startedAt: string; finishedAt: string | null; user: { id: string; username: string } };
 export type AgentStreamEvent = { type: "snapshot"; cursor: number; sessions: AgentSession[]; queuedMessages: Record<string, AgentQueuedMessage[]> } | { type: "delta"; cursor: number; session: AgentSession; events: AgentEvent[] } | { type: "queue.updated"; cursor: number; sessionId: string; queuedMessages: AgentQueuedMessage[] };
@@ -24,7 +26,8 @@ export const agentClientId = globalThis.crypto?.randomUUID?.() || `page-${Date.n
 
 export const agentApi = {
     config: () => serverRequest<{ ready: boolean; modelName: string; providerName: string; protocolVersion: number; storageVersion: number }>("/agent/config"),
-    skills: () => serverRequest<AgentSkill[]>("/agent/skills"),
+    capabilities: (projectId: string) => serverRequest<AgentSceneCapabilities>(`/agent/projects/${encodeURIComponent(projectId)}/capabilities`),
+    references: (projectId: string, q = "", limit = 100) => serverRequest<AgentReferenceCandidate[]>(`/agent/projects/${encodeURIComponent(projectId)}/references?q=${encodeURIComponent(q)}&limit=${limit}`),
     conversation: (projectId: string, sessionId?: string) => serverRequest<AgentConversation>(`/agent/projects/${encodeURIComponent(projectId)}/conversation${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`),
     events: (id: string, beforeSeq: number, limit = 500) => serverRequest<AgentEvent[]>(`/agent/sessions/${encodeURIComponent(id)}/events?beforeSeq=${beforeSeq}&limit=${limit}`),
     turnIndex: (id: string) => serverRequest<AgentTurnIndexItem[]>(`/agent/sessions/${encodeURIComponent(id)}/turn-index`),

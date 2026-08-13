@@ -8,12 +8,13 @@ import {
     deleteSession,
     forkSession,
     getAgentSettings,
+    getAgentCapabilities,
     getConversation,
     getSessionEvents,
     getTurnIndex,
     listQueuedMessages,
     listAdminRuns,
-    listSkills,
+    listAgentReferences,
     respondDecision,
     respondClientAction,
     saveAgentSettings,
@@ -34,7 +35,8 @@ agentRouter.get("/config", route(() => {
     const settings = getAgentSettings();
     return { ready: settings.ready, modelName: settings.modelName || "", providerName: settings.providerName || "", protocolVersion: 3, storageVersion: 2 };
 }));
-agentRouter.get("/skills", route(() => listSkills()));
+agentRouter.get("/projects/:projectId/capabilities", route((req) => getAgentCapabilities(req.user.id, routeParam(req, "projectId"))));
+agentRouter.get("/projects/:projectId/references", route((req) => listAgentReferences(req.user.id, routeParam(req, "projectId"), { q: req.query.q === undefined ? undefined : String(req.query.q), limit: optionalPositiveInt(req.query.limit) })));
 agentRouter.get("/projects/:projectId/conversation", route((req) => getConversation(req.user.id, routeParam(req, "projectId"), optionalId(req.query.sessionId))));
 agentRouter.get("/sessions/:id/events", route((req) => getSessionEvents(req.user.id, routeParam(req, "id"), optionalPositiveInt(req.query.beforeSeq), optionalPositiveInt(req.query.limit))));
 agentRouter.get("/sessions/:id/turn-index", route((req) => getTurnIndex(req.user.id, routeParam(req, "id"))));

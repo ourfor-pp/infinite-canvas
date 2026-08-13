@@ -9,6 +9,7 @@ server_data_dir="${SERVER_DATA_DIR:-$project_dir/data}"
 comfy_dir="${COMFYUI_DIR:-/home/cec/ComfyUI-H3}"
 comfy_models_dir="${COMFYUI_MODELS_DIR:-/data/sas/ComfyUI/models}"
 comfy_unit="${COMFYUI_UNIT:-arcreel-comfyui-8189.service}"
+comfy_system_unit="${COMFYUI_SYSTEM_UNIT:-comfyui-h3.service}"
 comfy_local_url="http://127.0.0.1:8189"
 comfy_log="$comfy_dir/comfyui-8189.log"
 comfy_python="$comfy_dir/.venv/bin/python"
@@ -33,7 +34,7 @@ require_command() {
 comfy_is_backend_only() {
     local pid index next
     local -a args=()
-    pid="$(systemctl --user show "$comfy_unit" --property=MainPID --value 2>/dev/null || true)"
+    pid="$(comfy_main_pid)"
     [[ "$pid" =~ ^[1-9][0-9]*$ && -r "/proc/$pid/cmdline" ]] || return 1
     mapfile -d '' -t args < "/proc/$pid/cmdline"
     for index in "${!args[@]}"; do
@@ -43,6 +44,23 @@ comfy_is_backend_only() {
         return
     done
     return 1
+}
+
+comfy_main_pid() {
+    local pid
+    pid="$(systemctl --user show "$comfy_unit" --property=MainPID --value 2>/dev/null || true)"
+    if [[ ! "$pid" =~ ^[1-9][0-9]*$ ]]; then
+        pid="$(systemctl show "$comfy_system_unit" --property=MainPID --value 2>/dev/null || true)"
+    fi
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] && printf '%s\n' "$pid"
+}
+
+comfy_user_unit_loaded() {
+    [[ "$(systemctl --user show "$comfy_unit" --property=LoadState --value 2>/dev/null || true)" == "loaded" ]]
+}
+
+comfy_system_unit_loaded() {
+    [[ "$(systemctl show "$comfy_system_unit" --property=LoadState --value 2>/dev/null || true)" == "loaded" ]]
 }
 
 comfy_queue_idle() {
@@ -66,6 +84,16 @@ start_comfyui() {
         fi
         if ! comfy_queue_idle; then
             echo "ComfyUI 正在执行任务，暂不重启。任务结束后重新运行 ./dev.sh。" >&2
+            exit 1
+        fi
+        if comfy_system_unit_loaded; then
+            echo "系统服务 $comfy_system_unit 已占用 8189，但没有仅绑定后端回环地址。" >&2
+            echo "请先运行 media-executor/scripts/install-comfyui-h3-dropin.sh 修复正式服务。" >&2
+            exit 1
+        fi
+        if ! comfy_user_unit_loaded; then
+            echo "8189 已被未识别的 ComfyUI 进程占用，拒绝自动停止。" >&2
+            echo "请先确认该进程的启动方式，或通过 COMFYUI_UNIT 指定对应的用户服务。" >&2
             exit 1
         fi
         echo "正在重启 ComfyUI，仅绑定后端回环地址..."

@@ -137,7 +137,7 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
     return (
         <>
             {children}
-            <Modal open={status === "migration"} closable={false} maskClosable={false} footer={null} width={520}>
+            <Modal open={status === "migration"} closable={false} mask={{ closable: false }} footer={null} width={520}>
                 <div className="px-1 py-2">
                     <div className="mb-5 flex items-start gap-4">
                         <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400"><HardDriveUpload className="size-5" /></div>

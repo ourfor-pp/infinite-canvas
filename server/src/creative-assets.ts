@@ -280,7 +280,7 @@ export function placeCreativeAsset(userId: string, assetId: string, input: { x?:
     return { nodeId, projectId: row.project_id };
 }
 
-export function createCreativeAssetsBatch(userId: string, projectId: string, rawItems: unknown, sourceNodeId?: string) {
+export function createCreativeAssetsBatch(userId: string, projectId: string, rawItems: unknown, sourceNodeId?: string, placeOnCanvas = true) {
     assertProject(userId, projectId);
     const items = z.array(creativeAssetInputSchema).min(1).max(200).parse(rawItems);
     const project = projectPayload(userId, projectId);
@@ -302,15 +302,15 @@ export function createCreativeAssetsBatch(userId: string, projectId: string, raw
                 db.prepare("INSERT INTO creative_assets(id, user_id, project_id, kind, name, status, payload, revision, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?, ?)")
                     .run(assetId, userId, projectId, kind, input.name, input.status, JSON.stringify(payload), now, now);
                 syncFileRefs(userId, "creative_asset", assetId, payload);
-                project.nodes.push({ id: `${kind}-${nanoid()}`, type: kind, title: input.name, position: { x: columnX, y: baseY + index * (layout.height + 32) }, ...layout, metadata: { assetId, assetKind: kind } });
+                if (placeOnCanvas) project.nodes.push({ id: `${kind}-${nanoid()}`, type: kind, title: input.name, position: { x: columnX, y: baseY + index * (layout.height + 32) }, ...layout, metadata: { assetId, assetKind: kind } });
                 created.push(creativeAssetResponse(creativeAssetRow(userId, assetId)!));
             });
             columnX += layout.width + 90;
         });
-        saveProjectPayload(userId, projectId, project, false);
+        if (placeOnCanvas) saveProjectPayload(userId, projectId, project, false);
     })();
     created.forEach((asset) => emitAsset(userId, asset));
-    publishProjectRow(userId, projectId);
+    if (placeOnCanvas) publishProjectRow(userId, projectId);
     return created;
 }
 

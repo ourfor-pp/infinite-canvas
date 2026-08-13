@@ -21,7 +21,7 @@ export function AgentConversationFlow({
     events,
     loading,
     theme,
-    experience = "canvas",
+    emptyState,
     canLoadEarlier,
     loadingEarlier,
     onLoadEarlier,
@@ -40,7 +40,7 @@ export function AgentConversationFlow({
     events: AgentEvent[];
     loading: boolean;
     theme: CanvasTheme;
-    experience?: "canvas" | "director";
+    emptyState?: { emptyTitle: string; emptyDescription: string; suggestions: string[] };
     canLoadEarlier: boolean;
     loadingEarlier: boolean;
     onLoadEarlier: () => void;
@@ -79,7 +79,7 @@ export function AgentConversationFlow({
         refreshMeasurements((value) => value + 1);
     }, []);
     if (loading) return <div className="grid h-full place-items-center"><LoaderCircle className="size-5 animate-spin opacity-45" /></div>;
-    if (!items.length) return <AgentEmpty theme={theme} experience={experience} onSuggestion={onSuggestion} />;
+    if (!items.length) return <AgentEmpty theme={theme} value={emptyState} onSuggestion={onSuggestion} />;
     return (
         <div ref={viewportRef} className="relative space-y-4" style={items.length > 80 ? { height: virtual.total + historyOffset } : undefined}>
             {canLoadEarlier ? (
@@ -103,21 +103,18 @@ function Measured({ id, className, style, onHeight, children }: { id: string; cl
     return <div ref={ref} className={className} style={{ ...style, contentVisibility: "auto", containIntrinsicSize: "0 112px" }}>{children}</div>;
 }
 
-function AgentEmpty({ theme, experience, onSuggestion }: { theme: CanvasTheme; experience: "canvas" | "director"; onSuggestion: (text: string) => void }) {
-    const director = experience === "director";
-    const suggestions = director
-        ? ["根据小说生成故事总纲和改编方案", "从剧本整理角色、场景和道具", "规划下一段故事板与镜头"]
-        : ["拆解小说中的角色、场景和道具", "根据选中节点继续创作", "检查画布结构并给出建议"];
+function AgentEmpty({ theme, value, onSuggestion }: { theme: CanvasTheme; value?: { emptyTitle: string; emptyDescription: string; suggestions: string[] }; onSuggestion: (text: string) => void }) {
+    const content = value || { emptyTitle: "和画布一起思考", emptyDescription: "Agent 已绑定当前项目，可以理解节点、修改画布并调用生成任务。", suggestions: ["拆解小说中的角色、场景和道具", "根据选中节点继续创作", "检查画布结构并给出建议"] };
     return (
         <div className="flex h-full min-h-[360px] items-center justify-center px-6 text-center">
             <div className="max-w-sm">
-                <div className="mx-auto grid size-12 place-items-center rounded-2xl" style={{ background: director ? "#eff6ff" : theme.toolbar.itemHover, color: director ? "#2563eb" : theme.toolbar.activeText }}><Sparkles className="size-5" /></div>
-                <h3 className="mt-4 text-base font-medium">{director ? "从故事到成片" : "和画布一起思考"}</h3>
+                <div className="mx-auto grid size-12 place-items-center rounded-2xl" style={{ background: theme.toolbar.itemHover, color: theme.toolbar.activeText }}><Sparkles className="size-5" /></div>
+                <h3 className="mt-4 text-base font-medium">{content.emptyTitle}</h3>
                 <p className="mt-2 text-sm leading-6" style={{ color: theme.node.muted }}>
-                    {director ? "Agent 已进入当前导演项目，可以创作故事与剧本、规划资产和分镜，并编排视频时间线。" : "Agent 已绑定当前项目，可以理解节点、修改画布并调用生成任务。"}
+                    {content.emptyDescription}
                 </p>
                 <div className="mt-5 flex flex-wrap justify-center gap-2">
-                    {suggestions.map((item) => <button key={item} type="button" onClick={() => onSuggestion(item)} className="rounded-full border bg-white px-3 py-1.5 text-xs transition hover:!border-blue-200 hover:!bg-blue-50 hover:!text-blue-700" style={{ borderColor: theme.node.stroke, color: director ? "#334155" : theme.node.muted }}>{item}</button>)}
+                    {content.suggestions.map((item) => <button key={item} type="button" onClick={() => onSuggestion(item)} className="rounded-full border bg-white px-3 py-1.5 text-xs transition hover:!border-blue-200 hover:!bg-blue-50 hover:!text-blue-700" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>{item}</button>)}
                 </div>
             </div>
         </div>

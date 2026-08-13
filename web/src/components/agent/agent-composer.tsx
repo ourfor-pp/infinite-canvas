@@ -2,19 +2,17 @@ import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEve
 import { createPortal } from "react-dom";
 import { Button, Dropdown, Tooltip } from "antd";
 import { ArrowUp, AtSign, FileUp, LoaderCircle, Paperclip, Sparkles, Square, X } from "lucide-react";
-import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { randomId } from "@/lib/utils";
-import type { AgentComposerDocument, AgentComposerSegment, AgentSkill } from "@/services/api/agent";
+import type { AgentComposerDocument, AgentComposerSegment, AgentReferenceCandidate, AgentSkill } from "@/services/api/agent";
 import type { ServerFile } from "@/services/api/server";
 import { composerHasContent, normalizeComposerDocument, segmentLabel, serializeComposer } from "./agent-composer-model";
 
 type MentionCandidate = { key: string; label: string; detail: string; segment: Exclude<AgentComposerSegment, { type: "text" }> };
 const COMPOSER_CLIPBOARD = "application/x-infinite-canvas-agent-composer";
 
-export function AgentComposer({ document: composerDocument, projectId, ready, busy, waiting, sending, uploading, attachments, skills, nodes, focusRequest, followUpMode, placeholder, referenceLabel = "引用画布内容", onDocumentChange, onFollowUpModeChange, onSend, onCancel, onUpload, onRemoveAttachment }: {
+export function AgentComposer({ document: composerDocument, ready, busy, waiting, sending, uploading, attachments, skills, references, focusRequest, followUpMode, placeholder, referenceLabel = "引用画布内容", onDocumentChange, onFollowUpModeChange, onSend, onCancel, onUpload, onRemoveAttachment }: {
     document: AgentComposerDocument; ready: boolean; busy: boolean; waiting: boolean; sending: boolean; uploading: boolean; attachments: ServerFile[];
-    projectId: string;
-    skills: AgentSkill[]; nodes: CanvasResourceReference[]; focusRequest: number; followUpMode: "steer" | "queue";
+    skills: AgentSkill[]; references: AgentReferenceCandidate[]; focusRequest: number; followUpMode: "steer" | "queue";
     placeholder?: string; referenceLabel?: string;
     onDocumentChange: (document: AgentComposerDocument) => void; onFollowUpModeChange: (mode: "steer" | "queue") => void; onSend: () => void; onCancel: () => void; onUpload: (files: File[]) => void; onRemoveAttachment: (id: string) => void;
 }) {
@@ -23,7 +21,7 @@ export function AgentComposer({ document: composerDocument, projectId, ready, bu
     const [active, setActive] = useState(0); const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(null); const [dragging, setDragging] = useState(false);
     const candidates = useMemo<MentionCandidate[]>(() => trigger?.kind === "skill"
         ? skills.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(trigger.query.toLowerCase())).slice(0, 8).map((item) => ({ key: `skill:${item.id}`, label: `/${item.name}`, detail: item.description, segment: { type: "skill", mentionId: randomId(), skillId: item.id, label: item.name } }))
-        : nodes.filter((item) => `${item.title} ${item.kind}`.toLowerCase().includes(trigger?.query.toLowerCase() || "")).slice(0, 8).map((item) => ({ key: `node:${item.nodeId}`, label: `@${item.title}`, detail: item.kind, segment: { type: "canvas", mentionId: randomId(), projectId, nodeId: item.nodeId, label: item.title } })), [nodes, projectId, skills, trigger]);
+        : references.filter((item) => `${item.label} ${item.detail}`.toLowerCase().includes(trigger?.query.toLowerCase() || "")).slice(0, 8).map((item) => ({ ...item, label: `@${item.label}`, segment: { ...item.segment, mentionId: randomId(), label: item.label } } as MentionCandidate)), [references, skills, trigger]);
 
     useEffect(() => { renderDocument(rootRef.current, composerDocument); }, [composerDocument]);
     useEffect(() => { if (focusRequest) requestAnimationFrame(() => focusEnd(rootRef.current)); }, [focusRequest]);

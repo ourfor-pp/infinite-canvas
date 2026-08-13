@@ -193,8 +193,8 @@ export function getAgentCreativeAsset(userId: string, projectId: string, assetId
     return asset;
 }
 
-export function createAgentCreativeAssetBatch(userId: string, projectId: string, items: unknown, sourceNodeId?: string) {
-    return createCreativeAssetsBatch(userId, projectId, items, sourceNodeId);
+export function createAgentCreativeAssetBatch(userId: string, projectId: string, items: unknown, sourceNodeId?: string, placeOnCanvas = true) {
+    return createCreativeAssetsBatch(userId, projectId, items, sourceNodeId, placeOnCanvas);
 }
 
 export function updateAgentCreativeAsset(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_update>) {

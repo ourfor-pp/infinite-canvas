@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,7 @@ process.env.DATA_DIR = testData;
 process.env.AUTH_MODE = "fnos";
 process.env.APP_SECRET = "test-secret";
 
-const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createTextNodes }, { recoverAgentRuns, resolveAgentToolSearchMode }, { parseSkillAllowedTools }, { providerInputSchema }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js")]);
+const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { recoverAgentRuns, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js")]);
 let origin = "";
 const server = app.listen(0, "127.0.0.1");
 
@@ -47,6 +47,25 @@ test("Agent Tool Search 按协议启用并允许显式覆盖", () => {
 test("Agent Skill 解析单行和列表 allowed-tools", () => {
     assert.deepEqual(parseSkillAllowedTools("---\nname: demo\nallowed-tools: [Read, mcp__infinite_canvas__canvas_get_state]\n---\n"), ["Read", "mcp__infinite_canvas__canvas_get_state"]);
     assert.deepEqual(parseSkillAllowedTools("---\nname: demo\nallowed-tools:\n  - ToolSearch\n  - mcp__infinite_canvas__generation_create\n---\n"), ["ToolSearch", "mcp__infinite_canvas__generation_create"]);
+});
+
+test("画布与导演 Agent 的 Skill 和工具清单完全隔离", () => {
+    assert.equal(agentScenes.canvas.skillIds.some((id) => id.startsWith("director-")), false);
+    assert.equal(agentScenes.director.skillIds.every((id) => id.startsWith("director-")), true);
+    assert.equal(agentScenes.canvas.tools.some((item) => item.id.startsWith("director_")), false);
+    assert.equal(agentScenes.director.tools.some((item) => item.id.startsWith("canvas_") || item.id.startsWith("creative_asset") || item.id.startsWith("visual_style") || String(item.id) === "site_navigate"), false);
+});
+
+test("项目工作区只同步当前 Agent 场景 Skills 并清理旧场景", () => {
+    const workspace = mkdtempSync(join(testData, "scene-skills-"));
+    syncBuiltInAgentSkills(workspace, agentScenes.canvas.skillIds);
+    assert.deepEqual(readdirSync(join(workspace, ".claude", "skills")).filter((name) => !name.startsWith(".")).sort(), [...agentScenes.canvas.skillIds].sort());
+    syncBuiltInAgentSkills(workspace, agentScenes.director.skillIds);
+    const directorSkills = readdirSync(join(workspace, ".claude", "skills")).filter((name) => !name.startsWith(".")).sort();
+    assert.deepEqual(directorSkills, [...agentScenes.director.skillIds].sort());
+    assert.equal(directorSkills.includes("write-story"), false);
+    syncBuiltInAgentSkills(workspace, agentScenes.director.skillIds);
+    assert.deepEqual(readdirSync(join(workspace, ".claude", "skills")).filter((name) => !name.startsWith(".")).sort(), directorSkills);
 });
 
 test("视频模型必须显式声明首尾帧与 Extend 能力", () => {
@@ -493,9 +512,32 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     assert.equal(longConversation.body.data.session.events[1].seq, 603);
     assert.equal(longConversation.body.data.session.events[2].payload.finalAssistantEventSeq, longConversation.body.data.session.events[1].seq);
 
-    const skills = await api("/agent/skills", userTwo);
-    assert.equal(skills.response.status, 200);
-    assert.equal(skills.body.data.some((skill: { id: string }) => skill.id === "write-story"), true);
+    const capabilities = await api("/agent/projects/project-1/capabilities", userOne);
+    assert.equal(capabilities.response.status, 200);
+    assert.equal(capabilities.body.data.sceneId, "canvas");
+    assert.equal(capabilities.body.data.skills.some((skill: { id: string }) => skill.id === "write-story"), true);
+    assert.equal((await api("/agent/projects/project-1/capabilities", userTwo)).response.status, 404);
+    const directorCapabilities = await api("/agent/projects/director-project-1/capabilities", userOne);
+    assert.equal(directorCapabilities.body.data.sceneId, "director");
+    assert.equal(directorCapabilities.body.data.skills.every((skill: { id: string }) => skill.id.startsWith("director-")), true);
+    assert.equal(directorCapabilities.body.data.skills.some((skill: { id: string }) => skill.id === "write-story"), false);
+    const directorReferences = await api("/agent/projects/director-project-1/references?limit=100", userOne);
+    assert.equal(directorReferences.response.status, 200);
+    assert.equal(directorReferences.body.data.some((item: { segment: { type: string } }) => item.segment.type === "canvas"), false);
+    const directorProjectBefore = JSON.parse((db.prepare("SELECT payload FROM projects WHERE id='director-project-1'").get() as { payload: string }).payload);
+    const directorAsset = createAgentCreativeAssetBatch("user-1", "director-project-1", [{ kind: "prop", name: "导演测试道具", payload: { description: "只属于导演资产" } }], undefined, false)[0];
+    const directorProjectAfter = JSON.parse((db.prepare("SELECT payload FROM projects WHERE id='director-project-1'").get() as { payload: string }).payload);
+    assert.equal(directorAsset.name, "导演测试道具");
+    assert.deepEqual(directorProjectAfter, directorProjectBefore);
+    const forgedCanvasSkill = await api("/agent/projects/director-project-1/messages", userOne, { method: "POST", body: JSON.stringify({ clientMessageId: "forged-canvas-skill", submissionMode: "direct", content: { version: 1, segments: [{ type: "skill", mentionId: "skill-1", skillId: "write-story" }] } }) });
+    assert.equal(forgedCanvasSkill.response.status, 400);
+    assert.equal(forgedCanvasSkill.body.error.code, "AGENT_SKILL_NOT_AVAILABLE_IN_SCENE");
+    const forgedDirectorReference = await api("/agent/projects/project-1/messages", userOne, { method: "POST", body: JSON.stringify({ clientMessageId: "forged-director-reference", submissionMode: "direct", content: { version: 1, segments: [{ type: "director", mentionId: "reference-1", projectId: "project-1", entityKind: "story", entityId: "story" }] } }) });
+    assert.equal(forgedDirectorReference.response.status, 400);
+    assert.equal(forgedDirectorReference.body.error.code, "AGENT_REFERENCE_NOT_AVAILABLE_IN_SCENE");
+    const forgedCrossProjectReference = await api("/agent/projects/director-project-1/messages", userOne, { method: "POST", body: JSON.stringify({ clientMessageId: "forged-cross-project-reference", submissionMode: "direct", content: { version: 1, segments: [{ type: "asset", mentionId: "reference-2", projectId: "project-1", assetId: "foreign-asset" }] } }) });
+    assert.equal(forgedCrossProjectReference.response.status, 400);
+    assert.equal(forgedCrossProjectReference.body.error.code, "AGENT_REFERENCE_INVALID");
     const runs = await api("/admin/agent/runs", userOne);
     assert.equal(runs.response.status, 200);
     assert.equal(runs.body.data.every((run: { toolSearchMode?: string; toolSearchCallCount?: number }) => typeof run.toolSearchMode === "string" && typeof run.toolSearchCallCount === "number"), true);

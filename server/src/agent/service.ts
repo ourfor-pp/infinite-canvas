@@ -9,9 +9,10 @@ import { db, parseJson } from "../database.js";
 import { getStoredFile } from "../file-store.js";
 import { decryptCredentials, getProviderRow, resolveAgentModel, type AiModelDefinition } from "../provider-service.js";
 import { registerAgentProviderProxy } from "./provider-proxy.js";
-import { agentAutoAllowedTools, buildAgentMcpServer } from "./mcp/index.js";
-import { getBuiltInAgentSkill, listBuiltInAgentSkills, syncBuiltInAgentSkills, type BuiltInAgentSkill } from "./skill-registry.js";
-import { getCanvasState } from "./canvas-tools.js";
+import { buildAgentMcpServer } from "./mcp/index.js";
+import { getBuiltInAgentSkill, listBuiltInAgentSkills, syncBuiltInAgentSkills, validateBuiltInAgentSkills, type BuiltInAgentSkill } from "./skill-registry.js";
+import { getCanvasState, listAgentCreativeAssets, listAgentVisualStyles } from "./canvas-tools.js";
+import { agentScenes, resolveAgentScene, sceneAutoAllowedTools, sceneHasReference, sceneHasSkill, sceneRegisteredTools, validateAgentScenes, type AgentSceneDefinition } from "./scenes/index.js";
 import { creativeAssetInputSchema, getCreativeAsset } from "../creative-assets.js";
 import { getVisualStyle } from "../visual-styles.js";
 import { getDirectorState } from "../director.js";
@@ -36,6 +37,9 @@ const clientActions = new Map<string, { sessionId: string; resolve: (result: { o
 const sdkToolCalls = new Map<string, string>();
 const workspaceWrites = new Map<string, Promise<void>>();
 let pumpScheduled = false;
+
+validateAgentScenes();
+Object.values(agentScenes).forEach((scene) => validateBuiltInAgentSkills(scene.skillIds, sceneAutoAllowedTools(scene)));
 
 export function recoverAgentRuns() {
     const now = new Date().toISOString();
@@ -313,7 +317,7 @@ export function respondDecision(userId: string, sessionId: string, input: { deci
     if (!waiter || waiter.sessionId !== sessionId) throw agentError(409, "AGENT_DECISION_INTERRUPTED", "审批对应的任务已经中断，请重新发起任务");
     const scope = input.scope || "once";
     if (pending.scopes?.length && !pending.scopes.includes(scope)) throw agentError(400, "AGENT_DECISION_SCOPE_INVALID", "当前操作不支持该授权范围");
-    const proposalEdits = pending.toolName === "creative_assets_create_batch" && input.proposalEdits !== undefined
+    const proposalEdits = ["creative_assets_create_batch", "director_create_assets"].includes(pending.toolName || "") && input.proposalEdits !== undefined
         ? z.array(creativeAssetInputSchema).min(1).max(200).parse(input.proposalEdits)
         : undefined;
     db.prepare("UPDATE agent_sessions SET status='running', pending_decision=NULL, updated_at=? WHERE id=? AND user_id=?").run(new Date().toISOString(), sessionId, userId);
@@ -351,8 +355,29 @@ export function getSessionEvents(userId: string, sessionId: string, beforeSeq?: 
     return sessionEvents(sessionId, beforeSeq, limit);
 }
 
-export function listSkills() {
-    return listBuiltInAgentSkills();
+export function getAgentCapabilities(userId: string, projectId: string) {
+    const scene = resolveAgentScene(userId, projectId);
+    return { sceneId: scene.id, skills: listBuiltInAgentSkills(scene.skillIds), referenceKinds: scene.referenceKinds, composer: { ...scene.composer, suggestions: [...scene.composer.suggestions] } };
+}
+
+export function listAgentReferences(userId: string, projectId: string, query: { q?: string; limit?: number } = {}) {
+    const scene = resolveAgentScene(userId, projectId);
+    const q = String(query.q || "").trim().toLowerCase();
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
+    const items: Array<{ key: string; label: string; detail: string; segment: Record<string, unknown> }> = [];
+    if (sceneHasReference(scene, "canvas")) {
+        for (const node of getCanvasState(userId, projectId).nodes) items.push({ key: `canvas:${node.id}`, label: String(node.title || "画布节点"), detail: String(node.type || "节点"), segment: { type: "canvas", mentionId: nanoid(), projectId, nodeId: node.id } });
+    }
+    if (sceneHasReference(scene, "director")) {
+        const state = getDirectorState(userId, projectId);
+        state.documents.forEach((document) => items.push({ key: `director:${document.kind}`, label: document.kind === "story" ? "故事" : "剧本", detail: `REV ${document.revision}`, segment: { type: "director", mentionId: nanoid(), projectId, entityKind: document.kind, entityId: document.kind } }));
+        state.sequences.forEach((sequence) => items.push({ key: `director:sequence:${sequence.id}`, label: sequence.title, detail: "剧情段落", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "sequence", entityId: sequence.id } }));
+        state.shots.forEach((shot) => items.push({ key: `director:shot:${shot.id}`, label: shot.title, detail: "镜头", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "shot", entityId: shot.id } }));
+        items.push({ key: "director:timeline", label: "时间线", detail: `REV ${state.timeline.revision}`, segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "timeline", entityId: "timeline" } });
+    }
+    if (sceneHasReference(scene, "asset")) listAgentCreativeAssets(userId, projectId).forEach((asset) => items.push({ key: `asset:${asset.id}`, label: asset.name, detail: asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具", segment: { type: "asset", mentionId: nanoid(), projectId, assetId: asset.id } }));
+    if (sceneHasReference(scene, "style")) listAgentVisualStyles(userId, projectId).forEach((style) => items.push({ key: `style:${style.id}`, label: style.name, detail: "视觉风格", segment: { type: "style", mentionId: nanoid(), projectId, styleId: style.id } }));
+    return items.filter((item) => !q || `${item.label} ${item.detail}`.toLowerCase().includes(q)).slice(0, limit);
 }
 
 export function listAdminRuns() {
@@ -397,12 +422,14 @@ function pumpQueue() {
 async function executeRun(run: RunRow, controller: AbortController) {
     const session = requireSession(run.user_id, run.session_id);
     try {
+        const scene = resolveAgentScene(run.user_id, session.project_id);
         const selection = resolveAgentModel(run.model_ref);
         const context = parseJson<{ input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; skillIds?: string[] }>(run.usage, {});
-        const skill = context.skillIds?.[0] ? getEnabledSkill(context.skillIds[0]) : null;
+        const skill = context.skillIds?.[0] ? getEnabledSkill(context.skillIds[0], scene) : null;
         const workspace = projectWorkspace(run.user_id, session.project_id);
         mkdirSync(workspace, { recursive: true });
-        const syncedSkills = syncBuiltInAgentSkills(workspace);
+        validateBuiltInAgentSkills(scene.skillIds, sceneAutoAllowedTools(scene));
+        const syncedSkills = syncBuiltInAgentSkills(workspace, scene.skillIds);
         const prompt = buildPrompt(session, { ...context, attachments: stageAttachments(workspace, context.attachments || []) }, skill);
         const runtime = runtimeEnv(selection.provider, selection.provider.credentials, selection.model, resolve(workspace, ".claude"));
         db.prepare("UPDATE agent_runs SET tool_search_mode=? WHERE id=?").run(runtime.toolSearchMode, run.id);
@@ -415,8 +442,8 @@ async function executeRun(run: RunRow, controller: AbortController) {
             resolveWorkspacePath: (path) => safeWorkspacePath(workspace, path),
             writeWorkspaceText: (path, content) => writeWorkspaceText(workspace, path, content),
             waitForWorkspacePath: (path) => waitForWorkspacePath(safeWorkspacePath(workspace, path)),
-        });
-        const streamState = { text: "", thinking: "", turn: 0 };
+        }, scene);
+        const streamState = { turn: 0 };
         appendEvent(session.id, run.id, "run_state", { state: "running", content: "Agent 已开始处理" });
         const input = new SdkInputChannel([sdkUserMessage(prompt)]);
         const runner = query({
@@ -433,14 +460,14 @@ async function executeRun(run: RunRow, controller: AbortController) {
                 skills: "all",
                 tools: runtime.toolSearchEnabled ? ["Read", "ToolSearch"] : ["Read"],
                 mcpServers: { infinite_canvas: mcp },
-                allowedTools: mergeAllowedTools(agentAutoAllowedTools, runtime.toolSearchEnabled ? ["ToolSearch"] : [], syncedSkills.allowedTools),
+                allowedTools: mergeAllowedTools([...sceneRegisteredTools(scene), "Read"], runtime.toolSearchEnabled ? ["ToolSearch"] : [], syncedSkills.allowedTools),
                 disallowedTools: ["Bash", "PowerShell", "WebFetch", "WebSearch", "Task", "CronCreate", "CronEdit", "CronDelete", "CronList"],
                 permissionMode: "auto",
                 canUseTool: (toolName, input, options) => requestPolicyDecision(session, run, toolName, input, options),
                 includePartialMessages: true,
                 env: runtime.env,
                 hooks: workspaceReadHooks(workspace),
-                systemPrompt: { type: "preset", preset: "claude_code", append: systemPrompt(session) },
+                systemPrompt: { type: "preset", preset: "claude_code", append: scene.systemPrompt(session.project_id) },
             },
         });
         const active = running.get(session.id);
@@ -499,9 +526,9 @@ async function requestClientAction(session: SessionRow, run: RunRow, name: strin
     return result.data || { completed: true };
 }
 
-async function requireBusinessDecision(session: SessionRow, run: RunRow, toolName: string, input: unknown, kind: "question" | "proposal" = "question") {
+async function requireBusinessDecision(session: SessionRow, run: RunRow, toolName: string, input: unknown, kind: "approval" | "question" | "proposal" = "approval") {
     const id = nanoid();
-    const pending: AgentPendingDecision = { id, kind, source: kind === "question" ? "ask_user" : "proposal", runId: run.id, content: kind === "question" ? String((input as { question?: string }).question || "Agent 正在等待回答") : "请检查 Agent 拆解出的角色、场景和道具，确认后将创建为独立业务卡片", toolName, toolInput: input };
+    const pending: AgentPendingDecision = { id, kind, source: kind === "question" ? "ask_user" : kind === "proposal" ? "proposal" : "business", runId: run.id, content: kind === "question" ? String((input as { question?: string }).question || "Agent 正在等待回答") : kind === "proposal" ? "请检查 Agent 拆解出的角色、场景和道具，确认后将创建为独立业务卡片" : `Agent 请求执行：${toolName}`, toolName, toolInput: input };
     db.prepare("UPDATE agent_sessions SET status='waiting_for_user', pending_decision=?, updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(pending), new Date().toISOString(), session.id, run.user_id);
     db.prepare("UPDATE agent_runs SET status='waiting_for_user' WHERE id=?").run(run.id);
     appendEvent(session.id, run.id, kind === "question" ? "question_request" : "approval_request", pending as unknown as Record<string, unknown>);
@@ -542,7 +569,7 @@ async function requestPolicyDecision(session: SessionRow, run: RunRow, toolName:
     };
 }
 
-async function consumeSdkMessage(sessionId: string, runId: string, message: SDKMessage, streamed: { text: string; thinking: string; turn: number }) {
+async function consumeSdkMessage(sessionId: string, runId: string, message: SDKMessage, streamed: { turn: number }) {
     const sdkSessionId = String((message as { session_id?: string }).session_id || "").trim();
     if (sdkSessionId) db.prepare("UPDATE agent_sessions SET sdk_session_id=?, fork_pending=0, fork_resume_at=NULL WHERE id=?").run(sdkSessionId, sessionId);
     if (message.type === "system" && message.subtype === "permission_denied") {
@@ -550,16 +577,9 @@ async function consumeSdkMessage(sessionId: string, runId: string, message: SDKM
         return;
     }
     if (message.type === "stream_event") {
-        const event = (message as { event?: { type?: string; delta?: { type?: string; text?: string; thinking?: string } } }).event;
-        const delta = event?.delta;
-        if (event?.type === "content_block_delta" && delta?.type === "text_delta" && delta.text) {
-            streamed.text += delta.text;
-            appendEvent(sessionId, runId, "assistant_text", { text: delta.text, delta: true, streamId: `${runId}:${streamed.turn}:text` });
-        }
-        if (event?.type === "content_block_delta" && delta?.type === "thinking_delta" && delta.thinking) {
-            streamed.thinking += delta.thinking;
-            appendEvent(sessionId, runId, "thinking", { text: delta.thinking, delta: true, streamId: `${runId}:${streamed.turn}:thinking` });
-        }
+        // Partial SDK tokens are transport details. Persisting each one makes a single
+        // long turn produce tens of thousands of authoritative events; the following
+        // assistant message already contains the complete text/thinking blocks.
         return;
     }
     if (message.type === "assistant") {
@@ -573,8 +593,6 @@ async function consumeSdkMessage(sessionId: string, runId: string, message: SDKM
                 if (block.name === "ToolSearch") db.prepare("UPDATE agent_runs SET tool_search_call_count=tool_search_call_count+1 WHERE id=?").run(runId);
             }
         }
-        streamed.text = "";
-        streamed.thinking = "";
         streamed.turn += 1;
         return;
     }
@@ -632,7 +650,7 @@ export function resolveAgentToolSearchMode(endpoint: AiModelDefinition["endpoint
 }
 
 function mergeAllowedTools(...lists: string[][]) {
-    const safe = new Set([...agentAutoAllowedTools, "ToolSearch"]);
+    const safe = new Set([...lists[0], "ToolSearch"]);
     return Array.from(new Set(lists.flat())).filter((name) => safe.has(name));
 }
 
@@ -651,12 +669,6 @@ function buildPrompt(session: SessionRow, context: { input?: string; attachments
     if (savedOnlyAttachments.length) sections.push(`以下附件仅保存和展示，不进入本次模型上下文：${savedOnlyAttachments.map((file) => file.name).join("、")}`);
     sections.push(`当前项目 projectId：${session.project_id}。操作前先读取最新 revision。`);
     return sections.join("\n\n");
-}
-
-function systemPrompt(session: SessionRow) {
-    const project = db.prepare("SELECT kind FROM projects WHERE id=? AND user_id=?").get(session.project_id, session.user_id) as { kind: string } | undefined;
-    if (project?.kind === "director") return `你是 Infinite Canvas 导演项目内置 Agent。你只能使用 infinite_canvas MCP 工具操作当前导演项目。长篇改编必须按小说分块检索与分层摘要工作，禁止把百万字正文一次装入上下文；故事和剧本可编辑，但上游 revision 改变只标记受影响内容需要检查，不能静默批量重新生成；角色、场景、道具与视觉风格沿用创作资产工具，生成媒体会直接替换当前主结果，保留旧方案必须先复制实体；故事写回后即作为当前版本，不要再要求用户确认，剧本、风格资产和故事板确认后才可进入对应下游昂贵生成；镜头必须绑定资产稳定 ID 与 revision；连续镜头要显式区分 cut 和 continue。已锁定内容修改与批量删除必须等待审批。禁止画布节点工具、Shell、宿主文件系统、管理员接口、渠道凭据和任意外部 URL。当前会话绑定导演项目 ${session.project_id}。`;
-    return `你是 Infinite Canvas 画布项目内置 Agent。你只能使用 infinite_canvas MCP 工具操作当前项目的数据。优先理解用户目标并直接完成任务；修改画布、创作资产或视觉风格前先读取最新 revision；创作故事、小说或剧本正文时使用 canvas_create_text_nodes，并把标题和全部章节作为一个 Markdown 文档放进唯一一个 item，禁止按章节拆成多个文本节点；小说拆解只调用 creative_assets_create_batch 提交角色、场景、道具候选清单供用户确认，不设计风格、不生成媒体；用户要求进一步设计时按资产类型调用 design-character、design-scene 和 design-prop，并把资产特有的可编辑生图补充提示词写入 mediaDrafts.image.prompt，场景必须补环境声，道具必须补动作音效；用户要求处理多种或全部资产时必须覆盖其要求范围内的每一种类型，不得完成角色后自行停止；资产生成前读取已连接的设定、参考与视觉风格，未显式连接时沿用项目默认风格；工具成功返回即代表创建完成，后续回复不得再声称仍在等待确认；生成媒体会直接替换业务节点当前主媒体，用户要保留旧版本时应先复制业务节点，不要编造工具结果。删除和受保护设定修改由 SDK自动审核，升级人工时等待确认。禁止尝试 Shell、宿主文件系统、管理员接口、渠道凭据和任意外部 URL。当前会话绑定项目 ${session.project_id}。`;
 }
 
 function projectWorkspace(userId: string, projectId: string) {
@@ -776,6 +788,7 @@ function validateMessageInput(input: AgentMessageInput) {
 }
 
 function prepareMessage(userId: string, projectId: string, document: AgentComposerDocument, attachmentFileIds: string[]) {
+    const scene = resolveAgentScene(userId, projectId);
     const attachments = attachmentFileIds.map((id) => {
         const file = getStoredFile(userId, id);
         if (!file) throw agentError(404, "AGENT_ATTACHMENT_NOT_FOUND", "附件不存在或无权访问");
@@ -791,8 +804,9 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
     for (const segment of document.segments) {
         if (segment.type === "text") { displayParts.push(segment.text); displaySegments.push(segment); continue; }
         if (segment.type === "skill") {
-            const skill = getEnabledSkill(segment.skillId); skills.push(skill); displayParts.push(`/${skill.name}`); displaySegments.push({ ...segment, label: skill.name }); continue;
+            const skill = getEnabledSkill(segment.skillId, scene); skills.push(skill); displayParts.push(`/${skill.name}`); displaySegments.push({ ...segment, label: skill.name }); continue;
         }
+        if (!sceneHasReference(scene, segment.type)) throw agentError(400, "AGENT_REFERENCE_NOT_AVAILABLE_IN_SCENE", "当前 Agent 场景不支持这种引用");
         if (segment.projectId !== projectId) throw agentError(400, "AGENT_REFERENCE_INVALID", "引用必须属于当前项目");
         if (segment.type === "canvas") {
             const node = getCanvasState(userId, projectId).nodes.find((item) => item.id === segment.nodeId);
@@ -950,7 +964,8 @@ function latestSession(userId: string, projectId: string) {
     return db.prepare("SELECT * FROM agent_sessions WHERE user_id=? AND project_id=? ORDER BY updated_at DESC LIMIT 1").get(userId, projectId) as SessionRow | undefined;
 }
 
-function getEnabledSkill(id: string) {
+function getEnabledSkill(id: string, scene: AgentSceneDefinition) {
+    if (!sceneHasSkill(scene, id)) throw agentError(400, "AGENT_SKILL_NOT_AVAILABLE_IN_SCENE", "当前 Agent 场景不提供这个 Skill");
     const skill = getBuiltInAgentSkill(id);
     if (!skill) throw agentError(404, "AGENT_SKILL_NOT_FOUND", "内置 Skill 不存在");
     return skill;
