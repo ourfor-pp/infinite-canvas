@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -31,10 +32,16 @@ RUNTIME_URLS = {
 }
 ACE_DRAIN_USER_UNITS = [value for value in os.getenv("MEDIA_EXECUTOR_ACE_DRAIN_USER_UNITS", "").split(",") if value]
 ACE_DRAIN_SYSTEM_UNITS = [value for value in os.getenv("MEDIA_EXECUTOR_ACE_DRAIN_SYSTEM_UNITS", "").split(",") if value]
+H3_DRAIN_USER_UNITS = [value for value in os.getenv("MEDIA_EXECUTOR_H3_DRAIN_USER_UNITS", os.getenv("MEDIA_EXECUTOR_ACE_DRAIN_USER_UNITS", "")).split(",") if value]
+H3_DRAIN_SYSTEM_UNITS = [value for value in os.getenv("MEDIA_EXECUTOR_H3_DRAIN_SYSTEM_UNITS", "").split(",") if value]
 ACE_USER_UNITS = ["infinite-ace-step.service", "infinite-ace-step-engine.service"]
 SYSTEMCTL = shutil.which("systemctl") or "systemctl"
 SUDO = shutil.which("sudo") or "sudo"
 GPU_NATIVE_ACTIVE = threading.Event()
+H3_ACTIVE = threading.Event()
+GPU_STATE_LOCK = threading.Lock()
+H3_DRAINED: tuple[list[str], list[str]] | None = None
+H3_LAST_SUBMIT_AT = 0.0
 COMFY_URL = os.getenv("COMFYUI_URL", "http://127.0.0.1:8189").rstrip("/")
 MODELS = {
     "qwen3-tts-1.7b-customvoice-local": {"engine": "qwen", "modes": ["speech"], "operations": ["generate"], "inputs": ["text"]},
@@ -165,6 +172,58 @@ def restore_after_ace(active_user: list[str], active_system: list[str]) -> None:
     service_command("user", "start", list(reversed(ACE_USER_UNITS)), check=False)
 
 
+def is_h3_prompt(body: bytes) -> bool:
+    try:
+        prompt = json.loads(body).get("prompt", {})
+    except (AttributeError, json.JSONDecodeError):
+        return False
+    return any(
+        str(node.get("inputs", {}).get("unet_name", "")).startswith("minimax_h3_")
+        for node in prompt.values()
+        if isinstance(node, dict) and node.get("class_type") == "UNETLoader"
+    )
+
+
+def begin_h3() -> bool:
+    global H3_DRAINED, H3_LAST_SUBMIT_AT
+    with GPU_STATE_LOCK:
+        if GPU_NATIVE_ACTIVE.is_set():
+            raise RuntimeError("GPU is running a native media task")
+        H3_LAST_SUBMIT_AT = time.monotonic()
+        if H3_ACTIVE.is_set():
+            return False
+        H3_ACTIVE.set()
+        try:
+            active_user = active_units("user", H3_DRAIN_USER_UNITS)
+            active_system = active_units("system", H3_DRAIN_SYSTEM_UNITS)
+            service_command("user", "stop", active_user)
+            service_command("system", "stop", active_system)
+            H3_DRAINED = (active_user, active_system)
+            return True
+        except Exception:
+            H3_ACTIVE.clear()
+            service_command("system", "start", locals().get("active_system", []), check=False)
+            service_command("user", "start", locals().get("active_user", []), check=False)
+            raise
+
+
+def restore_after_h3_when_idle() -> None:
+    global H3_DRAINED
+    try:
+        wait_for_comfy_idle()
+        while time.monotonic() - H3_LAST_SUBMIT_AT < 2:
+            time.sleep(.25)
+        wait_for_comfy_idle()
+    finally:
+        with GPU_STATE_LOCK:
+            drained = H3_DRAINED
+            H3_DRAINED = None
+            H3_ACTIVE.clear()
+            if drained:
+                service_command("system", "start", drained[1], check=False)
+                service_command("user", "start", drained[0], check=False)
+
+
 def run_job(job_id: str, request: dict[str, Any]) -> None:
     engine = runtime_for(request["model"])
     payload = {**request, "outputDir": str((RESULTS / job_id).resolve())}
@@ -175,7 +234,12 @@ def run_job(job_id: str, request: dict[str, Any]) -> None:
         ref["path"] = str(path)
     output_dir = RESULTS / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    GPU_NATIVE_ACTIVE.set()
+    while True:
+        with GPU_STATE_LOCK:
+            if not H3_ACTIVE.is_set():
+                GPU_NATIVE_ACTIVE.set()
+                break
+        time.sleep(.25)
     drained: tuple[list[str], list[str]] | None = None
     try:
         wait_for_comfy_idle()
@@ -260,15 +324,26 @@ def upload_file(upload: Annotated[UploadFile, File()], _: None = Depends(authori
 async def comfy_proxy(path: str, request: Request, _: None = Depends(authorize)):
     if path not in {"prompt", "upload/image", "queue", "interrupt", "system_stats", "object_info", "view"} and not path.startswith("history/"):
         raise HTTPException(404, "unsupported ComfyUI endpoint")
+    body = await request.body()
+    h3_prompt = path == "prompt" and is_h3_prompt(body)
+    h3_owner = False
     if path == "prompt" and GPU_NATIVE_ACTIVE.is_set():
         raise HTTPException(409, "GPU is running a native media task")
-    body = await request.body()
+    if h3_prompt:
+        try:
+            h3_owner = await asyncio.to_thread(begin_h3)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
     headers = {"content-type": value for key, value in request.headers.items() if key.lower() == "content-type"}
     try:
         async with httpx.AsyncClient(timeout=None, trust_env=False) as client:
             upstream = await client.request(request.method, f"{COMFY_URL}/{path}", params=request.query_params, content=body, headers=headers)
     except httpx.HTTPError as exc:
+        if h3_owner:
+            threading.Thread(target=restore_after_h3_when_idle, daemon=True, name="h3-gpu-restore").start()
         raise HTTPException(502, f"ComfyUI is unavailable: {exc}") from exc
+    if h3_owner:
+        threading.Thread(target=restore_after_h3_when_idle, daemon=True, name="h3-gpu-restore").start()
     return Response(content=upstream.content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))
 
 

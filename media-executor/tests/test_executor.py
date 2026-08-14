@@ -71,3 +71,28 @@ def test_ace_runtime_drains_and_restores_gpu_services(monkeypatch, tmp_path):
     assert ("system", "stop", ["comfy.service"]) in commands
     assert ("user", "stop", module.ACE_USER_UNITS) in commands
     assert ("system", "start", ["comfy.service"]) in commands
+
+
+def test_h3_prompt_detection_and_gpu_drain(monkeypatch, tmp_path):
+    monkeypatch.setenv("MEDIA_EXECUTOR_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MEDIA_EXECUTOR_TOKEN", "secret")
+    monkeypatch.setenv("MEDIA_EXECUTOR_DISABLE_WORKER", "1")
+    monkeypatch.setenv("MEDIA_EXECUTOR_H3_DRAIN_USER_UNITS", "qwen.service,moss.service")
+    monkeypatch.setenv("MEDIA_EXECUTOR_H3_DRAIN_SYSTEM_UNITS", "comfy.service")
+    import media_executor.app as module
+    module = importlib.reload(module)
+    commands = []
+
+    def command(scope, action, units, *, check=True):
+        commands.append((scope, action, units))
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr(module, "service_command", command)
+    body = json.dumps({"prompt": {"1": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors"}}}}).encode()
+    assert module.is_h3_prompt(body)
+    assert not module.is_h3_prompt(json.dumps({"prompt": {"1": {"class_type": "UNETLoader", "inputs": {"unet_name": "qwen_image.safetensors"}}}}).encode())
+    assert module.begin_h3()
+    assert module.H3_ACTIVE.is_set()
+    assert not module.begin_h3()
+    assert commands.count(("user", "stop", ["qwen.service", "moss.service"])) == 1
+    assert commands.count(("system", "stop", ["comfy.service"])) == 1

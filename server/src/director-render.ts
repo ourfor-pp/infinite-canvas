@@ -9,17 +9,18 @@ import { getStoredFile, storeLocalFile, syncFileRefs } from "./file-store.js";
 import type { GenerationRow } from "./generation-service.js";
 import { createGeneration } from "./generation-service.js";
 import { getAiGlobalSettings, listModelDefaults, resolveSelectableModel, type AiModelDefinition } from "./provider-service.js";
+import { recommendedStoryboardFrameCount, storyboardLayout, type DirectorStoryboardLayout } from "./director.js";
 
 type RenderRow = { id: string; user_id: string; project_id: string; status: "queued" | "running" | "succeeded" | "failed" | "canceled"; payload: string; output_file_id: string | null; error: string | null; progress: number; created_at: string; updated_at: string };
 type ShotRow = { id: string; position: number; payload: string; revision: number };
 type TimelineRow = { payload: string; revision: number };
 type WorkspaceRow = { aspect_ratio: string };
-type AudioClip = { id: string; fileId: string; start: number; duration: number; trimIn?: number; volume?: number; muted?: boolean; loop?: boolean };
-type RenderPayload = { timelineRevision: number; shotIds: string[]; duration: number; warnings: string[] };
+type AudioClip = { id: string; fileId?: string; start: number; duration: number; trimIn?: number; volume?: number; muted?: boolean; loop?: boolean };
+type RenderPayload = { timelineRevision: number; segmentIds: string[]; duration: number; warnings: string[] };
 
 const renderInput = z.object({ timelineRevision: z.number().int().positive() });
-const shotGenerationInput = z.object({ revision: z.number().int().positive(), model: z.string().trim().optional(), seconds: z.number().min(1).max(30).optional(), nativeExtend: z.boolean().default(true) });
-const storyboardGenerationInput = z.object({ revision: z.number().int().positive(), panelIds: z.array(z.string().trim().min(1).max(128)).max(9).optional(), model: z.string().trim().optional() });
+const shotGenerationInput = z.object({ revision: z.number().int().positive(), mode: z.enum(["fl2va", "ref2va"]).optional(), model: z.string().trim().optional() });
+const storyboardGenerationInput = z.object({ revision: z.number().int().positive(), model: z.string().trim().optional() });
 const running = new Map<string, AbortController>();
 let scheduled = false;
 let emitRender: (userId: string, entity: { type: string; projectId: string; data: unknown }) => void = () => undefined;
@@ -29,86 +30,87 @@ export function setDirectorRenderEmitter(emitter: typeof emitRender) { emitRende
 export function createDirectorShotGeneration(userId: string, shotId: string, input: unknown) {
     const value = shotGenerationInput.parse(input);
     const shot = db.prepare("SELECT * FROM director_shots WHERE id=? AND user_id=?").get(shotId, userId) as (ShotRow & { project_id: string; status: string; title: string }) | undefined;
-    if (!shot) throw renderError(404, "DIRECTOR_SHOT_NOT_FOUND", "镜头不存在");
-    if (shot.revision !== value.revision) throw renderError(409, "DIRECTOR_CONFLICT", "镜头已在其他页面更新");
-    if (!["confirmed", "locked"].includes(shot.status)) throw renderError(409, "DIRECTOR_STAGE_GATE", "请先确认镜头，再生成视频");
+    if (!shot) throw renderError(404, "DIRECTOR_VIDEO_SEGMENT_NOT_FOUND", "视频段不存在");
+    if (shot.revision !== value.revision) throw renderError(409, "DIRECTOR_CONFLICT", "视频段已在其他页面更新");
     const payload = parseJson<Record<string, unknown>>(shot.payload, {});
-    if (payload.needsReview) throw renderError(409, "DIRECTOR_DEPENDENCY_STALE", "镜头引用已过期，请先检查并确认");
     validateShotAssetRefs(userId, shot.project_id, payload);
-    const project = db.prepare("SELECT payload FROM projects WHERE id=? AND user_id=?").get(shot.project_id, userId) as { payload: string } | undefined;
-    const activeStyle = String(parseJson<{ defaultVisualStyleId?: string }>(project?.payload || "{}", {}).defaultVisualStyleId || "");
-    const style = activeStyle ? db.prepare("SELECT 1 FROM visual_styles WHERE id=? AND user_id=? AND project_id=? AND status='confirmed'").get(activeStyle, userId, shot.project_id) : undefined;
-    if (!style) throw renderError(409, "DIRECTOR_STAGE_GATE", "请先确认视觉风格，再生成镜头视频");
+    const sheet = asSheet(payload.storyboardSheet);
+    if (!sheet?.imageFileId) throw renderError(409, "DIRECTOR_STORYBOARD_REQUIRED", "请先生成当前视频段的整张故事板");
     const workspace = db.prepare("SELECT aspect_ratio FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, shot.project_id) as WorkspaceRow;
-    const modelRef = value.model || listModelDefaults().video;
-    if (!modelRef) throw renderError(409, "AI_MODEL_NOT_CONFIGURED", "管理员尚未配置默认视频模型");
+    const route = resolveH3Route(payload, sheet, value.mode);
+    const modelRef = value.model || `comfyui::minimax-h3-${route.mode}-local`;
     const model = resolveSelectableModel(modelRef, "video").model as AiModelDefinition;
+    if (!model.videoModes?.includes(route.mode)) throw renderError(409, "DIRECTOR_H3_MODE_UNSUPPORTED", `所选模型不支持 ${route.mode.toUpperCase()} 模式`);
     const references: Array<{ fileId: string; kind: "image" | "video"; role: "reference" | "first-frame" | "last-frame" | "continuation" }> = [];
-    const previous = payload.boundary === "continue" && payload.continuationFromShotId ? db.prepare("SELECT payload FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(String(payload.continuationFromShotId), userId, shot.project_id) as { payload: string } | undefined : undefined;
+    const continuationId = String(payload.continuationFromSegmentId || payload.continuationFromShotId || "");
+    const previous = payload.boundary === "continue" && continuationId ? db.prepare("SELECT payload FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(continuationId, userId, shot.project_id) as { payload: string } | undefined : undefined;
     const priorPayload = previous ? parseJson<Record<string, unknown>>(previous.payload, {}) : {};
-    if (payload.boundary === "continue" && value.nativeExtend && model.videoExtend && model.videoReferenceRoles?.includes("continuation") && priorPayload.videoFileId) references.push({ fileId: String(priorPayload.videoFileId), kind: "video", role: "continuation" });
-    else {
-        const firstFrame = payload.boundary === "continue" ? priorPayload.actualLastFrameFileId : payload.firstFrameFileId;
-        if (firstFrame && model.inputs.includes("image")) references.push({ fileId: String(firstFrame), kind: "image", role: model.videoReferenceRoles?.includes("first-frame") ? "first-frame" : "reference" });
-        if (payload.lastFrameFileId && model.videoReferenceRoles?.includes("last-frame")) references.push({ fileId: String(payload.lastFrameFileId), kind: "image", role: "last-frame" });
+    if (route.mode === "fl2va") {
+        const firstFrame = payload.boundary === "continue" ? priorPayload.actualLastFrameFileId : sheet.firstFrameFileId;
+        if (!firstFrame || !sheet.lastFrameFileId) throw renderError(409, "DIRECTOR_STORYBOARD_ANCHORS_PENDING", "故事板首尾锚点尚未准备完成");
+        references.push({ fileId: String(firstFrame), kind: "image", role: "first-frame" }, { fileId: String(sheet.lastFrameFileId), kind: "image", role: "last-frame" });
+    } else {
+        references.push({ fileId: String(sheet.imageFileId), kind: "image", role: "reference" });
+        const preflight = getDirectorVideoSegmentPreflight(userId, shotId);
+        preflight.selected.forEach((item) => references.push({ fileId: item.fileId, kind: "image", role: "reference" }));
+        if (payload.boundary === "continue" && priorPayload.videoFileId) references.push({ fileId: String(priorPayload.videoFileId), kind: "video", role: "continuation" });
     }
-    const prompt = [payload.description, payload.action, payload.dialogue && `对白：${payload.dialogue}`, payload.shotSize, payload.cameraAngle, payload.cameraMove].filter(Boolean).join("\n") || shot.title;
-    return createGeneration(userId, { kind: "video", model: modelRef, prompt, references, params: { seconds: value.seconds || Number(payload.durationSeconds || 4), ratio: workspace.aspect_ratio, __directorShot: { projectId: shot.project_id, shotId, revision: shot.revision, dependencies: payload.dependencies } } });
-}
-
-export function createDirectorStoryboardPanelGeneration(userId: string, sequenceId: string, panelId: string, input: unknown) {
-    const value = storyboardGenerationInput.parse(input);
-    return queueStoryboardPanel(userId, sequenceId, panelId, value.model, value.revision);
-}
-
-export function createDirectorStoryboardGeneration(userId: string, sequenceId: string, input: unknown) {
-    const value = storyboardGenerationInput.parse(input);
-    const sequence = storyboardSequence(userId, sequenceId);
-    if (sequence.revision !== value.revision) throw renderError(409, "DIRECTOR_CONFLICT", "故事板已在其他页面更新");
-    const panels = storyboardPanels(sequence.payload);
-    const targets = (value.panelIds?.length ? panels.filter((panel) => value.panelIds!.includes(String(panel.id))) : panels.filter((panel) => !panel.imageFileId)).map((panel) => String(panel.id));
-    if (!targets.length) throw renderError(409, "DIRECTOR_STORYBOARD_COMPLETE", "故事板没有缺失画面");
-    return targets.map((panelId, index) => queueStoryboardPanel(userId, sequenceId, panelId, value.model, index ? undefined : value.revision));
-}
-
-function queueStoryboardPanel(userId: string, sequenceId: string, panelId: string, requestedModel?: string, expectedRevision?: number) {
-    const sequence = storyboardSequence(userId, sequenceId);
-    if (expectedRevision && sequence.revision !== expectedRevision) throw renderError(409, "DIRECTOR_CONFLICT", "故事板已在其他页面更新");
-    const script = db.prepare("SELECT revision,status FROM director_documents WHERE user_id=? AND project_id=? AND kind='script'").get(userId, sequence.project_id) as { revision: number; status: string } | undefined;
-    if (!script || !["confirmed", "locked"].includes(script.status)) throw renderError(409, "DIRECTOR_STAGE_GATE", "请先确认剧本");
-    const project = db.prepare("SELECT payload FROM projects WHERE id=? AND user_id=? AND kind='director'").get(sequence.project_id, userId) as { payload: string } | undefined;
-    const styleId = String(parseJson<{ defaultVisualStyleId?: string }>(project?.payload || "{}", {}).defaultVisualStyleId || "");
-    const style = styleId ? db.prepare("SELECT * FROM visual_styles WHERE id=? AND user_id=? AND project_id=?").get(styleId, userId, sequence.project_id) as { id: string; name: string; description: string; dna: string; reference_files: string; status: string; revision: number } | undefined : undefined;
-    if (!style || style.status !== "confirmed") throw renderError(409, "DIRECTOR_STAGE_GATE", "请先应用并确认当前视觉风格");
-    const panels = storyboardPanels(sequence.payload);
-    const index = panels.findIndex((panel) => String(panel.id) === panelId);
-    if (index < 0) throw renderError(404, "DIRECTOR_STORYBOARD_PANEL_NOT_FOUND", "故事板分格不存在");
-    const panel = panels[index];
-    validateStoryboardRefs(userId, sequence.project_id, panel);
-    const modelRef = requestedModel || listModelDefaults().image;
-    if (!modelRef) throw renderError(409, "AI_MODEL_NOT_CONFIGURED", "管理员尚未配置默认图片模型");
-    const model = resolveSelectableModel(modelRef, "image").model as AiModelDefinition;
-    const references = storyboardReferences(userId, sequence.project_id, panels[index - 1], panel, style, model.maxReferenceImages || Infinity);
-    const prompt = [
-        "为长视频制作一张独立故事板分格画面。只输出单幅电影画面，不要多宫格、文字、字幕、标注、边框、Logo 或 UI。",
-        `叙事目的：${String(panel.purpose || panel.title || sequence.title)}`,
-        `画面动作：${String(panel.action || panel.description || sequence.summary)}`,
-        panel.dialogue ? `对白语义（不要在画面中写字）：${String(panel.dialogue)}` : "",
-        panel.narration ? `旁白语义（不要在画面中写字）：${String(panel.narration)}` : "",
-        `镜头语言：${String(panel.shotSize || "中景")}；${String(panel.cameraAngle || "平视")}；${String(panel.cameraMove || "固定机位")}`,
-        `视觉风格：${style.description}`,
-        model.imagePromptProfile === "gpt-image-2" ? "保持主体身份和空间关系明确，优先服从参考图中的角色、场景与道具身份；画面应具有可继续剪辑的动作瞬间和清楚的屏幕方向。" : "",
-        "禁止：身份漂移、角色重复、肢体错误、空间矛盾、意外文字、画中画、拼贴。",
-    ].filter(Boolean).join("\n\n");
-    const generation = createGeneration(userId, { kind: "image", model: modelRef, prompt, references, params: { count: 1, size: model.imagePromptProfile === "gpt-image-2" ? "1536x1024" : "16:9", quality: "high", imagePromptProfile: model.imagePromptProfile || "generic", __directorStoryboard: { projectId: sequence.project_id, sequenceId, sequenceRevision: sequence.revision, panelId, style: { id: style.id, revision: style.revision }, scriptRevision: script.revision } } });
-    panel.generationId = generation.id;
-    panel.promptSnapshot = prompt;
-    panel.review = { status: "pending", summary: "等待画面生成", issues: [] };
-    const payload = { ...parseJson<Record<string, unknown>>(sequence.payload, {}), storyboard: panels, dependencies: { documents: { script: script.revision }, style: { id: style.id, revision: style.revision } } };
-    db.prepare("UPDATE director_sequences SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(payload), new Date().toISOString(), sequenceId, userId);
-    emitRender(userId, { type: "sequence", projectId: sequence.project_id, data: { id: sequenceId, revision: sequence.revision + 1, payload } });
+    const prompt = compileH3Prompt(route.mode, shot.title, payload, sheet);
+    const generation = createGeneration(userId, { kind: "video", model: modelRef, prompt, references, params: { seconds: Number(payload.durationSeconds || 4), ratio: workspace.aspect_ratio, resolution: "768p", __directorSegment: { projectId: shot.project_id, segmentId: shotId, revision: shot.revision, storyboardRevision: sheet.revision, mode: route.mode, reason: route.reason, dependencies: payload.dependencies } } });
+    const nextPayload = { ...payload, h3Mode: route.mode, h3ModeOverride: value.mode || payload.h3ModeOverride || null, h3ModeReason: route.reason, h3PromptSnapshot: { mode: route.mode, prompt, references, storyboardRevision: sheet.revision }, videoGenerationId: generation.id, videoStale: false };
+    db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(nextPayload), new Date().toISOString(), shotId, userId);
+    emitRender(userId, { type: "video-segment", projectId: shot.project_id, data: { id: shotId, revision: shot.revision + 1, payload: nextPayload } });
     return generation;
 }
+
+export function getDirectorVideoSegmentPreflight(userId: string, segmentId: string) {
+    const segment = segmentRow(userId, segmentId);
+    const payload = parseJson<Record<string, unknown>>(segment.payload, {});
+    const style = activeStyle(userId, segment.project_id);
+    const candidates = segmentReferenceCandidates(userId, segment.project_id, payload, style);
+    const selected = candidates.slice(0, 6);
+    const hasCharacter = selected.some((item) => item.purpose === "主角色" || item.purpose === "出镜角色");
+    const hasScene = selected.some((item) => item.purpose === "场景");
+    return { selected, omitted: candidates.slice(6), blockedReasons: [!hasCharacter ? "缺少出镜主角色图片" : "", !hasScene ? "缺少场景图片" : ""].filter(Boolean), route: resolveH3Route(payload, asSheet(payload.storyboardSheet), undefined) };
+}
+
+export function createDirectorStoryboardGeneration(userId: string, segmentId: string, input: unknown) {
+    const value = storyboardGenerationInput.parse(input);
+    const segment = segmentRow(userId, segmentId);
+    if (segment.revision !== value.revision) throw renderError(409, "DIRECTOR_CONFLICT", "视频段已在其他页面更新");
+    const payload = parseJson<Record<string, unknown>>(segment.payload, {});
+    const script = db.prepare("SELECT revision,status FROM director_documents WHERE user_id=? AND project_id=? AND kind='script'").get(userId, segment.project_id) as { revision: number; status: string } | undefined;
+    if (!script || !["confirmed", "locked"].includes(script.status)) throw renderError(409, "DIRECTOR_STAGE_GATE", "请先确认剧本");
+    const style = activeStyle(userId, segment.project_id);
+    if (!style || style.status !== "confirmed") throw renderError(409, "DIRECTOR_STAGE_GATE", "请先应用并确认当前视觉风格");
+    validateShotAssetRefs(userId, segment.project_id, payload);
+    const preflight = getDirectorVideoSegmentPreflight(userId, segmentId);
+    if (preflight.blockedReasons.length) throw renderError(409, "DIRECTOR_STORYBOARD_ASSETS_REQUIRED", preflight.blockedReasons.join("；"), preflight);
+    const modelRef = value.model || listModelDefaults().image;
+    if (!modelRef) throw renderError(409, "AI_MODEL_NOT_CONFIGURED", "管理员尚未配置默认图片模型");
+    const model = resolveSelectableModel(modelRef, "image").model as AiModelDefinition;
+    if (model.imagePromptProfile !== "gpt-image-2") throw renderError(409, "DIRECTOR_STORYBOARD_MODEL_PROFILE", "当前故事板模型必须配置为 GPT-Image-2 提示档案");
+    if ((model.maxReferenceImages || 0) < 6) throw renderError(409, "DIRECTOR_STORYBOARD_MODEL_REFERENCES", "当前 GPT-Image-2 模型需配置最多 6 张参考图");
+    const sheet = asSheet(payload.storyboardSheet) || defaultSheet(segment.id, Number(payload.durationSeconds || 4), payload);
+    const frameLines = sheet.frames.map((frame, index) => `Panel ${index + 1} | ${frame.timeSeconds}s | Shot ${frame.shotNumber} | ${frame.kind}: ${frame.description}; action: ${frame.action}; camera: ${frame.cameraAngle}, ${frame.cameraMove}; sound intent: ${frame.sound}`).join("\n");
+    const prompt = [
+        `Create ONE cinematic storyboard sheet for a ${Number(payload.durationSeconds || 4)}-second video segment.`,
+        `Use an exact ${storyboardLayoutLabel(sheet.layout)} grid with ${sheet.frames.length} equal panels, thin neutral gutters, and no unused cells. Each panel is a distinct chronological visual beat, not a duplicate angle.`,
+        `Segment intent: ${String(payload.description || segment.title)}. Action: ${String(payload.action || "")}. Dialogue meaning only (do not render text): ${String(payload.dialogue || payload.narration || "none")}.`,
+        frameLines,
+        `Visual style: ${style.description}. Maintain the exact same character identity, costume, props, spatial layout, lighting and color treatment across all panels. Reference images are authoritative. Show clear chronological progress and screen direction.`,
+        "Output only the storyboard image. No title, captions, panel numbers, labels, speech bubbles, subtitles, logos, UI, decorative border, split-screen inside panels, duplicated characters, or identity drift.",
+    ].filter(Boolean).join("\n\n");
+    const references = preflight.selected.map((item) => ({ fileId: item.fileId, kind: "image" as const, role: "reference" as const }));
+    const generation = createGeneration(userId, { kind: "image", model: modelRef, prompt, references, params: { count: 1, size: storyboardImageSize(sheet.layout), quality: "high", imagePromptProfile: "gpt-image-2", __directorStoryboardSheet: { projectId: segment.project_id, segmentId, segmentRevision: segment.revision, storyboardRevision: sheet.revision, style: { id: style.id, revision: style.revision }, scriptRevision: script.revision } } });
+    const nextSheet = { ...sheet, generationId: generation.id, imageFileId: undefined, firstFrameFileId: undefined, lastFrameFileId: undefined, promptSnapshot: prompt, referenceSnapshot: preflight, review: { status: "pending", summary: "整张故事板生成中", issues: [] } };
+    const nextPayload = { ...payload, storyboardSheet: nextSheet, videoStale: Boolean(payload.videoFileId), dependencies: { documents: { script: script.revision }, style: { id: style.id, revision: style.revision } } };
+    db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(nextPayload), new Date().toISOString(), segmentId, userId);
+    emitRender(userId, { type: "video-segment", projectId: segment.project_id, data: { id: segmentId, revision: segment.revision + 1, payload: nextPayload } });
+    return generation;
+}
+
+export const createDirectorVideoSegmentGeneration = createDirectorShotGeneration;
 
 export function listDirectorRenders(userId: string, projectId: string) {
     assertDirector(userId, projectId);
@@ -120,17 +122,17 @@ export function createDirectorRender(userId: string, projectId: string, input: u
     const value = renderInput.parse(input);
     const timeline = db.prepare("SELECT payload,revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
     if (timeline.revision !== value.timelineRevision) throw renderError(409, "DIRECTOR_CONFLICT", "时间线已在其他页面更新");
-    const timelinePayload = parseJson<{ shotOrder?: string[]; tracks?: Array<{ clips?: AudioClip[] }> }>(timeline.payload, {});
+    const timelinePayload = parseJson<{ segmentOrder?: string[]; tracks?: Array<{ clips?: AudioClip[] }> }>(timeline.payload, {});
     const rows = db.prepare("SELECT id,position,payload,revision FROM director_shots WHERE user_id=? AND project_id=? ORDER BY position").all(userId, projectId) as ShotRow[];
     const byId = new Map(rows.map((row) => [row.id, row]));
-    const shotIds = timelinePayload.shotOrder?.length ? timelinePayload.shotOrder : rows.map((row) => row.id);
-    const shots = shotIds.map((id) => byId.get(id)).filter(Boolean) as ShotRow[];
-    if (!shots.length) throw renderError(409, "DIRECTOR_RENDER_EMPTY", "时间线还没有镜头");
+    const segmentIds = timelinePayload.segmentOrder?.length ? timelinePayload.segmentOrder : rows.map((row) => row.id);
+    const shots = segmentIds.map((id) => byId.get(id)).filter(Boolean) as ShotRow[];
+    if (!shots.length) throw renderError(409, "DIRECTOR_RENDER_EMPTY", "时间线还没有视频段");
     const missing = shots.filter((shot) => !parseJson<Record<string, unknown>>(shot.payload, {}).videoFileId);
-    if (missing.length) throw renderError(409, "DIRECTOR_RENDER_VIDEO_MISSING", `仍有 ${missing.length} 个镜头缺少视频`, { shotIds: missing.map((shot) => shot.id) });
-    const clips = (timelinePayload.tracks || []).flatMap((track) => track.clips || []).filter((clip) => !clip.muted);
+    if (missing.length) throw renderError(409, "DIRECTOR_RENDER_VIDEO_MISSING", `仍有 ${missing.length} 个视频段缺少视频`, { segmentIds: missing.map((shot) => shot.id) });
+    const clips = (timelinePayload.tracks || []).flatMap((track) => track.clips || []).filter((clip) => !clip.muted && clip.fileId);
     const duration = shots.reduce((sum, shot) => sum + Number(parseJson<Record<string, unknown>>(shot.payload, {}).durationSeconds || 4), 0);
-    const payload: RenderPayload = { timelineRevision: timeline.revision, shotIds, duration, warnings: clips.length ? [] : ["时间线没有声音，将导出静音 AAC 轨"] };
+    const payload: RenderPayload = { timelineRevision: timeline.revision, segmentIds, duration, warnings: clips.length ? [] : ["时间线没有声音，将导出静音 AAC 轨"] };
     const id = nanoid(); const now = new Date().toISOString();
     db.prepare("INSERT INTO director_renders(id,user_id,project_id,status,payload,created_at,updated_at) VALUES(?,?,?,'queued',?,?,?)").run(id, userId, projectId, JSON.stringify(payload), now, now);
     schedule();
@@ -162,82 +164,83 @@ export function resumeDirectorRenders() {
 
 export async function syncDirectorGeneration(row: GenerationRow) {
     if (row.status !== "succeeded") return;
-    if (row.kind === "image") { syncStoryboardImage(row); return; }
+    if (row.kind === "image") { await syncStoryboardImage(row); return; }
     if (row.kind === "text") { syncStoryboardReview(row); return; }
     if (row.kind !== "video") return;
-    const request = parseJson<{ params?: { __directorShot?: { projectId?: string; shotId?: string; revision?: number } } }>(row.request, {});
-    const context = request.params?.__directorShot;
-    if (!context?.projectId || !context.shotId) return;
+    const request = parseJson<{ params?: { __directorSegment?: { projectId?: string; segmentId?: string; revision?: number; storyboardRevision?: number; mode?: string } } }>(row.request, {});
+    const context = request.params?.__directorSegment;
+    if (!context?.projectId || !context.segmentId) return;
     const result = parseJson<{ files?: Array<{ id?: string; fileId?: string }> }>(row.result, {});
     const videoFileId = result.files?.[0]?.id || result.files?.[0]?.fileId;
     const video = videoFileId ? getStoredFile(row.user_id, videoFileId) : null;
     if (!video) return;
     const directory = await mkdtemp(join(tmpdir(), "director-frames-"));
     try {
-        const first = join(directory, "first.png"); const last = join(directory, "last.png");
+        const first = join(directory, "first.png"); const last = join(directory, "last.png"); const audio = join(directory, "model-original.m4a");
         await ffmpeg(["-y", "-i", video.path, "-frames:v", "1", first], undefined);
         await ffmpeg(["-y", "-sseof", "-0.12", "-i", video.path, "-frames:v", "1", last], undefined);
-        const firstFile = storeLocalFile(row.user_id, first, `${context.shotId}-first.png`, "image/png");
-        const lastFile = storeLocalFile(row.user_id, last, `${context.shotId}-last.png`, "image/png");
-        const shot = db.prepare("SELECT payload,revision FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(context.shotId, row.user_id, context.projectId) as { payload: string; revision: number } | undefined;
+        const firstFile = storeLocalFile(row.user_id, first, `${context.segmentId}-first.png`, "image/png");
+        const lastFile = storeLocalFile(row.user_id, last, `${context.segmentId}-last.png`, "image/png");
+        let nativeAudioFileId = "";
+        try { await ffmpeg(["-y", "-i", video.path, "-vn", "-c:a", "aac", "-b:a", "192k", audio], undefined); nativeAudioFileId = storeLocalFile(row.user_id, audio, `${context.segmentId}-model-original.m4a`, "audio/mp4").id; } catch { nativeAudioFileId = ""; }
+        const shot = db.prepare("SELECT payload,revision FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(context.segmentId, row.user_id, context.projectId) as { payload: string; revision: number } | undefined;
         if (!shot) return;
-        const payload = { ...parseJson<Record<string, unknown>>(shot.payload, {}), videoFileId, videoGenerationId: row.id, actualFirstFrameFileId: firstFile.id, actualLastFrameFileId: lastFile.id, videoStale: false };
+        const currentPayload = parseJson<Record<string, unknown>>(shot.payload, {});
+        const payload = { ...currentPayload, videoFileId, videoGenerationId: row.id, actualFirstFrameFileId: firstFile.id, actualLastFrameFileId: lastFile.id, nativeAudioFileId: nativeAudioFileId || undefined, nativeAudioStatus: nativeAudioFileId ? "ready" : "missing", videoStale: Number(asSheet(currentPayload.storyboardSheet)?.revision || 0) !== Number(context.storyboardRevision || 0) };
         db.transaction(() => {
-            db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(payload), new Date().toISOString(), context.shotId, row.user_id);
-            syncFileRefs(row.user_id, "director_shot", context.shotId!, payload);
-            markContinuationStale(row.user_id, context.projectId!, context.shotId!);
+            db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(payload), new Date().toISOString(), context.segmentId, row.user_id);
+            syncFileRefs(row.user_id, "director_shot", context.segmentId!, payload);
+            if (nativeAudioFileId) upsertNativeAudioClip(row.user_id, context.projectId!, context.segmentId!, nativeAudioFileId, Number(currentPayload.durationSeconds || 4));
+            markContinuationStale(row.user_id, context.projectId!, context.segmentId!);
         })();
-        emitRender(row.user_id, { type: "shot", projectId: context.projectId, data: { id: context.shotId, revision: shot.revision + 1, payload } });
+        emitRender(row.user_id, { type: "video-segment", projectId: context.projectId, data: { id: context.segmentId, revision: shot.revision + 1, payload } });
     } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-function syncStoryboardImage(row: GenerationRow) {
-    const request = parseJson<{ params?: { __directorStoryboard?: { projectId?: string; sequenceId?: string; panelId?: string }; __directorStoryboardReview?: unknown } }>(row.request, {});
-    const context = request.params?.__directorStoryboard;
-    if (!context?.projectId || !context.sequenceId || !context.panelId || request.params?.__directorStoryboardReview) return;
+async function syncStoryboardImage(row: GenerationRow) {
+    const request = parseJson<{ params?: { __directorStoryboardSheet?: { projectId?: string; segmentId?: string; storyboardRevision?: number }; __directorStoryboardReview?: unknown } }>(row.request, {});
+    const context = request.params?.__directorStoryboardSheet;
+    if (!context?.projectId || !context.segmentId || request.params?.__directorStoryboardReview) return;
     const result = parseJson<{ files?: Array<{ id?: string; fileId?: string }> }>(row.result, {});
     const fileId = String(result.files?.[0]?.fileId || result.files?.[0]?.id || "");
     if (!fileId) return;
-    const sequence = storyboardSequence(row.user_id, context.sequenceId);
-    const panels = storyboardPanels(sequence.payload);
-    const panel = panels.find((item) => String(item.id) === context.panelId);
-    if (!panel || panel.generationId !== row.id) return;
-    panel.imageFileId = fileId;
-    panel.review = { status: "pending", summary: "正在检查叙事与连续性", issues: [] };
-    const payload = { ...parseJson<Record<string, unknown>>(sequence.payload, {}), storyboard: panels };
-    db.prepare("UPDATE director_sequences SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(payload), new Date().toISOString(), sequence.id, row.user_id);
-    syncFileRefs(row.user_id, "director_sequence", sequence.id, payload);
-    emitRender(row.user_id, { type: "sequence", projectId: context.projectId, data: { id: sequence.id, revision: sequence.revision + 1, payload } });
+    const segment = segmentRow(row.user_id, context.segmentId);
+    const payload = parseJson<Record<string, unknown>>(segment.payload, {});
+    const sheet = asSheet(payload.storyboardSheet);
+    if (!sheet || sheet.generationId !== row.id || sheet.revision !== context.storyboardRevision) return;
+    const source = getStoredFile(row.user_id, fileId);
+    if (!source) return;
+    const anchors = await extractStoryboardAnchors(row.user_id, segment.id, source.path, sheet.layout);
+    const nextSheet = { ...sheet, imageFileId: fileId, firstFrameFileId: anchors.first, lastFrameFileId: anchors.last, review: { status: "pending", summary: "正在检查宫格、素材与连续性", issues: [] } };
+    const nextPayload = { ...payload, storyboardSheet: nextSheet, firstFrameFileId: anchors.first, lastFrameFileId: anchors.last };
+    db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(nextPayload), new Date().toISOString(), segment.id, row.user_id);
+    syncFileRefs(row.user_id, "director_shot", segment.id, nextPayload);
+    emitRender(row.user_id, { type: "video-segment", projectId: context.projectId, data: { id: segment.id, revision: segment.revision + 1, payload: nextPayload } });
     const model = getAiGlobalSettings().config.creativeAssetReviewModel;
     if (!model) {
-        panel.review = { status: "manual", summary: "未配置视觉质检模型，请人工检查", issues: [] };
-        const manualPayload = { ...payload, storyboard: panels };
-        db.prepare("UPDATE director_sequences SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(manualPayload), new Date().toISOString(), sequence.id, row.user_id);
-        emitRender(row.user_id, { type: "sequence", projectId: context.projectId, data: { id: sequence.id, revision: sequence.revision + 2, payload: manualPayload } });
+        nextSheet.review = { status: "manual", summary: "未配置视觉质检模型，请人工检查", issues: [] };
+        const manualPayload = { ...nextPayload, storyboardSheet: nextSheet };
+        db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(manualPayload), new Date().toISOString(), segment.id, row.user_id);
+        emitRender(row.user_id, { type: "video-segment", projectId: context.projectId, data: { id: segment.id, revision: segment.revision + 2, payload: manualPayload } });
         return;
     }
-    const previous = panels[panels.indexOf(panel) - 1];
-    const project = db.prepare("SELECT payload FROM projects WHERE id=? AND user_id=?").get(context.projectId, row.user_id) as { payload: string } | undefined;
-    const styleId = String(parseJson<{ defaultVisualStyleId?: string }>(project?.payload || "{}", {}).defaultVisualStyleId || "");
-    const style = styleId ? db.prepare("SELECT reference_files FROM visual_styles WHERE id=? AND user_id=? AND project_id=?").get(styleId, row.user_id, context.projectId) as { reference_files: string } | undefined : undefined;
-    const identityReferences = style ? storyboardReferences(row.user_id, context.projectId, undefined, panel, style, 8) : [];
-    const references = Array.from(new Map([{ fileId, kind: "image" as const }, ...(previous?.imageFileId ? [{ fileId: String(previous.imageFileId), kind: "image" as const }] : []), ...identityReferences].map((item) => [item.fileId, item])).values());
-    createGeneration(row.user_id, { kind: "text", model, prompt: `你是长视频故事板视觉质检员。检查第一张参考图是否表达当前分格叙事，并在提供第二张时检查与前一格的屏幕方向、空间、动作和状态连续性。叙事目的：${String(panel.purpose || panel.title || "")}; 动作：${String(panel.action || panel.description || "")}。检查角色、场景、关键道具身份匹配，以及意外文字和身份漂移。只输出 JSON：{"passed":boolean,"summary":string,"issues":string[],"metrics":object}。`, references, params: { __directorStoryboardReview: { projectId: context.projectId, sequenceId: sequence.id, panelId: panel.id, sourceGenerationId: row.id, fileId } } });
+    const references = [{ fileId, kind: "image" as const }, ...getDirectorVideoSegmentPreflight(row.user_id, segment.id).selected.map((item) => ({ fileId: item.fileId, kind: "image" as const }))];
+    createGeneration(row.user_id, { kind: "text", model, prompt: `你是长视频多宫格故事板视觉质检员。检查第一张图是否是严格 ${sheet.layout}、共 ${sheet.frames.length} 格的单张故事板；检查人物身份、服装、场景、关键道具、光线和风格是否匹配后续参考图，画格是否按时间推进，是否有意外文字、气泡、Logo、身份漂移或空间连续性错误。只输出 JSON：{"passed":boolean,"summary":string,"issues":string[],"metrics":{"panelCount":number,"identityConsistent":boolean,"assetMatch":boolean,"temporalProgression":boolean,"noUnexpectedText":boolean,"styleConsistent":boolean}}。`, references, params: { __directorStoryboardReview: { projectId: context.projectId, segmentId: segment.id, storyboardRevision: sheet.revision, sourceGenerationId: row.id, fileId } } });
 }
 
 function syncStoryboardReview(row: GenerationRow) {
-    const request = parseJson<{ params?: { __directorStoryboardReview?: { projectId?: string; sequenceId?: string; panelId?: string; sourceGenerationId?: string; fileId?: string } } }>(row.request, {});
+    const request = parseJson<{ params?: { __directorStoryboardReview?: { projectId?: string; segmentId?: string; storyboardRevision?: number; sourceGenerationId?: string; fileId?: string } } }>(row.request, {});
     const context = request.params?.__directorStoryboardReview;
-    if (!context?.projectId || !context.sequenceId || !context.panelId || !context.sourceGenerationId || !context.fileId) return;
-    const sequence = storyboardSequence(row.user_id, context.sequenceId);
-    const panels = storyboardPanels(sequence.payload);
-    const panel = panels.find((item) => String(item.id) === context.panelId);
-    if (!panel || panel.generationId !== context.sourceGenerationId || panel.imageFileId !== context.fileId) return;
+    if (!context?.projectId || !context.segmentId || !context.sourceGenerationId || !context.fileId) return;
+    const segment = segmentRow(row.user_id, context.segmentId);
+    const payload = parseJson<Record<string, unknown>>(segment.payload, {});
+    const sheet = asSheet(payload.storyboardSheet);
+    if (!sheet || sheet.generationId !== context.sourceGenerationId || sheet.imageFileId !== context.fileId || sheet.revision !== context.storyboardRevision) return;
     const parsed = parseVisualReview(String(parseJson<{ text?: string }>(row.result, {}).text || ""));
-    panel.review = parsed ? { status: parsed.passed ? "passed" : "failed", summary: parsed.summary, issues: parsed.issues, metrics: parsed.metrics, generationId: row.id } : { status: "manual", summary: "自动质检结果无法解析，请人工检查", issues: [], generationId: row.id };
-    const payload = { ...parseJson<Record<string, unknown>>(sequence.payload, {}), storyboard: panels };
-    db.prepare("UPDATE director_sequences SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(payload), new Date().toISOString(), sequence.id, row.user_id);
-    emitRender(row.user_id, { type: "sequence", projectId: context.projectId, data: { id: sequence.id, revision: sequence.revision + 1, payload } });
+    sheet.review = parsed ? { status: parsed.passed ? "passed" : "failed", summary: parsed.summary, issues: parsed.issues, metrics: parsed.metrics, generationId: row.id } : { status: "manual", summary: "自动质检结果无法解析，请人工检查", issues: [], generationId: row.id };
+    const nextPayload = { ...payload, storyboardSheet: sheet };
+    db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(nextPayload), new Date().toISOString(), segment.id, row.user_id);
+    emitRender(row.user_id, { type: "video-segment", projectId: context.projectId, data: { id: segment.id, revision: segment.revision + 1, payload: nextPayload } });
 }
 
 function parseVisualReview(value: string) {
@@ -265,9 +268,9 @@ function pump() {
 async function runRender(row: RenderRow, signal: AbortSignal) {
     const workspace = db.prepare("SELECT aspect_ratio FROM director_workspaces WHERE user_id=? AND project_id=?").get(row.user_id, row.project_id) as WorkspaceRow;
     const timeline = db.prepare("SELECT payload,revision FROM director_timelines WHERE user_id=? AND project_id=?").get(row.user_id, row.project_id) as TimelineRow;
-    const payload = parseJson<RenderPayload>(row.payload, { timelineRevision: 0, shotIds: [], duration: 0, warnings: [] });
+    const payload = parseJson<RenderPayload>(row.payload, { timelineRevision: 0, segmentIds: [], duration: 0, warnings: [] });
     if (timeline.revision !== payload.timelineRevision) throw renderError(409, "DIRECTOR_RENDER_STALE", "时间线已变化，请创建新的合成任务");
-    const shots = payload.shotIds.map((id) => db.prepare("SELECT id,position,payload,revision FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(id, row.user_id, row.project_id) as ShotRow | undefined).filter(Boolean) as ShotRow[];
+    const shots = payload.segmentIds.map((id) => db.prepare("SELECT id,position,payload,revision FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(id, row.user_id, row.project_id) as ShotRow | undefined).filter(Boolean) as ShotRow[];
     const timelinePayload = parseJson<{ tracks?: Array<{ clips?: AudioClip[] }> }>(timeline.payload, {});
     const directory = await mkdtemp(join(tmpdir(), "director-render-"));
     try {
@@ -276,7 +279,7 @@ async function runRender(row: RenderRow, signal: AbortSignal) {
         for (let index = 0; index < shots.length; index += 1) {
             const shot = parseJson<Record<string, unknown>>(shots[index].payload, {});
             const source = getStoredFile(row.user_id, String(shot.videoFileId || ""));
-            if (!source) throw new Error(`镜头 ${shots[index].id} 的视频文件不存在`);
+            if (!source) throw new Error(`视频段 ${shots[index].id} 的视频文件不存在`);
             const output = join(directory, `shot-${String(index).padStart(4, "0")}.mp4`);
             await ffmpeg(["-y", "-i", source.path, "-t", String(Number(shot.durationSeconds || 4)), "-an", "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,fps=24,format=yuv420p`, "-c:v", "libx264", "-preset", "medium", "-crf", "18", output], signal);
             normalized.push(output); updateRender(row, { progress: .05 + .55 * ((index + 1) / shots.length) });
@@ -286,11 +289,11 @@ async function runRender(row: RenderRow, signal: AbortSignal) {
         await ffmpeg(["-y", "-f", "concat", "-safe", "0", "-i", concat, "-c", "copy", silentVideo], signal);
         updateRender(row, { progress: .7 });
         const output = join(directory, "final.mp4");
-        const clips = (timelinePayload.tracks || []).flatMap((track) => track.clips || []).filter((clip) => !clip.muted);
+        const clips = (timelinePayload.tracks || []).flatMap((track) => track.clips || []).filter((clip) => !clip.muted && clip.fileId);
         const args = ["-y", "-i", silentVideo];
         const usable: AudioClip[] = [];
         for (const clip of clips) {
-            const file = getStoredFile(row.user_id, clip.fileId); if (!file) continue;
+            const file = getStoredFile(row.user_id, clip.fileId!); if (!file) continue;
             if (clip.loop) args.push("-stream_loop", "-1");
             if (clip.trimIn) args.push("-ss", String(clip.trimIn));
             args.push("-t", String(clip.duration), "-i", file.path); usable.push(clip);
@@ -323,49 +326,99 @@ function ffmpeg(args: string[], signal?: AbortSignal, progress?: (seconds: numbe
 
 function markContinuationStale(userId: string, projectId: string, shotId: string) {
     const rows = db.prepare("SELECT id,payload FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>;
-    rows.forEach((row) => { const payload = parseJson<Record<string, unknown>>(row.payload, {}); if (payload.boundary === "continue" && payload.continuationFromShotId === shotId) db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...payload, videoStale: true, needsReview: true }), new Date().toISOString(), row.id, userId); });
+    rows.forEach((row) => { const payload = parseJson<Record<string, unknown>>(row.payload, {}); if (payload.boundary === "continue" && (payload.continuationFromSegmentId === shotId || payload.continuationFromShotId === shotId)) db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...payload, videoStale: true, needsReview: true }), new Date().toISOString(), row.id, userId); });
 }
 function validateShotAssetRefs(userId: string, projectId: string, payload: Record<string, unknown>) {
     const refs = [payload.characterRefs, payload.sceneRefs, payload.propRefs].flatMap((value) => Array.isArray(value) ? value : []) as Array<{ id?: string; revision?: number }>;
     for (const reference of refs) {
-        const asset = db.prepare("SELECT revision,status FROM creative_assets WHERE id=? AND user_id=? AND project_id=?").get(reference.id, userId, projectId) as { revision: number; status: string } | undefined;
-        if (!asset || asset.revision !== reference.revision || !["confirmed", "locked"].includes(asset.status)) throw renderError(409, "DIRECTOR_ASSET_STALE", "镜头引用的角色、场景或道具尚未确认或版本已变化");
+        const asset = db.prepare("SELECT id FROM creative_assets WHERE id=? AND user_id=? AND project_id=?").get(reference.id, userId, projectId);
+        if (!asset) throw renderError(409, "DIRECTOR_ASSET_MISSING", "视频段引用的角色、场景或道具已不存在，请重新匹配素材");
     }
 }
-type StoryboardPanel = Record<string, unknown> & { id: string; position?: number; imageFileId?: string; generationId?: string; review?: Record<string, unknown> };
-type StoryboardSequenceRow = { id: string; user_id: string; project_id: string; title: string; summary: string; status: string; payload: string; revision: number };
-function storyboardSequence(userId: string, sequenceId: string) {
-    const row = db.prepare("SELECT * FROM director_sequences WHERE id=? AND user_id=?").get(sequenceId, userId) as StoryboardSequenceRow | undefined;
-    if (!row) throw renderError(404, "DIRECTOR_SEQUENCE_NOT_FOUND", "剧情段落不存在");
+type StoryboardFrame = { id: string; position: number; shotNumber: number; timeSeconds: number; kind: "shot-start" | "keyframe" | "shot-end"; description: string; action: string; cameraAngle: string; cameraMove: string; sound: string };
+type StoryboardSheet = { revision: number; layout: DirectorStoryboardLayout; frames: StoryboardFrame[]; imageFileId?: string; firstFrameFileId?: string; lastFrameFileId?: string; generationId?: string; promptSnapshot?: string; referenceSnapshot?: unknown; review?: Record<string, unknown> };
+type FullSegmentRow = ShotRow & { id: string; user_id: string; project_id: string; sequence_id: string; title: string; status: string };
+type StyleRow = { id: string; name: string; description: string; reference_files: string; status: string; revision: number };
+
+function segmentRow(userId: string, segmentId: string) {
+    const row = db.prepare("SELECT * FROM director_shots WHERE id=? AND user_id=?").get(segmentId, userId) as FullSegmentRow | undefined;
+    if (!row) throw renderError(404, "DIRECTOR_VIDEO_SEGMENT_NOT_FOUND", "视频段不存在");
     return row;
 }
-function storyboardPanels(payload: string) {
-    const panels = parseJson<{ storyboard?: StoryboardPanel[] }>(payload, {}).storyboard;
-    return Array.isArray(panels) ? panels.map((panel) => ({ ...panel })) : [];
+function asSheet(value: unknown): StoryboardSheet | undefined {
+    if (!value || typeof value !== "object") return undefined;
+    const sheet = value as StoryboardSheet;
+    return Array.isArray(sheet.frames) ? { ...sheet, revision: Math.max(1, Number(sheet.revision) || 1), layout: storyboardLayout(sheet.frames.length), frames: sheet.frames.map((frame) => ({ ...frame })) } : undefined;
 }
-function validateStoryboardRefs(userId: string, projectId: string, panel: StoryboardPanel) {
-    const refs = [panel.characterRefs, panel.sceneRefs, panel.propRefs].flatMap((value) => Array.isArray(value) ? value : []) as Array<{ id?: string; revision?: number }>;
-    refs.forEach((reference) => {
-        const asset = db.prepare("SELECT revision,status FROM creative_assets WHERE id=? AND user_id=? AND project_id=?").get(reference.id, userId, projectId) as { revision: number; status: string } | undefined;
-        if (!asset || asset.revision !== reference.revision || !["confirmed", "locked"].includes(asset.status)) throw renderError(409, "DIRECTOR_ASSET_STALE", "故事板引用的角色、场景或道具尚未确认或版本已变化");
-    });
+function defaultSheet(segmentId: string, duration: number, payload: Record<string, unknown>): StoryboardSheet {
+    const requested = Number(payload.storyboardFrameCount); const frameCount = [4, 6, 9].includes(requested) ? requested : recommendedStoryboardFrameCount(duration);
+    return { revision: 1, layout: storyboardLayout(frameCount), frames: Array.from({ length: frameCount }, (_, position) => ({ id: `${segmentId}-frame-${position + 1}`, position, shotNumber: 1, timeSeconds: Number((duration * position / Math.max(1, frameCount - 1)).toFixed(2)), kind: position === 0 ? "shot-start" : position === frameCount - 1 ? "shot-end" : "keyframe", description: String(payload.description || ""), action: String(payload.action || ""), cameraAngle: String(payload.cameraAngle || ""), cameraMove: String(payload.cameraMove || ""), sound: String(payload.sound || "") })) };
 }
-function storyboardReferences(userId: string, projectId: string, previous: StoryboardPanel | undefined, panel: StoryboardPanel, style: { reference_files: string }, limit: number) {
-    const assetFile = (reference: { id?: string }) => {
-        const row = db.prepare("SELECT payload FROM creative_assets WHERE id=? AND user_id=? AND project_id=?").get(reference.id, userId, projectId) as { payload: string } | undefined;
-        const payload = parseJson<{ primaryImageId?: string; variants?: Array<{ id?: string; fileId?: string; kind?: string }> }>(row?.payload || "{}", {});
-        return payload.variants?.find((variant) => variant.id === payload.primaryImageId && variant.kind === "image")?.fileId;
-    };
+function activeStyle(userId: string, projectId: string) {
+    const project = db.prepare("SELECT payload FROM projects WHERE id=? AND user_id=? AND kind='director'").get(projectId, userId) as { payload: string } | undefined;
+    const styleId = String(parseJson<{ defaultVisualStyleId?: string }>(project?.payload || "{}", {}).defaultVisualStyleId || "");
+    return styleId ? db.prepare("SELECT * FROM visual_styles WHERE id=? AND user_id=? AND project_id=?").get(styleId, userId, projectId) as StyleRow | undefined : undefined;
+}
+function segmentReferenceCandidates(userId: string, projectId: string, payload: Record<string, unknown>, style?: StyleRow) {
     const refs = (value: unknown) => Array.isArray(value) ? value as Array<{ id?: string }> : [];
-    const styleRefs = parseJson<{ source?: string; character?: string; scene?: string; prop?: string }>(style.reference_files, {});
-    const ordered = [
-        previous?.imageFileId,
-        ...refs(panel.characterRefs).map(assetFile),
-        ...refs(panel.sceneRefs).map(assetFile),
-        ...refs(panel.propRefs).map(assetFile),
-        styleRefs.scene || styleRefs.source || styleRefs.character || styleRefs.prop,
-    ].filter((value): value is string => Boolean(value));
-    return Array.from(new Set(ordered)).slice(0, limit).map((fileId) => ({ fileId, kind: "image" as const, role: "reference" as const }));
+    const candidates: Array<{ fileId: string; name: string; purpose: "主角色" | "出镜角色" | "场景" | "关键道具" | "视觉风格"; assetId?: string }> = [];
+    const append = (reference: { id?: string }, purpose: typeof candidates[number]["purpose"]) => {
+        const row = db.prepare("SELECT id,name,payload FROM creative_assets WHERE id=? AND user_id=? AND project_id=?").get(reference.id, userId, projectId) as { id: string; name: string; payload: string } | undefined;
+        const asset = parseJson<{ primaryImageId?: string; variants?: Array<{ id?: string; fileId?: string; kind?: string }> }>(row?.payload || "{}", {});
+        const fileId = asset.variants?.find((variant) => variant.id === asset.primaryImageId && variant.kind === "image")?.fileId || asset.variants?.find((variant) => variant.kind === "image")?.fileId;
+        if (row && fileId) candidates.push({ fileId, name: row.name, purpose, assetId: row.id });
+    };
+    refs(payload.characterRefs).forEach((reference, index) => append(reference, index ? "出镜角色" : "主角色"));
+    refs(payload.sceneRefs).forEach((reference) => append(reference, "场景"));
+    refs(payload.propRefs).forEach((reference) => append(reference, "关键道具"));
+    if (style) {
+        const files = parseJson<Record<string, string>>(style.reference_files, {});
+        const fileId = files.scene || files.source || files.character || files.prop;
+        if (fileId) candidates.push({ fileId, name: style.name, purpose: "视觉风格" });
+    }
+    return Array.from(new Map(candidates.map((item) => [item.fileId, item])).values());
+}
+function resolveH3Route(payload: Record<string, unknown>, sheet: StoryboardSheet | undefined, override?: "fl2va" | "ref2va") {
+    const manual = override || (payload.h3ModeOverride === "fl2va" || payload.h3ModeOverride === "ref2va" ? payload.h3ModeOverride : undefined);
+    if (manual) return { mode: manual, reason: "用户手动选择" } as const;
+    if (payload.boundary === "continue") return { mode: "fl2va", reason: "连续边界需要使用上一段实际尾帧精确续接" } as const;
+    const shots = new Set((sheet?.frames || []).map((frame) => frame.shotNumber)).size;
+    if (shots > 1) return { mode: "ref2va", reason: `故事板包含 ${shots} 个内部切镜，使用整板语义控制` } as const;
+    if (Array.isArray(payload.referenceVideoFileIds) && payload.referenceVideoFileIds.length || Array.isArray(payload.referenceAudioFileIds) && payload.referenceAudioFileIds.length) return { mode: "ref2va", reason: "包含参考视频或参考音频" } as const;
+    return { mode: "fl2va", reason: "单镜头视频段使用首尾帧精确锚定" } as const;
+}
+function compileH3Prompt(mode: "fl2va" | "ref2va", title: string, payload: Record<string, unknown>, sheet: StoryboardSheet) {
+    const shots = sheet.frames.map((frame) => `Shot ${frame.shotNumber} at ${frame.timeSeconds}s (${frame.kind}): ${frame.description}; action: ${frame.action}; camera: ${frame.cameraAngle}, ${frame.cameraMove}; sound: ${frame.sound}`).join("\n");
+    const dialogue = String(payload.dialogue || payload.narration || "none");
+    const soundscape = String(payload.soundDesign || payload.sound || "Natural synchronized production sound matching the scene and actions.");
+    if (mode === "fl2va") return `integrated_multimodal_description:\nTitle: ${title}. Duration: ${payload.durationSeconds}s. The first frame is the exact start at 0s and the last frame is the exact end at ${payload.durationSeconds}s. Preserve identity, wardrobe, props, geography, screen direction and lighting while executing the action continuously.\n${shots}\nSpoken dialogue (preserve exactly, do not translate): ${dialogue}\noverall_soundscape:\n${soundscape}\nnon_diegetic_music:\n${String(payload.music || "No non-diegetic music unless narratively required.")}`;
+    return `subject_definitions:\nUse the supplied storyboard and asset references as authoritative identity, wardrobe, set, prop and style definitions.\nsummary:\n${title}. ${String(payload.description || payload.action || "")} Duration ${payload.durationSeconds}s.\nretention_analysis:\nRetain character identity, costume, spatial layout, lighting, key props, storyboard chronology and exact Chinese dialogue. Do not render text.\ndetailed_description:\n${shots}\nSpoken dialogue (preserve exactly, do not translate): ${dialogue}\noverall_soundscape:\n${soundscape}\nnon_diegetic_music:\n${String(payload.music || "No non-diegetic music unless narratively required.")}`;
+}
+function storyboardLayoutLabel(layout: DirectorStoryboardLayout) { return layout === "3x3" ? "3 columns by 3 rows" : layout === "3x2" ? "3 columns by 2 rows" : "2 columns by 2 rows"; }
+function storyboardImageSize(layout: DirectorStoryboardLayout) { return layout === "3x3" ? "2304x1296" : layout === "3x2" ? "2304x864" : "2048x1152"; }
+async function extractStoryboardAnchors(userId: string, segmentId: string, source: string, layout: DirectorStoryboardLayout) {
+    const directory = await mkdtemp(join(tmpdir(), "director-storyboard-"));
+    try {
+        const columns = layout === "2x2" ? 2 : 3; const rows = layout === "3x3" ? 3 : 2; const first = join(directory, "first.png"); const last = join(directory, "last.png");
+        const normalize = "scale=1344:768:force_original_aspect_ratio=increase,crop=1344:768";
+        const insetX = `iw/${columns}*0.02`; const insetY = `ih/${rows}*0.02`;
+        const cell = `iw/${columns}*0.96:ih/${rows}*0.96`;
+        await ffmpeg(["-y", "-i", source, "-vf", `crop=${cell}:${insetX}:${insetY},${normalize}`, "-frames:v", "1", first]);
+        await ffmpeg(["-y", "-i", source, "-vf", `crop=${cell}:iw-iw/${columns}+${insetX}:ih-ih/${rows}+${insetY},${normalize}`, "-frames:v", "1", last]);
+        return { first: storeLocalFile(userId, first, `${segmentId}-storyboard-first.png`, "image/png").id, last: storeLocalFile(userId, last, `${segmentId}-storyboard-last.png`, "image/png").id };
+    } finally { await rm(directory, { recursive: true, force: true }); }
+}
+function upsertNativeAudioClip(userId: string, projectId: string, segmentId: string, fileId: string, duration: number) {
+    const row = db.prepare("SELECT payload FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string };
+    const payload = parseJson<{ segmentOrder?: string[]; tracks?: Array<{ id: string; kind: string; clips: Array<Record<string, unknown>> }> }>(row.payload, {});
+    const order = payload.segmentOrder || [];
+    const segments = db.prepare("SELECT id,payload FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>;
+    const byId = new Map(segments.map((item) => [item.id, item]));
+    const start = order.slice(0, Math.max(0, order.indexOf(segmentId))).reduce((sum, id) => sum + Number(parseJson<Record<string, unknown>>(byId.get(id)?.payload || "{}", {}).durationSeconds || 4), 0);
+    const tracks = payload.tracks || []; let track = tracks.find((item) => item.id === "model-original");
+    if (!track) { track = { id: "model-original", kind: "model-original", clips: [] }; tracks.push(track); }
+    track.clips = [...track.clips.filter((clip) => clip.segmentId !== segmentId), { id: `model-original-${segmentId}`, segmentId, fileId, start, duration, volume: 1, muted: false }];
+    db.prepare("UPDATE director_timelines SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=?").run(JSON.stringify({ ...payload, tracks }), new Date().toISOString(), userId, projectId);
 }
 function outputSize(ratio: string): [number, number] { if (ratio === "9:16") return [1080, 1920]; if (ratio === "1:1") return [1080, 1080]; if (ratio === "2.39:1") return [1920, 804]; return [1920, 1080]; }
 function updateRender(row: RenderRow, patch: { status?: RenderRow["status"]; progress?: number; error?: string }) { db.prepare("UPDATE director_renders SET status=coalesce(?,status),progress=coalesce(?,progress),error=?,updated_at=? WHERE id=? AND user_id=?").run(patch.status || null, patch.progress ?? null, patch.error || null, new Date().toISOString(), row.id, row.user_id); const next = renderRow(row.user_id, row.id); if (next) publish(next); }

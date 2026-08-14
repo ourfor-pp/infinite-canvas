@@ -45,6 +45,8 @@ export const config = {
     orphanFileHours: Math.max(1, Number(process.env.ORPHAN_FILE_HOURS) || 24),
     aiMaxConcurrency: Math.max(1, Number(process.env.AI_MAX_CONCURRENCY) || 4),
     aiUserConcurrency: Math.max(1, Number(process.env.AI_USER_CONCURRENCY) || 2),
+    aiImageMaxConcurrency: Math.max(1, Number(process.env.AI_IMAGE_MAX_CONCURRENCY) || 10),
+    aiImageUserConcurrency: Math.max(1, Number(process.env.AI_IMAGE_USER_CONCURRENCY) || 10),
     aiProviderTimeouts: {
         text: positiveMilliseconds(process.env.AI_TEXT_REQUEST_TIMEOUT_MS, 10 * 60_000),
         image: positiveMilliseconds(process.env.AI_IMAGE_REQUEST_TIMEOUT_MS, 10 * 60_000),

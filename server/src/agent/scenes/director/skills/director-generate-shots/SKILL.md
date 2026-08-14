@@ -1,11 +1,11 @@
 ---
 name: director-generate-shots
-description: 为确认后的导演镜头生成首帧、尾帧、分镜图或视频片段。
-allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_get_asset, mcp__infinite_canvas__director_list_models, mcp__infinite_canvas__director_generate_shot, mcp__infinite_canvas__director_get_generation_status]
+description: 为已有整张故事板的视频段选择 MiniMax H3 模式并生成带原生声音的视频。
+allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_get_asset, mcp__infinite_canvas__director_list_models, mcp__infinite_canvas__director_update_video_segment, mcp__infinite_canvas__director_generate_video_segment, mcp__infinite_canvas__director_get_generation_status]
 ---
 
-# 导演台镜头生成
+# 导演台视频段生成
 
-先读 [镜头交接规范](references/shot-handoff.md)。读取镜头、绑定资产、风格和模型能力。普通切镜使用本镜头确认首帧；连续镜头使用上一段实际尾帧或模型原生延展能力，不根据模型名称猜测参数。
+先读 [H3 交接与提示结构](references/shot-handoff.md)。读取视频段、整张故事板、资产、风格和声明的模型能力。让服务端自动选择 H3 模式；只有用户明确要求时才覆盖。
 
-生成前遵守故事板阶段门。生成完成后检查状态与首尾帧，前序变化导致的连续镜头过期必须明确指出。
+`FL2VA` 使用首尾画格锚点；`Ref2VA` 使用整张故事板与资产参考。`continue` 使用上一段实际尾帧作为下一段首帧，不冒充确定性原生 Extend。生成后检查视频、实际首尾帧和模型原声；前序变化只标记依赖段过期，不自动重生成。

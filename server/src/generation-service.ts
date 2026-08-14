@@ -71,6 +71,7 @@ export function createGeneration(userId: string, input: AiGenerationRequest) {
         : resolvePurposeModel(purpose, input.kind);
     const imageReferenceCount = (input.references || []).filter((reference) => (reference.kind || "image") === "image").length;
     const audioReferenceCount = (input.references || []).filter((reference) => reference.kind === "audio").length;
+    const videoReferenceCount = (input.references || []).filter((reference) => reference.kind === "video").length;
     if (purpose === "default" && input.kind === "image" && selection.model.maxReferenceImages && imageReferenceCount > selection.model.maxReferenceImages) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选图生图模型最多支持 ${selection.model.maxReferenceImages} 张参考图`);
     if (input.kind === "audio") {
         const audioModel = selection.model as AiModelDefinition;
@@ -80,6 +81,16 @@ export function createGeneration(userId: string, input: AiGenerationRequest) {
         if (audioModel.audioOperations?.length && !audioModel.audioOperations.includes(operation as AudioOperation)) throw generationError("AI_MODEL_AUDIO_OPERATION_UNSUPPORTED", "所选模型不支持当前声音操作");
         if (audioModel.maxReferenceAudios && audioReferenceCount > audioModel.maxReferenceAudios) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选模型最多支持 ${audioModel.maxReferenceAudios} 段参考音频`);
     }
+    if (input.kind === "video") {
+        const model = selection.model as AiModelDefinition;
+        const seconds = Number(input.params?.seconds || input.params?.videoSeconds || 0);
+        if (model.minDurationSeconds && seconds && seconds < model.minDurationSeconds) throw generationError("AI_MODEL_DURATION_UNSUPPORTED", `所选视频模型最短支持 ${model.minDurationSeconds} 秒`);
+        if (model.maxDurationSeconds && seconds > model.maxDurationSeconds) throw generationError("AI_MODEL_DURATION_UNSUPPORTED", `所选视频模型最长支持 ${model.maxDurationSeconds} 秒`);
+        if (model.maxReferenceImages !== undefined && imageReferenceCount > model.maxReferenceImages) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选视频模型最多支持 ${model.maxReferenceImages} 张参考图`);
+        if (model.maxReferenceVideos !== undefined && videoReferenceCount > model.maxReferenceVideos) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选视频模型最多支持 ${model.maxReferenceVideos} 段参考视频`);
+        if (model.maxReferenceAudios !== undefined && audioReferenceCount > model.maxReferenceAudios) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选视频模型最多支持 ${model.maxReferenceAudios} 段参考音频`);
+        if (model.maxReferenceFiles !== undefined && imageReferenceCount + videoReferenceCount + audioReferenceCount > model.maxReferenceFiles) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选视频模型最多支持 ${model.maxReferenceFiles} 个参考文件`);
+    }
     if ((input.prompt?.trim() || input.messages?.length) && !selection.model.inputs.includes("text")) throw generationError("AI_MODEL_INPUT_UNSUPPORTED", "所选模型不支持文本输入");
     for (const reference of input.references || []) {
         const kind = reference.kind || "image";
@@ -87,7 +98,7 @@ export function createGeneration(userId: string, input: AiGenerationRequest) {
         const role = reference.role || "reference";
         const videoModel = selection.model as AiModelDefinition;
         if (input.kind === "video" && role !== "reference" && !videoModel.videoReferenceRoles?.includes(role)) throw generationError("AI_MODEL_VIDEO_REFERENCE_UNSUPPORTED", `所选视频模型未声明 ${role} 能力`);
-        if (input.kind === "video" && role === "continuation" && !videoModel.videoExtend) throw generationError("AI_MODEL_VIDEO_EXTEND_UNSUPPORTED", "所选视频模型不支持原生延展");
+        if (input.kind === "video" && role === "continuation" && !videoModel.videoExtend && videoModel.videoContinuationMode !== "reference") throw generationError("AI_MODEL_VIDEO_EXTEND_UNSUPPORTED", "所选视频模型不支持续接参考");
         if (["first-frame", "last-frame"].includes(role) && kind !== "image") throw generationError("AI_VIDEO_FRAME_KIND", "首帧和尾帧引用必须是图片");
         if (!getStoredFile(userId, reference.fileId)) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
     }
@@ -140,7 +151,7 @@ function schedulePump() {
 }
 
 function pumpQueue() {
-    while (running.size < config.aiMaxConcurrency) {
+    while (running.size < Math.max(config.aiMaxConcurrency, config.aiImageMaxConcurrency)) {
         const rows = db.prepare("SELECT * FROM generations WHERE status='queued' ORDER BY created_at LIMIT 100").all() as GenerationRow[];
         const row = rows.find(canRun);
         if (!row) return;
@@ -155,15 +166,18 @@ function pumpQueue() {
 }
 
 function canRun(row: GenerationRow) {
-    const userActive = Array.from(running.values()).filter((item) => item.row.user_id === row.user_id).length;
-    if (userActive >= config.aiUserConcurrency) return false;
+    const sameKind = Array.from(running.values()).filter((item) => item.row.kind === row.kind);
+    const kindLimit = row.kind === "image" ? config.aiImageMaxConcurrency : config.aiMaxConcurrency;
+    if (sameKind.length >= kindLimit) return false;
+    const userActive = sameKind.filter((item) => item.row.user_id === row.user_id).length;
+    if (userActive >= (row.kind === "image" ? config.aiImageUserConcurrency : config.aiUserConcurrency)) return false;
     if (!row.provider_id) return true;
     if (row.provider_id === "comfyui") return !Array.from(running.values()).some((item) => item.row.id !== row.id && (item.row.provider_id === "local-media" || (item.row.provider_id === "comfyui" && item.row.comfy_server_id === row.comfy_server_id)));
     if (row.provider_id === "local-media") return !Array.from(running.values()).some((item) => item.row.id !== row.id && ["local-media", "comfyui"].includes(item.row.provider_id || ""));
     const provider = getProviderRow(row.provider_id);
     if (!provider?.enabled) return true;
     const providerActive = Array.from(running.values()).filter((item) => item.row.provider_id === row.provider_id).length;
-    return providerActive < provider.concurrency;
+    return providerActive < (row.kind === "image" ? Math.max(provider.concurrency, config.aiImageMaxConcurrency) : provider.concurrency);
 }
 
 async function runGeneration(initialRow: GenerationRow, controller: AbortController) {
@@ -277,7 +291,7 @@ async function uploadComfyReferences(baseUrl: string, userId: string, references
         form.set("image", await openAsBlob(stored.path, { type: stored.mime_type }), stored.original_name || `reference-${index}`);
         const result = await comfyJson<{ name?: string; subfolder?: string }>(`${baseUrl}/upload/image`, { method: "POST", headers, body: form, signal });
         if (!result.name) throw generationError("COMFY_UPLOAD_FAILED", "ComfyUI 素材上传失败");
-        return { fileId: reference.fileId, kind: reference.kind || storedKind(stored.mime_type), name: result.subfolder ? `${result.subfolder}/${result.name}` : result.name };
+        return { fileId: reference.fileId, kind: reference.kind || storedKind(stored.mime_type), role: reference.role, name: result.subfolder ? `${result.subfolder}/${result.name}` : result.name };
     }));
 }
 

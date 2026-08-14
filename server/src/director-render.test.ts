@@ -27,7 +27,7 @@ test("导演台用 FFmpeg 合成 1080p 24fps H.264/AAC MP4 并保留产物", asy
     const insertShot = db.prepare("INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,status,payload,created_at,updated_at) VALUES(?,?,?,'seq',?,?,'confirmed',?,?,?)");
     insertShot.run("shot-1", userId, projectId, 0, "红色", JSON.stringify({ durationSeconds: 1, videoFileId: files[0].id }), now, now);
     insertShot.run("shot-2", userId, projectId, 1, "蓝色", JSON.stringify({ durationSeconds: 1, videoFileId: files[1].id }), now, now);
-    const timeline = { shotOrder: ["shot-1", "shot-2"], tracks: [{ id: "music", kind: "music", clips: [{ id: "tone", fileId: files[2].id, start: 0, duration: 2, volume: .5 }] }] };
+    const timeline = { segmentOrder: ["shot-1", "shot-2"], tracks: [{ id: "music", kind: "music", clips: [{ id: "tone", fileId: files[2].id, start: 0, duration: 2, volume: .5 }] }] };
     db.prepare("INSERT INTO director_timelines(project_id,user_id,payload,created_at,updated_at) VALUES(?,?,?,?,?)").run(projectId, userId, JSON.stringify(timeline), now, now);
 
     const render = createDirectorRender(userId, projectId, { timelineRevision: 1 });

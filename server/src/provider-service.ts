@@ -18,9 +18,10 @@ export type AudioOperation = (typeof audioOperations)[number];
 export type ModelEndpoint = (typeof modelEndpoints)[number];
 export type VideoReferenceRole = "reference" | "first-frame" | "last-frame" | "continuation";
 export type ImagePromptProfile = "generic" | "gpt-image-2";
+export type H3GenerationMode = "fl2va" | "ref2va";
 export type ProviderCredentials = { apiKey?: string; authToken?: string };
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: MediaKind; inputs: MediaKind[]; method: "POST"; path: string; agent: boolean };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: ImagePromptProfile; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; minDurationSeconds?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: ImagePromptProfile; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean; videoModes?: H3GenerationMode[]; maxReferenceVideos?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend" };
 
 const LOCAL_MEDIA_MODELS: Record<string, Omit<AiModelDefinition, "endpoint" | "enabled">> = {
     "qwen3-tts-1.7b-customvoice-local": { id: "qwen3-tts-1.7b-customvoice-local", name: "Qwen3-TTS 1.7B CustomVoice", output: "audio", inputs: ["text"], audioModes: ["speech"], audioOperations: ["generate"], languages: ["Auto", "Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"], voices: ["Vivian", "Serena", "Ryan", "Aiden", "Dylan", "Eric", "Ono_Anna", "Sohee", "Uncle_Fu"] },
@@ -215,7 +216,7 @@ export function listPublicModels() {
     const providers = db.prepare("SELECT * FROM ai_providers WHERE enabled=1 ORDER BY created_at").all() as ProviderRow[];
     const publicModels = providers.flatMap((provider) => providerModels(provider)
         .filter((model) => model.enabled)
-        .map((model) => ({ id: model.id, name: model.name, output: model.output, inputs: model.inputs, audioModes: model.output === "audio" ? model.audioModes?.length ? model.audioModes : ["speech" as const] : undefined, imageModes: model.imageModes, maxReferenceImages: model.maxReferenceImages, imagePromptProfile: model.imagePromptProfile || "generic", videoReferenceRoles: model.videoReferenceRoles, videoExtend: model.videoExtend, enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
+        .map((model) => ({ ...model, endpoint: undefined, agentEnabled: undefined, imagePromptProfile: model.imagePromptProfile || "generic", enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
     const comfyRows = db.prepare("SELECT name, models FROM comfy_servers WHERE enabled=1 ORDER BY created_at").all() as Array<{ name: string; models: string }>;
     const comfyNames = new Set(comfyRows.flatMap((row) => parseJson<string[]>(row.models, [])).filter((id) => COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable));
     return [
@@ -223,7 +224,8 @@ export function listPublicModels() {
         ...(executor.url && executor.token ? Object.values(LOCAL_MEDIA_MODELS).filter((model) => isMediaExecutorModelAvailable(model.id) && (model.id !== "stable-audio-3-medium-local" || executor.stableAudio3LicenseAccepted)).map((model) => ({ ...model, imagePromptProfile: "generic" as const, value: `local-media::${model.id}`, providerId: "local-media", providerName: "本地媒体执行器", enabled: true })) : []),
         ...Array.from(comfyNames).map((id) => {
             const output = comfyModelOutput(id);
-            return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imageModes: comfyImageModes(id), maxReferenceImages: comfyMaxReferenceImages(id), imagePromptProfile: "generic" as const, enabled: true };
+            const capability = COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS];
+            return { ...capability, id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imagePromptProfile: "generic" as const, enabled: true };
         }),
     ];
 }
@@ -330,7 +332,7 @@ export function resolveProviderModel(value: string, expectedOutput: MediaKind) {
         const output = comfyModelOutput(modelId);
         const node = db.prepare("SELECT id FROM comfy_servers WHERE enabled=1 AND models LIKE ? ORDER BY created_at LIMIT 1").get(`%${modelId}%`) as { id: string } | undefined;
         if (!node || output !== expectedOutput) throw providerError(400, "AI_MODEL_UNAVAILABLE", "模型不可用或能力不匹配");
-        return { providerId, modelId, model: { id: modelId, name: modelId, output, inputs: comfyModelInputs(modelId), imageModes: comfyImageModes(modelId), maxReferenceImages: comfyMaxReferenceImages(modelId), enabled: true }, comfyServerId: node.id };
+        return { providerId, modelId, model: { ...COMFY_MODEL_DEFINITIONS[modelId as keyof typeof COMFY_MODEL_DEFINITIONS], id: modelId, name: comfyModelName(modelId), output, inputs: comfyModelInputs(modelId), enabled: true }, comfyServerId: node.id };
     }
     const provider = getProviderRow(providerId);
     const model = provider && providerModels(provider).find((item) => item.id === modelId && item.enabled);

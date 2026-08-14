@@ -49,7 +49,7 @@ import { serverApi, serverApiUrl, uploadServerFile, type ServerGeneration } from
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useDirectorStore } from "@/stores/use-director-store";
 import type { CreativeAsset, CreativeAssetKind } from "@/types/creative-asset";
-import type { DirectorDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorShot, DirectorState, DirectorStoryboardPanel } from "@/types/director";
+import type { DirectorDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorState, DirectorVideoSegment, DirectorVideoSegmentPreflight, H3GenerationMode } from "@/types/director";
 import type { VisualStyle, VisualStyleDna, VisualStyleTemplate } from "@/types/visual-style";
 import { DirectorMarkdownEditor } from "./components/director-markdown-editor";
 import "./director-light.css";
@@ -276,8 +276,8 @@ function TaskEmpty({ icon: Icon, title, description }: { icon: typeof Bell; titl
 }
 
 function generationBelongsToDirector(generation: ServerGeneration, projectId: string, assets: CreativeAsset[], styles: VisualStyle[]) {
-    const params = recordValue(generation.request.params);
-    const contexts = [params.__creativeAsset, params.__directorShot, params.__directorRender, params.__directorStoryboard, params.__directorStoryboardReview].map(recordValue);
+    const params = recordValue(recordValue(generation.request).params);
+    const contexts = [params.__creativeAsset, params.__directorVideoSegment, params.__directorSegment, params.__directorRender, params.__directorStoryboardSheet, params.__directorStoryboardReview].map(recordValue);
     if (contexts.some((context) => String(context.projectId || "") === projectId)) return true;
     const assetId = String(recordValue(params.__creativeAsset).assetId || "");
     if (assetId && assets.some((asset) => asset.id === assetId)) return true;
@@ -285,8 +285,8 @@ function generationBelongsToDirector(generation: ServerGeneration, projectId: st
     return Boolean(styleId && styles.some((style) => style.id === styleId));
 }
 
-function generationAssetId(generation: ServerGeneration) { return String(recordValue(recordValue(generation.request.params).__creativeAsset).assetId || ""); }
-function generationTaskMeta(generation: ServerGeneration, assets: CreativeAsset[]) { const params = recordValue(generation.request.params); const asset = assets.find((item) => item.id === generationAssetId(generation)); const storyboard = recordValue(params.__directorStoryboard); const storyboardReview = recordValue(params.__directorStoryboardReview); const media = generation.kind === "image" ? "图片" : generation.kind === "video" ? "视频" : generation.kind === "audio" ? "声音" : "分析"; return { title: asset ? `${asset.name} · ${media}` : storyboard.panelId ? "故事板分格 · 图片" : storyboardReview.panelId ? "故事板分格 · 视觉检查" : `${media}生成`, subtitle: generation.modelId || "生成服务" }; }
+function generationAssetId(generation: ServerGeneration) { return String(recordValue(recordValue(recordValue(generation.request).params).__creativeAsset).assetId || ""); }
+function generationTaskMeta(generation: ServerGeneration, assets: CreativeAsset[]) { const params = recordValue(recordValue(generation.request).params); const asset = assets.find((item) => item.id === generationAssetId(generation)); const storyboard = recordValue(params.__directorStoryboardSheet); const segment = recordValue(params.__directorSegment); const storyboardReview = recordValue(params.__directorStoryboardReview); const media = generation.kind === "image" ? "图片" : generation.kind === "video" ? "视频" : generation.kind === "audio" ? "声音" : "分析"; return { title: asset ? `${asset.name} · ${media}` : storyboard.segmentId ? "整张故事板 · 图片" : segment.segmentId ? "视频段 · 视频" : storyboardReview.segmentId ? "整张故事板 · 视觉检查" : `${media}生成`, subtitle: generation.modelId || "生成服务" }; }
 function generationStatusLabel(status: ServerGeneration["status"]) { return status === "queued" ? "排队" : status === "running" ? "生成中" : status === "succeeded" ? "完成" : status === "canceled" ? "取消" : "失败"; }
 function formatTaskTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }); }
 function recordValue(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -294,23 +294,23 @@ function readLocalIds(key: string): string[] { try { const value = JSON.parse(lo
 
 function Overview({ state, assets, styles, onNavigate }: { state: DirectorState; assets: CreativeAsset[]; styles: VisualStyle[]; onNavigate: (section: DirectorSection) => void }) {
     const documents = Object.fromEntries(state.documents.map((item) => [item.kind, item]));
-    const stale = state.sequences.filter((item) => item.payload.needsReview).length + state.shots.filter((item) => item.payload.needsReview || item.payload.videoStale).length;
-    const confirmedAssets = assets.filter((item) => item.status !== "draft").length;
+    const stale = state.sequences.filter((item) => item.payload.needsReview).length + state.videoSegments.filter((item) => item.payload.needsReview || item.payload.videoStale).length;
+    const readyAssets = assets.filter((item) => item.payload.variants.some((variant) => variant.kind === "image")).length;
     const stages = [
         Boolean(documents.story?.content.trim()),
         documents.script?.status !== "draft",
         Boolean(styles.find((item) => item.id === state.activeStyleId && item.status === "confirmed")),
-        assets.length > 0 && confirmedAssets === assets.length,
+        assets.length > 0 && readyAssets === assets.length,
         state.sequences.length > 0 && state.sequences.every((item) => item.status !== "draft"),
-        state.shots.length > 0 && state.shots.every((item) => item.payload.videoFileId),
+        state.videoSegments.length > 0 && state.videoSegments.every((item) => item.payload.videoFileId),
     ];
     const progress = Math.round((stages.filter(Boolean).length / stages.length) * 100);
     const stageItems = [
         { label: "故事", detail: documents.story?.content.trim() ? "已编写" : "待创作", done: stages[0], target: "story" as const },
         { label: "剧本", detail: statusLabel(documents.script?.status || "未开始"), done: stages[1], target: "script" as const },
-        { label: "素材", detail: `${confirmedAssets}/${assets.length}`, done: stages[2] && stages[3], target: "assets" as const },
+        { label: "素材", detail: `${readyAssets}/${assets.length}`, done: stages[2] && stages[3], target: "assets" as const },
         { label: "故事板", detail: `${state.sequences.filter((item) => item.status !== "draft").length}/${state.sequences.length}`, done: stages[4], target: "storyboard" as const },
-        { label: "镜头视频", detail: `${state.shots.filter((item) => item.payload.videoFileId).length}/${state.shots.length}`, done: stages[5], target: "storyboard" as const },
+        { label: "视频段", detail: `${state.videoSegments.filter((item) => item.payload.videoFileId).length}/${state.videoSegments.length}`, done: stages[5], target: "storyboard" as const },
         { label: "成片", detail: stages[5] ? "可合成" : "待就绪", done: false, target: "studio" as const },
     ];
     const nextStage = stageItems.find((item) => !item.done) || stageItems.at(-1)!;
@@ -368,8 +368,8 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
                     <div className="mt-5 space-y-3">
                         <Notice count={state.sources.filter((item) => item.status === "failed").length} label="失败的来源任务" />
                         <Notice count={stale} label="上游变化，待检查" />
-                        <Notice count={state.sequences.filter((item) => item.status === "draft").length} label="待确认故事板" />
-                        <Notice count={state.shots.filter((item) => !item.payload.videoFileId).length} label="缺少视频的镜头" />
+                        <Notice count={state.videoSegments.filter((item) => !item.payload.storyboardSheet?.imageFileId).length} label="缺少故事板的视频段" />
+                        <Notice count={state.videoSegments.filter((item) => !item.payload.videoFileId).length} label="缺少视频的视频段" />
                     </div>
                 </section>
             </div>
@@ -596,12 +596,11 @@ function AssetGallery({ projectId, activeStyleId, assets, styles, generations, o
     const activeStyle = styles.find((item) => item.id === activeStyleId);
     const visibleAssets = filter === "all" ? assets : assets.filter((item) => item.kind === filter);
     const counts = { all: assets.length, character: assets.filter((item) => item.kind === "character").length, scene: assets.filter((item) => item.kind === "scene").length, prop: assets.filter((item) => item.kind === "prop").length };
-    const action = async (asset: CreativeAsset, kind: "regenerate" | "copy" | "confirm" | "lock" | "delete", mediaKind: "image" | "audio" = "image") => {
+    const action = async (asset: CreativeAsset, kind: "regenerate" | "copy" | "delete", mediaKind: "image" | "audio" = "image") => {
         setBusyId(asset.id);
         try {
             if (kind === "regenerate") onGeneration(await serverApi.generateCreativeAsset(asset.id, { kind: mediaKind, revision: asset.revision }));
             if (kind === "copy") await serverApi.createCreativeAsset(projectId, { kind: asset.kind, name: `${asset.name} 副本`, payload: asset.payload });
-            if (kind === "confirm" || kind === "lock") await serverApi.updateCreativeAsset(asset.id, { revision: asset.revision, status: kind === "confirm" ? "confirmed" : "locked" });
             if (kind === "delete") await serverApi.deleteCreativeAsset(asset.id);
             await onRefresh();
             message.success(kind === "regenerate" ? "已开始重新生成，将直接替换主结果" : "操作完成");
@@ -732,7 +731,7 @@ function DirectorStyleDrawer({ open, projectId, activeStyleId, styles, onClose, 
     );
 }
 
-function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asset: CreativeAsset; busy: boolean; activeGenerations: ServerGeneration[]; onAgent: () => void; onAction: (kind: "regenerate" | "copy" | "confirm" | "lock" | "delete", media?: "image" | "audio") => void }) {
+function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asset: CreativeAsset; busy: boolean; activeGenerations: ServerGeneration[]; onAgent: () => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
     const primaryImage = asset.payload.variants.find((item) => item.id === asset.payload.primaryImageId) || asset.payload.variants.find((item) => item.kind === "image");
     const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId) || asset.payload.variants.find((item) => item.kind === "audio");
     const generatingImage = activeGenerations.find((generation) => generation.kind === "image");
@@ -743,9 +742,6 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asse
                 {primaryImage ? <img src={serverApiUrl(`/files/${primaryImage.fileId}/content`)} className={`size-full ${asset.kind === "character" ? "object-contain" : "object-cover"}`} /> : <MediaPlaceholder />}
                 {generatingImage ? <div className="director-asset-loading absolute inset-0"><div className="relative z-10 flex h-full flex-col items-center justify-center text-center"><Loader2 className="size-5 animate-spin text-blue-600" /><p className="mt-3 text-xs font-medium text-slate-700">{generatingImage.status === "queued" ? "正在等待生成" : "正在设计素材"}</p><p className="mt-1 font-mono text-[9px] tracking-wider text-slate-400">{Math.round(generatingImage.progress * 100)}%</p></div></div> : null}
                 <div className="absolute left-3 top-3 bg-slate-950/75 px-2 py-1 text-[10px] tracking-widest text-white">{asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}</div>
-                <div className="absolute right-3 top-3 bg-white/95 px-2 py-1 shadow-sm">
-                    <StatusPill status={asset.status} />
-                </div>
                 {asset.payload.needsReview ? <div className="absolute bottom-3 left-3 bg-rose-600 px-2 py-1 text-[10px] text-white">风格已变化 · 需要检查</div> : null}
             </div>
             <div className="p-5">
@@ -769,7 +765,6 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asse
                     <FlatAction icon={RefreshCw} label={generatingImage ? "生成中" : "抽图"} loading={busy || Boolean(generatingImage)} onClick={() => onAction("regenerate", "image")} />
                     <FlatAction icon={AudioLines} label={generatingAudio ? "生成中" : "抽声音"} loading={busy || Boolean(generatingAudio)} onClick={() => onAction("regenerate", "audio")} />
                     <FlatAction icon={Copy} label="复制" onClick={() => onAction("copy")} />
-                    {asset.status === "draft" ? <FlatAction icon={Check} label="确认" onClick={() => onAction("confirm")} /> : asset.status === "confirmed" ? <FlatAction icon={Lock} label="锁定" onClick={() => onAction("lock")} /> : null}
                     <FlatAction icon={Trash2} label="删除" danger onClick={() => onAction("delete")} />
                 </div>
                 {activeGenerations.map((generation) => <div key={generation.id} className="mt-2"><div className="flex items-center justify-between text-[10px] text-slate-400"><span>{generation.status === "queued" ? `${generation.kind === "audio" ? "声音" : "设计图"}任务已排队` : `${generation.kind === "audio" ? "声音" : "设计图"}生成中`}</span><span>{Math.round(generation.progress * 100)}%</span></div><div className="mt-1 h-0.5 overflow-hidden bg-slate-100"><div className={`h-full bg-blue-600 ${generation.progress > 0 ? "transition-all" : "director-task-progress"}`} style={generation.progress > 0 ? { width: `${Math.max(4, Math.round(generation.progress * 100))}%` } : undefined} /></div></div>)}
@@ -794,58 +789,34 @@ function FlatAction({ icon: Icon, label, loading, danger, onClick }: { icon: typ
 function Storyboard({ projectId, state, onRefresh }: { projectId: string; state: DirectorState; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
-    const [view, setView] = useState<"boards" | "shots">("boards");
+    const [view, setView] = useState<"boards" | "segments">("boards");
     const [busy, setBusy] = useState("");
-    const generate = async (sequence: DirectorSequence, panelId?: string) => {
-        setBusy(panelId || sequence.id);
+    const generateBoard = async (segment: DirectorVideoSegment) => {
+        setBusy(segment.id);
         try {
-            if (panelId) await directorApi.generateStoryboardPanel(sequence.id, panelId, sequence.revision);
-            else await directorApi.generateStoryboard(sequence.id, sequence.revision);
+            await directorApi.generateStoryboard(segment.id, segment.revision);
             await onRefresh();
-            message.success(panelId ? "该分格已进入重抽队列" : "缺失分格已进入生成队列");
+            message.success("整张多宫格故事板已进入生图队列");
         } catch (error) { message.error(error instanceof Error ? error.message : "故事板生成失败"); }
         finally { setBusy(""); }
     };
-    const createSequence = async () => {
+    const generateVideo = async (segment: DirectorVideoSegment, mode?: H3GenerationMode) => {
+        setBusy(segment.id);
         try {
-            await directorApi.createSequence(projectId, {
-                title: `剧情段落 ${state.sequences.length + 1}`,
-                summary: "待 Agent 根据剧本补充分镜节奏",
-                payload: { storyboard: Array.from({ length: 6 }, (_, position) => ({ id: nanoid(), position, title: `镜头 ${position + 1}`, description: "待规划", durationSeconds: 4 })) },
-            });
+            await directorApi.generateVideoSegment(segment.id, segment.revision, mode);
             await onRefresh();
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "请先确认剧本");
-        }
+            message.success("H3 视频段已进入本地 GPU 队列");
+        } catch (error) { message.error(error instanceof Error ? error.message : "视频生成失败"); }
+        finally { setBusy(""); }
     };
-    const updateSequence = async (sequence: DirectorSequence, patch: Record<string, unknown>) => {
-        setBusy(sequence.id);
-        try {
-            await directorApi.updateSequence(sequence.id, { revision: sequence.revision, ...patch });
-            await onRefresh();
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "更新失败");
-        } finally {
-            setBusy("");
-        }
-    };
-    const extract = async (sequence: DirectorSequence) => {
-        setBusy(sequence.id);
-        try {
-            for (const panel of sequence.payload.storyboard || [])
-                await directorApi.createShot(projectId, {
-                    sequenceId: sequence.id,
-                    position: panel.position,
-                    title: panel.title || `镜头 ${panel.position + 1}`,
-                    payload: { description: panel.description, action: panel.action, dialogue: panel.dialogue, narration: panel.narration, shotSize: panel.shotSize, cameraAngle: panel.cameraAngle, cameraMove: panel.cameraMove, durationSeconds: panel.durationSeconds, characterRefs: panel.characterRefs || [], sceneRefs: panel.sceneRefs || [], propRefs: panel.propRefs || [], firstFrameFileId: panel.imageFileId, boundary: "cut" },
-                });
-            await onRefresh();
-            setView("shots");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "请先确认故事板");
-        } finally {
-            setBusy("");
-        }
+    const batchGenerate = async () => {
+        const targets = state.videoSegments.filter((segment) => !segment.payload.storyboardSheet?.imageFileId);
+        if (!targets.length) return message.info("没有缺失的故事板");
+        setBusy("batch");
+        const results = await Promise.allSettled(targets.map((segment) => directorApi.generateStoryboard(segment.id, segment.revision)));
+        await onRefresh(); setBusy("");
+        const failed = results.filter((item) => item.status === "rejected").length;
+        failed ? message.warning(`${targets.length - failed} 个已提交，${failed} 个因素材预检未通过`) : message.success(`${targets.length} 个故事板已提交，生图队列并发上限 10`);
     };
     return (
         <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -854,221 +825,79 @@ function Storyboard({ projectId, state, onRefresh }: { projectId: string; state:
                     <button className={`px-4 py-2 ${view === "boards" ? "bg-blue-600 text-white" : "border border-slate-200 bg-slate-50 text-slate-500 hover:text-blue-700"}`} onClick={() => setView("boards")}>
                         故事板 <span className="ml-1 font-mono text-[10px] text-slate-400">{state.sequences.length}</span>
                     </button>
-                    <button className={`px-4 py-2 ${view === "shots" ? "bg-blue-600 text-white" : "border border-slate-200 bg-slate-50 text-slate-500 hover:text-blue-700"}`} onClick={() => setView("shots")}>
-                        镜头列表 <span className="ml-1 font-mono text-[10px] text-slate-400">{state.shots.length}</span>
+                    <button className={`px-4 py-2 ${view === "segments" ? "bg-blue-600 text-white" : "border border-slate-200 bg-slate-50 text-slate-500 hover:text-blue-700"}`} onClick={() => setView("segments")}>
+                        视频段列表 <span className="ml-1 font-mono text-[10px] text-slate-400">{state.videoSegments.length}</span>
                     </button>
                 </div>
-                {view === "boards" ? (
-                    <Button type="text" className="!text-slate-600" icon={<Plus className="size-4" />} onClick={() => void createSequence()}>
-                        新建剧情段落
-                    </Button>
-                ) : null}
+                {view === "boards" ? <Button type="text" loading={busy === "batch"} icon={<ImageIcon className="size-4" />} onClick={() => void batchGenerate()}>批量生成缺失故事板</Button> : null}
             </div>
             {view === "boards" ? (
                 <div className="mt-6 space-y-7">
-                    {state.sequences.map((sequence) => (
-                        <SequenceBoard
-                            key={sequence.id}
-                            sequence={sequence}
-                            busy={busy === sequence.id}
-                            onAgent={() => prepare(projectId, { kind: "director", projectId, entityKind: "sequence", entityId: sequence.id, title: sequence.title, subtitle: "剧情段落故事板" })}
-                            onConfirm={() => void updateSequence(sequence, { status: "confirmed" })}
-                            onExtract={() => void extract(sequence)}
-                            onGenerate={() => void generate(sequence)}
-                            onRegenerate={(panelId) => void generate(sequence, panelId)}
-                            onReorder={(storyboard) => void updateSequence(sequence, { payload: { ...sequence.payload, storyboard } })}
-                        />
-                    ))}
-                    {state.sequences.length ? (
-                        <Button className="!h-12 w-full !border-dashed !border-slate-300 !bg-transparent !text-slate-500" icon={<Plus className="size-4" />} onClick={() => void createSequence()}>
-                            新建剧情段落
-                        </Button>
-                    ) : (
-                        <EmptyPanel icon={Clapperboard} title="还没有故事板" description="让 Agent 根据已确认剧本规划第一个剧情段落。" />
-                    )}
+                    {state.sequences.map((sequence) => <section key={sequence.id}>
+                        <div className="mb-3 flex items-baseline gap-3"><span className="font-mono text-xs text-blue-600">SEQ {String(sequence.position + 1).padStart(2, "0")}</span><h2 className="font-serif text-xl text-slate-950">{sequence.title}</h2></div>
+                        <div className="space-y-4">{state.videoSegments.filter((segment) => segment.sequenceId === sequence.id).map((segment) => <VideoSegmentCard key={segment.id} projectId={projectId} segment={segment} busy={busy === segment.id} onAgent={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: segment.id, title: segment.title, subtitle: "视频段与故事板" })} onGenerateBoard={() => void generateBoard(segment)} onGenerateVideo={(mode) => void generateVideo(segment, mode)} onRefresh={onRefresh} />)}</div>
+                    </section>)}
+                    {!state.videoSegments.length ? <EmptyPanel icon={Clapperboard} title="还没有视频段" description="让 Agent 根据剧本规划 4–15 秒视频段。" /> : null}
                 </div>
             ) : (
-                <ShotList projectId={projectId} shots={state.shots} sequences={state.sequences} onRefresh={onRefresh} />
+                <VideoSegmentList projectId={projectId} segments={state.videoSegments} sequences={state.sequences} onRefresh={onRefresh} />
             )}
         </div>
     );
 }
 
-function SequenceBoard({
-    sequence,
-    busy,
-    onAgent,
-    onConfirm,
-    onExtract,
-    onGenerate,
-    onRegenerate,
-    onReorder,
-}: {
-    sequence: DirectorSequence;
-    busy: boolean;
-    onAgent: () => void;
-    onConfirm: () => void;
-    onExtract: () => void;
-    onGenerate: () => void;
-    onRegenerate: (panelId: string) => void;
-    onReorder: (panels: DirectorStoryboardPanel[]) => void;
-}) {
-    const panels = sequence.payload.storyboard || [];
-    const move = (index: number, direction: number) => {
-        const next = [...panels];
-        const target = index + direction;
-        if (target < 0 || target >= next.length) return;
-        [next[index], next[target]] = [next[target], next[index]];
-        onReorder(next.map((item, position) => ({ ...item, position })));
+function VideoSegmentCard({ projectId, segment, busy, onAgent, onGenerateBoard, onGenerateVideo, onRefresh }: { projectId: string; segment: DirectorVideoSegment; busy: boolean; onAgent: () => void; onGenerateBoard: () => void; onGenerateVideo: (mode?: H3GenerationMode) => void; onRefresh: () => Promise<void> }) {
+    const { message } = App.useApp();
+    const [preflight, setPreflight] = useState<DirectorVideoSegmentPreflight>();
+    const [layoutBusy, setLayoutBusy] = useState(false);
+    useEffect(() => { void directorApi.videoSegmentPreflight(segment.id).then(setPreflight).catch(() => setPreflight(undefined)); }, [segment.id, segment.revision]);
+    const sheet = segment.payload.storyboardSheet;
+    const recommendedFrames = (segment.payload.durationSeconds || 4) <= 6 ? 4 : (segment.payload.durationSeconds || 4) <= 10 ? 6 : 9;
+    const updateMode = async (mode: H3GenerationMode | "auto") => { await directorApi.updateVideoSegment(segment.id, { revision: segment.revision, payload: { ...segment.payload, h3ModeOverride: mode === "auto" ? null : mode } }); await onRefresh(); };
+    const updateFrameCount = async (frameCount: 4 | 6 | 9) => {
+        setLayoutBusy(true);
+        try {
+            await directorApi.updateVideoSegment(segment.id, { revision: segment.revision, payload: { ...segment.payload, storyboardFrameCount: frameCount } });
+            await onRefresh();
+            message.success(`已改为 ${frameCount} 格，请重新生成整张故事板`);
+        } catch (error) { message.error(error instanceof Error ? error.message : "故事板格数修改失败"); }
+        finally { setLayoutBusy(false); }
     };
+    const sheetAspect = sheet?.layout === "3x2" ? "8 / 3" : "16 / 9";
     return (
-        <article data-testid="director-storyboard-card" className="overflow-hidden border border-slate-300 bg-white [contain-intrinsic-size:auto_640px] [content-visibility:auto]">
-            <header className="flex flex-wrap items-center justify-between gap-5 px-6 py-5">
-                <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-3">
-                        <span className="font-mono text-sm text-blue-600">SEQ {String(sequence.position + 1).padStart(2, "0")}</span>
-                        <h2 className="font-serif text-2xl text-slate-950">{sequence.title}</h2>
-                        <StatusPill status={sequence.status} />
-                        {sequence.payload.needsReview ? <Tag color="error">需要检查</Tag> : null}
-                    </div>
-                    <p className="mt-2 truncate text-xs text-slate-500">{sequence.summary}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-4">
-                    <span className="flex items-center gap-1.5 text-xs text-slate-500">
-                        <LayoutDashboard className="size-3.5" />
-                        {panels.length} 格
-                    </span>
-                    <span className="h-4 w-px bg-slate-200" />
-                    <span className="flex items-center gap-1.5 text-xs text-slate-500">
-                        <Clock3 className="size-3.5" />
-                        {panels.reduce((sum, panel) => sum + (panel.durationSeconds || 4), 0)} 秒
-                    </span>
-                    <FlatAction icon={Bot} label="交给 Agent" onClick={onAgent} />
-                    <FlatAction icon={ImageIcon} label="生成缺失格" loading={busy} onClick={onGenerate} />
-                    {sequence.status === "draft" ? <FlatAction icon={Check} label="确认故事板" loading={busy} onClick={onConfirm} /> : <FlatAction icon={Scissors} label="拆为镜头" loading={busy} onClick={onExtract} />}
-                </div>
+        <article data-testid="director-storyboard-card" className="overflow-hidden border border-slate-300 bg-white [content-visibility:auto]">
+            <header className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+                <div><div className="flex items-center gap-3"><span className="font-mono text-xs text-blue-600">SEG {String(segment.position + 1).padStart(2, "0")}</span><h3 className="font-serif text-xl text-slate-950">{segment.title}</h3>{segment.payload.videoStale ? <Tag color="error">视频已过期</Tag> : null}</div><p className="mt-1 text-xs text-slate-500">{segment.payload.durationSeconds || 4} 秒 · {sheet?.frames.length || 4} 格 · 内部 {new Set(sheet?.frames.map((frame) => frame.shotNumber)).size || 1} 个 Shot</p></div>
+                <div className="flex flex-wrap items-center gap-2"><Select aria-label="故事板格数" size="small" variant="borderless" loading={layoutBusy} disabled={busy} value={(sheet?.frames.length || recommendedFrames) as 4 | 6 | 9} options={([4, 6, 9] as const).map((count) => ({ value: count, label: `${count} 格${count === recommendedFrames ? " · 建议" : ""}` }))} onChange={(value) => void updateFrameCount(value)} /><Select size="small" variant="borderless" value={segment.payload.h3ModeOverride || "auto"} options={[{ value: "auto", label: `自动 · ${(preflight?.route.mode || segment.payload.h3Mode || "fl2va").toUpperCase()}` }, { value: "fl2va", label: "FL2VA" }, { value: "ref2va", label: "Ref2VA" }]} onChange={(value) => void updateMode(value as H3GenerationMode | "auto")} /><FlatAction icon={Bot} label="交给 Agent" onClick={onAgent} /><FlatAction icon={RefreshCw} label={sheet?.imageFileId ? "重抽整板" : "生成故事板"} loading={busy || layoutBusy} onClick={onGenerateBoard} /><FlatAction icon={Video} label="生成视频" loading={busy || layoutBusy} onClick={() => onGenerateVideo(segment.payload.h3ModeOverride || undefined)} /></div>
             </header>
-            <div data-testid="director-storyboard-grid" className="grid gap-px border-t border-slate-300 bg-slate-300 sm:grid-cols-2 xl:grid-cols-3">
-                {panels.map((panel, index) => (
-                    <div key={panel.id} className="group relative aspect-video overflow-hidden bg-slate-100">
-                        <div className="absolute inset-0">
-                            {panel.imageFileId ? (
-                                <img src={serverApiUrl(`/files/${panel.imageFileId}/content`)} className="size-full object-cover" />
-                            ) : (
-                                <div className="grid size-full place-items-center bg-slate-100 text-slate-400">
-                                    <ImageIcon className="size-8" />
-                                </div>
-                            )}
-                            {panel.review?.status === "pending" ? <div className="director-asset-loading absolute inset-0 grid place-items-center"><div className="text-center"><Loader2 className="mx-auto size-5 animate-spin text-blue-600" /><p className="mt-2 text-xs text-slate-600">{panel.imageFileId ? "视觉检查中" : "画面生成中"}</p></div></div> : null}
-                        </div>
-                        <div className="absolute inset-x-0 bottom-0 bg-slate-950/75 px-4 py-3 text-white">
-                            <div className="flex items-baseline gap-2">
-                                <span className="font-mono text-base">{String(index + 1).padStart(2, "0")}</span>
-                                <span className="font-mono text-xs text-white/80">{panel.durationSeconds || 4}s</span>
-                                <strong className="truncate text-sm">{panel.title || `镜头 ${index + 1}`}</strong>
-                            </div>
-                            <p className="mt-1 truncate text-xs text-white/75">{panel.description || "待规划画面与动作"}</p>
-                        </div>
-                        <div className="absolute right-2 top-2 flex overflow-hidden bg-slate-950/80 text-white opacity-0 transition group-hover:opacity-100">
-                            <button aria-label={`重新设计${panel.title || `镜头 ${index + 1}`}`} className="flex items-center gap-1 px-2 py-1.5 text-[11px] hover:bg-white/15" onClick={() => onRegenerate(panel.id)}>
-                                <RefreshCw className="size-3" />
-                                重抽
-                            </button>
-                            <button aria-label={`前移${panel.title || `镜头 ${index + 1}`}`} className="px-2 py-1.5 text-[11px] hover:bg-white/15" onClick={() => move(index, -1)}>
-                                ← 前移
-                            </button>
-                            <button aria-label={`后移${panel.title || `镜头 ${index + 1}`}`} className="px-2 py-1.5 text-[11px] hover:bg-white/15" onClick={() => move(index, 1)}>
-                                后移 →
-                            </button>
-                        </div>
-                        {panel.review && panel.review.status !== "pending" ? <Tooltip title={[panel.review.summary, ...(panel.review.issues || [])].filter(Boolean).join("；")}><div className={`absolute left-2 top-2 px-2 py-1 text-[10px] text-white ${panel.review.status === "passed" ? "bg-emerald-600" : panel.review.status === "failed" ? "bg-rose-600" : "bg-slate-600"}`}>{panel.review.status === "passed" ? "检查通过" : panel.review.status === "failed" ? "需要检查" : "人工检查"}</div></Tooltip> : null}
-                    </div>
-                ))}
+            <div className="grid border-t border-slate-200 lg:grid-cols-[1fr_280px]">
+                <div data-testid="director-storyboard-sheet" className="relative overflow-hidden bg-slate-100" style={{ aspectRatio: sheetAspect }}>{sheet?.imageFileId ? <img draggable={false} src={serverApiUrl(`/files/${sheet.imageFileId}/content`)} className="pointer-events-none size-full select-none object-contain" /> : <div className="grid size-full place-items-center text-slate-400"><ImageIcon className="size-10" /></div>}{sheet?.review?.status === "pending" ? <div className="director-asset-loading absolute inset-0 grid place-items-center"><Loader2 className="size-6 animate-spin text-blue-600" /></div> : null}<span className="absolute bottom-3 left-3 bg-slate-950/75 px-2 py-1 text-[10px] text-white">单张故事板 · {sheet?.frames.length || recommendedFrames} 格</span></div>
+                <aside className="border-l border-slate-200 p-4"><p className="text-xs font-medium text-slate-900">实际参考输入 {preflight?.selected.length || 0}/6</p><div className="mt-3 grid grid-cols-3 gap-2">{preflight?.selected.map((item) => <Tooltip key={item.fileId} title={`${item.purpose} · ${item.name}`}><div><img className="aspect-square w-full object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /><p className="mt-1 truncate text-[10px] text-slate-500">{item.purpose}</p></div></Tooltip>)}</div>{preflight?.omitted.length ? <p className="mt-3 text-[11px] text-orange-600">未采用 {preflight.omitted.length} 项：{preflight.omitted.map((item) => item.name).join("、")}</p> : null}{preflight?.blockedReasons.map((reason) => <p key={reason} className="mt-2 text-[11px] text-rose-600">{reason} · 让 Agent 匹配素材</p>)}<div className="mt-4 border-t border-slate-200 pt-3 text-[11px] leading-5 text-slate-500"><strong className="text-slate-700">{(preflight?.route.mode || "fl2va").toUpperCase()}</strong><br />{preflight?.route.reason}</div></aside>
             </div>
         </article>
     );
 }
 
-function ShotList({ projectId, shots, sequences, onRefresh }: { projectId: string; shots: DirectorShot[]; sequences: DirectorSequence[]; onRefresh: () => Promise<void> }) {
-    const { message } = App.useApp();
+function VideoSegmentList({ projectId, segments, sequences, onRefresh }: { projectId: string; segments: DirectorVideoSegment[]; sequences: DirectorSequence[]; onRefresh: () => Promise<void> }) {
     const prepare = useAgentStore((store) => store.prepareComposer);
-    const update = async (shot: DirectorShot, patch: Record<string, unknown>) => {
-        try {
-            await directorApi.updateShot(shot.id, { revision: shot.revision, ...patch });
-            await onRefresh();
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "镜头更新失败");
-        }
-    };
-    const regenerate = async (shot: DirectorShot) => {
-        try {
-            await directorApi.generateShot(shot.id, shot.revision);
-            message.success("镜头视频已进入生成队列，将直接替换当前结果");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "镜头生成失败");
-        }
-    };
-    return shots.length ? (
+    const sequencePositions = new Map(sequences.map((sequence) => [sequence.id, sequence.position]));
+    const orderedSegments = [...segments].sort((a, b) => (sequencePositions.get(a.sequenceId) ?? 0) - (sequencePositions.get(b.sequenceId) ?? 0) || a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+    return orderedSegments.length ? (
         <div className="mt-7 space-y-4">
-            {shots.map((shot) => (
-                <article key={shot.id} className="grid overflow-hidden border border-slate-200 bg-white md:grid-cols-[280px_1fr]">
-                    <div className="aspect-video bg-slate-50 md:aspect-auto">
-                        {shot.payload.firstFrameFileId ? (
-                            <img className="size-full object-cover" src={serverApiUrl(`/files/${shot.payload.firstFrameFileId}/content`)} />
-                        ) : (
-                            <div className="grid size-full place-items-center text-slate-300">
-                                <Video className="size-8" />
-                            </div>
-                        )}
-                    </div>
-                    <div className="p-5">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                                <div className="text-[10px] tracking-wider text-blue-600">
-                                    {sequences.find((item) => item.id === shot.sequenceId)?.title} · SHOT {shot.position + 1}
-                                </div>
-                                <h2 className="mt-2 font-serif text-xl text-slate-950">{shot.title}</h2>
-                            </div>
-                            <div className="flex">
-                                <FlatAction icon={Bot} label="Agent" onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "shot", entityId: shot.id, title: shot.title, subtitle: "独立镜头" })} />
-                                <FlatAction icon={RefreshCw} label="重新生成" onClick={() => void regenerate(shot)} />
-                                {shot.status === "draft" ? <FlatAction icon={Check} label="确认" onClick={() => void update(shot, { status: "confirmed" })} /> : null}
-                            </div>
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-slate-500">{shot.payload.description || "等待补充画面描述"}</p>
-                        <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                            {[shot.payload.shotSize, shot.payload.cameraAngle, shot.payload.cameraMove, `${shot.payload.durationSeconds || 4}s`].filter(Boolean).map((item) => (
-                                <span key={String(item)} className="border border-slate-200 px-2 py-1">
-                                    {String(item)}
-                                </span>
-                            ))}
-                            <Select
-                                size="small"
-                                variant="borderless"
-                                value={shot.payload.boundary || "cut"}
-                                popupClassName="director-select"
-                                className="!text-xs"
-                                options={[
-                                    { value: "cut", label: "CUT 普通切镜" },
-                                    { value: "continue", label: "CONTINUE 连续续写" },
-                                ]}
-                                onChange={(boundary) => void update(shot, { payload: { ...shot.payload, boundary } })}
-                            />
-                        </div>
-                    </div>
-                </article>
+            {orderedSegments.map((segment) => (
+                <article key={segment.id} className="grid overflow-hidden border border-slate-200 bg-white md:grid-cols-[280px_1fr]"><div className="aspect-video bg-slate-50">{segment.payload.videoFileId ? <video controls className="size-full object-cover" src={serverApiUrl(`/files/${segment.payload.videoFileId}/content`)} /> : segment.payload.storyboardSheet?.imageFileId ? <img className="size-full object-cover" src={serverApiUrl(`/files/${segment.payload.storyboardSheet.imageFileId}/content`)} /> : <div className="grid size-full place-items-center text-slate-300"><Video className="size-8" /></div>}</div><div className="p-5"><div className="flex justify-between gap-3"><div><div className="text-[10px] tracking-wider text-blue-600">{sequences.find((item) => item.id === segment.sequenceId)?.title} · SEG {segment.position + 1}</div><h2 className="mt-2 font-serif text-xl text-slate-950">{segment.title}</h2></div><FlatAction icon={Bot} label="Agent" onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: segment.id, title: segment.title, subtitle: "视频段" })} /></div><p className="mt-3 text-sm text-slate-500">{segment.payload.description || "等待补充视频段描述"}</p><div className="mt-4 flex gap-2 text-[11px] text-slate-500"><span className="border border-slate-200 px-2 py-1">{segment.payload.durationSeconds}s</span><span className="border border-slate-200 px-2 py-1">{(segment.payload.h3Mode || "待路由").toUpperCase()}</span><span className="border border-slate-200 px-2 py-1">{segment.payload.nativeAudioStatus === "ready" ? "含模型原声" : "无模型原声"}</span>{segment.payload.videoStale ? <span className="border border-rose-200 px-2 py-1 text-rose-600">已过期</span> : null}</div></div></article>
             ))}
         </div>
     ) : (
-        <EmptyPanel icon={Clapperboard} title="还没有独立镜头" description="先确认故事板，再拆分成镜头。" />
+        <EmptyPanel icon={Clapperboard} title="还没有视频段" description="让 Agent 根据剧本规划 4–15 秒视频段。" />
     );
 }
 
 function Studio({ projectId, state, onRefresh }: { projectId: string; state: DirectorState; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
-    const order = state.timeline.payload.shotOrder?.length ? state.timeline.payload.shotOrder : state.shots.map((item) => item.id);
-    const shots = order.map((id) => state.shots.find((item) => item.id === id)).filter(Boolean) as DirectorShot[];
+    const order = state.timeline.payload.segmentOrder?.length ? state.timeline.payload.segmentOrder : state.videoSegments.map((item) => item.id);
+    const shots = order.map((id) => state.videoSegments.find((item) => item.id === id)).filter(Boolean) as DirectorVideoSegment[];
     const [playing, setPlaying] = useState(false);
     const [dragged, setDragged] = useState("");
     const [rendering, setRendering] = useState(false);
@@ -1085,7 +914,7 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
     }, [projectId]);
     const saveOrder = async (next: string[]) => {
         try {
-            await directorApi.updateTimeline(projectId, { revision: state.timeline.revision, payload: { ...state.timeline.payload, shotOrder: next } });
+            await directorApi.updateTimeline(projectId, { revision: state.timeline.revision, payload: { ...state.timeline.payload, segmentOrder: next } });
             await onRefresh();
         } catch (error) {
             message.error(error instanceof Error ? error.message : "时间线保存失败");
@@ -1121,24 +950,24 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
                         时间线
                     </span>
                     <span className="h-4 w-px bg-slate-200" />
-                    <span>{shots.length} 个镜头</span>
+                    <span>{shots.length} 个视频段</span>
                     <span className="h-4 w-px bg-slate-200" />
                     <span className="flex items-center gap-1.5">
                         <Clock3 className="size-4" />
                         总时长 {formatTime(totalDuration)}
                     </span>
-                    {missingVideos ? <span className="text-orange-600">缺少视频 {missingVideos} 个镜头</span> : <span className="text-emerald-600">视频已就绪</span>}
+                    {missingVideos ? <span className="text-orange-600">缺少视频 {missingVideos} 个视频段</span> : <span className="text-emerald-600">视频已就绪</span>}
                 </div>
                 <div className="flex gap-2">
                     <Button
                         type="text"
                         className="!text-slate-600"
                         icon={<Bot className="size-4" />}
-                        onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "timeline", entityId: "timeline", title: "时间线", subtitle: "镜头与声音编排" })}
+                        onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "timeline", entityId: "timeline", title: "时间线", subtitle: "视频段与声音编排" })}
                     >
                         交给 Agent 铺轨
                     </Button>
-                    <Tooltip title={missingVideos ? `仍有 ${missingVideos} 个镜头缺少视频` : "导出 H.264/AAC MP4"}>
+                    <Tooltip title={missingVideos ? `仍有 ${missingVideos} 个视频段缺少视频` : "导出 H.264/AAC MP4"}>
                         <Button disabled={Boolean(missingVideos)} loading={rendering} className="!border-blue-600 !bg-blue-600 !text-white" icon={<Film className="size-4" />} onClick={() => void render()}>
                             导出 MP4
                         </Button>
@@ -1201,7 +1030,7 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
                             <span className="absolute -left-1.5 top-0 h-0 w-0 border-x-[6px] border-t-[9px] border-x-transparent border-t-blue-600" />
                         </div>
                         <div className="flex min-h-40 border-b border-slate-200">
-                            <TrackLabel icon={Video} label="镜头轨道" />
+                            <TrackLabel icon={Video} label="视频段主轨" />
                             <div className="flex min-w-max flex-1 items-start gap-1 bg-slate-50 p-3">
                                 {shots.map((shot, index) => (
                                     <div
@@ -1236,11 +1065,11 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
                             </div>
                         </div>
                         <div>
-                            {(["dialogue", "narration", "ambient", "sfx", "music"] as const).map((kind) => {
+                            {(["model-original", "dialogue", "narration", "ambient", "sfx", "music"] as const).map((kind) => {
                                 const track = state.timeline.payload.tracks?.find((item) => item.kind === kind);
                                 return (
                                     <div key={kind} className="flex h-16 border-b border-slate-200">
-                                        <TrackLabel icon={AudioLines} label={{ dialogue: "对白", narration: "旁白", ambient: "环境声", sfx: "道具音效", music: "音乐" }[kind]} />
+                                        <TrackLabel icon={AudioLines} label={{ "model-original": "模型原声", dialogue: "对白", narration: "旁白", ambient: "环境声", sfx: "道具音效", music: "音乐" }[kind]} />
                                         <div className="relative flex-1 bg-white">
                                             {track?.clips.map((clip) => (
                                                 <div

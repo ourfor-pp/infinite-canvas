@@ -16,6 +16,7 @@ type SequenceRow = { id: string; user_id: string; project_id: string; position: 
 type ShotRow = { id: string; user_id: string; project_id: string; sequence_id: string; position: number; title: string; status: DirectorEntityStatus; payload: string; revision: number; created_at: string; updated_at: string };
 type TimelineRow = { project_id: string; user_id: string; payload: string; revision: number; created_at: string; updated_at: string };
 type SourceChapter = { heading: string; content: string };
+export type DirectorStoryboardLayout = "2x2" | "3x2" | "3x3";
 
 const id = z.string().trim().min(1).max(128);
 const status = z.enum(["draft", "confirmed", "locked"]);
@@ -44,9 +45,12 @@ export function getDirectorState(userId: string, projectId: string) {
     const documents = db.prepare("SELECT * FROM director_documents WHERE user_id=? AND project_id=? ORDER BY kind").all(userId, projectId) as DocumentRow[];
     const sources = db.prepare("SELECT * FROM director_sources WHERE user_id=? AND project_id=? ORDER BY updated_at DESC").all(userId, projectId) as SourceRow[];
     const sequences = db.prepare("SELECT * FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position, created_at").all(userId, projectId) as SequenceRow[];
-    const shots = db.prepare("SELECT * FROM director_shots WHERE user_id=? AND project_id=? ORDER BY sequence_id, position, created_at").all(userId, projectId) as ShotRow[];
+    const shots = db.prepare(`SELECT shot.* FROM director_shots shot
+        JOIN director_sequences sequence ON sequence.id=shot.sequence_id
+        WHERE shot.user_id=? AND shot.project_id=?
+        ORDER BY sequence.position, shot.position, shot.created_at`).all(userId, projectId) as ShotRow[];
     const timeline = db.prepare("SELECT * FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
-    return { activeStyleId: activeStyleId(userId, projectId), workspace: workspaceResponse(workspace), documents: documents.map(documentResponse), sources: sources.map(sourceResponse), sequences: sequences.map(sequenceResponse), shots: shots.map(shotResponse), timeline: timelineResponse(timeline) };
+    return { activeStyleId: activeStyleId(userId, projectId), workspace: workspaceResponse(workspace), documents: documents.map(documentResponse), sources: sources.map(sourceResponse), sequences: sequences.map(sequenceResponse), videoSegments: shots.map(videoSegmentResponse), timeline: timelineResponse(timeline) };
 }
 
 export function updateDirectorWorkspace(userId: string, projectId: string, body: unknown) {
@@ -164,14 +168,13 @@ export function createDirectorShot(userId: string, projectId: string, body: unkn
     const value = shotInput.parse(body);
     const sequence = sequenceRow(userId, value.sequenceId);
     if (sequence.project_id !== projectId) throw directorError(404, "DIRECTOR_SEQUENCE_NOT_FOUND", "剧情段落不存在");
-    if (!['confirmed', 'locked'].includes(sequence.status)) throw directorError(409, "DIRECTOR_STAGE_GATE", "请先确认故事板，再拆分独立镜头");
     const shotId = value.id || nanoid();
     const position = value.position ?? Number((db.prepare("SELECT coalesce(max(position),-1)+1 value FROM director_shots WHERE user_id=? AND sequence_id=?").get(userId, value.sequenceId) as { value: number }).value);
     const now = new Date().toISOString();
     const payload = normalizeShotPayload(value.payload, sequence);
     db.prepare(`INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,status,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`)
         .run(shotId, userId, projectId, value.sequenceId, position, value.title, value.status, JSON.stringify(payload), now, now);
-    return publish(userId, "shot", projectId, shotResponse(db.prepare("SELECT * FROM director_shots WHERE id=? AND user_id=?").get(shotId, userId) as ShotRow));
+    return publish(userId, "video-segment", projectId, videoSegmentResponse(db.prepare("SELECT * FROM director_shots WHERE id=? AND user_id=?").get(shotId, userId) as ShotRow));
 }
 
 export function updateDirectorShot(userId: string, shotId: string, body: unknown, allowLocked = false) {
@@ -185,16 +188,16 @@ export function updateDirectorShot(userId: string, shotId: string, body: unknown
     const now = new Date().toISOString();
     const result = db.prepare(`UPDATE director_shots SET sequence_id=?,position=?,title=?,status=?,payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?`)
         .run(sequenceId, value.position ?? current.position, value.title ?? current.title, value.status ?? current.status, JSON.stringify(payload), now, shotId, userId, value.revision);
-    if (!result.changes) conflict("镜头", shotResponse(current));
+    if (!result.changes) conflict("视频段", videoSegmentResponse(current));
     if (shotVideoChanged(current.payload, payload)) markContinuationDependentsStale(userId, current.project_id, shotId);
-    return publish(userId, "shot", current.project_id, shotResponse(shotRow(userId, shotId)));
+    return publish(userId, "video-segment", current.project_id, videoSegmentResponse(shotRow(userId, shotId)));
 }
 
 export function deleteDirectorShot(userId: string, shotId: string, allowLocked = false) {
     const current = shotRow(userId, shotId);
     if (!allowLocked && current.status === "locked") throw directorError(423, "DIRECTOR_LOCKED", "镜头已锁定，需要通过 Agent 审批后删除");
     db.prepare("DELETE FROM director_shots WHERE id=? AND user_id=?").run(shotId, userId);
-    return publish(userId, "shot.deleted", current.project_id, { id: shotId });
+    return publish(userId, "video-segment.deleted", current.project_id, { id: shotId });
 }
 
 export function updateDirectorTimeline(userId: string, projectId: string, body: unknown) {
@@ -358,13 +361,36 @@ function assertStoryboardSize(value: unknown) {
 
 function normalizeShotPayload(payload: Record<string, unknown>, sequence: SequenceRow) {
     const dependencies = typeof payload.dependencies === "object" && payload.dependencies ? payload.dependencies : parseJson<Record<string, unknown>>(sequence.payload, {}).dependencies;
-    return { durationSeconds: 4, boundary: "cut", characterRefs: [], sceneRefs: [], propRefs: [], audioCues: [], ...payload, dependencies, needsReview: false };
+    const legacy = payload.references && typeof payload.references === "object" ? payload.references as Record<string, unknown> : {};
+    const refs = (value: unknown) => Array.isArray(value) ? value : [];
+    const durationSeconds = Math.round(Number(payload.durationSeconds ?? payload.duration) || 4);
+    if (durationSeconds < 4 || durationSeconds > 15) throw directorError(400, "DIRECTOR_VIDEO_SEGMENT_DURATION", "视频段时长必须为 4–15 秒；更长内容请先拆段");
+    const existingSheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : undefined;
+    const existingFrames = Array.isArray(existingSheet?.frames) ? existingSheet.frames as Array<Record<string, unknown>> : [];
+    const requestedCount = Number(payload.storyboardFrameCount);
+    const frameCount = [4, 6, 9].includes(requestedCount) ? requestedCount : [4, 6, 9].includes(existingFrames.length) ? existingFrames.length : recommendedStoryboardFrameCount(durationSeconds);
+    const sheetChanged = Boolean(existingSheet && existingFrames.length !== frameCount);
+    const storyboardSheet = existingSheet && !sheetChanged ? { ...existingSheet, layout: storyboardLayout(frameCount) } : buildStoryboardSheet(durationSeconds, frameCount, payload, existingFrames, Number(existingSheet?.revision || 0) + 1);
+    return { ...payload, entityKind: "video-segment", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), storyboardFrameCount: frameCount, storyboardSheet, ...(sheetChanged ? { firstFrameFileId: undefined, lastFrameFileId: undefined, videoStale: Boolean(payload.videoFileId) } : {}), dependencies, needsReview: false };
+}
+
+export function recommendedStoryboardFrameCount(durationSeconds: number) { return durationSeconds <= 6 ? 4 : durationSeconds <= 10 ? 6 : 9; }
+export function storyboardLayout(frameCount: number): DirectorStoryboardLayout { return frameCount === 9 ? "3x3" : frameCount === 6 ? "3x2" : "2x2"; }
+
+function buildStoryboardSheet(duration: number, frameCount: number, payload: Record<string, unknown>, source: Array<Record<string, unknown>> = [], revision = 1) {
+    const intent = String(payload.description || payload.action || "");
+    const frames = Array.from({ length: frameCount }, (_, position) => {
+        const timeSeconds = Number((duration * position / Math.max(1, frameCount - 1)).toFixed(2));
+        const nearest = source.length ? source[Math.round(position * (source.length - 1) / Math.max(1, frameCount - 1))] : undefined;
+        return { id: nanoid(), position, shotNumber: Number(nearest?.shotNumber || 1), timeSeconds, kind: position === 0 ? "shot-start" : position === frameCount - 1 ? "shot-end" : "keyframe", description: String(nearest?.description || `${timeSeconds} 秒时清晰呈现“${intent}”的第 ${position + 1} 个连续视觉节拍`), action: String(nearest?.action || payload.action || ""), cameraAngle: String(nearest?.cameraAngle || payload.cameraAngle || ""), cameraMove: String(nearest?.cameraMove || payload.cameraMove || ""), sound: String(nearest?.sound || payload.sound || "") };
+    });
+    return { revision: Math.max(1, revision), layout: storyboardLayout(frameCount), frames };
 }
 
 function validateTimeline(userId: string, projectId: string, payload: Record<string, unknown>) {
     const shotIds = new Set((db.prepare("SELECT id FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>).map((row) => row.id));
-    const order = Array.isArray(payload.shotOrder) ? payload.shotOrder : [];
-    if (order.some((shotId) => typeof shotId !== "string" || !shotIds.has(shotId))) throw directorError(400, "DIRECTOR_TIMELINE_SHOT", "时间线包含不属于本项目的镜头");
+    const order = Array.isArray(payload.segmentOrder) ? payload.segmentOrder : [];
+    if (order.some((shotId) => typeof shotId !== "string" || !shotIds.has(shotId))) throw directorError(400, "DIRECTOR_TIMELINE_SEGMENT", "时间线包含不属于本项目的视频段");
 }
 
 function requireConfirmedDocument(userId: string, projectId: string, kind: string) {
@@ -396,8 +422,11 @@ function workspaceResponse(row: WorkspaceRow) { return { projectId: row.project_
 function sourceResponse(row: SourceRow) { return { id: row.id, projectId: row.project_id, fileId: row.raw_file_id, name: row.name, mimeType: row.mime_type, status: row.status, error: row.error, charCount: row.char_count, chapterCount: row.chapter_count, summary: row.summary, outline: row.outline, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function documentResponse(row: DocumentRow) { return { projectId: row.project_id, kind: row.kind, content: row.content, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function sequenceResponse(row: SequenceRow) { return { id: row.id, projectId: row.project_id, position: row.position, title: row.title, summary: row.summary, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
-function shotResponse(row: ShotRow) { return { id: row.id, projectId: row.project_id, sequenceId: row.sequence_id, position: row.position, title: row.title, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function videoSegmentResponse(row: ShotRow) { return { id: row.id, projectId: row.project_id, sequenceId: row.sequence_id, position: row.position, title: row.title, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function timelineResponse(row: TimelineRow) { return { projectId: row.project_id, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+export const createDirectorVideoSegment = createDirectorShot;
+export const updateDirectorVideoSegment = updateDirectorShot;
+export const deleteDirectorVideoSegment = deleteDirectorShot;
 function chunkResponse(row: Record<string, unknown>) { return { id: row.id, sourceId: row.source_id, ordinal: row.ordinal, heading: row.heading, content: row.content, summary: row.summary, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function publish(userId: string, type: string, projectId: string, data: unknown) { emitDirectorUpdate(userId, { type, projectId, data }); return data; }
 function conflict(name: string, current: unknown): never { throw directorError(409, "DIRECTOR_CONFLICT", `${name}已在其他页面更新`, { current }); }

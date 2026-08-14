@@ -1,6 +1,6 @@
 type NodeInput = Record<string, unknown>;
 export type Workflow = Record<string, { class_type: string; inputs: NodeInput }>;
-export type ComfyUploadedInput = { fileId: string; kind: "image" | "video" | "audio"; name: string };
+export type ComfyUploadedInput = { fileId: string; kind: "image" | "video" | "audio"; name: string; role?: "reference" | "first-frame" | "last-frame" | "continuation" };
 type WorkflowInput = { model: string; prompt: string; params: Record<string, unknown>; files: ComfyUploadedInput[] };
 
 const node = (classType: string, inputs: NodeInput) => ({ class_type: classType, inputs });
@@ -32,7 +32,8 @@ export const PURPOSE_MODELS: Record<ImageWorkflowPurpose, ComfyModel> = {
     "image-angle": "qwen-image-edit-2511-local",
 };
 
-export const COMFY_MODEL_DEFINITIONS: Record<ComfyModel, { name: string; output: "image" | "video" | "audio"; inputs: Array<"text" | "image" | "video" | "audio">; selectable: boolean; imageModes?: ImageMode[]; maxReferenceImages?: number }> = {
+export type ComfyModelDefinition = { name: string; output: "image" | "video" | "audio"; inputs: Array<"text" | "image" | "video" | "audio">; selectable: boolean; imageModes?: ImageMode[]; maxReferenceImages?: number; minDurationSeconds?: number; maxDurationSeconds?: number; videoModes?: Array<"fl2va" | "ref2va">; videoReferenceRoles?: Array<"reference" | "first-frame" | "last-frame" | "continuation">; maxReferenceVideos?: number; maxReferenceAudios?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend" };
+export const COMFY_MODEL_DEFINITIONS: Record<ComfyModel, ComfyModelDefinition> = {
     "qwen-image-2512-local": { name: "Qwen Image 2512 FP8", output: "image", inputs: ["text"], selectable: true, imageModes: ["generate"] },
     "z-image-turbo-local": { name: "Z-Image Turbo", output: "image", inputs: ["text"], selectable: true, imageModes: ["generate"] },
     "qwen-image-edit-2511-local": { name: "Qwen Image Edit 2511", output: "image", inputs: ["text", "image"], selectable: true, imageModes: ["edit"], maxReferenceImages: 3 },
@@ -40,8 +41,8 @@ export const COMFY_MODEL_DEFINITIONS: Record<ComfyModel, { name: string; output:
     "realesrgan-x4-local": { name: "RealESRGAN 忠实超分", output: "image", inputs: ["image"], selectable: false },
     "z-image-upscale-local": { name: "Z-Image 细节增强", output: "image", inputs: ["text", "image"], selectable: false },
     "hidream-o1-full-fp8-local": { name: "HiDream-O1 Full FP8", output: "image", inputs: ["text", "image"], selectable: true, imageModes: ["generate", "edit"], maxReferenceImages: 1 },
-    "minimax-h3-fl2va-local": { name: "MiniMax H3 FL2VA", output: "video", inputs: ["text", "image"], selectable: true },
-    "minimax-h3-ref2va-local": { name: "MiniMax H3 Ref2VA", output: "video", inputs: ["text", "image", "video", "audio"], selectable: true },
+    "minimax-h3-fl2va-local": { name: "MiniMax H3 FL2VA", output: "video", inputs: ["text", "image"], selectable: true, minDurationSeconds: 4, maxDurationSeconds: 15, maxReferenceImages: 2, videoModes: ["fl2va"], videoReferenceRoles: ["first-frame", "last-frame"], videoFps: 24, videoNativeAudio: true, videoNativeResolution: "768p" },
+    "minimax-h3-ref2va-local": { name: "MiniMax H3 Ref2VA", output: "video", inputs: ["text", "image", "video", "audio"], selectable: true, minDurationSeconds: 4, maxDurationSeconds: 15, maxReferenceImages: 9, maxReferenceVideos: 3, maxReferenceAudios: 3, maxReferenceFiles: 12, videoModes: ["ref2va"], videoReferenceRoles: ["reference", "continuation"], videoContinuationMode: "reference", videoFps: 24, videoNativeAudio: true, videoNativeResolution: "768p" },
     "voxcpm2-local": { name: "VoxCPM2", output: "audio", inputs: ["text", "audio"], selectable: true },
 };
 
@@ -257,7 +258,8 @@ function hiDream(input: WorkflowInput): Workflow {
 }
 
 function miniMaxH3(input: WorkflowInput): Workflow {
-    const images = input.files.filter((file) => file.kind === "image").map((file) => file.name);
+    const imageFiles = input.files.filter((file) => file.kind === "image");
+    const images = imageFiles.map((file) => file.name);
     const videos = input.files.filter((file) => file.kind === "video").map((file) => file.name);
     const audios = input.files.filter((file) => file.kind === "audio").map((file) => file.name);
     const ratioParts = String(input.params.ratio || input.params.size || "16:9").split(":").map(Number);
@@ -267,21 +269,25 @@ function miniMaxH3(input: WorkflowInput): Workflow {
     const maxPixels = shortEdge * (shortEdge === 480 ? 864 : 1344);
     if (width * height > maxPixels) { const scale = Math.sqrt(maxPixels / (width * height)); width *= scale; height *= scale; }
     width = Math.max(32, Math.round(width / 32) * 32); height = Math.max(32, Math.round(height / 32) * 32);
-    const duration = Math.max(5, Math.min(15, Math.floor(Number(input.params.seconds || input.params.videoSeconds) || 5)));
+    const duration = Math.max(4, Math.min(15, Math.floor(Number(input.params.seconds || input.params.videoSeconds) || 5)));
     const referenceMode = input.model === "minimax-h3-ref2va-local";
     const graph: Workflow = {
         "1": node("UNETLoader", { unet_name: referenceMode ? "minimax_h3_ref2va_pruned_int8_convrot.safetensors" : "minimax_h3_fl2va_pruned_int8_convrot.safetensors", weight_dtype: "default" }),
         "2": node("CLIPLoader", { clip_name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", type: "minimax", device: "default" }),
         "3": node("VAELoader", { vae_name: "minimax_h3_video_vae_fp16.safetensors" }), "4": node("VAELoader", { vae_name: "minimax_h3_audio_vae_fp32.safetensors" }),
         "6": node("BasicGuider", { model: ["15", 0], conditioning: ["5", 0] }), "7": node("KSamplerSelect", { sampler_name: "res_multistep" }), "8": node("BasicScheduler", { model: ["15", 0], scheduler: "simple", steps: 20, denoise: 1 }), "9": node("RandomNoise", { noise_seed: seed() }),
-        "10": node("SamplerCustomAdvanced", { noise: ["9", 0], guider: ["6", 0], sampler: ["7", 0], sigmas: ["8", 0], latent_image: ["5", 1] }), "11": node("VAEDecode", { samples: ["10", 0], vae: ["3", 0] }), "12": node("VAEDecodeAudio", { samples: ["10", 0], vae: ["4", 0] }), "13": node("CreateVideo", { images: ["11", 0], audio: ["12", 0], fps: 24, bit_depth: 8 }), "14": node("SaveVideo", { video: ["13", 0], filename_prefix: "InfiniteCanvas/MiniMax-H3", format: "auto", codec: "auto" }), "15": node("PathchSageAttentionKJ", { model: ["1", 0], sage_attention: "sageattn_qk_int8_pv_fp16_cuda", allow_compile: false }),
+        "10": node("SamplerCustomAdvanced", { noise: ["9", 0], guider: ["6", 0], sampler: ["7", 0], sigmas: ["8", 0], latent_image: ["5", 1] }), "11": node("VAEDecode", { samples: ["10", 0], vae: ["3", 0] }), "12": node("VAEDecodeAudio", { samples: ["10", 0], vae: ["4", 0] }), "13": node("CreateVideo", { images: ["11", 0], audio: ["12", 0], fps: 24, bit_depth: 8 }), "14": node("SaveVideo", { video: ["13", 0], filename_prefix: "InfiniteCanvas/MiniMax-H3", format: "mp4", codec: { codec: "h264", encoding: { encoding: "re-encode", crf: 16 } } }), "15": node("PathchSageAttentionKJ", { model: ["1", 0], sage_attention: "sageattn_qk_int8_pv_fp16_cuda", allow_compile: false }),
     };
     const inputs: NodeInput = { clip: ["2", 0], vae: ["3", 0], prompt: input.prompt.trim(), width, height, length: duration * 24 };
     if (!referenceMode) {
         if (videos.length || audios.length) throw Object.assign(new Error("H3 FL2VA 不支持参考视频或音频"), { status: 400 });
-        images.slice(0, 2).forEach((image, index) => { const id = String(20 + index); graph[id] = node("LoadImage", { image }); inputs[index ? "last_frame" : "first_frame"] = [id, 0]; }); graph["5"] = node("MiniMaxH3ImageToVideo", inputs); return graph;
+        const first = imageFiles.find((file) => file.role === "first-frame") || imageFiles.find((file) => !file.role || file.role === "reference");
+        const last = imageFiles.find((file) => file.role === "last-frame") || imageFiles.filter((file) => !file.role || file.role === "reference")[first ? 1 : 0];
+        if (first) { graph["20"] = node("LoadImage", { image: first.name }); inputs.first_frame = ["20", 0]; }
+        if (last) { graph["21"] = node("LoadImage", { image: last.name }); inputs.last_frame = ["21", 0]; }
+        graph["5"] = node("MiniMaxH3ImageToVideo", inputs); return graph;
     }
-    if (images.length > 9 || videos.length > 3 || audios.length > 3) throw Object.assign(new Error("H3 Ref2VA 参考素材数量超限"), { status: 400 });
+    if (images.length > 9 || videos.length > 3 || audios.length > 3 || images.length + videos.length + audios.length > 12) throw Object.assign(new Error("H3 Ref2VA 参考素材数量超限"), { status: 400 });
     if (audios.length && !images.length && !videos.length) throw Object.assign(new Error("使用参考音频时还需要参考图片或视频"), { status: 400 });
     Object.assign(inputs, { audio_vae: ["4", 0], ref_image_size: "match" });
     images.forEach((image, index) => { const id = String(21 + index); graph[id] = node("LoadImage", { image }); inputs[`ref_images.ref_image_${index}`] = [id, 0]; });

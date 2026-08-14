@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildComfyWorkflow } from "./comfy-workflows.js";
+import { buildComfyWorkflow, COMFY_MODEL_DEFINITIONS } from "./comfy-workflows.js";
 
-const image = (fileId = "source") => ({ fileId, kind: "image" as const, name: `${fileId}.png` });
+const image = (fileId = "source", role?: "reference" | "first-frame" | "last-frame") => ({ fileId, kind: "image" as const, name: `${fileId}.png`, role });
 
 test("Qwen 2512 按比例生成并根据质量选择步数", () => {
     const medium = buildComfyWorkflow({ model: "qwen-image-2512-local", prompt: "测试", params: { size: "3:2", quality: "medium" }, files: [] });
@@ -60,4 +60,30 @@ test("VoxCPM2 透传克隆文本、归一化、降噪与高级参数", () => {
     assert.equal(workflow["2"].inputs.seed, 42);
     assert.equal(workflow["2"].inputs.ultimate_clone, true);
     assert.deepEqual(workflow["2"].inputs.reference_audio, ["4", 0]);
+});
+
+test("MiniMax H3 声明真实能力并接受 4–15 秒", () => {
+    const fl = COMFY_MODEL_DEFINITIONS["minimax-h3-fl2va-local"];
+    assert.deepEqual({ min: fl.minDurationSeconds, max: fl.maxDurationSeconds, images: fl.maxReferenceImages, fps: fl.videoFps, audio: fl.videoNativeAudio, resolution: fl.videoNativeResolution }, { min: 4, max: 15, images: 2, fps: 24, audio: true, resolution: "768p" });
+    assert.deepEqual(fl.videoReferenceRoles, ["first-frame", "last-frame"]);
+    const textOnly = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 4 }, files: [] });
+    assert.equal(textOnly["5"].inputs.length, 96);
+    assert.equal(textOnly["14"].inputs.format, "mp4");
+    assert.deepEqual(textOnly["14"].inputs.codec, { codec: "h264", encoding: { encoding: "re-encode", crf: 16 } });
+    assert.equal(textOnly["5"].inputs.first_frame, undefined);
+    assert.equal(textOnly["5"].inputs.last_frame, undefined);
+    const firstOnly = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 4 }, files: [image("first", "first-frame")] });
+    assert.deepEqual(firstOnly["5"].inputs.first_frame, ["20", 0]);
+    assert.equal(firstOnly["5"].inputs.last_frame, undefined);
+    const lastOnly = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 4 }, files: [image("last", "last-frame")] });
+    assert.equal(lastOnly["5"].inputs.first_frame, undefined);
+    assert.deepEqual(lastOnly["5"].inputs.last_frame, ["21", 0]);
+    const both = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 15 }, files: [image("last", "last-frame"), image("first", "first-frame")] });
+    assert.deepEqual(both["20"].inputs.image, "first.png");
+    assert.deepEqual(both["21"].inputs.image, "last.png");
+});
+
+test("MiniMax H3 Ref2VA 限制合计 12 个参考文件", () => {
+    const files = [...Array.from({ length: 7 }, (_, index) => image(`i${index}`)), ...Array.from({ length: 3 }, (_, index) => ({ fileId: `v${index}`, kind: "video" as const, name: `v${index}.mp4` })), ...Array.from({ length: 3 }, (_, index) => ({ fileId: `a${index}`, kind: "audio" as const, name: `a${index}.wav` }))];
+    assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", params: { seconds: 15 }, files }), /数量超限/);
 });

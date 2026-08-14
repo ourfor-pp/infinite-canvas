@@ -16,4 +16,6 @@ set_env() {
 }
 set_env MEDIA_EXECUTOR_ACE_DRAIN_USER_UNITS "$user_units"
 set_env MEDIA_EXECUTOR_ACE_DRAIN_SYSTEM_UNITS "$system_units"
-echo "ACE GPU 排空服务已配置。"
+set_env MEDIA_EXECUTOR_H3_DRAIN_USER_UNITS "$user_units"
+set_env MEDIA_EXECUTOR_H3_DRAIN_SYSTEM_UNITS "${system_units//,comfyui-h3.service/}"
+echo "ACE 与 H3 GPU 排空服务已配置。"

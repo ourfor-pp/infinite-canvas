@@ -152,9 +152,18 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.equal(gatedSequence.response.status, 409);
     const script = await api(`/director/projects/${projectId}/documents/script`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "## 场 1 · 雨夜车站\n林夏：我会找到真相。", status: "confirmed" }) });
     assert.equal(script.response.status, 200);
-    const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ title: "雨夜车站", summary: "线索出现", payload: { storyboard: Array.from({ length: 6 }, (_, position) => ({ id: `panel-${position}`, position, title: `镜头 ${position + 1}` })) } }) });
+    const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ id: "z-first-sequence", position: 0, title: "雨夜车站", summary: "线索出现", payload: { storyboard: Array.from({ length: 6 }, (_, position) => ({ id: `panel-${position}`, position, title: `镜头 ${position + 1}` })) } }) });
     assert.equal(sequence.response.status, 201);
-    const storyboardWithoutStyle = await api(`/director/sequences/${sequence.body.data.id}/storyboard/panel-0/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: 1 }) });
+    const segment = await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "车站全景", payload: { durationSeconds: 8, boundary: "cut", characterRefs: [{ id: "character-stable-id", revision: 3 }] } }) });
+    assert.equal(segment.response.status, 201);
+    assert.equal(segment.body.data.payload.storyboardFrameCount, 6);
+    assert.equal(segment.body.data.payload.storyboardSheet.layout, "3x2");
+    assert.equal(segment.body.data.payload.storyboardSheet.frames.length, 6);
+    const laterSequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ id: "a-later-sequence", position: 1, title: "清晨离站" }) });
+    await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ id: "a-later-segment", sequenceId: laterSequence.body.data.id, position: 0, title: "清晨站台", payload: { durationSeconds: 4 } }) });
+    const orderedState = await api(`/director/projects/${projectId}`, userOne);
+    assert.deepEqual(orderedState.body.data.videoSegments.map((item: { title: string }) => item.title), ["车站全景", "清晨站台"], "视频段必须按剧情段落位置和段内位置排序，而不是按随机 ID 排序");
+    const storyboardWithoutStyle = await api(`/director/video-segments/${segment.body.data.id}/storyboard/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: 1 }) });
     assert.equal(storyboardWithoutStyle.response.status, 409);
     assert.equal(storyboardWithoutStyle.body.error.code, "DIRECTOR_STAGE_GATE");
     const directorStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "雨夜冷调", mode: "custom", description: "冷灰雨夜电影风格", status: "confirmed" }) });
@@ -163,20 +172,17 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.equal(stateWithStyle.body.data.activeStyleId, directorStyle.body.data.id);
     const editedStyle = await api(`/visual-styles/${directorStyle.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, description: "冷灰雨夜电影风格，增加潮湿反光" }) });
     assert.equal(editedStyle.body.data.status, "draft", "导演当前风格发生实质修改后必须回到草稿");
-    const gatedShot = await api(`/director/projects/${projectId}/shots`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "车站全景" }) });
-    assert.equal(gatedShot.response.status, 409);
     const confirmed = await api(`/director/sequences/${sequence.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "confirmed" }) });
-    const shot = await api(`/director/projects/${projectId}/shots`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: confirmed.body.data.id, title: "车站全景", payload: { boundary: "cut", characterRefs: [{ id: "character-stable-id", revision: 3 }] } }) });
-    assert.equal(shot.response.status, 201);
-    assert.deepEqual(shot.body.data.payload.characterRefs, [{ id: "character-stable-id", revision: 3 }]);
-    const lockedShot = await api(`/director/shots/${shot.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "locked" }) });
+    assert.equal(confirmed.response.status, 200);
+    assert.deepEqual(segment.body.data.payload.characterRefs, [{ id: "character-stable-id", revision: 3 }]);
+    const lockedShot = await api(`/director/video-segments/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "locked" }) });
     assert.equal(lockedShot.response.status, 200);
-    const rejectedLockedEdit = await api(`/director/shots/${shot.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, title: "未经审批的改名" }) });
+    const rejectedLockedEdit = await api(`/director/video-segments/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, title: "未经审批的改名" }) });
     assert.equal(rejectedLockedEdit.response.status, 423);
     await api(`/director/projects/${projectId}/documents/story`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, content: "# 故事\n林夏在雪夜追查旧怀表。" }) });
     const stale = await api(`/director/projects/${projectId}`, userOne);
     assert.equal(stale.body.data.sequences[0].payload.needsReview, true);
-    assert.equal(stale.body.data.shots[0].payload.needsReview, true);
+    assert.equal(stale.body.data.videoSegments[0].payload.needsReview, true);
 });
 
 test("导演来源解析 Markdown、PDF 与 EPUB", async () => {

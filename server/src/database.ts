@@ -251,6 +251,9 @@ applyVersionThirteen();
 applyVersionFourteen();
 applyVersionFifteen();
 applyVersionSixteen();
+applyVersionSeventeen();
+applyVersionEighteen();
+applyVersionNineteen();
 ensureAgentMetadata(3, 2);
 
 function applyVersionTwo() {
@@ -720,6 +723,130 @@ function applyVersionSixteen() {
         if (!sourceColumns.some((column) => column.name === "summary")) db.exec("ALTER TABLE director_sources ADD COLUMN summary TEXT NOT NULL DEFAULT ''");
         if (!sourceColumns.some((column) => column.name === "outline")) db.exec("ALTER TABLE director_sources ADD COLUMN outline TEXT NOT NULL DEFAULT ''");
         db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(16, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionSeventeen() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=17").get()) return;
+    type SegmentRow = { id: string; user_id: string; project_id: string; sequence_id: string; position: number; title: string; status: string; payload: string; revision: number; created_at: string; updated_at: string };
+    const asRefs = (value: unknown) => Array.isArray(value) ? value.filter((item) => item && typeof item === "object" && "id" in item).map((item) => ({ id: String((item as { id: unknown }).id), revision: Math.max(1, Number((item as { revision?: unknown }).revision) || 1) })) : [];
+    const normalize = (row: SegmentRow, payload: Record<string, unknown>, duration: number) => {
+        const legacy = payload.references && typeof payload.references === "object" ? payload.references as Record<string, unknown> : {};
+        const characterRefs = asRefs(payload.characterRefs).length ? asRefs(payload.characterRefs) : asRefs(legacy.characters);
+        const sceneRefs = asRefs(payload.sceneRefs).length ? asRefs(payload.sceneRefs) : asRefs(legacy.scenes);
+        const propRefs = asRefs(payload.propRefs).length ? asRefs(payload.propRefs) : asRefs(legacy.props);
+        const frameCount = duration > 10 ? 6 : 4;
+        const frames = Array.from({ length: frameCount }, (_, index) => ({
+            id: `${row.id}-frame-${index + 1}`, position: index, shotNumber: 1,
+            timeSeconds: Number(((duration * index) / Math.max(1, frameCount - 1)).toFixed(2)),
+            kind: index === 0 ? "shot-start" : index === frameCount - 1 ? "shot-end" : "keyframe",
+            description: String(payload.description || row.title), action: String(payload.action || ""),
+            cameraAngle: String(payload.cameraAngle || ""), cameraMove: String(payload.cameraMove || ""), sound: String(payload.sound || payload.audio || ""),
+        }));
+        return { ...payload, entityKind: "video-segment", durationSeconds: duration, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs, sceneRefs, propRefs, audioCues: Array.isArray(payload.audioCues) ? payload.audioCues : [], storyboardSheet: { revision: 1, layout: frameCount === 4 ? "2x2" : "3x2", frames }, h3ModeOverride: null, videoStale: false, needsReview: false };
+    };
+    db.transaction(() => {
+        const splitSegments = new Map<string, string>();
+        const rows = db.prepare("SELECT * FROM director_shots ORDER BY user_id,project_id,sequence_id,position,created_at").all() as SegmentRow[];
+        for (const row of rows) {
+            const payload = JSON.parse(row.payload || "{}") as Record<string, unknown>;
+            const duration = Math.max(4, Math.round(Number(payload.duration) || Number(payload.durationSeconds) || 4));
+            if (duration === 16 && row.title.includes("跪地求饶") && row.title.includes("夺回碎玉")) {
+                const first = normalize(row, { ...payload, action: String(payload.action || "").split(/[，。；]/).slice(0, 2).join("，") || payload.action }, 8);
+                const secondId = `${row.id}-part-2`;
+                splitSegments.set(row.id, secondId);
+                const second = normalize({ ...row, id: secondId }, { ...payload, action: "林尘夺回碎玉，废去对手修为", boundary: "continue", continuationFromSegmentId: row.id }, 8);
+                db.prepare("UPDATE director_shots SET title=?,payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run("跪地求饶", JSON.stringify(first), new Date().toISOString(), row.id, row.user_id);
+                db.prepare("UPDATE director_shots SET position=position+1 WHERE user_id=? AND project_id=? AND sequence_id=? AND position>?").run(row.user_id, row.project_id, row.sequence_id, row.position);
+                db.prepare("INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,status,payload,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(secondId, row.user_id, row.project_id, row.sequence_id, row.position + 1, "夺回碎玉·废去修为", "draft", JSON.stringify(second), 1, row.created_at, new Date().toISOString());
+            } else {
+                db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(normalize(row, payload, Math.min(15, duration))), new Date().toISOString(), row.id, row.user_id);
+            }
+        }
+        const timelines = db.prepare("SELECT project_id,user_id,payload FROM director_timelines").all() as Array<{ project_id: string; user_id: string; payload: string }>;
+        for (const timeline of timelines) {
+            const payload = JSON.parse(timeline.payload || "{}") as { shotOrder?: string[]; segmentOrder?: string[]; tracks?: Array<Record<string, unknown>> };
+            const ordered = db.prepare("SELECT s.id,s.payload FROM director_shots s JOIN director_sequences q ON q.id=s.sequence_id AND q.user_id=s.user_id WHERE s.user_id=? AND s.project_id=? ORDER BY q.position,s.position,s.created_at").all(timeline.user_id, timeline.project_id) as Array<{ id: string; payload: string }>;
+            const ids = ordered.map((item) => item.id);
+            const segmentOrder = ids;
+            const durationById = new Map(ordered.map((item) => [item.id, Number((JSON.parse(item.payload) as Record<string, unknown>).durationSeconds || 4)]));
+            const startById = new Map<string, number>(); let cursor = 0;
+            segmentOrder.forEach((segmentId) => { startById.set(segmentId, cursor); cursor += durationById.get(segmentId) || 4; });
+            const tracks = (payload.tracks || []).filter((track) => track.type !== "video").map((track, trackIndex) => {
+                if (Array.isArray(track.clips)) return track;
+                const kind = String(track.type || "ambient");
+                const items = Array.isArray(track.items) ? track.items as Array<Record<string, unknown>> : [];
+                const clips = items.flatMap((item, itemIndex) => {
+                    const segmentId = String(item.segmentId || item.shotId || "");
+                    const base = { ...item, id: String(item.id || `${kind}-${itemIndex}`), segmentId: segmentId || undefined, shotId: undefined, start: segmentId ? startById.get(segmentId) ?? Number(item.start || 0) : Number(item.start || 0), duration: segmentId ? durationById.get(segmentId) || Number(item.duration || 4) : Number(item.duration || 4) };
+                    const secondId = splitSegments.get(segmentId);
+                    return secondId ? [{ ...base, duration: 8 }, { ...base, id: `${base.id}-part-2`, segmentId: secondId, start: startById.get(secondId), duration: 8 }] : [base];
+                });
+                return { id: String(track.id || kind || `track-${trackIndex}`), kind, name: track.name, clips };
+            });
+            db.prepare("UPDATE director_timelines SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=?").run(JSON.stringify({ segmentOrder, tracks }), new Date().toISOString(), timeline.user_id, timeline.project_id);
+        }
+        const hasProviderConcurrency = (db.prepare("PRAGMA table_info(ai_providers)").all() as Array<{ name: string }>).some((column) => column.name === "concurrency");
+        const providers = db.prepare(hasProviderConcurrency ? "SELECT id,models,concurrency FROM ai_providers" : "SELECT id,models,2 concurrency FROM ai_providers").all() as Array<{ id: string; models: string; concurrency: number }>;
+        for (const provider of providers) {
+            const models = JSON.parse(provider.models || "[]") as Array<Record<string, unknown>>;
+            let changed = false;
+            const next = models.map((model) => {
+                if (!/(?:gpt[-_ ]?image[-_ ]?2|sxh[-_ ]?image)/i.test(`${String(model.id || "")} ${String(model.name || "")}`)) return model;
+                changed = true;
+                return { ...model, imageModes: ["generate", "edit"], maxReferenceImages: 6, imagePromptProfile: "gpt-image-2" };
+            });
+            if (changed) hasProviderConcurrency ? db.prepare("UPDATE ai_providers SET models=?,concurrency=?,updated_at=? WHERE id=?").run(JSON.stringify(next), Math.max(10, provider.concurrency), new Date().toISOString(), provider.id) : db.prepare("UPDATE ai_providers SET models=? WHERE id=?").run(JSON.stringify(next), provider.id);
+        }
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(17, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionEighteen() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=18").get()) return;
+    db.transaction(() => {
+        const timelines = db.prepare("SELECT project_id,user_id,payload FROM director_timelines").all() as Array<{ project_id: string; user_id: string; payload: string }>;
+        for (const timeline of timelines) {
+            const current = JSON.parse(timeline.payload || "{}") as { tracks?: Array<Record<string, unknown>> };
+            const rows = db.prepare("SELECT s.id,s.payload FROM director_shots s JOIN director_sequences q ON q.id=s.sequence_id AND q.user_id=s.user_id WHERE s.user_id=? AND s.project_id=? ORDER BY q.position,s.position,s.created_at").all(timeline.user_id, timeline.project_id) as Array<{ id: string; payload: string }>;
+            const segmentOrder = rows.map((row) => row.id); const durationById = new Map(rows.map((row) => [row.id, Number((JSON.parse(row.payload) as Record<string, unknown>).durationSeconds || 4)]));
+            const startById = new Map<string, number>(); let cursor = 0;
+            segmentOrder.forEach((segmentId) => { startById.set(segmentId, cursor); cursor += durationById.get(segmentId) || 4; });
+            const tracks = (current.tracks || []).filter((track) => track.type !== "video").map((track, trackIndex) => {
+                if (Array.isArray(track.clips)) return track;
+                const kind = String(track.type || "ambient"); const items = Array.isArray(track.items) ? track.items as Array<Record<string, unknown>> : [];
+                const clips = items.flatMap((item, itemIndex) => {
+                    const segmentId = String(item.segmentId || item.shotId || ""); const secondId = segmentOrder.includes(`${segmentId}-part-2`) ? `${segmentId}-part-2` : "";
+                    const clip = { ...item, id: String(item.id || `${kind}-${itemIndex}`), segmentId: segmentId || undefined, shotId: undefined, start: segmentId ? startById.get(segmentId) ?? Number(item.start || 0) : Number(item.start || 0), duration: segmentId ? durationById.get(segmentId) || Number(item.duration || 4) : Number(item.duration || 4) };
+                    return secondId ? [{ ...clip, duration: 8 }, { ...clip, id: `${clip.id}-part-2`, segmentId: secondId, start: startById.get(secondId), duration: 8 }] : [clip];
+                });
+                return { id: String(track.id || kind || `track-${trackIndex}`), kind, name: track.name, clips };
+            });
+            db.prepare("UPDATE director_timelines SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=?").run(JSON.stringify({ segmentOrder, tracks }), new Date().toISOString(), timeline.user_id, timeline.project_id);
+        }
+        const hasProviderConcurrency = (db.prepare("PRAGMA table_info(ai_providers)").all() as Array<{ name: string }>).some((column) => column.name === "concurrency");
+        const providers = db.prepare(hasProviderConcurrency ? "SELECT id,models,concurrency FROM ai_providers" : "SELECT id,models,2 concurrency FROM ai_providers").all() as Array<{ id: string; models: string; concurrency: number }>;
+        for (const provider of providers) {
+            const models = JSON.parse(provider.models || "[]") as Array<Record<string, unknown>>; let changed = false;
+            const next = models.map((model) => { if (!/(?:gpt[-_ ]?image[-_ ]?2|sxh[-_ ]?image)/i.test(`${String(model.id || "")} ${String(model.name || "")}`)) return model; changed = true; return { ...model, imageModes: ["generate", "edit"], maxReferenceImages: 6, imagePromptProfile: "gpt-image-2" }; });
+            if (changed) hasProviderConcurrency ? db.prepare("UPDATE ai_providers SET models=?,concurrency=?,updated_at=? WHERE id=?").run(JSON.stringify(next), Math.max(10, provider.concurrency), new Date().toISOString(), provider.id) : db.prepare("UPDATE ai_providers SET models=? WHERE id=?").run(JSON.stringify(next), provider.id);
+        }
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(18, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionNineteen() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=19").get()) return;
+    db.transaction(() => {
+        const rows = db.prepare("SELECT id,user_id,payload FROM director_shots").all() as Array<{ id: string; user_id: string; payload: string }>;
+        for (const row of rows) {
+            const payload = JSON.parse(row.payload || "{}") as Record<string, unknown>;
+            const sheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as { imageFileId?: string; generationId?: string; frames?: Array<Record<string, unknown>> } : undefined;
+            if (!sheet || sheet.imageFileId || sheet.generationId || !Array.isArray(sheet.frames)) continue;
+            sheet.frames = sheet.frames.map((frame) => ({ ...frame, shotNumber: 1 }));
+            db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...payload, storyboardSheet: sheet }), new Date().toISOString(), row.id, row.user_id);
+        }
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(19, ?)").run(new Date().toISOString());
     })();
 }
 

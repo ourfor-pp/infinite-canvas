@@ -7,23 +7,22 @@ import { db } from "../../database.js";
 import { storeLocalFile } from "../../file-store.js";
 import {
   createDirectorSequence,
-  createDirectorShot,
+  createDirectorVideoSegment,
   deleteDirectorSequence,
-  deleteDirectorShot,
+  deleteDirectorVideoSegment,
   getDirectorState,
   listDirectorSourceChunks,
   updateDirectorDocument,
   updateDirectorSequence,
-  updateDirectorShot,
+  updateDirectorVideoSegment,
   updateDirectorTimeline,
   updateDirectorWorkspace,
 } from "../../director.js";
 import {
   cancelDirectorRender,
   createDirectorRender,
-  createDirectorShotGeneration,
+  createDirectorVideoSegmentGeneration,
   createDirectorStoryboardGeneration,
-  createDirectorStoryboardPanelGeneration,
   listDirectorRenders,
   retryDirectorRender,
 } from "../../director-render.js";
@@ -156,7 +155,7 @@ export function buildAgentMcpServer(
       tools: [
         call(
           "director_get_state",
-          "读取导演项目的权威工作区、来源、故事、剧本、剧情段落、镜头和时间线。修改前必须调用。",
+          "读取导演项目的权威工作区、来源、故事、剧本、剧情段落、视频段和时间线。修改前必须调用。",
           {},
           () => getDirectorState(run.userId, projectId),
         ),
@@ -274,7 +273,7 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_delete_sequences",
-          "批量删除剧情段落及其镜头，始终需要审批。",
+          "批量删除剧情段落及其视频段，始终需要审批。",
           { ids: z.array(z.string().min(1)).min(1).max(200) },
           async (input) => {
             const value = input as { ids: string[] };
@@ -285,26 +284,17 @@ export function buildAgentMcpServer(
           },
         ),
         call(
-          "director_generate_storyboard_panel",
-          "为指定剧情段落的一个故事板分格生成或重抽独立图片；只替换该格，不影响其他格。",
-          { sequenceId: z.string().min(1), panelId: z.string().min(1), revision: z.number().int().positive(), model: z.string().optional() },
-          (input) => {
-            const value = input as { sequenceId: string; panelId: string } & Record<string, unknown>;
-            return createDirectorStoryboardPanelGeneration(run.userId, value.sequenceId, value.panelId, value);
-          },
-        ),
-        call(
           "director_generate_storyboard",
-          "为一个剧情段落批量生成全部缺失故事板分格；每格是独立图片，用户必须显式发起。",
-          { sequenceId: z.string().min(1), revision: z.number().int().positive(), panelIds: z.array(z.string().min(1)).max(9).optional(), model: z.string().optional() },
+          "为一个 4–15 秒视频段生成一张包含 4–6 个画格的完整故事板；用户必须显式发起。",
+          { segmentId: z.string().min(1), revision: z.number().int().positive(), model: z.string().optional() },
           (input) => {
-            const value = input as { sequenceId: string } & Record<string, unknown>;
-            return createDirectorStoryboardGeneration(run.userId, value.sequenceId, value);
+            const value = input as { segmentId: string } & Record<string, unknown>;
+            return createDirectorStoryboardGeneration(run.userId, value.segmentId, value);
           },
         ),
         call(
-          "director_create_shots",
-          "从已确认故事板批量创建独立镜头，必须保存角色、场景、道具稳定 ID 与 revision。",
+          "director_create_video_segments",
+          "根据剧本剧情段落规划 4–15 秒视频段；超过 15 秒必须拆段，并保存角色、场景、道具稳定 ID 与 revision。",
           {
             items: z
               .array(
@@ -320,14 +310,14 @@ export function buildAgentMcpServer(
           },
           (input) =>
             (input as { items: Array<Record<string, unknown>> }).items.map(
-              (item) => createDirectorShot(run.userId, projectId, item),
+              (item) => createDirectorVideoSegment(run.userId, projectId, item),
             ),
         ),
         call(
-          "director_update_shot",
-          "按 revision 更新镜头画面、引用、首尾帧、cut/continue 边界、媒体和确认状态；已锁定内容需要审批。",
+          "director_update_video_segment",
+          "按 revision 更新视频段、素材引用、故事板语义、cut/continue 边界和 H3 模式；已锁定内容需要审批。",
           {
-            shotId: z.string().min(1),
+            segmentId: z.string().min(1),
             revision: z.number().int().positive(),
             position: z.number().int().min(0).optional(),
             title: z.string().max(300).optional(),
@@ -335,58 +325,57 @@ export function buildAgentMcpServer(
             payload: z.record(z.string(), z.unknown()).optional(),
           },
           async (input) => {
-            const value = input as { shotId: string; status?: string } & Record<
+            const value = input as { segmentId: string; status?: string } & Record<
               string,
               unknown
             >;
-            const current = getDirectorState(run.userId, projectId).shots.find(
-              (item) => item.id === value.shotId,
+            const current = getDirectorState(run.userId, projectId).videoSegments.find(
+              (item) => item.id === value.segmentId,
             );
             const locked =
               current?.status === "locked" &&
               ((value.status !== undefined && value.status !== "locked") ||
                 Object.keys(value).some(
-                  (key) => !["shotId", "revision", "status"].includes(key),
+                  (key) => !["segmentId", "revision", "status"].includes(key),
                 ));
             if (locked)
-              await context.requireDecision("director_update_shot", value);
-            return updateDirectorShot(run.userId, value.shotId, value, locked);
+              await context.requireDecision("director_update_video_segment", value);
+            return updateDirectorVideoSegment(run.userId, value.segmentId, value, locked);
           },
         ),
         call(
-          "director_delete_shots",
-          "批量删除镜头，始终需要审批。",
+          "director_delete_video_segments",
+          "批量删除视频段，始终需要审批。",
           { ids: z.array(z.string().min(1)).min(1).max(500) },
           async (input) => {
             const value = input as { ids: string[] };
-            await context.requireDecision("director_delete_shots", value);
+            await context.requireDecision("director_delete_video_segments", value);
             return value.ids.map((id) =>
-              deleteDirectorShot(run.userId, id, true),
+              deleteDirectorVideoSegment(run.userId, id, true),
             );
           },
         ),
         call(
-          "director_generate_shot",
-          "使用镜头已确认设定生成视频。根据模型声明自动路由首帧、尾帧或原生 Extend，结果直接替换镜头当前视频。",
+          "director_generate_video_segment",
+          "锁定当前故事板 revision，自动选择 H3 FL2VA/Ref2VA 并生成带原生声音的视频段。",
           {
-            shotId: z.string().min(1),
+            segmentId: z.string().min(1),
             revision: z.number().int().positive(),
             model: z.string().optional(),
-            seconds: z.number().min(1).max(30).optional(),
-            nativeExtend: z.boolean().optional(),
+            mode: z.enum(["fl2va", "ref2va"]).optional(),
           },
           (input) => {
-            const value = input as { shotId: string } & Record<string, unknown>;
-            return createDirectorShotGeneration(
+            const value = input as { segmentId: string } & Record<string, unknown>;
+            return createDirectorVideoSegmentGeneration(
               run.userId,
-              value.shotId,
+              value.segmentId,
               value,
             );
           },
         ),
         call(
           "director_update_timeline",
-          "按 revision 编排镜头主轨与对白、旁白、环境声、音效、音乐轨。",
+          "按 revision 编排视频段主轨、模型原声与对白、旁白、环境声、音效、音乐轨。",
           {
             revision: z.number().int().positive(),
             payload: z.record(z.string(), z.unknown()),
@@ -395,7 +384,7 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_check_continuity",
-          "检查镜头资产 revision、连续边界、时长、缺失视频与声音铺轨，不产生生成费用。",
+          "检查视频段资产 revision、连续边界、4–15 秒时长、缺失视频与声音铺轨，不产生生成费用。",
           {},
           () => continuityReport(getDirectorState(run.userId, projectId)),
         ),
@@ -1399,29 +1388,29 @@ function mcpError(status: number, code: string, message: string) {
 }
 
 function continuityReport(state: ReturnType<typeof getDirectorState>) {
-  const shotIds = new Set(state.shots.map((shot) => shot.id));
+  const segmentIds = new Set(state.videoSegments.map((segment) => segment.id));
   const payload = (value: unknown) => value as Record<string, unknown>;
   return {
     staleSequences: state.sequences
       .filter((sequence) => payload(sequence.payload).needsReview)
       .map((sequence) => sequence.id),
-    staleShots: state.shots
+    staleVideoSegments: state.videoSegments
       .filter(
-        (shot) =>
-          payload(shot.payload).needsReview || payload(shot.payload).videoStale,
+        (segment) =>
+          payload(segment.payload).needsReview || payload(segment.payload).videoStale,
       )
-      .map((shot) => shot.id),
-    missingVideos: state.shots
-      .filter((shot) => !payload(shot.payload).videoFileId)
-      .map((shot) => shot.id),
-    brokenContinuations: state.shots
+      .map((segment) => segment.id),
+    missingVideos: state.videoSegments
+      .filter((segment) => !payload(segment.payload).videoFileId)
+      .map((segment) => segment.id),
+    brokenContinuations: state.videoSegments
       .filter(
-        (shot) =>
-          payload(shot.payload).boundary === "continue" &&
-          (!payload(shot.payload).continuationFromShotId ||
-            !shotIds.has(String(payload(shot.payload).continuationFromShotId))),
+        (segment) =>
+          payload(segment.payload).boundary === "continue" &&
+          (!payload(segment.payload).continuationFromSegmentId ||
+            !segmentIds.has(String(payload(segment.payload).continuationFromSegmentId))),
       )
-      .map((shot) => shot.id),
+      .map((segment) => segment.id),
   };
 }
 
