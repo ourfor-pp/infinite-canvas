@@ -45,7 +45,8 @@ test("媒体草稿预览按业务语义组装且生成结果直接替换主版�
     const now = new Date().toISOString();
     db.prepare("INSERT INTO ai_providers(id,name,type,base_url,encrypted_credentials,enabled,models,concurrency,created_at,updated_at) VALUES(?,?,?,?,?,1,?,2,?,?)")
         .run("provider-1", "测试渠道", "openai-compatible", "http://127.0.0.1:9/v1", "{}", JSON.stringify([
-            { id: "image-model", name: "图片模型", endpoint: "openai-images-generations", output: "image", inputs: ["text"], imageModes: ["generate"], enabled: true },
+            { id: "image-model", name: "图片模型", endpoint: "openai-images-generations", output: "image", inputs: ["text"], imageModes: ["generate"], imagePromptProfile: "gpt-image-2", enabled: true },
+            { id: "gpt-image-2-by-name", name: "gpt-image-2", endpoint: "openai-images-generations", output: "image", inputs: ["text"], imageModes: ["generate"], enabled: true },
             { id: "image-reference-model", name: "参考图模型", endpoint: "openai-images-generations", output: "image", inputs: ["text", "image"], imageModes: ["generate", "edit"], maxReferenceImages: 1, enabled: true },
             { id: "sound-model", name: "声音模型", endpoint: "openai-tts", output: "audio", inputs: ["text"], audioModes: ["speech", "ambient"], enabled: true },
         ]), now, now);
@@ -53,6 +54,7 @@ test("媒体草稿预览按业务语义组装且生成结果直接替换主版�
     const asset = createCreativeAsset(userId, projectId, { kind: "scene", name: "雨夜街口", payload: { description: "潮湿街道与霓虹倒影", mediaDrafts: { image: { model: "provider-1::image-model" }, audio: { model: "provider-1::sound-model", prompt: "远处车流，近处雨滴落在铁棚上" } } } });
     assert.equal(asset.payload.mediaDrafts.image.prompt, "");
     const imagePreview = previewCreativeAssetGeneration(userId, asset.id, { kind: "image", revision: asset.revision });
+    assert.equal(imagePreview.params.imagePromptProfile, "gpt-image-2");
     assert.match(imagePreview.prompt, /雨夜街口/);
     assert.match(imagePreview.prompt, /场景设定图/);
     const audioPreview = previewCreativeAssetGeneration(userId, asset.id, { kind: "audio", revision: asset.revision });
@@ -82,6 +84,7 @@ test("媒体草稿预览按业务语义组装且生成结果直接替换主版�
         .run(fileId, userId, join(testData, `${fileId}.png`), `${fileId}.png`, "image/png", 0, "{}", now);
     const referenced = createCreativeAsset(userId, projectId, { kind: "prop", name: "旧怀表", payload: { description: "黄铜怀表", variants: ["reference-one", "reference-two"].map((fileId) => ({ id: `${fileId}-variant`, kind: "image", fileId, label: "主体参考", prompt: "", usage: "reference_input", createdAt: now })), mediaDrafts: { image: { model: "provider-1::image-reference-model" } } } });
     const limitedPreview = previewCreativeAssetGeneration(userId, referenced.id, { kind: "image", revision: referenced.revision });
+    assert.equal(limitedPreview.params.imagePromptProfile, "generic");
     assert.equal(limitedPreview.references.length, 1);
     assert.equal(limitedPreview.warnings.some((warning) => warning.code === "AI_MODEL_REFERENCE_LIMIT" && !warning.blocking), true);
 
@@ -119,7 +122,8 @@ test("导演角色使用纯视觉设定一次生成四视图", () => {
     });
 
     const preview = previewCreativeAssetGeneration(userId, character.id, { kind: "image", revision: character.revision });
-    assert.equal(preview.params.size, "16:9");
+    assert.equal(preview.params.size, "1536x1024");
+    assert.equal(preview.params.imagePromptProfile, "gpt-image-2");
     assert.equal(preview.params.quality, "high");
     assert.match(preview.prompt, /十六岁清瘦少年/);
     assert.match(preview.prompt, /正面、左侧 90 度、右侧 90 度、背面 180 度/);

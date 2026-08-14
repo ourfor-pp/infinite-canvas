@@ -17,9 +17,10 @@ export type AudioMode = (typeof audioModes)[number];
 export type AudioOperation = (typeof audioOperations)[number];
 export type ModelEndpoint = (typeof modelEndpoints)[number];
 export type VideoReferenceRole = "reference" | "first-frame" | "last-frame" | "continuation";
+export type ImagePromptProfile = "generic" | "gpt-image-2";
 export type ProviderCredentials = { apiKey?: string; authToken?: string };
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: MediaKind; inputs: MediaKind[]; method: "POST"; path: string; agent: boolean };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: ImagePromptProfile; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean };
 
 const LOCAL_MEDIA_MODELS: Record<string, Omit<AiModelDefinition, "endpoint" | "enabled">> = {
     "qwen3-tts-1.7b-customvoice-local": { id: "qwen3-tts-1.7b-customvoice-local", name: "Qwen3-TTS 1.7B CustomVoice", output: "audio", inputs: ["text"], audioModes: ["speech"], audioOperations: ["generate"], languages: ["Auto", "Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"], voices: ["Vivian", "Serena", "Ryan", "Aiden", "Dylan", "Eric", "Ono_Anna", "Sohee", "Uncle_Fu"] },
@@ -73,6 +74,7 @@ export const modelSchema = z.object({
     audioModes: z.array(z.enum(audioModes)).optional(),
     imageModes: z.array(z.enum(["generate", "edit"])).max(2).optional(),
     maxReferenceImages: z.number().int().min(1).max(32).optional(),
+    imagePromptProfile: z.enum(["generic", "gpt-image-2"]).optional(),
     videoReferenceRoles: z.array(z.enum(["reference", "first-frame", "last-frame", "continuation"])).max(4).optional(),
     videoExtend: z.boolean().optional(),
 });
@@ -158,7 +160,7 @@ export function saveProvider(input: ProviderInput, id?: string) {
     const baseUrl = normalizeProviderUrl(value.baseUrl, value.type);
     const models = value.models.map((model) => {
         const endpoint = modelEndpointRegistry[model.endpoint];
-        return { ...model, output: endpoint.output, inputs: endpoint.inputs, imageModes: endpoint.output === "image" ? model.imageModes : undefined, videoReferenceRoles: endpoint.output === "video" ? model.videoReferenceRoles || [] : undefined, videoExtend: endpoint.output === "video" ? Boolean(model.videoExtend) : undefined, ...(endpoint.output === "audio" ? { audioModes: model.audioModes?.length ? model.audioModes : ["speech" as const] } : { audioModes: undefined }) };
+        return { ...model, output: endpoint.output, inputs: endpoint.inputs, imageModes: endpoint.output === "image" ? model.imageModes : undefined, imagePromptProfile: endpoint.output === "image" ? model.imagePromptProfile || "generic" : undefined, videoReferenceRoles: endpoint.output === "video" ? model.videoReferenceRoles || [] : undefined, videoExtend: endpoint.output === "video" ? Boolean(model.videoExtend) : undefined, ...(endpoint.output === "audio" ? { audioModes: model.audioModes?.length ? model.audioModes : ["speech" as const] } : { audioModes: undefined }) };
     });
     if (current) {
         assertProviderIdle(providerId);
@@ -213,15 +215,15 @@ export function listPublicModels() {
     const providers = db.prepare("SELECT * FROM ai_providers WHERE enabled=1 ORDER BY created_at").all() as ProviderRow[];
     const publicModels = providers.flatMap((provider) => providerModels(provider)
         .filter((model) => model.enabled)
-        .map((model) => ({ id: model.id, name: model.name, output: model.output, inputs: model.inputs, audioModes: model.output === "audio" ? model.audioModes?.length ? model.audioModes : ["speech" as const] : undefined, imageModes: model.imageModes, maxReferenceImages: model.maxReferenceImages, videoReferenceRoles: model.videoReferenceRoles, videoExtend: model.videoExtend, enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
+        .map((model) => ({ id: model.id, name: model.name, output: model.output, inputs: model.inputs, audioModes: model.output === "audio" ? model.audioModes?.length ? model.audioModes : ["speech" as const] : undefined, imageModes: model.imageModes, maxReferenceImages: model.maxReferenceImages, imagePromptProfile: model.imagePromptProfile || "generic", videoReferenceRoles: model.videoReferenceRoles, videoExtend: model.videoExtend, enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
     const comfyRows = db.prepare("SELECT name, models FROM comfy_servers WHERE enabled=1 ORDER BY created_at").all() as Array<{ name: string; models: string }>;
     const comfyNames = new Set(comfyRows.flatMap((row) => parseJson<string[]>(row.models, [])).filter((id) => COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable));
     return [
         ...publicModels,
-        ...(executor.url && executor.token ? Object.values(LOCAL_MEDIA_MODELS).filter((model) => isMediaExecutorModelAvailable(model.id) && (model.id !== "stable-audio-3-medium-local" || executor.stableAudio3LicenseAccepted)).map((model) => ({ ...model, value: `local-media::${model.id}`, providerId: "local-media", providerName: "本地媒体执行器", enabled: true })) : []),
+        ...(executor.url && executor.token ? Object.values(LOCAL_MEDIA_MODELS).filter((model) => isMediaExecutorModelAvailable(model.id) && (model.id !== "stable-audio-3-medium-local" || executor.stableAudio3LicenseAccepted)).map((model) => ({ ...model, imagePromptProfile: "generic" as const, value: `local-media::${model.id}`, providerId: "local-media", providerName: "本地媒体执行器", enabled: true })) : []),
         ...Array.from(comfyNames).map((id) => {
             const output = comfyModelOutput(id);
-            return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imageModes: comfyImageModes(id), maxReferenceImages: comfyMaxReferenceImages(id), enabled: true };
+            return { id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imageModes: comfyImageModes(id), maxReferenceImages: comfyMaxReferenceImages(id), imagePromptProfile: "generic" as const, enabled: true };
         }),
     ];
 }

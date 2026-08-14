@@ -51,7 +51,12 @@ export type DirectorDocument = {
 };
 
 export type DirectorAssetRef = { id: string; revision: number };
-export type DirectorStoryboardPanel = { id: string; position: number; title?: string; description?: string; imageFileId?: string; shotSize?: string; durationSeconds?: number };
+export type DirectorVisualReview = { status: "pending" | "passed" | "failed" | "manual"; summary: string; issues: string[]; metrics?: Record<string, boolean | number | string>; generationId?: string };
+export type DirectorStoryboardPanel = {
+    id: string; position: number; title?: string; purpose?: string; description?: string; action?: string; dialogue?: string; narration?: string;
+    imageFileId?: string; generationId?: string; promptSnapshot?: string; shotSize?: string; cameraAngle?: string; cameraMove?: string; durationSeconds?: number;
+    characterRefs?: DirectorAssetRef[]; sceneRefs?: DirectorAssetRef[]; propRefs?: DirectorAssetRef[]; review?: DirectorVisualReview;
+};
 export type DirectorSequence = {
     id: string;
     projectId: string;
@@ -109,6 +114,6 @@ export type DirectorTimeline = {
     createdAt: string;
     updatedAt: string;
 };
-export type DirectorState = { workspace: DirectorWorkspace; sources: DirectorSource[]; documents: DirectorDocument[]; sequences: DirectorSequence[]; shots: DirectorShot[]; timeline: DirectorTimeline };
+export type DirectorState = { activeStyleId: string | null; workspace: DirectorWorkspace; sources: DirectorSource[]; documents: DirectorDocument[]; sequences: DirectorSequence[]; shots: DirectorShot[]; timeline: DirectorTimeline };
 
 export type DirectorRender = { id: string; projectId: string; status: "queued" | "running" | "succeeded" | "failed" | "canceled"; progress: number; outputFileId: string | null; error: string | null; createdAt: string; updatedAt: string };

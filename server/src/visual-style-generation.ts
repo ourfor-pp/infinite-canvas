@@ -32,7 +32,6 @@ export function createVisualStyleReferences(userId: string, styleId: string, raw
         prompt: [
             `视觉风格「${style.name}」参考样张。`,
             style.description,
-            styleDnaText(style.dna),
             roleRequirements[role],
             `统一排除：${style.dna.exclusions.join("、") || "水印、Logo、文字、边框、UI、故事情节"}。`,
         ].filter(Boolean).join("\n\n"),
@@ -59,20 +58,6 @@ export function createVisualStyleAnalysis(userId: string, styleId: string, raw: 
         references: [{ fileId: style.references.source, kind: "image" }],
         params: { temperature: 0.2, __visualStyleAnalysis: { styleId: style.id, styleRevision: style.revision } },
     });
-}
-
-function styleDnaText(dna: ReturnType<typeof getVisualStyle>["dna"]) {
-    return [
-        dna.medium && `媒介：${dna.medium}`,
-        dna.rendering && `渲染：${dna.rendering}`,
-        dna.palette && `色彩：${dna.palette}`,
-        dna.lighting && `光线：${dna.lighting}`,
-        dna.contrast && `对比：${dna.contrast}`,
-        dna.texture && `材质：${dna.texture}`,
-        dna.lensAndDepth && `镜头与景深：${dna.lensAndDepth}`,
-        dna.composition && `构图：${dna.composition}`,
-        dna.postProcessing && `后期：${dna.postProcessing}`,
-    ].filter(Boolean).join("\n");
 }
 
 function styleGenerationError(status: number, code: string, message: string, details?: unknown) {

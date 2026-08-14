@@ -40,8 +40,8 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     const requestedSubjectReferences = imageReferences.map((item) => ({ fileId: item.fileId, kind: "image" as const, source: "asset" as const, label: item.label || "资产参考图" }));
     const requestedCompositionReferences = connected.imageReferences.map((item) => ({ ...item, kind: "image" as const, source: "canvas" as const }));
     const requestedImageReferences = dedupe([
-        ...(styleReferenceFileId ? [{ fileId: styleReferenceFileId, kind: "image" as const, source: "style" as const, label: "视觉风格参考" }] : []),
         ...requestedSubjectReferences,
+        ...(styleReferenceFileId ? [{ fileId: styleReferenceFileId, kind: "image" as const, source: "style" as const, label: "视觉风格参考" }] : []),
         ...requestedCompositionReferences,
     ]);
     let references = input.kind === "image"
@@ -54,7 +54,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     const referenceLimit = input.kind === "image" ? model.maxReferenceImages : undefined;
     if (referenceLimit != null && references.length > referenceLimit) {
         references = references.slice(0, referenceLimit);
-        warnings.push({ code: "AI_MODEL_REFERENCE_LIMIT", message: `所选模型最多接收 ${referenceLimit} 张参考图，已按风格、主体、构图顺序截取`, blocking: false });
+        warnings.push({ code: "AI_MODEL_REFERENCE_LIMIT", message: `所选模型最多接收 ${referenceLimit} 张参考图，已按主体、风格、构图顺序截取`, blocking: false });
     }
     const styleImageApplied = input.kind === "image" && references.some((item) => item.source === "style");
     const requiredImageReferences = requestedSubjectReferences.length + requestedCompositionReferences.length;
@@ -68,7 +68,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     if (input.kind === "audio" && asset.kind === "character" && voiceGenderConflict(asset.payload.designProfile?.voiceGender, draft.prompt)) warnings.push({ code: "CREATIVE_ASSET_VOICE_GENDER_CONFLICT", message: "音色描述与角色设计画像中的声音性别冲突，请先修正设定", blocking: true });
 
     const prompt = input.kind === "image"
-        ? buildCreativeAssetPrompt(asset, "image", [connected.style ? visualStyleText(connected.style, directorCharacter) : "", ...(directorCharacter ? [] : connected.texts), draft.prompt].filter(Boolean).join("\n\n"))
+        ? buildCreativeAssetPrompt(asset, "image", [connected.style ? visualStyleText(connected.style, directorCharacter) : "", ...(directorCharacter ? [] : connected.texts), draft.prompt].filter(Boolean).join("\n\n"), model.imagePromptProfile || "generic")
         : audioMode === "speech"
             ? draft.transcript?.trim() || ""
             : [draft.prompt, ...connected.texts].filter(Boolean).join("\n\n");
@@ -78,10 +78,11 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     const params = {
         ...draft.params,
         count: 1,
-        ...(input.kind === "image" ? { size: "16:9", ...(directorCharacter ? { quality: "high" } : {}) } : {}),
+        ...(input.kind === "image" ? { size: model.imagePromptProfile === "gpt-image-2" ? "1536x1024" : "16:9", quality: model.imagePromptProfile === "gpt-image-2" || directorCharacter ? "high" : undefined, imagePromptProfile: model.imagePromptProfile || "generic" } : {}),
         ...(instructions ? { instructions } : {}),
         ...(input.kind === "audio" ? { audioMode, audioOperation } : {}),
         __creativeAsset: { projectId: asset.projectId, assetId: asset.id, nodeId: input.nodeId, usage, label, transcript: draft.transcript, assetRevision: asset.revision, audioMode: input.kind === "audio" ? audioMode : undefined },
+        __promptPackage: input.kind === "image" ? { profile: model.imagePromptProfile || "generic", asset: { id: asset.id, revision: asset.revision, kind: asset.kind }, style: connected.style ? { id: connected.style.id, revision: connected.style.revision } : null, purpose: usage, checks: asset.kind === "character" ? ["four_views", "full_body", "identity_consistency", "white_background", "no_text"] : ["identity_consistency", "no_text"] } : undefined,
         __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: styleReferenceFileId, styleImageApplied } : null,
         __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds, imageReferences: connected.imageReferences, audioReferences: connected.audioReferences },
     };
@@ -105,22 +106,13 @@ function visualStyleText(style: NonNullable<ReturnType<typeof resolveCreativeAss
     const dna = style.dna;
     if (characterMaster) return [
         dna.medium && `媒介：${dna.medium}`,
-        dna.rendering && `渲染：${dna.rendering}`,
-        dna.palette && `色彩体系：${dna.palette}`,
+        dna.rendering && `渲染方式：${dna.rendering}`,
+        dna.palette && `统一配色：${dna.palette}`,
         dna.texture && `材质表现：${dna.texture}`,
         dna.exclusions.length ? `风格排除：${dna.exclusions.join("、")}` : "",
     ].filter(Boolean).join("\n");
     return [
-        `视觉风格：${style.description}`,
-        dna.medium && `媒介：${dna.medium}`,
-        dna.rendering && `渲染：${dna.rendering}`,
-        dna.palette && `色彩：${dna.palette}`,
-        dna.lighting && `光线：${dna.lighting}`,
-        dna.contrast && `对比：${dna.contrast}`,
-        dna.texture && `质感：${dna.texture}`,
-        dna.lensAndDepth && `镜头与景深：${dna.lensAndDepth}`,
-        dna.composition && `构图：${dna.composition}`,
-        dna.postProcessing && `后期：${dna.postProcessing}`,
+        `整片统一视觉风格：${style.description}`,
         dna.exclusions.length ? `风格排除：${dna.exclusions.join("、")}` : "",
     ].filter(Boolean).join("\n");
 }

@@ -29,7 +29,7 @@ const directorToolIds = [
     "director_get_state", "director_search_source", "director_update_workspace", "director_update_document",
     "director_list_assets", "director_get_asset", "director_create_assets", "director_update_asset", "director_generate_asset", "director_copy_asset", "director_delete_assets",
     "director_list_styles", "director_list_style_templates", "director_get_style", "director_create_style", "director_update_style", "director_set_active_style", "director_analyze_style", "director_generate_style_references", "director_delete_style",
-    "director_create_sequences", "director_update_sequence", "director_delete_sequences", "director_create_shots", "director_update_shot", "director_delete_shots", "director_generate_shot", "director_update_timeline", "director_check_continuity",
+    "director_create_sequences", "director_update_sequence", "director_delete_sequences", "director_generate_storyboard_panel", "director_generate_storyboard", "director_create_shots", "director_update_shot", "director_delete_shots", "director_generate_shot", "director_update_timeline", "director_check_continuity",
     "director_list_models", "director_get_generation_status", "director_list_renders", "director_start_render", "director_cancel_render", "director_retry_render", "director_navigate", "ask_user",
 ] as const;
 const directorAlways = new Set(["director_delete_assets", "director_delete_style", "director_delete_sequences", "director_delete_shots"]);

@@ -9,7 +9,7 @@ import { buildComfyWorkflow, type GenerationPurpose } from "./comfy-workflows.js
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
 import { decryptCredentials, getProviderRow, resolveImageModel, resolveProviderModel, resolvePurposeModel, resolveSelectableModel, type AiModelDefinition, type AudioMode, type AudioOperation, type MediaKind } from "./provider-service.js";
 import { syncAgentGenerationCanvas } from "./agent/generation-canvas.js";
-import { syncCreativeAssetGeneration } from "./creative-assets.js";
+import { creativeAssetAutomaticReviewRequest, syncCreativeAssetGeneration } from "./creative-assets.js";
 import { syncVisualStyleGeneration } from "./visual-styles.js";
 import { acknowledgeLocalMediaGeneration, cancelLocalMediaGeneration, runLocalMediaGeneration } from "./local-media.js";
 import { getMediaExecutorSettings } from "./media-executor-settings.js";
@@ -358,7 +358,11 @@ function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["s
     if (updated) {
         emitEvent(row.user_id, "generation.updated", generationResponse(updated));
         try { syncAgentGenerationCanvas(updated); } catch { /* 结果已持久化，画布回写可由刷新恢复。 */ }
-        try { syncCreativeAssetGeneration(updated); } catch { /* 保留已完成任务，避免回写冲突改写任务终态。 */ }
+        try {
+            syncCreativeAssetGeneration(updated);
+            const review = creativeAssetAutomaticReviewRequest(updated);
+            if (review) createGeneration(updated.user_id, review);
+        } catch { /* 保留已完成任务，避免回写冲突改写任务终态。 */ }
         try { syncVisualStyleGeneration(updated); } catch { /* 保留已完成任务，风格卡可重新生成缺失样张。 */ }
         void syncDirectorGeneration(updated).catch(() => undefined);
     }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
-import { App, Button, ConfigProvider, Progress as AntProgress, Select, Spin, Tag, theme as antdTheme, Tooltip } from "antd";
+import { App, Button, ConfigProvider, Drawer, Input, Progress as AntProgress, Select, Spin, Tag, theme as antdTheme, Tooltip } from "antd";
 import {
     Activity,
     AudioLines,
@@ -7,6 +7,7 @@ import {
     Bot,
     Check,
     ChevronRight,
+    ChevronDown,
     Clock3,
     Clapperboard,
     Copy,
@@ -20,6 +21,7 @@ import {
     Lock,
     Loader2,
     Package,
+    Palette,
     Pause,
     PanelLeftClose,
     PanelLeftOpen,
@@ -43,12 +45,12 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Streamdown } from "streamdown";
 import { AgentPanel } from "@/components/agent/agent-panel";
 import { directorApi } from "@/services/api/director";
-import { serverApi, serverApiUrl, type ServerGeneration } from "@/services/api/server";
+import { serverApi, serverApiUrl, uploadServerFile, type ServerGeneration } from "@/services/api/server";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useDirectorStore } from "@/stores/use-director-store";
 import type { CreativeAsset, CreativeAssetKind } from "@/types/creative-asset";
 import type { DirectorDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorShot, DirectorState, DirectorStoryboardPanel } from "@/types/director";
-import type { VisualStyle } from "@/types/visual-style";
+import type { VisualStyle, VisualStyleDna, VisualStyleTemplate } from "@/types/visual-style";
 import { DirectorMarkdownEditor } from "./components/director-markdown-editor";
 import "./director-light.css";
 
@@ -180,7 +182,7 @@ export default function DirectorProjectPage() {
                     <section className={`min-w-0 flex-1 bg-white ${active === "story" || active === "script" ? "overflow-hidden" : "overflow-auto"}`}>
                         {active === "overview" ? <Overview state={state} assets={assets} styles={styles} onNavigate={(target) => navigate(`/director/${id}/${target}`)} /> : null}
                         {active === "story" || active === "script" ? <Writing projectId={id} kind={active} state={state} onRefresh={refresh} /> : null}
-                        {active === "assets" ? <AssetGallery projectId={id} assets={assets} styles={styles} generations={generations} onGeneration={applyGeneration} onRefresh={refresh} /> : null}
+                        {active === "assets" ? <AssetGallery projectId={id} activeStyleId={state.activeStyleId} assets={assets} styles={styles} generations={generations} onGeneration={applyGeneration} onRefresh={refresh} /> : null}
                         {active === "storyboard" ? <Storyboard projectId={id} state={state} onRefresh={refresh} /> : null}
                         {active === "studio" ? <Studio projectId={id} state={state} onRefresh={refresh} /> : null}
                     </section>
@@ -275,7 +277,7 @@ function TaskEmpty({ icon: Icon, title, description }: { icon: typeof Bell; titl
 
 function generationBelongsToDirector(generation: ServerGeneration, projectId: string, assets: CreativeAsset[], styles: VisualStyle[]) {
     const params = recordValue(generation.request.params);
-    const contexts = [params.__creativeAsset, params.__directorShot, params.__directorRender].map(recordValue);
+    const contexts = [params.__creativeAsset, params.__directorShot, params.__directorRender, params.__directorStoryboard, params.__directorStoryboardReview].map(recordValue);
     if (contexts.some((context) => String(context.projectId || "") === projectId)) return true;
     const assetId = String(recordValue(params.__creativeAsset).assetId || "");
     if (assetId && assets.some((asset) => asset.id === assetId)) return true;
@@ -284,7 +286,7 @@ function generationBelongsToDirector(generation: ServerGeneration, projectId: st
 }
 
 function generationAssetId(generation: ServerGeneration) { return String(recordValue(recordValue(generation.request.params).__creativeAsset).assetId || ""); }
-function generationTaskMeta(generation: ServerGeneration, assets: CreativeAsset[]) { const asset = assets.find((item) => item.id === generationAssetId(generation)); const media = generation.kind === "image" ? "图片" : generation.kind === "video" ? "视频" : generation.kind === "audio" ? "声音" : "分析"; return { title: asset ? `${asset.name} · ${media}` : `${media}生成`, subtitle: generation.modelId || "生成服务" }; }
+function generationTaskMeta(generation: ServerGeneration, assets: CreativeAsset[]) { const params = recordValue(generation.request.params); const asset = assets.find((item) => item.id === generationAssetId(generation)); const storyboard = recordValue(params.__directorStoryboard); const storyboardReview = recordValue(params.__directorStoryboardReview); const media = generation.kind === "image" ? "图片" : generation.kind === "video" ? "视频" : generation.kind === "audio" ? "声音" : "分析"; return { title: asset ? `${asset.name} · ${media}` : storyboard.panelId ? "故事板分格 · 图片" : storyboardReview.panelId ? "故事板分格 · 视觉检查" : `${media}生成`, subtitle: generation.modelId || "生成服务" }; }
 function generationStatusLabel(status: ServerGeneration["status"]) { return status === "queued" ? "排队" : status === "running" ? "生成中" : status === "succeeded" ? "完成" : status === "canceled" ? "取消" : "失败"; }
 function formatTaskTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }); }
 function recordValue(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -297,7 +299,7 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
     const stages = [
         Boolean(documents.story?.content.trim()),
         documents.script?.status !== "draft",
-        Boolean(styles.find((item) => item.status === "confirmed")),
+        Boolean(styles.find((item) => item.id === state.activeStyleId && item.status === "confirmed")),
         assets.length > 0 && confirmedAssets === assets.length,
         state.sequences.length > 0 && state.sequences.every((item) => item.status !== "draft"),
         state.shots.length > 0 && state.shots.every((item) => item.payload.videoFileId),
@@ -319,7 +321,7 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
                     ["目标时长", `${Math.round(state.workspace.targetDurationSeconds / 60)} 分钟`],
                     ["画幅", state.workspace.aspectRatio],
                     ["来源", state.sources[0]?.name || "对话创作"],
-                    ["当前风格", styles.find((item) => item.status === "confirmed")?.name || "待确认"],
+                    ["当前风格", styles.find((item) => item.id === state.activeStyleId)?.name || "待确认"],
                 ].map(([label, value]) => (
                     <div key={label} className="bg-white p-5">
                         <div className="text-xs text-slate-500">{label}</div>
@@ -585,17 +587,19 @@ function StatusPill({ status }: { status: string }) {
     );
 }
 
-function AssetGallery({ projectId, assets, styles, generations, onGeneration, onRefresh }: { projectId: string; assets: CreativeAsset[]; styles: VisualStyle[]; generations: ServerGeneration[]; onGeneration: (generation: ServerGeneration) => void; onRefresh: () => Promise<void> }) {
+function AssetGallery({ projectId, activeStyleId, assets, styles, generations, onGeneration, onRefresh }: { projectId: string; activeStyleId: string | null; assets: CreativeAsset[]; styles: VisualStyle[]; generations: ServerGeneration[]; onGeneration: (generation: ServerGeneration) => void; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
     const [busyId, setBusyId] = useState("");
     const [filter, setFilter] = useState<"all" | CreativeAssetKind>("all");
+    const [styleOpen, setStyleOpen] = useState(false);
+    const activeStyle = styles.find((item) => item.id === activeStyleId);
     const visibleAssets = filter === "all" ? assets : assets.filter((item) => item.kind === filter);
     const counts = { all: assets.length, character: assets.filter((item) => item.kind === "character").length, scene: assets.filter((item) => item.kind === "scene").length, prop: assets.filter((item) => item.kind === "prop").length };
     const action = async (asset: CreativeAsset, kind: "regenerate" | "copy" | "confirm" | "lock" | "delete", mediaKind: "image" | "audio" = "image") => {
         setBusyId(asset.id);
         try {
-            if (kind === "regenerate") onGeneration(await serverApi.generateCreativeAsset(asset.id, { kind: mediaKind, revision: asset.revision, allowDraftStyle: true }));
+            if (kind === "regenerate") onGeneration(await serverApi.generateCreativeAsset(asset.id, { kind: mediaKind, revision: asset.revision }));
             if (kind === "copy") await serverApi.createCreativeAsset(projectId, { kind: asset.kind, name: `${asset.name} 副本`, payload: asset.payload });
             if (kind === "confirm" || kind === "lock") await serverApi.updateCreativeAsset(asset.id, { revision: asset.revision, status: kind === "confirm" ? "confirmed" : "locked" });
             if (kind === "delete") await serverApi.deleteCreativeAsset(asset.id);
@@ -611,11 +615,12 @@ function AssetGallery({ projectId, assets, styles, generations, onGeneration, on
         <div className="mx-auto max-w-7xl p-6 lg:p-8">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
                 <div className="flex min-w-0 flex-wrap items-center gap-6">
-                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <button type="button" className="flex items-center gap-2 text-sm text-slate-500 transition hover:text-blue-700" onClick={() => setStyleOpen(true)}>
                         <Sparkles className="size-4 text-blue-600" />
                         <span>当前风格</span>
-                        <strong className="truncate font-medium text-slate-900">{styles.find((item) => item.status === "confirmed")?.name || styles[0]?.name || "待确认"}</strong>
-                    </div>
+                        <strong className="truncate font-medium text-slate-900">{activeStyle?.name || "选择并编辑"}</strong>
+                        <span className="text-xs text-blue-600">编辑</span>
+                    </button>
                     <span className="hidden h-4 w-px bg-slate-200 sm:block" />
                     <div className="flex" role="group" aria-label="素材分类">
                         {(
@@ -666,7 +671,64 @@ function AssetGallery({ projectId, assets, styles, generations, onGeneration, on
                     description="和 Agent 对话，让它从已确认剧本中提出候选清单。"
                 />
             )}
+            <DirectorStyleDrawer open={styleOpen} projectId={projectId} activeStyleId={activeStyleId} styles={styles} onClose={() => setStyleOpen(false)} onRefresh={onRefresh} />
         </div>
+    );
+}
+
+const emptyStyleDna: VisualStyleDna = { medium: "", rendering: "", palette: "", lighting: "", contrast: "", texture: "", lensAndDepth: "", composition: "", postProcessing: "", exclusions: [] };
+const dnaLabels: Array<[keyof Omit<VisualStyleDna, "exclusions">, string]> = [["medium", "媒介"], ["rendering", "渲染"], ["palette", "色彩"], ["lighting", "光线"], ["contrast", "反差"], ["texture", "质感"], ["lensAndDepth", "镜头与景深"], ["composition", "构图"], ["postProcessing", "后期"]];
+
+function DirectorStyleDrawer({ open, projectId, activeStyleId, styles, onClose, onRefresh }: { open: boolean; projectId: string; activeStyleId: string | null; styles: VisualStyle[]; onClose: () => void; onRefresh: () => Promise<void> }) {
+    const { message } = App.useApp();
+    const prepare = useAgentStore((store) => store.prepareComposer);
+    const [templates, setTemplates] = useState<VisualStyleTemplate[]>([]);
+    const [selectedId, setSelectedId] = useState("");
+    const [draft, setDraft] = useState<{ name: string; description: string; dna: VisualStyleDna }>({ name: "", description: "", dna: emptyStyleDna });
+    const [busy, setBusy] = useState("");
+    const [advancedOpen, setAdvancedOpen] = useState(false);
+    const style = styles.find((item) => item.id === selectedId);
+    useEffect(() => { if (open) void serverApi.visualStyleTemplates().then(setTemplates); }, [open]);
+    useEffect(() => { if (open) setSelectedId(activeStyleId || styles[0]?.id || ""); }, [open, activeStyleId, styles]);
+    useEffect(() => { if (style) setDraft({ name: style.name, description: style.description, dna: structuredClone(style.dna) }); }, [style]);
+    const run = async (label: string, action: () => Promise<unknown>) => {
+        setBusy(label);
+        try { await action(); await onRefresh(); message.success("视觉风格已更新"); }
+        catch (error) { message.error(error instanceof Error ? error.message : "视觉风格操作失败"); }
+        finally { setBusy(""); }
+    };
+    const applyTemplate = (template: VisualStyleTemplate) => void run("template", async () => {
+        if (style) await serverApi.updateVisualStyle(style.id, { revision: style.revision, name: template.name, mode: "template", templateId: template.id, description: template.description, dna: template.dna });
+        else { const created = await serverApi.createVisualStyle(projectId, { name: template.name, mode: "template", templateId: template.id, description: template.description, dna: template.dna, status: "draft", references: {} }); setSelectedId(created.id); }
+    });
+    const save = () => style ? void run("save", () => serverApi.updateVisualStyle(style.id, { revision: style.revision, name: draft.name, mode: "custom", templateId: null, description: draft.description, dna: draft.dna })) : void run("save", async () => { const created = await serverApi.createVisualStyle(projectId, { ...draft, mode: "custom", status: "draft", references: {} }); setSelectedId(created.id); });
+    const apply = () => style ? void run("apply", async () => { let current = style; if (draft.name !== style.name || draft.description !== style.description || JSON.stringify(draft.dna) !== JSON.stringify(style.dna)) current = await serverApi.updateVisualStyle(style.id, { revision: style.revision, name: draft.name, mode: "custom", templateId: null, description: draft.description, dna: draft.dna }); if (current.status !== "confirmed") current = await serverApi.updateVisualStyle(current.id, { revision: current.revision, status: "confirmed" }); await serverApi.setDefaultVisualStyle(current.id); }) : undefined;
+    const upload = async (file: File) => { if (!style) return message.warning("请先创建风格"); await run("upload", async () => { const uploaded = await uploadServerFile(file, file.name); const updated = await serverApi.updateVisualStyle(style.id, { revision: style.revision, references: { ...style.references, source: uploaded.fileId } }); await serverApi.analyzeVisualStyle(updated.id, updated.revision); }); };
+    return (
+        <Drawer open={open} onClose={onClose} size="large" title={<span className="flex items-center gap-2"><Palette className="size-4 text-blue-600" />视觉风格</span>} styles={{ body: { padding: 0, background: "#fff" } }}>
+            <div className="border-b border-slate-200 p-5">
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                    {templates.map((template) => <button key={template.id} className="w-36 shrink-0 border border-slate-200 bg-white p-3 text-left transition hover:border-blue-400 hover:bg-blue-50" onClick={() => applyTemplate(template)}><div className="flex gap-1">{template.colors.map((color) => <span key={color} className="h-3 flex-1" style={{ background: color }} />)}</div><strong className="mt-3 block truncate text-sm">{template.name}</strong><span className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{template.tagline}</span></button>)}
+                </div>
+            </div>
+            <div className="space-y-5 p-5">
+                {styles.length ? <Select value={selectedId || undefined} className="w-full" options={styles.map((item) => ({ value: item.id, label: `${item.name}${item.id === activeStyleId ? " · 当前" : ""}` }))} onChange={setSelectedId} /> : null}
+                <label className="block text-xs text-slate-500">名称<Input value={draft.name} className="mt-2" placeholder="例如：克制东方仙侠" onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} /></label>
+                <label className="block text-xs text-slate-500">风格描述<Input.TextArea value={draft.description} className="mt-2" autoSize={{ minRows: 5, maxRows: 10 }} placeholder="用一段话描述整片共同的媒介、色彩、光线、材质与镜头气质。具体角色和剧情不写在这里。" onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} /></label>
+                <div className="border-y border-slate-200">
+                    <button type="button" className="flex w-full items-center justify-between py-3 text-left text-sm text-slate-600 hover:text-slate-950" onClick={() => setAdvancedOpen((value) => !value)}><span><strong className="font-medium">高级风格参数</strong><span className="ml-2 text-xs text-slate-400">通常无需手动修改</span></span><ChevronDown className={`size-4 transition-transform ${advancedOpen ? "rotate-180" : ""}`} /></button>
+                    {advancedOpen ? <div className="space-y-3 pb-4"><p className="text-xs leading-5 text-slate-400">这些字段由模板或参考图分析生成，用于跨素材一致性与自动检查。GPT‑Image‑2 实际生成时会被编译成连贯提示，而不是机械堆字段。</p><div className="grid gap-3 sm:grid-cols-2">{dnaLabels.map(([key, label]) => <label key={key} className="text-xs text-slate-500">{label}<Input value={draft.dna[key]} className="mt-1" onChange={(event) => setDraft((value) => ({ ...value, dna: { ...value.dna, [key]: event.target.value } }))} /></label>)}</div><label className="block text-xs text-slate-500">避免元素<Input value={draft.dna.exclusions.join("、")} className="mt-1" onChange={(event) => setDraft((value) => ({ ...value, dna: { ...value.dna, exclusions: event.target.value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean) } }))} /></label></div> : null}
+                </div>
+                <div className="flex flex-wrap gap-2 border-t border-slate-200 pt-4">
+                    <Button loading={busy === "save"} onClick={save}>保存草稿</Button>
+                    <label className="inline-flex h-8 cursor-pointer items-center gap-2 border border-slate-200 px-3 text-sm text-slate-600 hover:bg-blue-50"><Upload className="size-4" />上传并分析<input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }} /></label>
+                    <Button disabled={!style} loading={busy === "refs"} onClick={() => style && void run("refs", () => serverApi.generateVisualStyleReferences(style.id, style.revision))}>生成三类样张</Button>
+                    <Button disabled={!style} icon={<Bot className="size-4" />} onClick={() => style && prepare(projectId, { kind: "style", projectId, styleId: style.id, title: style.name, subtitle: "视觉风格" })}>交给 Agent</Button>
+                    <Button type="primary" disabled={!style} loading={busy === "apply"} onClick={apply}>应用为当前风格</Button>
+                </div>
+                {style ? <div className="text-xs text-slate-400">REV {style.revision} · {style.status === "confirmed" ? style.id === activeStyleId ? "当前已应用" : "已确认" : "草稿，修改后需重新应用"}</div> : null}
+            </div>
+        </Drawer>
     );
 }
 
@@ -684,6 +746,7 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asse
                 <div className="absolute right-3 top-3 bg-white/95 px-2 py-1 shadow-sm">
                     <StatusPill status={asset.status} />
                 </div>
+                {asset.payload.needsReview ? <div className="absolute bottom-3 left-3 bg-rose-600 px-2 py-1 text-[10px] text-white">风格已变化 · 需要检查</div> : null}
             </div>
             <div className="p-5">
                 <div className="flex items-start justify-between gap-3">
@@ -692,6 +755,7 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asse
                         <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{asset.payload.description || asset.payload.narrativeDescription || "等待设定"}</p>
                     </div>
                 </div>
+                {primaryImage?.review ? <div className={`mt-3 flex items-start gap-2 text-xs ${primaryImage.review.status === "approved" ? "text-emerald-600" : primaryImage.review.status === "rejected" ? "text-rose-600" : "text-slate-500"}`}><span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-current" /><span>{primaryImage.review.summary || (primaryImage.review.status === "pending_review" ? "正在检查视觉质量" : "视觉检查完成")}</span></div> : null}
                 {primaryAudio ? (
                     <audio className="mt-4 h-8 w-full" controls src={serverApiUrl(`/files/${primaryAudio.fileId}/content`)} />
                 ) : (
@@ -732,6 +796,16 @@ function Storyboard({ projectId, state, onRefresh }: { projectId: string; state:
     const prepare = useAgentStore((store) => store.prepareComposer);
     const [view, setView] = useState<"boards" | "shots">("boards");
     const [busy, setBusy] = useState("");
+    const generate = async (sequence: DirectorSequence, panelId?: string) => {
+        setBusy(panelId || sequence.id);
+        try {
+            if (panelId) await directorApi.generateStoryboardPanel(sequence.id, panelId, sequence.revision);
+            else await directorApi.generateStoryboard(sequence.id, sequence.revision);
+            await onRefresh();
+            message.success(panelId ? "该分格已进入重抽队列" : "缺失分格已进入生成队列");
+        } catch (error) { message.error(error instanceof Error ? error.message : "故事板生成失败"); }
+        finally { setBusy(""); }
+    };
     const createSequence = async () => {
         try {
             await directorApi.createSequence(projectId, {
@@ -763,7 +837,7 @@ function Storyboard({ projectId, state, onRefresh }: { projectId: string; state:
                     sequenceId: sequence.id,
                     position: panel.position,
                     title: panel.title || `镜头 ${panel.position + 1}`,
-                    payload: { description: panel.description, durationSeconds: panel.durationSeconds, firstFrameFileId: panel.imageFileId, boundary: "cut" },
+                    payload: { description: panel.description, action: panel.action, dialogue: panel.dialogue, narration: panel.narration, shotSize: panel.shotSize, cameraAngle: panel.cameraAngle, cameraMove: panel.cameraMove, durationSeconds: panel.durationSeconds, characterRefs: panel.characterRefs || [], sceneRefs: panel.sceneRefs || [], propRefs: panel.propRefs || [], firstFrameFileId: panel.imageFileId, boundary: "cut" },
                 });
             await onRefresh();
             setView("shots");
@@ -800,6 +874,8 @@ function Storyboard({ projectId, state, onRefresh }: { projectId: string; state:
                             onAgent={() => prepare(projectId, { kind: "director", projectId, entityKind: "sequence", entityId: sequence.id, title: sequence.title, subtitle: "剧情段落故事板" })}
                             onConfirm={() => void updateSequence(sequence, { status: "confirmed" })}
                             onExtract={() => void extract(sequence)}
+                            onGenerate={() => void generate(sequence)}
+                            onRegenerate={(panelId) => void generate(sequence, panelId)}
                             onReorder={(storyboard) => void updateSequence(sequence, { payload: { ...sequence.payload, storyboard } })}
                         />
                     ))}
@@ -824,6 +900,8 @@ function SequenceBoard({
     onAgent,
     onConfirm,
     onExtract,
+    onGenerate,
+    onRegenerate,
     onReorder,
 }: {
     sequence: DirectorSequence;
@@ -831,6 +909,8 @@ function SequenceBoard({
     onAgent: () => void;
     onConfirm: () => void;
     onExtract: () => void;
+    onGenerate: () => void;
+    onRegenerate: (panelId: string) => void;
     onReorder: (panels: DirectorStoryboardPanel[]) => void;
 }) {
     const panels = sequence.payload.storyboard || [];
@@ -864,6 +944,7 @@ function SequenceBoard({
                         {panels.reduce((sum, panel) => sum + (panel.durationSeconds || 4), 0)} 秒
                     </span>
                     <FlatAction icon={Bot} label="交给 Agent" onClick={onAgent} />
+                    <FlatAction icon={ImageIcon} label="生成缺失格" loading={busy} onClick={onGenerate} />
                     {sequence.status === "draft" ? <FlatAction icon={Check} label="确认故事板" loading={busy} onClick={onConfirm} /> : <FlatAction icon={Scissors} label="拆为镜头" loading={busy} onClick={onExtract} />}
                 </div>
             </header>
@@ -878,6 +959,7 @@ function SequenceBoard({
                                     <ImageIcon className="size-8" />
                                 </div>
                             )}
+                            {panel.review?.status === "pending" ? <div className="director-asset-loading absolute inset-0 grid place-items-center"><div className="text-center"><Loader2 className="mx-auto size-5 animate-spin text-blue-600" /><p className="mt-2 text-xs text-slate-600">{panel.imageFileId ? "视觉检查中" : "画面生成中"}</p></div></div> : null}
                         </div>
                         <div className="absolute inset-x-0 bottom-0 bg-slate-950/75 px-4 py-3 text-white">
                             <div className="flex items-baseline gap-2">
@@ -888,7 +970,7 @@ function SequenceBoard({
                             <p className="mt-1 truncate text-xs text-white/75">{panel.description || "待规划画面与动作"}</p>
                         </div>
                         <div className="absolute right-2 top-2 flex overflow-hidden bg-slate-950/80 text-white opacity-0 transition group-hover:opacity-100">
-                            <button aria-label={`重新设计${panel.title || `镜头 ${index + 1}`}`} className="flex items-center gap-1 px-2 py-1.5 text-[11px] hover:bg-white/15" onClick={onAgent}>
+                            <button aria-label={`重新设计${panel.title || `镜头 ${index + 1}`}`} className="flex items-center gap-1 px-2 py-1.5 text-[11px] hover:bg-white/15" onClick={() => onRegenerate(panel.id)}>
                                 <RefreshCw className="size-3" />
                                 重抽
                             </button>
@@ -899,6 +981,7 @@ function SequenceBoard({
                                 后移 →
                             </button>
                         </div>
+                        {panel.review && panel.review.status !== "pending" ? <Tooltip title={[panel.review.summary, ...(panel.review.issues || [])].filter(Boolean).join("；")}><div className={`absolute left-2 top-2 px-2 py-1 text-[10px] text-white ${panel.review.status === "passed" ? "bg-emerald-600" : panel.review.status === "failed" ? "bg-rose-600" : "bg-slate-600"}`}>{panel.review.status === "passed" ? "检查通过" : panel.review.status === "failed" ? "需要检查" : "人工检查"}</div></Tooltip> : null}
                     </div>
                 ))}
             </div>

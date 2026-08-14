@@ -29,7 +29,7 @@ export type CreativeAssetVariant = {
     generationId?: string;
     usage?: string;
     transcript?: string;
-    review?: { status: "pending_review" | "approved" | "rejected"; source: "automatic" | "manual"; summary?: string; issues?: string[]; reviewedAt?: string; reviewGenerationId?: string };
+    review?: { status: "pending_review" | "approved" | "rejected"; source: "automatic" | "manual"; summary?: string; issues?: string[]; metrics?: Record<string, boolean | number | string>; reviewedAt?: string; reviewGenerationId?: string };
     createdAt: string;
 };
 
@@ -42,6 +42,9 @@ export type CreativeAssetPayload = {
     primaryImageId: string | null;
     primaryAudioId: string | null;
     mediaDrafts: { image: CreativeAssetMediaDraft; audio: CreativeAssetMediaDraft };
+    dependencies?: { style?: { id: string; revision: number } | null };
+    needsReview?: boolean;
+    staleReason?: string;
 };
 
 export type CreativeAsset = {

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, parseJson } from "./database.js";
 import { syncFileRefs } from "./file-store.js";
 import { publishAgentProject } from "./agent/project-events.js";
+import { getAiGlobalSettings } from "./provider-service.js";
 
 export type CreativeAssetKind = "character" | "scene" | "prop";
 export type CreativeAssetStatus = "draft" | "confirmed" | "locked";
@@ -27,6 +28,7 @@ export type CreativeAssetReview = {
     source: "automatic" | "manual";
     summary?: string;
     issues?: string[];
+    metrics?: Record<string, boolean | number | string>;
     reviewedAt?: string;
     reviewGenerationId?: string;
 };
@@ -51,6 +53,9 @@ export type CreativeAssetPayload = {
     primaryImageId: string | null;
     primaryAudioId: string | null;
     mediaDrafts: { image: CreativeAssetMediaDraft; audio: CreativeAssetMediaDraft };
+    dependencies?: { style?: { id: string; revision: number } | null };
+    needsReview?: boolean;
+    staleReason?: string;
 };
 export type CreativeAssetRow = {
     id: string; user_id: string; project_id: string; kind: CreativeAssetKind; name: string; status: CreativeAssetStatus;
@@ -95,6 +100,7 @@ const variant = z.object({
         source: z.enum(["automatic", "manual"]),
         summary: z.string().max(2_000).optional(),
         issues: z.array(z.string().max(500)).max(50).optional(),
+        metrics: z.record(z.string(), z.union([z.boolean(), z.number(), z.string()])).optional(),
         reviewedAt: z.string().optional(),
         reviewGenerationId: id.optional(),
     }).optional(),
@@ -115,6 +121,9 @@ export const creativeAssetPayloadSchema = z.object({
     primaryImageId: id.nullable().default(null),
     primaryAudioId: id.nullable().default(null),
     mediaDrafts: z.object({ image: mediaDraft, audio: mediaDraft }),
+    dependencies: z.object({ style: z.object({ id, revision: z.number().int().positive() }).nullable().optional() }).optional(),
+    needsReview: z.boolean().optional(),
+    staleReason: z.string().max(2_000).optional(),
 });
 const creativeAssetPayloadPatchSchema = z.object({
     description: text.optional(),
@@ -125,6 +134,9 @@ const creativeAssetPayloadPatchSchema = z.object({
     primaryImageId: id.nullable().optional(),
     primaryAudioId: id.nullable().optional(),
     mediaDrafts: z.object({ image: mediaDraftPatch.optional(), audio: mediaDraftPatch.optional() }).partial().optional(),
+    dependencies: creativeAssetPayloadSchema.shape.dependencies.optional(),
+    needsReview: z.boolean().optional(),
+    staleReason: z.string().max(2_000).optional(),
 });
 export const creativeAssetInputSchema = z.object({
     kind: z.enum(["character", "scene", "prop"]),
@@ -322,7 +334,7 @@ export function createCreativeAssetsBatch(userId: string, projectId: string, raw
 
 export function syncCreativeAssetGeneration(row: { id: string; user_id: string; status: string; request: string; result: string | null }) {
     if (row.status !== "succeeded") return;
-    const request = parseJson<{ kind?: "image" | "audio"; prompt?: string; params?: { __creativeAsset?: { assetId?: string; usage?: string; label?: string; transcript?: string }; __creativeAssetReview?: { assetId?: string; sourceGenerationId?: string; fileId?: string } } }>(row.request, {});
+    const request = parseJson<{ kind?: "image" | "audio"; prompt?: string; params?: { __creativeAsset?: { assetId?: string; usage?: string; label?: string; transcript?: string }; __creativeAssetReview?: { assetId?: string; sourceGenerationId?: string; fileId?: string }; __visualStyle?: { id?: string; revision?: number } | null } }>(row.request, {});
     const reviewTarget = request.params?.__creativeAssetReview;
     if (reviewTarget?.assetId && reviewTarget.sourceGenerationId && reviewTarget.fileId) {
         applyAutomaticReview(row, reviewTarget as { assetId: string; sourceGenerationId: string; fileId: string });
@@ -343,9 +355,40 @@ export function syncCreativeAssetGeneration(row: { id: string; user_id: string; 
     payload.variants = [...payload.variants.filter((item) => item.kind !== kind || item.usage === "reference_input"), ...added];
     if (kind === "image") {
         payload.primaryImageId = added[0].id;
+        payload.dependencies = { ...payload.dependencies, style: request.params?.__visualStyle?.id && request.params.__visualStyle.revision ? { id: request.params.__visualStyle.id, revision: request.params.__visualStyle.revision } : null };
+        payload.needsReview = false;
+        payload.staleReason = undefined;
     }
     else payload.primaryAudioId = added[0].id;
     updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
+}
+
+export function creativeAssetAutomaticReviewRequest(row: { id: string; user_id: string; kind: string; status: string; request: string; result: string | null }) {
+    if (row.kind !== "image" || row.status !== "succeeded") return null;
+    const request = parseJson<{ params?: { __creativeAsset?: { assetId?: string }; __creativeAssetReview?: unknown } }>(row.request, {});
+    if (request.params?.__creativeAssetReview || !request.params?.__creativeAsset?.assetId) return null;
+    const asset = creativeAssetRow(row.user_id, request.params.__creativeAsset.assetId);
+    if (!asset) return null;
+    const payload = creativeAssetPayloadSchema.parse(parseJson(asset.payload, {}));
+    const variant = payload.variants.find((item) => item.kind === "image" && item.generationId === row.id);
+    if (!variant || variant.review) return null;
+    const model = getAiGlobalSettings().config.creativeAssetReviewModel;
+    if (!model) {
+        variant.review = { status: "pending_review", source: "manual", summary: "未配置视觉质检模型，请人工验收" };
+        updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
+        return null;
+    }
+    variant.review = { status: "pending_review", source: "automatic", summary: "正在检查视觉一致性" };
+    updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
+    const styleId = payload.dependencies?.style?.id;
+    const style = styleId ? db.prepare("SELECT description,reference_files FROM visual_styles WHERE id=? AND user_id=? AND project_id=?").get(styleId, row.user_id, asset.project_id) as { description: string; reference_files: string } | undefined : undefined;
+    const styleReference = style ? parseJson<{ source?: string; character?: string; scene?: string; prop?: string }>(style.reference_files, {})[asset.kind] || parseJson<{ source?: string }>(style.reference_files, {}).source : undefined;
+    const criteria = asset.kind === "character"
+        ? "恰好四个视角（正面、左侧、右侧、背面）；四个完整等高全身且不裁切；面部、体型、发型、服装、材质、配色一致；纯白背景；无文字、边框、Logo；符合视觉风格。"
+        : asset.kind === "scene"
+            ? "空间结构、时代地理、陈设、材质和光线一致；无人、无剧情动作、无意外文字；符合视觉风格。"
+            : "轮廓、比例、材质、结构、磨损和关键细节清晰一致；无人物、无环境、无文字；符合视觉风格。";
+    return { kind: "text" as const, model, prompt: `你是影视美术视觉质检员。第一张参考图片是待检查的${asset.kind === "character" ? "角色四视图" : asset.kind === "scene" ? "场景母版" : "道具母版"}${styleReference ? "，第二张是风格参考" : ""}。\n验收标准：${criteria}\n当前风格：${style?.description || "以待检查图片自身为准"}\n只输出 JSON：{"passed":boolean,"summary":string,"issues":string[],"metrics":object}。`, references: [{ fileId: variant.fileId, kind: "image" as const }, ...(styleReference ? [{ fileId: styleReference, kind: "image" as const }] : [])], params: { __creativeAssetReview: { assetId: asset.id, sourceGenerationId: row.id, fileId: variant.fileId } } };
 }
 
 function applyAutomaticReview(row: { id: string; user_id: string; result: string | null }, target: { assetId: string; sourceGenerationId: string; fileId: string }) {
@@ -356,14 +399,14 @@ function applyAutomaticReview(row: { id: string; user_id: string; result: string
     if (!variant) return;
     const rawText = String(parseJson<{ text?: string }>(row.result, {}).text || "");
     const parsed = parseReviewResult(rawText);
-    variant.review = parsed ? { status: parsed.passed ? "approved" : "rejected", source: "automatic", summary: parsed.summary, issues: parsed.issues, reviewedAt: new Date().toISOString(), reviewGenerationId: row.id } : { status: "pending_review", source: "manual", summary: "自动质检结果无法解析，请人工验收", reviewGenerationId: row.id };
+    variant.review = parsed ? { status: parsed.passed ? "approved" : "rejected", source: "automatic", summary: parsed.summary, issues: parsed.issues, metrics: parsed.metrics, reviewedAt: new Date().toISOString(), reviewGenerationId: row.id } : { status: "pending_review", source: "manual", summary: "自动质检结果无法解析，请人工验收", reviewGenerationId: row.id };
     updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
 }
 
 function parseReviewResult(value: string) {
     try {
         const json = value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-        return z.object({ passed: z.boolean(), summary: z.string().max(2_000), issues: z.array(z.string().max(500)).max(50).default([]) }).parse(JSON.parse(json));
+        return z.object({ passed: z.boolean(), summary: z.string().max(2_000), issues: z.array(z.string().max(500)).max(50).default([]), metrics: z.record(z.string(), z.union([z.boolean(), z.number(), z.string()])).default({}) }).parse(JSON.parse(json));
     } catch { return null; }
 }
 
@@ -371,7 +414,7 @@ export function creativeAssetResponse(row: CreativeAssetRow) {
     return { id: row.id, projectId: row.project_id, kind: row.kind, name: row.name, status: row.status, payload: creativeAssetPayloadSchema.parse(parseJson(row.payload, {})), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
-export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetResponse>, kind: "image" | "audio", extra = "") {
+export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetResponse>, kind: "image" | "audio", extra = "", profile: "generic" | "gpt-image-2" = "generic") {
     const description = asset.payload.description.trim();
     const requirement = extra.trim();
     if (kind === "audio") return requirement || asset.payload.mediaDrafts.audio.prompt || asset.payload.description;
@@ -384,14 +427,17 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
         scene: "横版 16:9 场景设定图，严格无人、无文字、无标注：主画面占四分之三区域，完整展示空间结构、固定陈设、光线和氛围；右下角嵌入标志性局部细节图。",
         prop: "横版 16:9 道具设定图，严格纯白无影背景：正面全视图、45 度侧视图、关键细节特写水平排列，各视图必须是同一件道具，结构、材质和比例保持一致。只画道具，不画人物、环境、文字或标注。",
     }[asset.kind];
-    return [
+    const sections = [
         directorCharacter ? "同一角色的单张横版四视图设计图，一张图片内包含四个角度。" : `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}「${asset.name}」的视觉设计参考。`,
         directorCharacter ? visualDescription : description,
         requirement,
         layout,
         asset.kind === "character" && asset.payload.designProfile && !directorCharacter ? `身份锚点：${asset.payload.designProfile.identityAnchor}\n年龄段：${asset.payload.designProfile.ageBand}\n外观性别：${asset.payload.designProfile.apparentGender}` : "",
         "负面约束：背景场景、剧情动作、叙事事件、水印、文字、字母、数字、Logo、UI、边框标题。",
-    ].filter(Boolean).join("\n\n");
+    ].filter(Boolean);
+    return profile === "gpt-image-2"
+        ? [`[主体视觉设定]\n${sections[0]}\n${sections[1] || ""}`, `[风格与补充要求]\n${sections.slice(2, -2).join("\n")}`, `[输出规格]\n${layout}`, `[禁止项与验收]\n${sections.at(-1)}`].join("\n\n")
+        : sections.join("\n\n");
 }
 
 export function isDirectorProject(projectId: string) {

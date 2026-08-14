@@ -33,7 +33,7 @@ import {
     getDirectorDocument, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
     updateDirectorDocument, updateDirectorSequence, updateDirectorShot, updateDirectorTimeline, updateDirectorWorkspace,
 } from "./director.js";
-import { cancelDirectorRender, createDirectorRender, createDirectorShotGeneration, listDirectorRenders, retryDirectorRender } from "./director-render.js";
+import { cancelDirectorRender, createDirectorRender, createDirectorShotGeneration, createDirectorStoryboardGeneration, createDirectorStoryboardPanelGeneration, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 
 type ProjectKind = "canvas" | "director";
 type ProjectRow = { id: string; kind: ProjectKind; title: string; payload: string; revision: number; created_at: string; updated_at: string };
@@ -164,6 +164,7 @@ api.delete("/projects/:id", route((req) => {
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='visual_style' AND owner_id IN (SELECT id FROM visual_styles WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type IN ('director_source','director_render') AND owner_id IN (SELECT id FROM director_sources WHERE user_id=? AND project_id=? UNION SELECT id FROM director_renders WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId, req.user.id, projectId);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='director_shot' AND owner_id IN (SELECT id FROM director_shots WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='director_sequence' AND owner_id IN (SELECT id FROM director_sequences WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId);
         db.prepare("DELETE FROM agent_sessions WHERE user_id=? AND project_id=?").run(req.user.id, projectId);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='project' AND owner_id=?").run(req.user.id, projectId);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='agent_project' AND owner_id=?").run(req.user.id, projectId);
@@ -185,6 +186,8 @@ api.get("/director/projects/:id/sequences", route((req) => listDirectorSequences
 api.post("/director/projects/:id/sequences", route((req) => createDirectorSequence(req.user.id, routeId(req), req.body), 201));
 api.put("/director/sequences/:id", route((req) => updateDirectorSequence(req.user.id, routeId(req), req.body)));
 api.delete("/director/sequences/:id", route((req) => deleteDirectorSequence(req.user.id, routeId(req))));
+api.post("/director/sequences/:id/storyboard/generate", route((req) => createDirectorStoryboardGeneration(req.user.id, routeId(req), req.body), 202));
+api.post("/director/sequences/:id/storyboard/:panelId/generate", route((req) => createDirectorStoryboardPanelGeneration(req.user.id, routeId(req), routeParam(req, "panelId"), req.body), 202));
 api.post("/director/projects/:id/shots", route((req) => createDirectorShot(req.user.id, routeId(req), req.body), 201));
 api.put("/director/shots/:id", route((req) => updateDirectorShot(req.user.id, routeId(req), req.body)));
 api.delete("/director/shots/:id", route((req) => deleteDirectorShot(req.user.id, routeId(req))));

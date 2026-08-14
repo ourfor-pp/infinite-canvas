@@ -444,6 +444,7 @@ async function executeRun(run: RunRow, controller: AbortController) {
             waitForWorkspacePath: (path) => waitForWorkspacePath(safeWorkspacePath(workspace, path)),
         }, scene);
         const streamState = { turn: 0 };
+        const nativeTools = resolveAgentNativeTools(runtime.toolSearchEnabled);
         appendEvent(session.id, run.id, "run_state", { state: "running", content: "Agent 已开始处理" });
         const input = new SdkInputChannel([sdkUserMessage(prompt)]);
         const runner = query({
@@ -457,13 +458,16 @@ async function executeRun(run: RunRow, controller: AbortController) {
                 forkSession: Boolean(session.sdk_session_id && session.fork_pending),
                 resumeSessionAt: session.fork_resume_at || undefined,
                 settingSources: ["project"],
-                skills: "all",
-                tools: runtime.toolSearchEnabled ? ["Read", "ToolSearch"] : ["Read"],
+                skills: syncedSkills.skills,
+                tools: nativeTools.tools,
+                settings: nativeTools.settings,
                 mcpServers: { infinite_canvas: mcp },
-                allowedTools: mergeAllowedTools([...sceneRegisteredTools(scene), "Read"], runtime.toolSearchEnabled ? ["ToolSearch"] : [], syncedSkills.allowedTools),
-                disallowedTools: ["Bash", "PowerShell", "WebFetch", "WebSearch", "Task", "CronCreate", "CronEdit", "CronDelete", "CronList"],
+                allowedTools: mergeAllowedTools([...sceneRegisteredTools(scene), ...nativeTools.allowedTools], syncedSkills.allowedTools),
+                disallowedTools: nativeTools.disallowedTools,
                 permissionMode: "auto",
-                canUseTool: (toolName, input, options) => requestPolicyDecision(session, run, toolName, input, options),
+                canUseTool: (toolName, input, options) => nativeTools.autoAllowedTools.includes(toolName)
+                    ? Promise.resolve({ behavior: "allow", updatedInput: input })
+                    : requestPolicyDecision(session, run, toolName, input, options),
                 includePartialMessages: true,
                 env: runtime.env,
                 hooks: workspaceReadHooks(workspace),
@@ -587,7 +591,7 @@ async function consumeSdkMessage(sessionId: string, runId: string, message: SDKM
             const sdkMessageUuid = String((message as { uuid?: string }).uuid || "").trim();
             if (block.type === "text" && block.text.trim()) appendEvent(sessionId, runId, "assistant_text", { text: block.text.trim(), streamId: `${runId}:${streamed.turn}:text`, ...(sdkMessageUuid ? { sdkMessageUuid } : {}) });
             if (block.type === "thinking" && block.thinking.trim()) appendEvent(sessionId, runId, "thinking", { text: block.thinking.trim(), streamId: `${runId}:${streamed.turn}:thinking`, ...(sdkMessageUuid ? { sdkMessageUuid } : {}) });
-            if (block.type === "tool_use" && (block.name === "Read" || block.name === "ToolSearch")) {
+            if (block.type === "tool_use" && (block.name === "Read" || block.name === "ToolSearch" || block.name === "Skill")) {
                 sdkToolCalls.set(`${sessionId}:${block.id}`, block.name);
                 appendEvent(sessionId, runId, "tool_call", { toolId: block.id, toolName: block.name, input: block.input, startedAt: new Date().toISOString(), ...(sdkMessageUuid ? { sdkMessageUuid } : {}) });
                 if (block.name === "ToolSearch") db.prepare("UPDATE agent_runs SET tool_search_call_count=tool_search_call_count+1 WHERE id=?").run(runId);
@@ -649,6 +653,20 @@ export function resolveAgentToolSearchMode(endpoint: AiModelDefinition["endpoint
     return endpoint === "anthropic-messages" ? "true" : "false";
 }
 
+const agentNativeDisallowedTools = ["Bash", "PowerShell", "WebFetch", "WebSearch", "Task", "Agent", "TaskOutput", "Write", "Edit", "Glob", "Grep", "LS", "NotebookEdit", "CronCreate", "CronEdit", "CronDelete", "CronList"];
+
+export function resolveAgentNativeTools(toolSearchEnabled: boolean) {
+    const allowedTools = ["Read", ...(toolSearchEnabled ? ["ToolSearch"] : [])];
+    const autoAllowedTools = ["Skill", ...allowedTools];
+    return {
+        tools: { type: "preset" as const, preset: "claude_code" as const },
+        allowedTools,
+        autoAllowedTools,
+        settings: { permissions: { allow: autoAllowedTools } },
+        disallowedTools: [...agentNativeDisallowedTools, ...(toolSearchEnabled ? [] : ["ToolSearch"])],
+    };
+}
+
 function mergeAllowedTools(...lists: string[][]) {
     const safe = new Set([...lists[0], "ToolSearch"]);
     return Array.from(new Set(lists.flat())).filter((name) => safe.has(name));
@@ -658,7 +676,7 @@ type ProviderNonNull = NonNullable<ReturnType<typeof getProviderRow>>;
 
 function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
     const sections = [context.input || "请处理本次请求。"];
-    if (skill) sections.unshift(`请调用并遵循内置 Skill“${skill.id}”（${skill.name}）完成本次请求。`);
+    if (skill) sections.unshift(`使用原生 Skill 工具加载并遵循“${skill.id}”（${skill.name}）完成本次请求。Skill 已同步到当前会话，不要使用 Read 查找服务端 Skill 源文件。`);
     if (context.references?.length) sections.push(`## 本次画布引用\n${JSON.stringify(context.references, null, 2)}`);
     if (context.assetReferences?.length) sections.push(`## 本次创作资产引用\n${JSON.stringify(context.assetReferences, null, 2)}\n修改前读取最新 revision；不要把新增媒体静默设为主版本。`);
     if (context.styleReferences?.length) sections.push(`## 本次视觉风格引用\n${JSON.stringify(context.styleReferences, null, 2)}\n修改前读取最新 revision；资产生成时优先沿用这个风格。`);

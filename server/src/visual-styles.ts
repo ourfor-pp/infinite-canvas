@@ -118,7 +118,10 @@ export function updateVisualStyle(userId: string, styleId: string, raw: unknown)
     const current = styleRow(userId, styleId);
     if (!current) throw styleError(404, "VISUAL_STYLE_NOT_FOUND", "视觉风格不存在或无权访问");
     const patch = updateSchema.parse(raw);
-    const input = resolveTemplate({ name: patch.name ?? current.name, mode: patch.mode ?? current.mode, templateId: patch.templateId === undefined ? current.template_id : patch.templateId, description: patch.description ?? current.description, status: patch.status ?? current.status, dna: patch.dna ?? dnaSchema.parse(parseJson(current.dna, {})), references: patch.references ?? referencesSchema.parse(parseJson(current.reference_files, {})) });
+    const semanticChange = ["name", "mode", "templateId", "description", "dna", "references"].some((key) => key in patch);
+    const projectKind = (db.prepare("SELECT kind FROM projects WHERE id=? AND user_id=?").get(current.project_id, userId) as { kind?: string } | undefined)?.kind;
+    const nextStatus = projectKind === "director" && semanticChange && patch.status === undefined ? "draft" : patch.status ?? current.status;
+    const input = resolveTemplate({ name: patch.name ?? current.name, mode: patch.mode ?? current.mode, templateId: patch.templateId === undefined ? current.template_id : patch.templateId, description: patch.description ?? current.description, status: nextStatus, dna: patch.dna ?? dnaSchema.parse(parseJson(current.dna, {})), references: patch.references ?? referencesSchema.parse(parseJson(current.reference_files, {})) });
     assertStyleReady(input);
     assertStyleReferences(userId, input.references);
     const now = new Date().toISOString();
@@ -126,6 +129,7 @@ export function updateVisualStyle(userId: string, styleId: string, raw: unknown)
         .run(input.name, input.mode, input.templateId || null, input.description, input.status, JSON.stringify(input.dna), JSON.stringify(input.references), now, styleId, userId, patch.revision);
     if (!result.changes) throw styleError(409, "VISUAL_STYLE_CONFLICT", "视觉风格已在其他页面更新", { current: styleResponse(styleRow(userId, styleId)!) });
     syncStyleRefs(userId, styleId, input.references);
+    if (projectKind === "director" && semanticChange) markDirectorStyleDependents(userId, current.project_id, styleId, current.revision + 1);
     return publishStyle(userId, styleRow(userId, styleId)!);
 }
 export function deleteVisualStyle(userId: string, styleId: string) {
@@ -158,6 +162,27 @@ export function setDefaultVisualStyle(userId: string, styleId: string) {
     project.defaultVisualStyleId = styleId;
     saveProject(userId, style.projectId, project);
     return style;
+}
+
+function markDirectorStyleDependents(userId: string, projectId: string, styleId: string, revision: number) {
+    const now = new Date().toISOString();
+    const mark = (table: "director_sequences" | "director_shots", rows: Array<{ id: string; payload: string }>) => {
+        const statement = db.prepare(`UPDATE ${table} SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?`);
+        rows.forEach((row) => {
+            const payload = parseJson<Record<string, unknown>>(row.payload, {});
+            const dependency = (payload.dependencies as { style?: { id?: string; revision?: number } } | undefined)?.style;
+            if (dependency?.id === styleId && dependency.revision !== revision) statement.run(JSON.stringify({ ...payload, needsReview: true, staleReason: `视觉风格已更新到 revision ${revision}` }), now, row.id, userId);
+        });
+    };
+    mark("director_sequences", db.prepare("SELECT id,payload FROM director_sequences WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>);
+    mark("director_shots", db.prepare("SELECT id,payload FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>);
+    const assets = db.prepare("SELECT id,payload FROM creative_assets WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>;
+    const updateAsset = db.prepare("UPDATE creative_assets SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?");
+    assets.forEach((row) => {
+        const payload = parseJson<Record<string, unknown>>(row.payload, {});
+        const dependency = (payload.dependencies as { style?: { id?: string; revision?: number } } | undefined)?.style;
+        if (dependency?.id === styleId && dependency.revision !== revision) updateAsset.run(JSON.stringify({ ...payload, needsReview: true, staleReason: `视觉风格已更新到 revision ${revision}` }), now, row.id, userId);
+    });
 }
 export function resolveVisualStyleForNode(userId: string, projectId: string, nodeId?: string) {
     const project = projectPayload(userId, projectId);

@@ -12,7 +12,7 @@ process.env.DATA_DIR = testData;
 process.env.AUTH_MODE = "fnos";
 process.env.APP_SECRET = "test-secret";
 
-const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { recoverAgentRuns, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js")]);
+const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { recoverAgentRuns, resolveAgentNativeTools, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js")]);
 let origin = "";
 const server = app.listen(0, "127.0.0.1");
 
@@ -42,6 +42,20 @@ test("Agent Tool Search 按协议启用并允许显式覆盖", () => {
     assert.equal(resolveAgentToolSearchMode("openai-chat"), "false");
     assert.equal(resolveAgentToolSearchMode("openai-chat", "auto:25"), "auto:25");
     assert.equal(resolveAgentToolSearchMode("anthropic-messages", "invalid"), "true");
+});
+
+test("Agent 使用原生 Skill 且危险内置工具保持禁用", () => {
+    const enabled = resolveAgentNativeTools(true);
+    assert.deepEqual(enabled.tools, { type: "preset", preset: "claude_code" });
+    assert.equal(enabled.allowedTools.includes("Skill"), false, "SDK 已弃用在顶层 allowedTools 放行 Skill");
+    assert.equal(enabled.autoAllowedTools.includes("Skill"), true);
+    assert.deepEqual(enabled.settings.permissions.allow, enabled.autoAllowedTools);
+    assert.equal(enabled.allowedTools.includes("ToolSearch"), true);
+    assert.equal(enabled.disallowedTools.includes("Bash"), true);
+    assert.equal(enabled.disallowedTools.includes("Write"), true);
+    const disabled = resolveAgentNativeTools(false);
+    assert.equal(disabled.allowedTools.includes("ToolSearch"), false);
+    assert.equal(disabled.disallowedTools.includes("ToolSearch"), true);
 });
 
 test("Agent Skill 解析单行和列表 allowed-tools", () => {
@@ -140,6 +154,15 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.equal(script.response.status, 200);
     const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ title: "雨夜车站", summary: "线索出现", payload: { storyboard: Array.from({ length: 6 }, (_, position) => ({ id: `panel-${position}`, position, title: `镜头 ${position + 1}` })) } }) });
     assert.equal(sequence.response.status, 201);
+    const storyboardWithoutStyle = await api(`/director/sequences/${sequence.body.data.id}/storyboard/panel-0/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: 1 }) });
+    assert.equal(storyboardWithoutStyle.response.status, 409);
+    assert.equal(storyboardWithoutStyle.body.error.code, "DIRECTOR_STAGE_GATE");
+    const directorStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "雨夜冷调", mode: "custom", description: "冷灰雨夜电影风格", status: "confirmed" }) });
+    await api(`/visual-styles/${directorStyle.body.data.id}/default`, userOne, { method: "POST" });
+    const stateWithStyle = await api(`/director/projects/${projectId}`, userOne);
+    assert.equal(stateWithStyle.body.data.activeStyleId, directorStyle.body.data.id);
+    const editedStyle = await api(`/visual-styles/${directorStyle.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, description: "冷灰雨夜电影风格，增加潮湿反光" }) });
+    assert.equal(editedStyle.body.data.status, "draft", "导演当前风格发生实质修改后必须回到草稿");
     const gatedShot = await api(`/director/projects/${projectId}/shots`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "车站全景" }) });
     assert.equal(gatedShot.response.status, 409);
     const confirmed = await api(`/director/sequences/${sequence.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "confirmed" }) });

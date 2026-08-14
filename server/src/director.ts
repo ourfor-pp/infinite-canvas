@@ -46,7 +46,7 @@ export function getDirectorState(userId: string, projectId: string) {
     const sequences = db.prepare("SELECT * FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position, created_at").all(userId, projectId) as SequenceRow[];
     const shots = db.prepare("SELECT * FROM director_shots WHERE user_id=? AND project_id=? ORDER BY sequence_id, position, created_at").all(userId, projectId) as ShotRow[];
     const timeline = db.prepare("SELECT * FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
-    return { workspace: workspaceResponse(workspace), documents: documents.map(documentResponse), sources: sources.map(sourceResponse), sequences: sequences.map(sequenceResponse), shots: shots.map(shotResponse), timeline: timelineResponse(timeline) };
+    return { activeStyleId: activeStyleId(userId, projectId), workspace: workspaceResponse(workspace), documents: documents.map(documentResponse), sources: sources.map(sourceResponse), sequences: sequences.map(sequenceResponse), shots: shots.map(shotResponse), timeline: timelineResponse(timeline) };
 }
 
 export function updateDirectorWorkspace(userId: string, projectId: string, body: unknown) {
@@ -124,6 +124,7 @@ export function createDirectorSequence(userId: string, projectId: string, body: 
     assertDirectorProject(userId, projectId);
     requireConfirmedDocument(userId, projectId, "script");
     const value = sequenceInput.parse(body);
+    assertStoryboardSize(value.payload.storyboard);
     const sequenceId = value.id || nanoid();
     const position = value.position ?? Number((db.prepare("SELECT coalesce(max(position),-1)+1 value FROM director_sequences WHERE user_id=? AND project_id=?").get(userId, projectId) as { value: number }).value);
     const now = new Date().toISOString();
@@ -136,6 +137,7 @@ export function createDirectorSequence(userId: string, projectId: string, body: 
 export function updateDirectorSequence(userId: string, sequenceId: string, body: unknown, allowLocked = false) {
     const current = sequenceRow(userId, sequenceId);
     const value = sequencePatch.parse(body);
+    if (value.payload && "storyboard" in value.payload) assertStoryboardSize(value.payload.storyboard);
     if (!allowLocked && current.status === "locked" && ((value.status !== undefined && value.status !== "locked") || Object.keys(value).some((key) => !["revision", "status"].includes(key)))) throw directorError(423, "DIRECTOR_LOCKED", "剧情段落已锁定，需要通过 Agent 审批后修改");
     const currentPayload = parseJson<Record<string, unknown>>(current.payload, {});
     const payload = value.payload ? { ...currentPayload, ...value.payload, storyboard: normalizeStoryboard(value.payload.storyboard ?? currentPayload.storyboard) } : currentPayload;
@@ -149,7 +151,11 @@ export function updateDirectorSequence(userId: string, sequenceId: string, body:
 export function deleteDirectorSequence(userId: string, sequenceId: string, allowLocked = false) {
     const current = sequenceRow(userId, sequenceId);
     if (!allowLocked && current.status === "locked") throw directorError(423, "DIRECTOR_LOCKED", "剧情段落已锁定，需要通过 Agent 审批后删除");
-    db.prepare("DELETE FROM director_sequences WHERE id=? AND user_id=?").run(sequenceId, userId);
+    db.transaction(() => {
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='director_shot' AND owner_id IN (SELECT id FROM director_shots WHERE user_id=? AND sequence_id=?)").run(userId, userId, sequenceId);
+        db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='director_sequence' AND owner_id=?").run(userId, sequenceId);
+        db.prepare("DELETE FROM director_sequences WHERE id=? AND user_id=?").run(sequenceId, userId);
+    })();
     return publish(userId, "sequence.deleted", current.project_id, { id: sequenceId });
 }
 
@@ -343,7 +349,11 @@ function shotVideoChanged(previous: string, next: Record<string, unknown>) {
 
 function normalizeStoryboard(value: unknown) {
     if (!Array.isArray(value)) return [];
-    return value.slice(0, 9).map((panel, index) => ({ id: typeof panel === "object" && panel && "id" in panel ? String(panel.id) : nanoid(), position: index, ...(typeof panel === "object" && panel ? panel : {}) }));
+    return value.slice(0, 9).map((panel, index) => ({ id: typeof panel === "object" && panel && "id" in panel ? String(panel.id) : nanoid(), position: index, durationSeconds: 4, characterRefs: [], sceneRefs: [], propRefs: [], ...(typeof panel === "object" && panel ? panel : {}) }));
+}
+function assertStoryboardSize(value: unknown) {
+    if (value === undefined) return;
+    if (!Array.isArray(value) || value.length < 4 || value.length > 9) throw directorError(400, "DIRECTOR_STORYBOARD_SIZE", "每个剧情段落的故事板必须包含 4–9 格");
 }
 
 function normalizeShotPayload(payload: Record<string, unknown>, sequence: SequenceRow) {
@@ -364,8 +374,14 @@ function requireConfirmedDocument(userId: string, projectId: string, kind: strin
 
 function directorDependencies(userId: string, projectId: string) {
     const documents = db.prepare("SELECT kind,revision FROM director_documents WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ kind: string; revision: number }>;
-    const style = db.prepare("SELECT id,revision FROM visual_styles WHERE user_id=? AND project_id=? ORDER BY (status='confirmed') DESC, updated_at DESC LIMIT 1").get(userId, projectId) as { id: string; revision: number } | undefined;
+    const currentStyleId = activeStyleId(userId, projectId);
+    const style = currentStyleId ? db.prepare("SELECT id,revision FROM visual_styles WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, currentStyleId) as { id: string; revision: number } | undefined : undefined;
     return { documents: Object.fromEntries(documents.map((row) => [row.kind, row.revision])), style: style ? { id: style.id, revision: style.revision } : null };
+}
+
+export function activeStyleId(userId: string, projectId: string) {
+    const row = db.prepare("SELECT payload FROM projects WHERE id=? AND user_id=? AND kind='director'").get(projectId, userId) as { payload: string } | undefined;
+    return row ? String(parseJson<{ defaultVisualStyleId?: string | null }>(row.payload, {}).defaultVisualStyleId || "") || null : null;
 }
 
 function assertDirectorProject(userId: string, projectId: string) {

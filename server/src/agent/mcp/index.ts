@@ -22,6 +22,8 @@ import {
   cancelDirectorRender,
   createDirectorRender,
   createDirectorShotGeneration,
+  createDirectorStoryboardGeneration,
+  createDirectorStoryboardPanelGeneration,
   listDirectorRenders,
   retryDirectorRender,
 } from "../../director-render.js";
@@ -280,6 +282,24 @@ export function buildAgentMcpServer(
             return value.ids.map((id) =>
               deleteDirectorSequence(run.userId, id, true),
             );
+          },
+        ),
+        call(
+          "director_generate_storyboard_panel",
+          "为指定剧情段落的一个故事板分格生成或重抽独立图片；只替换该格，不影响其他格。",
+          { sequenceId: z.string().min(1), panelId: z.string().min(1), revision: z.number().int().positive(), model: z.string().optional() },
+          (input) => {
+            const value = input as { sequenceId: string; panelId: string } & Record<string, unknown>;
+            return createDirectorStoryboardPanelGeneration(run.userId, value.sequenceId, value.panelId, value);
+          },
+        ),
+        call(
+          "director_generate_storyboard",
+          "为一个剧情段落批量生成全部缺失故事板分格；每格是独立图片，用户必须显式发起。",
+          { sequenceId: z.string().min(1), revision: z.number().int().positive(), panelIds: z.array(z.string().min(1)).max(9).optional(), model: z.string().optional() },
+          (input) => {
+            const value = input as { sequenceId: string } & Record<string, unknown>;
+            return createDirectorStoryboardGeneration(run.userId, value.sequenceId, value);
           },
         ),
         call(
@@ -1423,11 +1443,8 @@ function requireDirectorDocumentStatus(
 
 function requireDirectorMediaStage(userId: string, projectId: string) {
   requireDirectorDocumentStatus(userId, projectId, "script");
-  if (
-    !listAgentVisualStyles(userId, projectId).some(
-      (style) => style.status === "confirmed",
-    )
-  )
+  const state = getDirectorState(userId, projectId);
+  if (!state.activeStyleId || !listAgentVisualStyles(userId, projectId).some((style) => style.id === state.activeStyleId && style.status === "confirmed"))
     throw mcpError(409, "DIRECTOR_STAGE_GATE", "请先确认视觉风格");
 }
 
