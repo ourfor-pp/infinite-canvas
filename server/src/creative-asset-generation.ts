@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { buildCreativeAssetPrompt, creativeAssetAudioMode, getCreativeAsset } from "./creative-assets.js";
+import { buildCreativeAssetPrompt, creativeAssetAudioMode, getCreativeAsset, isDirectorProject } from "./creative-assets.js";
 import { createGeneration } from "./generation-service.js";
 import { getAiGlobalSettings, listModelDefaults, listPublicModels, type AudioMode } from "./provider-service.js";
 import { resolveCreativeAssetNodeInputs } from "./visual-styles.js";
@@ -17,6 +17,7 @@ export type CreativeAssetGenerationPreview = ReturnType<typeof previewCreativeAs
 export function previewCreativeAssetGeneration(userId: string, assetId: string, raw: unknown) {
     const input = inputSchema.parse(raw);
     const asset = getCreativeAsset(userId, assetId);
+    const directorCharacter = asset.kind === "character" && isDirectorProject(asset.projectId);
     if (asset.revision !== input.revision) throw generationError(409, "CREATIVE_ASSET_CONFLICT", `创作资产版本已从 ${input.revision} 更新为 ${asset.revision}`, { current: asset });
     const draft = asset.payload.mediaDrafts[input.kind];
     const connected = resolveCreativeAssetNodeInputs(userId, asset.projectId, asset.id, input.nodeId);
@@ -60,13 +61,14 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     if ((input.kind === "image" ? requiredImageReferences : references.length) && (input.kind === "image" ? !supportsImageReferences : !model.inputs.includes(input.kind))) warnings.push({ code: "AI_MODEL_REFERENCE_UNSUPPORTED", message: `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`, blocking: true });
     if (input.kind === "image" && styleReferenceFileId && !styleImageApplied) warnings.push({ code: "STYLE_IMAGE_NOT_APPLIED", message: "所选模型不支持风格参考图，本次只应用风格文字描述", blocking: false });
     if (input.kind === "image" && connected.style?.status === "draft" && !input.allowDraftStyle) warnings.push({ code: "VISUAL_STYLE_NOT_CONFIRMED", message: "当前视觉风格尚未确认；确认继续后仍可生成，但结果的一致性可能变化", blocking: true });
+    if (input.kind === "image" && directorCharacter && !asset.payload.visualDescription.trim()) warnings.push({ code: "DIRECTOR_CHARACTER_VISUAL_DESCRIPTION_REQUIRED", message: "请先让 Agent 完成角色的纯视觉设定，再生成角色四视图", blocking: true });
     if (input.kind === "audio" && !(model.audioModes || ["speech"]).includes(audioMode as AudioMode)) warnings.push({ code: "AI_MODEL_AUDIO_MODE_UNSUPPORTED", message: `所选模型不支持${audioModeLabel(audioMode)}`, blocking: true });
     if (input.kind === "audio" && audioMode === "speech" && !draft.transcript?.trim()) warnings.push({ code: "CREATIVE_ASSET_TRANSCRIPT_REQUIRED", message: "请先填写试听台词", blocking: true });
     if (input.kind === "audio" && !references.length && !draft.prompt.trim()) warnings.push({ code: "CREATIVE_ASSET_AUDIO_PROMPT_REQUIRED", message: `没有参考音频时，请先填写${audioModeLabel(audioMode)}描述`, blocking: true });
     if (input.kind === "audio" && asset.kind === "character" && voiceGenderConflict(asset.payload.designProfile?.voiceGender, draft.prompt)) warnings.push({ code: "CREATIVE_ASSET_VOICE_GENDER_CONFLICT", message: "音色描述与角色设计画像中的声音性别冲突，请先修正设定", blocking: true });
 
     const prompt = input.kind === "image"
-        ? buildCreativeAssetPrompt(asset, "image", [connected.style ? visualStyleText(connected.style) : "", ...connected.texts, draft.prompt].filter(Boolean).join("\n\n"))
+        ? buildCreativeAssetPrompt(asset, "image", [connected.style ? visualStyleText(connected.style, directorCharacter) : "", ...(directorCharacter ? [] : connected.texts), draft.prompt].filter(Boolean).join("\n\n"))
         : audioMode === "speech"
             ? draft.transcript?.trim() || ""
             : [draft.prompt, ...connected.texts].filter(Boolean).join("\n\n");
@@ -76,7 +78,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     const params = {
         ...draft.params,
         count: 1,
-        ...(input.kind === "image" ? { size: "16:9" } : {}),
+        ...(input.kind === "image" ? { size: "16:9", ...(directorCharacter ? { quality: "high" } : {}) } : {}),
         ...(instructions ? { instructions } : {}),
         ...(input.kind === "audio" ? { audioMode, audioOperation } : {}),
         __creativeAsset: { projectId: asset.projectId, assetId: asset.id, nodeId: input.nodeId, usage, label, transcript: draft.transcript, assetRevision: asset.revision, audioMode: input.kind === "audio" ? audioMode : undefined },
@@ -99,8 +101,15 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     };
 }
 
-function visualStyleText(style: NonNullable<ReturnType<typeof resolveCreativeAssetNodeInputs>["style"]>) {
+function visualStyleText(style: NonNullable<ReturnType<typeof resolveCreativeAssetNodeInputs>["style"]>, characterMaster = false) {
     const dna = style.dna;
+    if (characterMaster) return [
+        dna.medium && `媒介：${dna.medium}`,
+        dna.rendering && `渲染：${dna.rendering}`,
+        dna.palette && `色彩体系：${dna.palette}`,
+        dna.texture && `材质表现：${dna.texture}`,
+        dna.exclusions.length ? `风格排除：${dna.exclusions.join("、")}` : "",
+    ].filter(Boolean).join("\n");
     return [
         `视觉风格：${style.description}`,
         dna.medium && `媒介：${dna.medium}`,

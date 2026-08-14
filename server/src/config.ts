@@ -8,6 +8,11 @@ function normalizedBasePath(value: string | undefined) {
     return `/${path.replace(/^\/+|\/+$/g, "")}`;
 }
 
+function positiveMilliseconds(value: string | undefined, fallback: number) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
+}
+
 const dataDir = resolve(process.env.DATA_DIR || "./data");
 mkdirSync(dataDir, { recursive: true });
 
@@ -40,6 +45,12 @@ export const config = {
     orphanFileHours: Math.max(1, Number(process.env.ORPHAN_FILE_HOURS) || 24),
     aiMaxConcurrency: Math.max(1, Number(process.env.AI_MAX_CONCURRENCY) || 4),
     aiUserConcurrency: Math.max(1, Number(process.env.AI_USER_CONCURRENCY) || 2),
+    aiProviderTimeouts: {
+        text: positiveMilliseconds(process.env.AI_TEXT_REQUEST_TIMEOUT_MS, 10 * 60_000),
+        image: positiveMilliseconds(process.env.AI_IMAGE_REQUEST_TIMEOUT_MS, 10 * 60_000),
+        video: positiveMilliseconds(process.env.AI_VIDEO_REQUEST_TIMEOUT_MS, 30 * 60_000),
+        audio: positiveMilliseconds(process.env.AI_AUDIO_REQUEST_TIMEOUT_MS, 10 * 60_000),
+    },
     agentMaxConcurrency: Math.max(1, Number(process.env.AGENT_MAX_CONCURRENCY) || 2),
     agentUserConcurrency: Math.max(1, Number(process.env.AGENT_USER_CONCURRENCY) || 2),
     agentRoot: resolve(dataDir, "agent"),

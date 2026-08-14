@@ -35,6 +35,8 @@ export type CreativeAssetVariant = {
 
 export type CreativeAssetPayload = {
     description: string;
+    narrativeDescription: string;
+    visualDescription: string;
     designProfile: CharacterDesignProfile | null;
     variants: CreativeAssetVariant[];
     primaryImageId: string | null;

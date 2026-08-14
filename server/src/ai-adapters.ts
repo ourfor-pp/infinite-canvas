@@ -5,6 +5,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { streamText } from "ai";
 import { openAsBlob, readFileSync } from "node:fs";
 import { basename } from "node:path";
+import { config } from "./config.js";
 import { getStoredFile, storeRemoteFile } from "./file-store.js";
 import { modelEndpointRegistry, providerBaseUrl, providerPath, type AiModelDefinition, type MediaKind, type ProviderCredentials, type ProviderRow } from "./provider-service.js";
 import type { GenerationPurpose } from "./comfy-workflows.js";
@@ -308,21 +309,39 @@ async function cancelRemote(context: ProviderContext) {
 }
 
 async function providerFetch(context: ProviderContext, path: string, options: { method: string; json?: unknown; body?: BodyInit; signal?: AbortSignal }) {
-    const response = await fetch(providerPath(context.row, path), {
-        method: options.method,
-        headers: requestHeaders(context, !(options.body instanceof FormData) && options.json !== undefined),
-        body: options.body || (options.json === undefined ? undefined : JSON.stringify(options.json)),
-        signal: AbortSignal.any([options.signal || context.signal, AbortSignal.timeout(120_000)]),
-        redirect: "error",
-    });
+    const timeoutMs = config.aiProviderTimeouts[context.request.kind];
+    let response: Response;
+    try {
+        response = await fetch(providerPath(context.row, path), {
+            method: options.method,
+            headers: requestHeaders(context, !(options.body instanceof FormData) && options.json !== undefined),
+            body: options.body || (options.json === undefined ? undefined : JSON.stringify(options.json)),
+            signal: AbortSignal.any([options.signal || context.signal, AbortSignal.timeout(timeoutMs)]),
+            redirect: "error",
+        });
+    } catch (error) {
+        if (error instanceof Error && error.name === "TimeoutError") throw adapterError("AI_PROVIDER_TIMEOUT", `${mediaLabel(context.request.kind)}生成请求超过 ${Math.round(timeoutMs / 60_000)} 分钟，请稍后重试`);
+        throw error;
+    }
     if (!response.ok) throw adapterError("AI_PROVIDER_REQUEST_FAILED", await responseError(response));
     return response;
 }
 
 async function fetchMedia(context: ProviderContext, url: string) {
-    const response = await fetch(url, { headers: requestHeaders(context), signal: context.signal, redirect: "error" });
+    const timeoutMs = config.aiProviderTimeouts[context.request.kind];
+    let response: Response;
+    try {
+        response = await fetch(url, { headers: requestHeaders(context), signal: AbortSignal.any([context.signal, AbortSignal.timeout(timeoutMs)]), redirect: "error" });
+    } catch (error) {
+        if (error instanceof Error && error.name === "TimeoutError") throw adapterError("AI_PROVIDER_TIMEOUT", `${mediaLabel(context.request.kind)}结果下载超过 ${Math.round(timeoutMs / 60_000)} 分钟，请稍后重试`);
+        throw error;
+    }
     if (!response.ok) throw adapterError("AI_RESULT_DOWNLOAD_FAILED", `生成结果下载失败（HTTP ${response.status}）`);
     return response;
+}
+
+function mediaLabel(kind: AiGenerationRequest["kind"]) {
+    return kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "声音" : "文本";
 }
 
 function requestHeaders(context: ProviderContext, json = false) {

@@ -44,6 +44,8 @@ export type CreativeAssetVariant = {
 };
 export type CreativeAssetPayload = {
     description: string;
+    narrativeDescription: string;
+    visualDescription: string;
     designProfile: CharacterDesignProfile | null;
     variants: CreativeAssetVariant[];
     primaryImageId: string | null;
@@ -100,6 +102,8 @@ const variant = z.object({
 });
 export const creativeAssetPayloadSchema = z.object({
     description: text.default(""),
+    narrativeDescription: text.default(""),
+    visualDescription: text.default(""),
     designProfile: z.object({
         apparentGender: z.enum(["female", "male", "androgynous", "unspecified"]).default("unspecified"),
         voiceGender: z.enum(["female", "male", "androgynous", "unspecified"]).default("unspecified"),
@@ -114,6 +118,8 @@ export const creativeAssetPayloadSchema = z.object({
 });
 const creativeAssetPayloadPatchSchema = z.object({
     description: text.optional(),
+    narrativeDescription: text.optional(),
+    visualDescription: text.optional(),
     designProfile: creativeAssetPayloadSchema.shape.designProfile.optional(),
     variants: z.array(variant).max(500).optional(),
     primaryImageId: id.nullable().optional(),
@@ -335,7 +341,9 @@ export function syncCreativeAssetGeneration(row: { id: string; user_id: string; 
     if (!additions.length) return;
     const added = additions.map((fileId) => ({ id: nanoid(), kind, fileId, label: target.label || (kind === "image" ? "生成图片" : "生成声音"), prompt: request.prompt || "", generationId: row.id, usage: target.usage, transcript: target.transcript, createdAt: new Date().toISOString() } satisfies CreativeAssetVariant));
     payload.variants = [...payload.variants.filter((item) => item.kind !== kind || item.usage === "reference_input"), ...added];
-    if (kind === "image") payload.primaryImageId = added[0].id;
+    if (kind === "image") {
+        payload.primaryImageId = added[0].id;
+    }
     else payload.primaryAudioId = added[0].id;
     updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
 }
@@ -367,19 +375,27 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
     const description = asset.payload.description.trim();
     const requirement = extra.trim();
     if (kind === "audio") return requirement || asset.payload.mediaDrafts.audio.prompt || asset.payload.description;
+    const directorCharacter = asset.kind === "character" && isDirectorProject(asset.projectId);
+    const visualDescription = asset.payload.visualDescription.trim();
     const layout = {
-        character: "横版 16:9 四格角色设定图，严格纯白无影背景：左侧约 40% 为胸像特写，右侧依次为正面、四分之三侧面、背面的 A-Pose 全身视图。四个视图必须是同一角色，面部、性别表达、年龄、发型、服装和配饰完全一致。只画角色，不画环境、情节、文字或标注。",
+        character: directorCharacter
+            ? "横版 16:9 单张角色四视图设定图，严格纯白无影背景。同一张图片内按从左到右顺序并排展示同一个角色的正面、左侧 90 度、右侧 90 度、背面 180 度全身 A-Pose；四个视图从头到脚完整入画、等比例、等高度、间距均匀，面部身份、年龄、体型、发型、服装结构、材质、配色、鞋履和配饰完全一致。只输出一张包含四个角度的完整图片，不拆成四张图片，不画胸像、四分之三视角、环境、情节、道具、文字、字母、数字、标题、标注、边框、Logo 或 UI。"
+            : "横版 16:9 四格角色设定图，严格纯白无影背景：左侧约 40% 为胸像特写，右侧依次为正面、四分之三侧面、背面的 A-Pose 全身视图。四个视图必须是同一角色，面部、性别表达、年龄、发型、服装和配饰完全一致。只画角色，不画环境、情节、文字或标注。",
         scene: "横版 16:9 场景设定图，严格无人、无文字、无标注：主画面占四分之三区域，完整展示空间结构、固定陈设、光线和氛围；右下角嵌入标志性局部细节图。",
         prop: "横版 16:9 道具设定图，严格纯白无影背景：正面全视图、45 度侧视图、关键细节特写水平排列，各视图必须是同一件道具，结构、材质和比例保持一致。只画道具，不画人物、环境、文字或标注。",
     }[asset.kind];
     return [
-        `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}「${asset.name}」的视觉设计参考。`,
-        description,
+        directorCharacter ? "同一角色的单张横版四视图设计图，一张图片内包含四个角度。" : `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}「${asset.name}」的视觉设计参考。`,
+        directorCharacter ? visualDescription : description,
         requirement,
         layout,
-        asset.kind === "character" && asset.payload.designProfile ? `身份锚点：${asset.payload.designProfile.identityAnchor}\n年龄段：${asset.payload.designProfile.ageBand}\n外观性别：${asset.payload.designProfile.apparentGender}` : "",
+        asset.kind === "character" && asset.payload.designProfile && !directorCharacter ? `身份锚点：${asset.payload.designProfile.identityAnchor}\n年龄段：${asset.payload.designProfile.ageBand}\n外观性别：${asset.payload.designProfile.apparentGender}` : "",
         "负面约束：背景场景、剧情动作、叙事事件、水印、文字、字母、数字、Logo、UI、边框标题。",
     ].filter(Boolean).join("\n\n");
+}
+
+export function isDirectorProject(projectId: string) {
+    return Boolean(db.prepare("SELECT 1 FROM projects WHERE id=? AND kind='director'").get(projectId));
 }
 
 export function creativeAssetAudioMode(kind: CreativeAssetKind): CreativeAssetAudioMode {

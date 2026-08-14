@@ -504,3 +504,50 @@ main.director-light .ant-progress .ant-progress-bg {
     background: #f8fafc;
     font-weight: 600;
 }
+
+@keyframes directorAssetShimmer {
+    from { transform: translateX(-140%) skewX(-16deg); }
+    to { transform: translateX(340%) skewX(-16deg); }
+}
+
+@keyframes directorTaskProgress {
+    from { transform: translateX(-130%); }
+    to { transform: translateX(330%); }
+}
+
+@keyframes directorTaskPulse {
+    0%, 100% { opacity: 0.55; transform: scale(0.94); }
+    50% { opacity: 1; transform: scale(1.06); }
+}
+
+.director-asset-loading {
+    overflow: hidden;
+    background: linear-gradient(180deg, rgb(248 251 255 / 94%) 0%, rgb(238 244 251 / 96%) 100%);
+    backdrop-filter: blur(2px);
+}
+
+.director-asset-loading::before {
+    position: absolute;
+    inset: -20% auto -20% -38%;
+    width: 44%;
+    background: linear-gradient(120deg, transparent 0%, rgb(255 255 255 / 78%) 48%, transparent 100%);
+    content: "";
+    animation: directorAssetShimmer 1.45s linear infinite;
+}
+
+.director-task-progress {
+    width: 30%;
+    animation: directorTaskProgress 1.35s ease-in-out infinite;
+}
+
+.director-task-pulse {
+    animation: directorTaskPulse 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .director-asset-loading::before,
+    .director-task-progress,
+    .director-task-pulse {
+        animation: none;
+    }
+}

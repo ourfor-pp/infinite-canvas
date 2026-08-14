@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { App, Button, ConfigProvider, Progress as AntProgress, Select, Spin, Tag, theme as antdTheme, Tooltip } from "antd";
 import {
+    Activity,
     AudioLines,
+    Bell,
     Bot,
     Check,
     ChevronRight,
@@ -16,8 +18,11 @@ import {
     LayoutDashboard,
     ListVideo,
     Lock,
+    Loader2,
     Package,
     Pause,
+    PanelLeftClose,
+    PanelLeftOpen,
     Play,
     Plus,
     RefreshCw,
@@ -31,13 +36,14 @@ import {
     Upload,
     Users,
     Video,
+    X,
 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { useNavigate, useParams } from "react-router-dom";
 import { Streamdown } from "streamdown";
 import { AgentPanel } from "@/components/agent/agent-panel";
 import { directorApi } from "@/services/api/director";
-import { serverApi, serverApiUrl } from "@/services/api/server";
+import { serverApi, serverApiUrl, type ServerGeneration } from "@/services/api/server";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useDirectorStore } from "@/stores/use-director-store";
 import type { CreativeAsset, CreativeAssetKind } from "@/types/creative-asset";
@@ -68,23 +74,26 @@ export default function DirectorProjectPage() {
     const loadState = useDirectorStore((store) => store.loadState);
     const [assets, setAssets] = useState<CreativeAsset[]>([]);
     const [styles, setStyles] = useState<VisualStyle[]>([]);
+    const [generations, setGenerations] = useState<ServerGeneration[]>([]);
     const [loading, setLoading] = useState(true);
     const [agentCollapsed, setAgentCollapsed] = useState(false);
     const openPanel = useAgentStore((store) => store.openPanel);
 
     const refresh = async () => {
-        const [, nextAssets, nextStyles] = await Promise.all([loadState(id), serverApi.creativeAssets(id), serverApi.visualStyles(id)]);
+        const [, nextAssets, nextStyles, nextGenerations] = await Promise.all([loadState(id), serverApi.creativeAssets(id), serverApi.visualStyles(id), serverApi.generations()]);
         setAssets(nextAssets);
         setStyles(nextStyles);
+        setGenerations(nextGenerations);
     };
     useEffect(() => {
         let active = true;
         openPanel(id);
-        Promise.all([loadState(id), serverApi.creativeAssets(id), serverApi.visualStyles(id)])
-            .then(([, nextAssets, nextStyles]) => {
+        Promise.all([loadState(id), serverApi.creativeAssets(id), serverApi.visualStyles(id), serverApi.generations()])
+            .then(([, nextAssets, nextStyles, nextGenerations]) => {
                 if (!active) return;
                 setAssets(nextAssets);
                 setStyles(nextStyles);
+                setGenerations(nextGenerations);
             })
             .catch((error) => message.error(error instanceof Error ? error.message : "导演项目加载失败"))
             .finally(() => active && setLoading(false));
@@ -92,6 +101,7 @@ export default function DirectorProjectPage() {
             active = false;
         };
     }, [id, loadState, message, openPanel]);
+    const applyGeneration = (generation: ServerGeneration) => setGenerations((current) => [generation, ...current.filter((item) => item.id !== generation.id)].slice(0, 100));
     useEffect(() => {
         const update = (event: Event) => {
             const detail = (event as CustomEvent<{ projectId: string }>).detail;
@@ -105,13 +115,16 @@ export default function DirectorProjectPage() {
                     setStyles(nextStyles);
                 });
         };
+        const updateGeneration = (event: Event) => applyGeneration((event as CustomEvent<ServerGeneration>).detail);
         window.addEventListener("infinite-canvas:director-updated", update);
         window.addEventListener("infinite-canvas:creative-asset-updated", refreshAssets);
         window.addEventListener("infinite-canvas:visual-style-updated", refreshAssets);
+        window.addEventListener("infinite-canvas:generation-updated", updateGeneration);
         return () => {
             window.removeEventListener("infinite-canvas:director-updated", update);
             window.removeEventListener("infinite-canvas:creative-asset-updated", refreshAssets);
             window.removeEventListener("infinite-canvas:visual-style-updated", refreshAssets);
+            window.removeEventListener("infinite-canvas:generation-updated", updateGeneration);
         };
     }, [id, loadState]);
 
@@ -127,11 +140,6 @@ export default function DirectorProjectPage() {
                 {!agentCollapsed ? <AgentPanel projectId={id} themeMode="light" /> : null}
                 <div className="flex min-w-0 flex-1 flex-col bg-white">
                     <header className="flex h-16 shrink-0 items-stretch border-b border-black/10 bg-white px-5">
-                        <Tooltip title="返回导演项目库">
-                            <button type="button" aria-label="返回导演项目库" className="mr-3 grid w-11 shrink-0 place-items-center text-slate-500 transition hover:bg-blue-50 hover:text-blue-700" onClick={() => navigate("/director")}>
-                                <House className="size-[18px]" />
-                            </button>
-                        </Tooltip>
                         <nav className="flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto" aria-label="导演台功能">
                             {sections.map((item) => {
                                 const Icon = item.icon;
@@ -147,21 +155,32 @@ export default function DirectorProjectPage() {
                                 );
                             })}
                         </nav>
-                        <button
-                            className="ml-4 flex shrink-0 items-center gap-2 px-3 text-xs text-black/45 hover:bg-black/[.025] hover:text-black/75"
-                            onClick={() => {
-                                setAgentCollapsed((value) => !value);
-                                if (agentCollapsed) openPanel(id);
-                            }}
-                        >
-                            <Bot className="size-4" />
-                            {agentCollapsed ? "展开 Agent" : "收起 Agent"}
-                        </button>
+                        <DirectorTaskControls projectId={id} generations={generations} assets={assets} styles={styles} onGeneration={applyGeneration} onNavigate={(target) => navigate(`/director/${id}/${target}`)} />
+                        <div className="ml-1 flex shrink-0 items-stretch border-l border-slate-200 pl-1">
+                            <Tooltip title={agentCollapsed ? "展开 Agent" : "收起 Agent"}>
+                                <button
+                                    type="button"
+                                    aria-label={agentCollapsed ? "展开 Agent" : "收起 Agent"}
+                                    className="grid w-10 place-items-center text-slate-400 transition hover:bg-blue-50 hover:text-blue-700"
+                                    onClick={() => {
+                                        setAgentCollapsed((value) => !value);
+                                        if (agentCollapsed) openPanel(id);
+                                    }}
+                                >
+                                    {agentCollapsed ? <PanelLeftOpen className="size-[17px]" /> : <PanelLeftClose className="size-[17px]" />}
+                                </button>
+                            </Tooltip>
+                            <Tooltip title="返回导演项目库">
+                                <button type="button" aria-label="返回导演项目库" className="grid w-10 place-items-center text-slate-500 transition hover:bg-blue-50 hover:text-blue-700" onClick={() => navigate("/director")}>
+                                    <House className="size-[18px]" />
+                                </button>
+                            </Tooltip>
+                        </div>
                     </header>
                     <section className={`min-w-0 flex-1 bg-white ${active === "story" || active === "script" ? "overflow-hidden" : "overflow-auto"}`}>
                         {active === "overview" ? <Overview state={state} assets={assets} styles={styles} onNavigate={(target) => navigate(`/director/${id}/${target}`)} /> : null}
                         {active === "story" || active === "script" ? <Writing projectId={id} kind={active} state={state} onRefresh={refresh} /> : null}
-                        {active === "assets" ? <AssetGallery projectId={id} assets={assets} styles={styles} onRefresh={refresh} /> : null}
+                        {active === "assets" ? <AssetGallery projectId={id} assets={assets} styles={styles} generations={generations} onGeneration={applyGeneration} onRefresh={refresh} /> : null}
                         {active === "storyboard" ? <Storyboard projectId={id} state={state} onRefresh={refresh} /> : null}
                         {active === "studio" ? <Studio projectId={id} state={state} onRefresh={refresh} /> : null}
                     </section>
@@ -170,6 +189,106 @@ export default function DirectorProjectPage() {
         </ConfigProvider>
     );
 }
+
+type DirectorTaskPanel = "tasks" | "notifications" | null;
+
+function DirectorTaskControls({ projectId, generations, assets, styles, onGeneration, onNavigate }: { projectId: string; generations: ServerGeneration[]; assets: CreativeAsset[]; styles: VisualStyle[]; onGeneration: (generation: ServerGeneration) => void; onNavigate: (section: DirectorSection) => void }) {
+    const { message } = App.useApp();
+    const rootRef = useRef<HTMLDivElement>(null);
+    const [open, setOpen] = useState<DirectorTaskPanel>(null);
+    const [cancelling, setCancelling] = useState("");
+    const seenKey = `director-notifications-seen:${projectId}`;
+    const [seen, setSeen] = useState<Set<string>>(() => new Set(readLocalIds(seenKey)));
+    const projectGenerations = generations.filter((generation) => generationBelongsToDirector(generation, projectId, assets, styles));
+    const activeCount = projectGenerations.filter((item) => item.status === "queued" || item.status === "running").length;
+    const notifications = projectGenerations.filter((item) => item.status === "succeeded" || item.status === "failed" || item.status === "canceled");
+    const unreadCount = notifications.filter((item) => !seen.has(item.id)).length;
+    useEffect(() => {
+        const close = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(null); };
+        document.addEventListener("pointerdown", close);
+        return () => document.removeEventListener("pointerdown", close);
+    }, []);
+    const toggle = (panel: Exclude<DirectorTaskPanel, null>) => {
+        const next = open === panel ? null : panel;
+        setOpen(next);
+        if (next === "notifications") {
+            const nextSeen = new Set([...seen, ...notifications.map((item) => item.id)]);
+            setSeen(nextSeen);
+            localStorage.setItem(seenKey, JSON.stringify([...nextSeen].slice(-200)));
+        }
+    };
+    const cancel = async (generation: ServerGeneration) => {
+        setCancelling(generation.id);
+        try { onGeneration(await serverApi.cancelGeneration(generation.id)); }
+        catch (error) { message.error(error instanceof Error ? error.message : "取消任务失败"); }
+        finally { setCancelling(""); }
+    };
+    return (
+        <div ref={rootRef} className="relative ml-3 flex shrink-0 items-center gap-1 border-l border-slate-200 pl-3">
+            <TaskHeaderButton label="通知" icon={Bell} count={unreadCount} active={open === "notifications"} onClick={() => toggle("notifications")} />
+            <TaskHeaderButton label="任务" icon={Activity} count={activeCount} active={open === "tasks"} pulse={activeCount > 0} onClick={() => toggle("tasks")} />
+            {open ? (
+                <div className="absolute right-0 top-[calc(100%+8px)] z-[1200] w-[360px] overflow-hidden border border-slate-200 bg-white shadow-[0_18px_55px_rgba(15,23,42,.16)]">
+                    <div className="flex items-center border-b border-slate-200 px-4 py-3">
+                        <div className="grid size-8 place-items-center bg-blue-50 text-blue-600">{open === "tasks" ? <Activity className="size-4" /> : <Bell className="size-4" />}</div>
+                        <div className="ml-3"><h3 className="text-sm font-medium text-slate-950">{open === "tasks" ? "生成任务" : "通知"}</h3><p className="mt-0.5 font-mono text-[10px] tracking-wider text-slate-400">{open === "tasks" ? `${activeCount} ACTIVE · ${projectGenerations.length} TOTAL` : `${notifications.length} EVENTS`}</p></div>
+                        <button className="ml-auto grid size-8 place-items-center text-slate-400 hover:bg-slate-50 hover:text-slate-700" onClick={() => setOpen(null)} aria-label="关闭"><X className="size-4" /></button>
+                    </div>
+                    {open === "tasks" ? (
+                        <div className="max-h-[420px] overflow-y-auto p-2">
+                            {projectGenerations.length ? projectGenerations.slice(0, 30).map((generation) => <DirectorTaskRow key={generation.id} generation={generation} assets={assets} cancelling={cancelling === generation.id} onCancel={() => void cancel(generation)} />) : <TaskEmpty icon={Activity} title="还没有生成任务" description="角色、场景、道具和镜头任务会显示在这里。" />}
+                        </div>
+                    ) : (
+                        <div className="max-h-[420px] overflow-y-auto p-2">
+                            {notifications.length ? notifications.slice(0, 30).map((generation) => <DirectorNotificationRow key={generation.id} generation={generation} assets={assets} onNavigate={() => { setOpen(null); onNavigate(generationAssetId(generation) ? "assets" : "storyboard"); }} />) : <TaskEmpty icon={Bell} title="暂无通知" description="任务完成、失败或取消后会留在这里。" />}
+                        </div>
+                    )}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function TaskHeaderButton({ label, icon: Icon, count, active, pulse, onClick }: { label: string; icon: typeof Bell; count: number; active: boolean; pulse?: boolean; onClick: () => void }) {
+    return <Tooltip title={label}><button type="button" aria-label={label} className={`relative grid size-9 place-items-center transition ${active ? "bg-blue-50 text-blue-600" : "text-slate-500 hover:bg-slate-50 hover:text-blue-700"}`} onClick={onClick}><Icon className={`size-[17px] ${pulse ? "director-task-pulse" : ""}`} />{count > 0 ? <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[9px] font-semibold text-white">{count > 9 ? "9+" : count}</span> : null}</button></Tooltip>;
+}
+
+function DirectorTaskRow({ generation, assets, cancelling, onCancel }: { generation: ServerGeneration; assets: CreativeAsset[]; cancelling: boolean; onCancel: () => void }) {
+    const meta = generationTaskMeta(generation, assets);
+    const active = generation.status === "queued" || generation.status === "running";
+    return <article className="border-b border-slate-100 px-3 py-3 last:border-0">
+        <div className="flex items-center gap-2">{generation.status === "running" ? <Loader2 className="size-3.5 animate-spin text-blue-600" /> : generation.status === "queued" ? <Clock3 className="size-3.5 text-slate-400" /> : generation.status === "succeeded" ? <Check className="size-3.5 text-emerald-600" /> : <X className="size-3.5 text-rose-500" />}<span className="min-w-0 flex-1 truncate text-xs text-slate-700">{meta.title}</span><span className={`text-[10px] ${active ? "text-blue-600" : generation.status === "succeeded" ? "text-emerald-600" : "text-rose-500"}`}>{generationStatusLabel(generation.status)}</span>{active ? <button disabled={cancelling} className="ml-1 text-[10px] text-slate-400 hover:text-rose-500" onClick={onCancel}>{cancelling ? "取消中" : "取消"}</button> : null}</div>
+        {active ? <div className="mt-2 h-0.5 overflow-hidden bg-slate-100"><div className={`h-full bg-blue-600 transition-all ${generation.progress > 0 ? "" : "director-task-progress"}`} style={generation.progress > 0 ? { width: `${Math.max(4, Math.round(generation.progress * 100))}%` } : undefined} /></div> : null}
+        {generation.error ? <p className="mt-1.5 line-clamp-2 text-[10px] leading-4 text-rose-500">{generation.error}</p> : <p className="mt-1.5 font-mono text-[9px] text-slate-400">{meta.subtitle} · {formatTaskTime(generation.updatedAt)}</p>}
+    </article>;
+}
+
+function DirectorNotificationRow({ generation, assets, onNavigate }: { generation: ServerGeneration; assets: CreativeAsset[]; onNavigate: () => void }) {
+    const meta = generationTaskMeta(generation, assets);
+    const success = generation.status === "succeeded";
+    return <button className="flex w-full items-start gap-3 border-b border-slate-100 px-3 py-3 text-left transition last:border-0 hover:bg-blue-50/50" onClick={onNavigate}><span className={`mt-0.5 grid size-7 shrink-0 place-items-center ${success ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-500"}`}>{success ? <Check className="size-3.5" /> : <X className="size-3.5" />}</span><span className="min-w-0 flex-1"><span className="block text-xs text-slate-800">{meta.title}{success ? "已完成" : generation.status === "canceled" ? "已取消" : "失败"}</span><span className="mt-1 block font-mono text-[9px] text-slate-400">{formatTaskTime(generation.updatedAt)}</span>{generation.error ? <span className="mt-1 line-clamp-2 block text-[10px] leading-4 text-rose-500">{generation.error}</span> : null}</span><ChevronRight className="mt-1 size-3.5 text-slate-300" /></button>;
+}
+
+function TaskEmpty({ icon: Icon, title, description }: { icon: typeof Bell; title: string; description: string }) {
+    return <div className="m-2 border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center"><Icon className="mx-auto size-5 text-slate-300" /><p className="mt-3 text-xs font-medium text-slate-700">{title}</p><p className="mt-1 text-[10px] leading-4 text-slate-400">{description}</p></div>;
+}
+
+function generationBelongsToDirector(generation: ServerGeneration, projectId: string, assets: CreativeAsset[], styles: VisualStyle[]) {
+    const params = recordValue(generation.request.params);
+    const contexts = [params.__creativeAsset, params.__directorShot, params.__directorRender].map(recordValue);
+    if (contexts.some((context) => String(context.projectId || "") === projectId)) return true;
+    const assetId = String(recordValue(params.__creativeAsset).assetId || "");
+    if (assetId && assets.some((asset) => asset.id === assetId)) return true;
+    const styleId = String(recordValue(params.__visualStyleReference).styleId || recordValue(params.__visualStyleAnalysis).styleId || "");
+    return Boolean(styleId && styles.some((style) => style.id === styleId));
+}
+
+function generationAssetId(generation: ServerGeneration) { return String(recordValue(recordValue(generation.request.params).__creativeAsset).assetId || ""); }
+function generationTaskMeta(generation: ServerGeneration, assets: CreativeAsset[]) { const asset = assets.find((item) => item.id === generationAssetId(generation)); const media = generation.kind === "image" ? "图片" : generation.kind === "video" ? "视频" : generation.kind === "audio" ? "声音" : "分析"; return { title: asset ? `${asset.name} · ${media}` : `${media}生成`, subtitle: generation.modelId || "生成服务" }; }
+function generationStatusLabel(status: ServerGeneration["status"]) { return status === "queued" ? "排队" : status === "running" ? "生成中" : status === "succeeded" ? "完成" : status === "canceled" ? "取消" : "失败"; }
+function formatTaskTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }); }
+function recordValue(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function readLocalIds(key: string): string[] { try { const value = JSON.parse(localStorage.getItem(key) || "[]"); return Array.isArray(value) ? value.map(String) : []; } catch { return []; } }
 
 function Overview({ state, assets, styles, onNavigate }: { state: DirectorState; assets: CreativeAsset[]; styles: VisualStyle[]; onNavigate: (section: DirectorSection) => void }) {
     const documents = Object.fromEntries(state.documents.map((item) => [item.kind, item]));
@@ -466,7 +585,7 @@ function StatusPill({ status }: { status: string }) {
     );
 }
 
-function AssetGallery({ projectId, assets, styles, onRefresh }: { projectId: string; assets: CreativeAsset[]; styles: VisualStyle[]; onRefresh: () => Promise<void> }) {
+function AssetGallery({ projectId, assets, styles, generations, onGeneration, onRefresh }: { projectId: string; assets: CreativeAsset[]; styles: VisualStyle[]; generations: ServerGeneration[]; onGeneration: (generation: ServerGeneration) => void; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
     const [busyId, setBusyId] = useState("");
@@ -476,7 +595,7 @@ function AssetGallery({ projectId, assets, styles, onRefresh }: { projectId: str
     const action = async (asset: CreativeAsset, kind: "regenerate" | "copy" | "confirm" | "lock" | "delete", mediaKind: "image" | "audio" = "image") => {
         setBusyId(asset.id);
         try {
-            if (kind === "regenerate") await serverApi.generateCreativeAsset(asset.id, { kind: mediaKind, revision: asset.revision, allowDraftStyle: true });
+            if (kind === "regenerate") onGeneration(await serverApi.generateCreativeAsset(asset.id, { kind: mediaKind, revision: asset.revision, allowDraftStyle: true }));
             if (kind === "copy") await serverApi.createCreativeAsset(projectId, { kind: asset.kind, name: `${asset.name} 副本`, payload: asset.payload });
             if (kind === "confirm" || kind === "lock") await serverApi.updateCreativeAsset(asset.id, { revision: asset.revision, status: kind === "confirm" ? "confirmed" : "locked" });
             if (kind === "delete") await serverApi.deleteCreativeAsset(asset.id);
@@ -534,6 +653,7 @@ function AssetGallery({ projectId, assets, styles, onRefresh }: { projectId: str
                             key={asset.id}
                             asset={asset}
                             busy={busyId === asset.id}
+                            activeGenerations={generations.filter((generation) => generationAssetId(generation) === asset.id && (generation.status === "queued" || generation.status === "running"))}
                             onAgent={() => prepare(projectId, { kind: "asset", projectId, assetId: asset.id, title: asset.name, subtitle: asset.kind })}
                             onAction={(kind, media) => void action(asset, kind, media)}
                         />
@@ -550,19 +670,16 @@ function AssetGallery({ projectId, assets, styles, onRefresh }: { projectId: str
     );
 }
 
-function AssetCard({ asset, busy, onAgent, onAction }: { asset: CreativeAsset; busy: boolean; onAgent: () => void; onAction: (kind: "regenerate" | "copy" | "confirm" | "lock" | "delete", media?: "image" | "audio") => void }) {
+function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asset: CreativeAsset; busy: boolean; activeGenerations: ServerGeneration[]; onAgent: () => void; onAction: (kind: "regenerate" | "copy" | "confirm" | "lock" | "delete", media?: "image" | "audio") => void }) {
     const primaryImage = asset.payload.variants.find((item) => item.id === asset.payload.primaryImageId) || asset.payload.variants.find((item) => item.kind === "image");
     const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId) || asset.payload.variants.find((item) => item.kind === "audio");
+    const generatingImage = activeGenerations.find((generation) => generation.kind === "image");
+    const generatingAudio = activeGenerations.find((generation) => generation.kind === "audio");
     return (
         <article className="group overflow-hidden border border-slate-200 bg-white transition hover:border-slate-300 hover:shadow-[0_12px_30px_rgba(15,23,42,.06)]">
             <div className="relative aspect-[16/10] bg-slate-50">
-                {primaryImage ? (
-                    <img src={serverApiUrl(`/files/${primaryImage.fileId}/content`)} className="size-full object-cover" />
-                ) : (
-                    <div className="grid size-full place-items-center text-slate-300">
-                        <ImageIcon className="size-9" />
-                    </div>
-                )}
+                {primaryImage ? <img src={serverApiUrl(`/files/${primaryImage.fileId}/content`)} className={`size-full ${asset.kind === "character" ? "object-contain" : "object-cover"}`} /> : <MediaPlaceholder />}
+                {generatingImage ? <div className="director-asset-loading absolute inset-0"><div className="relative z-10 flex h-full flex-col items-center justify-center text-center"><Loader2 className="size-5 animate-spin text-blue-600" /><p className="mt-3 text-xs font-medium text-slate-700">{generatingImage.status === "queued" ? "正在等待生成" : "正在设计素材"}</p><p className="mt-1 font-mono text-[9px] tracking-wider text-slate-400">{Math.round(generatingImage.progress * 100)}%</p></div></div> : null}
                 <div className="absolute left-3 top-3 bg-slate-950/75 px-2 py-1 text-[10px] tracking-widest text-white">{asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}</div>
                 <div className="absolute right-3 top-3 bg-white/95 px-2 py-1 shadow-sm">
                     <StatusPill status={asset.status} />
@@ -572,7 +689,7 @@ function AssetCard({ asset, busy, onAgent, onAction }: { asset: CreativeAsset; b
                 <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                         <h2 className="truncate font-serif text-xl text-slate-950">{asset.name}</h2>
-                        <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{asset.payload.description || "等待设定"}</p>
+                        <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{asset.payload.description || asset.payload.narrativeDescription || "等待设定"}</p>
                     </div>
                 </div>
                 {primaryAudio ? (
@@ -585,15 +702,20 @@ function AssetCard({ asset, busy, onAgent, onAction }: { asset: CreativeAsset; b
                 )}
                 <div className="mt-5 flex flex-wrap items-center border-t border-slate-200 pt-2">
                     <FlatAction icon={Bot} label="Agent" onClick={onAgent} />
-                    <FlatAction icon={RefreshCw} label="抽图" loading={busy} onClick={() => onAction("regenerate", "image")} />
-                    <FlatAction icon={AudioLines} label="抽声音" loading={busy} onClick={() => onAction("regenerate", "audio")} />
+                    <FlatAction icon={RefreshCw} label={generatingImage ? "生成中" : "抽图"} loading={busy || Boolean(generatingImage)} onClick={() => onAction("regenerate", "image")} />
+                    <FlatAction icon={AudioLines} label={generatingAudio ? "生成中" : "抽声音"} loading={busy || Boolean(generatingAudio)} onClick={() => onAction("regenerate", "audio")} />
                     <FlatAction icon={Copy} label="复制" onClick={() => onAction("copy")} />
                     {asset.status === "draft" ? <FlatAction icon={Check} label="确认" onClick={() => onAction("confirm")} /> : asset.status === "confirmed" ? <FlatAction icon={Lock} label="锁定" onClick={() => onAction("lock")} /> : null}
                     <FlatAction icon={Trash2} label="删除" danger onClick={() => onAction("delete")} />
                 </div>
+                {activeGenerations.map((generation) => <div key={generation.id} className="mt-2"><div className="flex items-center justify-between text-[10px] text-slate-400"><span>{generation.status === "queued" ? `${generation.kind === "audio" ? "声音" : "设计图"}任务已排队` : `${generation.kind === "audio" ? "声音" : "设计图"}生成中`}</span><span>{Math.round(generation.progress * 100)}%</span></div><div className="mt-1 h-0.5 overflow-hidden bg-slate-100"><div className={`h-full bg-blue-600 ${generation.progress > 0 ? "transition-all" : "director-task-progress"}`} style={generation.progress > 0 ? { width: `${Math.max(4, Math.round(generation.progress * 100))}%` } : undefined} /></div></div>)}
             </div>
         </article>
     );
+}
+
+function MediaPlaceholder({ label = "等待生成设计图", icon: Icon = ImageIcon }: { label?: string; icon?: typeof ImageIcon }) {
+    return <div className="grid size-full place-items-center text-center text-slate-300"><div><Icon className="mx-auto size-8" /><p className="mt-2 text-[11px] text-slate-400">{label}</p></div></div>;
 }
 
 function FlatAction({ icon: Icon, label, loading, danger, onClick }: { icon: typeof Film; label: string; loading?: boolean; danger?: boolean; onClick: () => void }) {
