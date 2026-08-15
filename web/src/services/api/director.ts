@@ -1,5 +1,5 @@
 import { serverRequest, uploadServerFile } from "./server";
-import type { DirectorDocument, DirectorProject, DirectorRender, DirectorSequence, DirectorSource, DirectorState, DirectorTimeline, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3GenerationMode } from "@/types/director";
+import type { DirectorDocument, DirectorProject, DirectorRender, DirectorSequence, DirectorSource, DirectorState, DirectorTimeline, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3GenerationMode, H3QualityPreset } from "@/types/director";
 
 const enc = encodeURIComponent;
 export const directorApi = {
@@ -22,7 +22,7 @@ export const directorApi = {
     updateVideoSegment: (id: string, value: Record<string, unknown>) => serverRequest<DirectorVideoSegment>(`/director/video-segments/${enc(id)}`, { method: "PUT", body: JSON.stringify(value) }),
     videoSegmentPreflight: (id: string) => serverRequest<DirectorVideoSegmentPreflight>(`/director/video-segments/${enc(id)}/preflight`),
     generateStoryboard: (id: string, revision: number) => serverRequest<Record<string, unknown>>(`/director/video-segments/${enc(id)}/storyboard/generate`, { method: "POST", body: JSON.stringify({ revision }) }),
-    generateVideoSegment: (id: string, revision: number, mode?: H3GenerationMode) => serverRequest<Record<string, unknown>>(`/director/video-segments/${enc(id)}/generate`, { method: "POST", body: JSON.stringify({ revision, mode }) }),
+    generateVideoSegment: (id: string, revision: number, qualityPreset: H3QualityPreset, mode?: H3GenerationMode) => serverRequest<Record<string, unknown>>(`/director/video-segments/${enc(id)}/generate`, { method: "POST", body: JSON.stringify({ revision, qualityPreset, mode }) }),
     deleteVideoSegment: (id: string) => serverRequest(`/director/video-segments/${enc(id)}`, { method: "DELETE" }),
     updateTimeline: (projectId: string, value: Pick<DirectorTimeline, "revision" | "payload">) => serverRequest<DirectorTimeline>(`/director/projects/${enc(projectId)}/timeline`, { method: "PUT", body: JSON.stringify(value) }),
     renders: (projectId: string) => serverRequest<DirectorRender[]>(`/director/projects/${enc(projectId)}/renders`),

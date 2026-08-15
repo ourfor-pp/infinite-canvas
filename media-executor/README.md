@@ -33,8 +33,12 @@ systemctl --user start infinite-media-executor infinite-qwen-tts
 VoxCPM2 所在的 CUDA 13 ComfyUI 正式服务需要额外的 NVRTC 动态库路径。使用下列安装器部署受版本管理的 systemd drop-in；脚本会在队列非空时拒绝重启：
 
 ```bash
+./scripts/audit-h3-ecosystem.sh
+./scripts/install-h3-ecosystem.sh
 ./scripts/install-comfyui-h3-dropin.sh
 ```
+
+H3 生态安装器把固定 ComfyUI、KJNodes 与 Turbo 节点部署到新的 revision 目录，在独立 8190 端口同时探测 AddGuide、Turbo、Sage Attention 和 `SaveVideo` 后才切换 `/home/cec/ComfyUI-H3-current`。旧 checkout 不删除，可用于回滚。Turbo 权重保存在 SSD 并记录 revision、SHA256 与上游许可入口；只有正式的固定样例视频和原声音频基准通过后，才应将 Turbo 作为默认预览配方。
 
 ACE XL 与 MiniMax H3 推理前必须排空其他常驻 GPU 服务。用 `scripts/configure-gpu-drain.sh` 配置本机 unit 列表；执行器会在 ACE 任务或 H3 ComfyUI 提交前暂停冲突服务，等对应任务及队列完成后恢复原先处于 active 的服务。H3 默认暂停 Qwen TTS、MOSS SoundEffect 和普通 ComfyUI，但不会停止承载 H3 队列的 `comfyui-h3.service`。若包含系统级 unit，按 `systemd/infinite-media-executor-sudoers` 为执行器账号配置最小化 `systemctl` 权限。
 

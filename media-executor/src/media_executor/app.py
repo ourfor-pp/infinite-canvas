@@ -308,7 +308,17 @@ def health(_: None = Depends(authorize)):
                     runtimes[name] = client.get(f"{url}/health").is_success
                 except httpx.HTTPError:
                     runtimes[name] = False
-    return {"ok": True, "models": MODELS, "runtimes": runtimes, "comfyUrl": bool(COMFY_URL)}
+    comfy_features = {"temporalGuides": False, "turboPreview": False}
+    try:
+        with httpx.Client(timeout=httpx.Timeout(2, connect=.5), trust_env=False) as client:
+            info = client.get(f"{COMFY_URL}/object_info").json()
+        comfy_features = {
+            "temporalGuides": "MiniMaxH3AddGuide" in info,
+            "turboPreview": "MiniMaxH3TurboLoRA" in info and "MiniMaxH3TurboSampler" in info,
+        }
+    except (httpx.HTTPError, ValueError):
+        pass
+    return {"ok": True, "models": MODELS, "runtimes": runtimes, "comfyUrl": bool(COMFY_URL), "comfyFeatures": comfy_features}
 
 
 @app.post("/v1/files")

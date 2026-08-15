@@ -1,6 +1,13 @@
 # MiniMax H3 视频段交接
 
-本地 H3 统一生成 4–15 秒、24 FPS、768p，并可能输出 32kHz 立体声原生音轨。原声作为独立默认启用轨道，不覆盖对白、旁白、环境声、音效和音乐。
+本地 H3 统一生成 4–15 秒、24 FPS，并可能输出立体声原生音轨。快速预览输出 480p，最终成片输出 768p；原声作为独立默认启用轨道，不覆盖对白、旁白、环境声、音效和音乐。
+
+## 质量档与时序锚点
+
+- 快速预览用于验证动作、节奏、切镜与声音，默认优先选择。
+- 最终成片用于已确认视频段，不用预览近似方案替代最终质量。
+- 一张故事板最多选择四个强锚点：首格、末格以及最关键的中间动作/转折。画格时间由服务端映射到合法模型帧，并在生成后裁回计划时长。
+- 用户调整锚点只让现有视频过期，不重新生成故事板，也不自动产生费用。
 
 ## 自动路由
 
@@ -9,8 +16,8 @@
 3. 多个 Shot、整板语义控制、参考视频或音频使用 Ref2VA。
 4. 其他使用 FL2VA。
 
-FL2VA 输入整板裁切的首尾锚点；连续段首帧改用上一段实际尾帧。提示结构包含 `integrated_multimodal_description`、`overall_soundscape`、`non_diegetic_music`。
+FL2VA 使用裁切画格作为时间锚点；连续段以上一段最后 22 个有效帧及对应原声作为起点。提示结构包含 `integrated_multimodal_description`、`overall_soundscape`、`non_diegetic_music`。
 
-Ref2VA 输入整板、角色、场景、道具、风格及可选上一段视频/声音。上限为 9 图、3 视频、3 音频、合计 12 文件；提示结构包含 `subject_definitions`、`summary`、`retention_analysis`、`detailed_description`、`overall_soundscape`、`non_diegetic_music`。
+Ref2VA 将时间锚点与角色、场景、道具、风格参考共同输入。锚点最多四张，剩余图片名额按主角色、其他角色、场景、关键道具、风格排序；上限为 9 图、3 视频、3 音频、合计 12 文件。提示结构包含 `subject_definitions`、`summary`、`retention_analysis`、`detailed_description`、`overall_soundscape`、`non_diegetic_music`。
 
-结构描述用英文，中文对白原样保留；Shot 编号和切镜时间必须与故事板一致。Ref2VA 的参考视频续接不是确定性原生 Extend。
+结构描述用英文，中文对白只放入带语言标签的 `<d>` 块并原样保留；第一镜不写时间，后续只有真实切镜才写递增的 `MM:SS.mmm` 时间。视频段标题不进入 H3 Prompt，画格标题不能代替动作描述。Shot 编号和切镜时间必须与故事板一致。Ref2VA 的参考视频续接不是确定性原生 Extend。

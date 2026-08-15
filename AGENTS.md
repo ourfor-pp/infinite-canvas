@@ -83,6 +83,7 @@
 
 ## 项目注意事项
 
+- 使用生图工具生成的 UI 设计稿、视觉方案、预览图和其他临时图片时，生成完成后必须复制到项目根目录 `.tmp/`，文件名使用生成时的本地时间戳 `YYYYMMDD-HHmmss`（保留原始扩展名）；不得只留在 `$CODEX_HOME/generated_images/` 等工具默认目录。
 - 导演台固定使用纯白、浅灰、深蓝灰与蓝色交互强调，导航放在工作区顶部，不新增导演侧边菜单；项目 Agent 的颜色严格对齐 `.res/sxhAIAPP/packages/ui/src/theme/theme.css`，不得用米黄、暖金或黄色作装饰、导航、主按钮和普通状态，黄色只用于真实警告。
 - 导演台故事文档的阅读与编辑体验对齐 `.res/sxhAIAPP` 知识库的 `KnowledgeDocumentPreview` / `KnowledgeMarkdownEditor`：默认渲染 Markdown，编辑使用 Milkdown 所见即所得工具栏，不回退为长期暴露 Markdown 标记的普通 textarea。
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildComfyWorkflow, COMFY_MODEL_DEFINITIONS } from "./comfy-workflows.js";
+import { alignH3Frames, buildComfyWorkflow, COMFY_MODEL_DEFINITIONS, h3Recipe } from "./comfy-workflows.js";
 
 const image = (fileId = "source", role?: "reference" | "first-frame" | "last-frame") => ({ fileId, kind: "image" as const, name: `${fileId}.png`, role });
 
@@ -64,12 +64,12 @@ test("VoxCPM2 透传克隆文本、归一化、降噪与高级参数", () => {
 
 test("MiniMax H3 声明真实能力并接受 4–15 秒", () => {
     const fl = COMFY_MODEL_DEFINITIONS["minimax-h3-fl2va-local"];
-    assert.deepEqual({ min: fl.minDurationSeconds, max: fl.maxDurationSeconds, images: fl.maxReferenceImages, fps: fl.videoFps, audio: fl.videoNativeAudio, resolution: fl.videoNativeResolution }, { min: 4, max: 15, images: 2, fps: 24, audio: true, resolution: "768p" });
-    assert.deepEqual(fl.videoReferenceRoles, ["first-frame", "last-frame"]);
+    assert.deepEqual({ min: fl.minDurationSeconds, max: fl.maxDurationSeconds, images: fl.maxReferenceImages, fps: fl.videoFps, audio: fl.videoNativeAudio, resolution: fl.videoNativeResolution }, { min: 4, max: 15, images: 4, fps: 24, audio: true, resolution: "768p" });
+    assert.deepEqual(fl.videoReferenceRoles, ["first-frame", "last-frame", "continuation"]);
     const textOnly = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 4 }, files: [] });
-    assert.equal(textOnly["5"].inputs.length, 96);
-    assert.equal(textOnly["14"].inputs.format, "mp4");
-    assert.deepEqual(textOnly["14"].inputs.codec, { codec: "h264", encoding: { encoding: "re-encode", crf: 16 } });
+    assert.equal(textOnly["5"].inputs.length, 107);
+    assert.equal(textOnly["14"].inputs.format, "auto");
+    assert.equal(textOnly["14"].inputs.codec, "auto");
     assert.equal(textOnly["5"].inputs.first_frame, undefined);
     assert.equal(textOnly["5"].inputs.last_frame, undefined);
     const firstOnly = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 4 }, files: [image("first", "first-frame")] });
@@ -81,6 +81,30 @@ test("MiniMax H3 声明真实能力并接受 4–15 秒", () => {
     const both = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 15 }, files: [image("last", "last-frame"), image("first", "first-frame")] });
     assert.deepEqual(both["20"].inputs.image, "first.png");
     assert.deepEqual(both["21"].inputs.image, "last.png");
+});
+
+test("MiniMax H3 按 17k+5 对齐并串联最多四个时间锚点", () => {
+    assert.deepEqual(alignH3Frames(4), { requestedSeconds: 4, requestedFrames: 96, modelFrames: 107, trimFrames: 96, fps: 24, stride: 17, base: 5 });
+    const files = [image("g1"), image("g2")];
+    const workflow = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 4, temporalGuides: [{ fileId: "g1", frameIndex: 0 }, { fileId: "g2", frameIndex: 95 }] }, files });
+    assert.equal(workflow["102"].class_type, "MiniMaxH3AddGuide");
+    assert.equal(workflow["105"].inputs.frame_idx, 95);
+    assert.deepEqual(workflow["6"].inputs.conditioning, ["105", 0]);
+    assert.equal(workflow["5"].inputs.first_frame, undefined);
+});
+
+test("MiniMax H3 两档配方只给 FL2VA 预览使用已探测 Turbo", () => {
+    assert.equal(h3Recipe("fl2va", "preview", true).turbo, true);
+    assert.equal(h3Recipe("ref2va", "preview", true).turbo, false);
+    const turbo = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 5, qualityPreset: "preview", turboAvailable: true }, files: [] });
+    assert.equal(turbo["16"].class_type, "MiniMaxH3TurboLoRA");
+    assert.equal(turbo["7"].class_type, "MiniMaxH3TurboSampler");
+    const refPreview = buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", params: { seconds: 5, qualityPreset: "preview", turboAvailable: true }, files: [image()] });
+    assert.equal(refPreview["16"], undefined);
+    assert.equal(refPreview["5"].inputs.ref_image_size, "match");
+    const refFinal = buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", params: { seconds: 5, qualityPreset: "final" }, files: [image()] });
+    assert.equal(refFinal["5"].inputs.ref_image_size, "max");
+    assert.equal(refFinal["8"].inputs.scheduler, "beta");
 });
 
 test("MiniMax H3 Ref2VA 限制合计 12 个参考文件", () => {

@@ -11,9 +11,10 @@ const schema = z.object({
 });
 export type MediaExecutorSettings = z.infer<typeof schema>;
 export type MediaExecutorModel = { engine?: string; [key: string]: unknown };
-export type MediaExecutorHealth = { available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean> };
+export type MediaExecutorHealth = { available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean } };
 
-let catalog: MediaExecutorHealth = { available: false, models: {}, runtimes: {} };
+const emptyCatalog = (): MediaExecutorHealth => ({ available: false, models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, turboPreview: false } });
+let catalog: MediaExecutorHealth = emptyCatalog();
 
 export function getMediaExecutorSettings(): MediaExecutorSettings {
     const row = db.prepare("SELECT encrypted_payload FROM media_executor_settings WHERE id=1").get() as { encrypted_payload: string } | undefined;
@@ -28,7 +29,7 @@ export function saveMediaExecutorSettings(input: unknown) {
     db.prepare("INSERT INTO media_executor_settings(id,encrypted_payload,updated_at) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET encrypted_payload=excluded.encrypted_payload,updated_at=excluded.updated_at")
         .run(encryptJson(next, config.appSecret), new Date().toISOString());
     syncMediaExecutorComfyServer(next);
-    catalog = { available: false, models: {}, runtimes: {} };
+    catalog = emptyCatalog();
     return publicMediaExecutorSettings(next);
 }
 
@@ -42,16 +43,17 @@ export function isMediaExecutorModelAvailable(id: string) {
 }
 
 export async function refreshMediaExecutorCatalog(value = getMediaExecutorSettings()) {
-    if (!value.url || !value.token) return catalog = { available: false, models: {}, runtimes: {} };
+    if (!value.url || !value.token) return catalog = emptyCatalog();
     try {
         const response = await fetch(`${value.url}/health`, { headers: { Authorization: `Bearer ${value.token}` }, signal: AbortSignal.timeout(5000), redirect: "error" });
-        if (!response.ok) return catalog = { available: false, models: {}, runtimes: {} };
+        if (!response.ok) return catalog = emptyCatalog();
         const health = await response.json() as Partial<MediaExecutorHealth>;
         const runtimes = health.runtimes && typeof health.runtimes === "object" ? health.runtimes : {};
         const models = Object.fromEntries(Object.entries(health.models && typeof health.models === "object" ? health.models : {}).filter(([, model]) => !model.engine || runtimes[model.engine]));
-        return catalog = { available: true, models, runtimes };
+        const features = health.comfyFeatures && typeof health.comfyFeatures === "object" ? health.comfyFeatures : { temporalGuides: false, turboPreview: false };
+        return catalog = { available: true, models, runtimes, comfyFeatures: { temporalGuides: Boolean(features.temporalGuides), turboPreview: Boolean(features.turboPreview) } };
     } catch {
-        return catalog = { available: false, models: {}, runtimes: {} };
+        return catalog = emptyCatalog();
     }
 }
 

@@ -4,7 +4,7 @@ import { config } from "./config.js";
 import { decryptJson, encryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
 import { COMFY_MODEL_DEFINITIONS, PURPOSE_MODELS, type GenerationPurpose, type ImageMode, type ImageWorkflowPurpose } from "./comfy-workflows.js";
-import { getMediaExecutorSettings, isMediaExecutorModelAvailable } from "./media-executor-settings.js";
+import { getMediaExecutorCatalog, getMediaExecutorSettings, isMediaExecutorModelAvailable } from "./media-executor-settings.js";
 
 export const providerTypes = ["openai", "openai-compatible", "anthropic", "gemini", "ark"] as const;
 export const mediaKinds = ["text", "image", "video", "audio"] as const;
@@ -19,9 +19,10 @@ export type ModelEndpoint = (typeof modelEndpoints)[number];
 export type VideoReferenceRole = "reference" | "first-frame" | "last-frame" | "continuation";
 export type ImagePromptProfile = "generic" | "gpt-image-2";
 export type H3GenerationMode = "fl2va" | "ref2va";
+export type H3QualityPreset = "preview" | "final";
 export type ProviderCredentials = { apiKey?: string; authToken?: string };
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: MediaKind; inputs: MediaKind[]; method: "POST"; path: string; agent: boolean };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; minDurationSeconds?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: ImagePromptProfile; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean; videoModes?: H3GenerationMode[]; maxReferenceVideos?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend" };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; minDurationSeconds?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: ImagePromptProfile; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean; videoModes?: H3GenerationMode[]; maxReferenceVideos?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend"; qualityPresets?: H3QualityPreset[]; supportsTemporalGuides?: boolean; maxTemporalGuides?: number; frameStride?: number; frameBase?: number; turboPreview?: boolean };
 
 const LOCAL_MEDIA_MODELS: Record<string, Omit<AiModelDefinition, "endpoint" | "enabled">> = {
     "qwen3-tts-1.7b-customvoice-local": { id: "qwen3-tts-1.7b-customvoice-local", name: "Qwen3-TTS 1.7B CustomVoice", output: "audio", inputs: ["text"], audioModes: ["speech"], audioOperations: ["generate"], languages: ["Auto", "Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"], voices: ["Vivian", "Serena", "Ryan", "Aiden", "Dylan", "Eric", "Ono_Anna", "Sohee", "Uncle_Fu"] },
@@ -213,6 +214,7 @@ export function clearProviderCredentials(id: string) {
 
 export function listPublicModels() {
     const executor = getMediaExecutorSettings();
+    const comfyFeatures = getMediaExecutorCatalog().comfyFeatures;
     const providers = db.prepare("SELECT * FROM ai_providers WHERE enabled=1 ORDER BY created_at").all() as ProviderRow[];
     const publicModels = providers.flatMap((provider) => providerModels(provider)
         .filter((model) => model.enabled)
@@ -225,7 +227,7 @@ export function listPublicModels() {
         ...Array.from(comfyNames).map((id) => {
             const output = comfyModelOutput(id);
             const capability = COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS];
-            return { ...capability, id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imagePromptProfile: "generic" as const, enabled: true };
+            return { ...capability, supportsTemporalGuides: Boolean(capability.supportsTemporalGuides && comfyFeatures.temporalGuides), turboPreview: Boolean(capability.turboPreview && comfyFeatures.turboPreview), id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imagePromptProfile: "generic" as const, enabled: true };
         }),
     ];
 }

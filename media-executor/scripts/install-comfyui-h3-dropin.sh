@@ -5,6 +5,10 @@ project_root="$(cd "$(dirname "$0")/../.." && pwd)"
 source_file="$project_root/media-executor/systemd/comfyui-h3.service.d/10-infinite-media.conf"
 target_dir=/etc/systemd/system/comfyui-h3.service.d
 
+[[ -x /home/cec/ComfyUI-H3-current/.venv/bin/python ]] || {
+    echo "H3 稳定 checkout 尚未通过安装器验证，拒绝切换服务。" >&2
+    exit 1
+}
 curl -fsS http://127.0.0.1:8189/queue | grep -Eq '"queue_running"[[:space:]]*:[[:space:]]*\[\]' || {
     echo "ComfyUI-H3 仍有运行任务，拒绝重启。" >&2
     exit 1

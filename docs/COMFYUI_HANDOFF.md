@@ -14,15 +14,16 @@
 
 | 项目 | 当前值 |
 |---|---|
-| ComfyUI 根目录 | `/home/cec/ComfyUI-H3` |
-| ComfyUI commit | `0764232429b8cfb10b79b6f186c8cb23e0b22897`（v0.30.1） |
+| ComfyUI 稳定入口 | `/home/cec/ComfyUI-H3-current` |
+| ComfyUI checkout | `/home/cec/.local/share/infinite-media-executor/h3-runtimes/ComfyUI-7fe8a6138504f90ff7be82f3babf416da32876b1` |
+| ComfyUI commit | `7fe8a6138504f90ff7be82f3babf416da32876b1`（v0.33.0） |
 | Python | 3.12.10 |
 | PyTorch | `2.11.0+cu130` |
 | GPU | NVIDIA GeForce RTX 5090，约 32 GiB |
-| Python 环境 | `/home/cec/ComfyUI-H3/.venv` |
+| Python 环境 | `/home/cec/ComfyUI-H3-current/.venv` |
 | 模型根目录 | `/data/sas/ComfyUI/models` |
-| 输出目录 | `/home/cec/ComfyUI-H3/output` |
-| 日志 | `/home/cec/ComfyUI-H3/comfyui-8189.log` |
+| 输出目录 | `/home/cec/ComfyUI-H3-current/output` |
+| 日志 | `journalctl -u comfyui-h3.service` |
 | 本机 API | `http://127.0.0.1:8189` |
 | 浏览器访问 | 禁止，由 Express 后端代理任务 |
 | systemd 系统服务 | `comfyui-h3.service` |
@@ -47,7 +48,7 @@ media-executor/scripts/install-comfyui-h3-dropin.sh
 
 ### KJNodes / SageAttention
 
-- 目录：`/home/cec/ComfyUI-H3/custom_nodes/ComfyUI-KJNodes`
+- 目录：`/home/cec/ComfyUI-H3-current/custom_nodes/ComfyUI-KJNodes`
 - commit：`6edfa76599c13905968841b81309784a7dbb7803`
 - 版本：1.4.9
 - SageAttention wheel：`sageattention==2.2.0+cu130torch2.11`
@@ -112,6 +113,20 @@ SHA-256 49c01aafe6545c1f6e7627a724c8fb13357fe74efee235622158f0a8f30e5458
 - 当前 ArcReel 产品档固定为 2K、`16:9` 或 `9:16`。
 
 ### MiniMax H3
+
+导演台现在把 H3 能力分为“快速预览”和“最终成片”。FL2VA 预览在执行器探测到 Larry Turbo 节点与固定权重后使用 480p/8 步配方；探测失败则明确回到 480p 基础配方。最终成片固定使用 768p/20 步基础模型。Ref2VA 的预览与成片都不使用未经实机门禁的 Turbo，分别采用 `ref_image_size=match/max`。
+
+整张故事板的全部画格会被裁成派生媒体，每段最多选择四个 `MiniMaxH3AddGuide` 时间锚点。服务端按 24 FPS 将时间换算到 `17k+5` 合法帧网格，生成后裁回计划时长；`continue` 边界使用上一段实际成片最后 22 个有效帧及对应原声作为 frame 0 引导。普通用户和导演 Agent 只看到质量档、锚点与续接语义，不看到节点、采样器或权重路径。
+
+升级与回滚入口：
+
+```bash
+media-executor/scripts/audit-h3-ecosystem.sh
+media-executor/scripts/install-h3-ecosystem.sh
+media-executor/scripts/install-comfyui-h3-dropin.sh
+```
+
+安装器固定 ComfyUI、KJNodes、Turbo custom node 和 LoRA revision，在隔离端口完成 AddGuide、Turbo、Sage Attention 与 `SaveVideo` 节点探测后才切换 `/home/cec/ComfyUI-H3-current`。当前实机 smoke test 已用四个时间锚点生成 8 秒、864×480、24 FPS 的 H.264/AAC 预览，并成功提取 32 kHz 立体声模型原声；生产批准前仍须用固定十场景样例比较基线、预览、成片与 Sage 模式。
 
 画布模型名建议使用：
 

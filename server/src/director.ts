@@ -184,7 +184,9 @@ export function updateDirectorShot(userId: string, shotId: string, body: unknown
     const sequenceId = value.sequenceId ?? current.sequence_id;
     const sequence = sequenceRow(userId, sequenceId);
     if (sequence.project_id !== current.project_id) throw directorError(404, "DIRECTOR_SEQUENCE_NOT_FOUND", "剧情段落不存在");
-    const payload = value.payload ? normalizeShotPayload({ ...parseJson(current.payload, {}), ...value.payload }, sequence) : parseJson(current.payload, {});
+    const currentPayload = parseJson<Record<string, unknown>>(current.payload, {});
+    const payload: Record<string, unknown> = value.payload ? normalizeShotPayload({ ...currentPayload, ...value.payload }, sequence) : currentPayload;
+    if (storyboardGuidesChanged(currentPayload, payload) && payload.videoFileId) payload.videoStale = true;
     const now = new Date().toISOString();
     const result = db.prepare(`UPDATE director_shots SET sequence_id=?,position=?,title=?,status=?,payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?`)
         .run(sequenceId, value.position ?? current.position, value.title ?? current.title, value.status ?? current.status, JSON.stringify(payload), now, shotId, userId, value.revision);
@@ -370,7 +372,7 @@ function normalizeShotPayload(payload: Record<string, unknown>, sequence: Sequen
     const requestedCount = Number(payload.storyboardFrameCount);
     const frameCount = [4, 6, 9].includes(requestedCount) ? requestedCount : [4, 6, 9].includes(existingFrames.length) ? existingFrames.length : recommendedStoryboardFrameCount(durationSeconds);
     const sheetChanged = Boolean(existingSheet && existingFrames.length !== frameCount);
-    const storyboardSheet = existingSheet && !sheetChanged ? { ...existingSheet, layout: storyboardLayout(frameCount) } : buildStoryboardSheet(durationSeconds, frameCount, payload, existingFrames, Number(existingSheet?.revision || 0) + 1);
+    const storyboardSheet = existingSheet && !sheetChanged ? { ...existingSheet, layout: storyboardLayout(frameCount), frames: normalizeStoryboardGuides(existingFrames) } : buildStoryboardSheet(durationSeconds, frameCount, payload, existingFrames, Number(existingSheet?.revision || 0) + 1);
     return { ...payload, entityKind: "video-segment", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), storyboardFrameCount: frameCount, storyboardSheet, ...(sheetChanged ? { firstFrameFileId: undefined, lastFrameFileId: undefined, videoStale: Boolean(payload.videoFileId) } : {}), dependencies, needsReview: false };
 }
 
@@ -384,7 +386,28 @@ function buildStoryboardSheet(duration: number, frameCount: number, payload: Rec
         const nearest = source.length ? source[Math.round(position * (source.length - 1) / Math.max(1, frameCount - 1))] : undefined;
         return { id: nanoid(), position, shotNumber: Number(nearest?.shotNumber || 1), timeSeconds, kind: position === 0 ? "shot-start" : position === frameCount - 1 ? "shot-end" : "keyframe", description: String(nearest?.description || `${timeSeconds} 秒时清晰呈现“${intent}”的第 ${position + 1} 个连续视觉节拍`), action: String(nearest?.action || payload.action || ""), cameraAngle: String(nearest?.cameraAngle || payload.cameraAngle || ""), cameraMove: String(nearest?.cameraMove || payload.cameraMove || ""), sound: String(nearest?.sound || payload.sound || "") };
     });
-    return { revision: Math.max(1, revision), layout: storyboardLayout(frameCount), frames };
+    return { revision: Math.max(1, revision), layout: storyboardLayout(frameCount), frames: normalizeStoryboardGuides(frames) };
+}
+
+function normalizeStoryboardGuides(frames: Array<Record<string, unknown>>) {
+    const preferred = new Set([0, frames.length - 1, Math.round((frames.length - 1) / 3), Math.round((frames.length - 1) * 2 / 3)]);
+    const selected = frames.filter((frame) => frame.guideEnabled === true);
+    if (selected.length > 4) throw directorError(400, "DIRECTOR_H3_GUIDE_LIMIT", "每个视频段最多选择 4 个视频锚点");
+    const explicit = selected.map((frame) => String(frame.id));
+    const useDefaults = !frames.some((frame) => "guideEnabled" in frame);
+    return frames.map((frame, index) => {
+        const enabled = useDefaults ? preferred.has(index) : explicit.includes(String(frame.id));
+        return { ...frame, guideEnabled: enabled, guideStrength: frame.guideStrength === "semantic" ? "semantic" : "hard", croppedFileId: typeof frame.croppedFileId === "string" ? frame.croppedFileId : undefined, resolvedFrameIndex: Number.isInteger(frame.resolvedFrameIndex) ? frame.resolvedFrameIndex : undefined };
+    });
+}
+
+function storyboardGuidesChanged(before: Record<string, unknown>, after: Record<string, unknown>) {
+    const values = (payload: Record<string, unknown>) => {
+        const sheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : {};
+        const frames = Array.isArray(sheet.frames) ? sheet.frames as Array<Record<string, unknown>> : [];
+        return frames.map((frame) => [String(frame.id), Boolean(frame.guideEnabled), String(frame.guideStrength || "semantic")]);
+    };
+    return JSON.stringify(values(before)) !== JSON.stringify(values(after));
 }
 
 function validateTimeline(userId: string, projectId: string, payload: Record<string, unknown>) {

@@ -363,6 +363,7 @@ export function buildAgentMcpServer(
             revision: z.number().int().positive(),
             model: z.string().optional(),
             mode: z.enum(["fl2va", "ref2va"]).optional(),
+            qualityPreset: z.enum(["preview", "final"]).default("preview"),
           },
           (input) => {
             const value = input as { segmentId: string } & Record<string, unknown>;
