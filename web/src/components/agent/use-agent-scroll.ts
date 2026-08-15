@@ -10,6 +10,7 @@ export function useAgentScroll({ sessionId, eventKey, contentRef }: { sessionId?
     const restoreAfterPrepend = useCallback(() => { requestAnimationFrame(() => { const node = scrollRef.current; const previous = restoringRef.current; if (node && previous) node.scrollTop = previous.top + node.scrollHeight - previous.height; restoringRef.current = null; }); }, []);
     const beforeCollapse = useCallback((element: HTMLElement) => { const node = scrollRef.current; if (!node || atBottomRef.current) return; const top = element.getBoundingClientRect().top; requestAnimationFrame(() => { const delta = element.getBoundingClientRect().top - top; node.scrollTop += delta; }); }, []);
     useLayoutEffect(() => {
+        if (restoringRef.current) return;
         const node = scrollRef.current; if (!node || !atBottomRef.current) { setUnread((value) => Math.min(99, value + 1)); setShowBottom(true); return; }
         requestAnimationFrame(() => scrollBottom("auto"));
     }, [eventKey, scrollBottom]);

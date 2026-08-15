@@ -58,9 +58,12 @@ agentRouter.get("/projects/:projectId/stream", (req, res, next) => {
         res.flushHeaders();
         res.socket?.setNoDelay(true);
         const clientId = req.query.clientId === undefined ? "" : id.parse(String(req.query.clientId));
+        const lastEventId = String(req.headers["last-event-id"] || req.query.cursor || "");
+        const resumeMatch = lastEventId.match(/^([^:]+):(\d+)$/);
         const unsubscribe = subscribeConversation(req.user.id, projectId, clientId, (event) => {
-            res.write(`id: ${event.cursor}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-        });
+            const sessionId = event.type === "delta" ? event.session.id : event.type === "queue.updated" ? event.sessionId : "";
+            res.write(`${sessionId ? `id: ${sessionId}:${event.cursor}\n` : ""}event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+        }, resumeMatch ? { sessionId: resumeMatch[1], seq: Number(resumeMatch[2]) } : undefined);
         const heartbeat = setInterval(() => res.write(`event: keepalive\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`), 15_000);
         res.on("close", () => {
             clearInterval(heartbeat);

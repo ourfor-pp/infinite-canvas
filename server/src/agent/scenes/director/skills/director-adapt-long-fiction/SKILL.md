@@ -1,7 +1,7 @@
 ---
 name: director-adapt-long-fiction
 description: 将长篇小说按分块检索与分层摘要改编为导演项目的故事总纲。
-allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_search_source, mcp__infinite_canvas__director_update_document]
+allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_get_document, mcp__infinite_canvas__director_search_source, mcp__infinite_canvas__director_update_document]
 ---
 
 # 导演台长篇改编

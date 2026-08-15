@@ -34,6 +34,17 @@ export type AgentPendingDecision = {
     scopes?: Array<"once" | "session" | "project">;
     permissionSuggestions?: unknown;
     rulePreview?: string[];
+    questions?: AgentDecisionQuestion[];
+};
+
+export type AgentDecisionQuestion = {
+    id: string;
+    question: string;
+    header?: string;
+    type: "text" | "single_choice" | "multiple_choice";
+    allowCustomInput: boolean;
+    customInputPlaceholder?: string;
+    options: Array<{ label: string; description?: string }>;
 };
 
 export type AgentSession = {

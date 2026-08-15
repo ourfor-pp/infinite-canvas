@@ -99,6 +99,50 @@
     color: rgb(255 255 255 / 88%) !important;
 }
 
+.director-light .director-program-surface {
+    background: #020617 !important;
+}
+
+.director-light .director-program-control {
+    border: 0;
+    background: transparent !important;
+    color: #cbd5e1 !important;
+}
+
+.director-light .director-program-control:hover {
+    background: rgb(255 255 255 / 12%) !important;
+    color: #ffffff !important;
+}
+
+.director-light .director-program-control-primary {
+    border: 0;
+    background: #ffffff !important;
+    color: #0f172a !important;
+}
+
+.director-light .director-program-control-primary:hover {
+    background: #eff6ff !important;
+    color: #1d4ed8 !important;
+}
+
+.director-light .director-program-control:disabled,
+.director-light .director-program-control-primary:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.director-light .director-storyboard-frame,
+.director-light .director-storyboard-frame:hover,
+.director-light .director-storyboard-frame:focus-visible {
+    background: transparent !important;
+}
+
+.director-light .director-storyboard-frame:focus-visible {
+    z-index: 1;
+    outline: 2px solid #2563eb;
+    outline-offset: -2px;
+}
+
 .dark main.director-light .agent-panel-shell.agent-panel-shell,
 .dark body:has(main.director-light) .agent-mention-menu.agent-mention-menu {
     --agent-panel: #ffffff;

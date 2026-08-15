@@ -21,6 +21,17 @@ export type CharacterDesignProfile = {
     voiceGender: "female" | "male" | "androgynous" | "unspecified";
     ageBand: string;
     identityAnchor: string;
+    facialIdentity: {
+        faceShape: string;
+        boneStructure: string;
+        brows: string;
+        eyes: string;
+        nose: string;
+        mouth: string;
+        skin: string;
+        hairline: string;
+        distinguishingMarks: string;
+    } | null;
     uncertainties: string[];
 };
 export type CreativeAssetReview = {
@@ -115,6 +126,17 @@ export const creativeAssetPayloadSchema = z.object({
         voiceGender: z.enum(["female", "male", "androgynous", "unspecified"]).default("unspecified"),
         ageBand: z.string().max(100).default(""),
         identityAnchor: z.string().max(2_000).default(""),
+        facialIdentity: z.object({
+            faceShape: z.string().max(500).default(""),
+            boneStructure: z.string().max(500).default(""),
+            brows: z.string().max(500).default(""),
+            eyes: z.string().max(500).default(""),
+            nose: z.string().max(500).default(""),
+            mouth: z.string().max(500).default(""),
+            skin: z.string().max(500).default(""),
+            hairline: z.string().max(500).default(""),
+            distinguishingMarks: z.string().max(500).default(""),
+        }).nullable().default(null),
         uncertainties: z.array(z.string().max(500)).max(50).default([]),
     }).nullable().default(null),
     variants: z.array(variant).max(500).default([]),
@@ -427,9 +449,24 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
         scene: "横版 16:9 场景设定图，严格无人、无文字、无标注：主画面占四分之三区域，完整展示空间结构、固定陈设、光线和氛围；右下角嵌入标志性局部细节图。",
         prop: "横版 16:9 道具设定图，严格纯白无影背景：正面全视图、45 度侧视图、关键细节特写水平排列，各视图必须是同一件道具，结构、材质和比例保持一致。只画道具，不画人物、环境、文字或标注。",
     }[asset.kind];
+    const facialIdentity = directorCharacter && asset.payload.designProfile?.facialIdentity
+        ? Object.entries(asset.payload.designProfile.facialIdentity).map(([key, value]) => value.trim() ? `${facialIdentityLabels[key] || key}：${value.trim()}` : "").filter(Boolean).join("；")
+        : "";
+    if (directorCharacter) {
+        const subject = [
+            "同一角色的单张横版四视图设计图，一张图片内包含四个角度。",
+            visualDescription,
+            facialIdentity ? `稳定面部身份锚点：${facialIdentity}` : "",
+        ].filter(Boolean).join("\n");
+        const supplement = requirement ? `[风格与补充要求]\n${requirement}` : "";
+        const forbidden = "负面约束：背景场景、剧情动作、叙事事件、情绪变化、换装、伤势、水印、文字、字母、数字、Logo、UI、边框标题。";
+        return profile === "gpt-image-2"
+            ? [`[主体视觉设定]\n${subject}`, supplement, `[输出规格]\n${layout}`, `[禁止项与验收]\n${forbidden}`].filter(Boolean).join("\n\n")
+            : [subject, requirement, layout, forbidden].filter(Boolean).join("\n\n");
+    }
     const sections = [
-        directorCharacter ? "同一角色的单张横版四视图设计图，一张图片内包含四个角度。" : `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}「${asset.name}」的视觉设计参考。`,
-        directorCharacter ? visualDescription : description,
+        `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}「${asset.name}」的视觉设计参考。`,
+        description,
         requirement,
         layout,
         asset.kind === "character" && asset.payload.designProfile && !directorCharacter ? `身份锚点：${asset.payload.designProfile.identityAnchor}\n年龄段：${asset.payload.designProfile.ageBand}\n外观性别：${asset.payload.designProfile.apparentGender}` : "",
@@ -439,6 +476,10 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
         ? [`[主体视觉设定]\n${sections[0]}\n${sections[1] || ""}`, `[风格与补充要求]\n${sections.slice(2, -2).join("\n")}`, `[输出规格]\n${layout}`, `[禁止项与验收]\n${sections.at(-1)}`].join("\n\n")
         : sections.join("\n\n");
 }
+
+const facialIdentityLabels: Record<string, string> = {
+    faceShape: "脸型比例", boneStructure: "骨相轮廓", brows: "眉形", eyes: "眼型与眼距", nose: "鼻部", mouth: "唇形与嘴角", skin: "肤色与质感", hairline: "发际线", distinguishingMarks: "非对称识别点",
+};
 
 export function isDirectorProject(projectId: string) {
     return Boolean(db.prepare("SELECT 1 FROM projects WHERE id=? AND kind='director'").get(projectId));

@@ -10,8 +10,13 @@ import {
   createDirectorVideoSegment,
   deleteDirectorSequence,
   deleteDirectorVideoSegment,
+  getDirectorAgentOverview,
+  getDirectorDocumentExcerpt,
   getDirectorState,
+  getDirectorVideoSegment,
+  listDirectorSequenceSummaries,
   listDirectorSourceChunks,
+  listDirectorVideoSegments,
   updateDirectorDocument,
   updateDirectorSequence,
   updateDirectorVideoSegment,
@@ -25,6 +30,7 @@ import {
   createDirectorStoryboardGeneration,
   listDirectorRenders,
   retryDirectorRender,
+  updateDirectorStoryboardPrompts,
 } from "../../director-render.js";
 import type { AgentSceneDefinition } from "../scenes/index.js";
 import {
@@ -84,6 +90,31 @@ type AgentMcpContext = {
   ) => Promise<{ path: string }>;
   waitForWorkspacePath: (path: string) => Promise<void>;
 };
+
+const askUserShape = {
+  summary: z.string().max(240).optional(),
+  questions: z.array(z.object({
+    id: z.string().min(1).max(80).optional(),
+    header: z.string().max(40).optional(),
+    question: z.string().min(1).max(500),
+    type: z.enum(["text", "single_choice", "multiple_choice"]),
+    allowCustomInput: z.boolean().optional(),
+    customInputPlaceholder: z.string().max(160).optional(),
+    options: z.array(z.object({ label: z.string().min(1).max(120), description: z.string().max(240).optional() })).max(6).optional(),
+  })).min(1).max(3),
+};
+
+function normalizeAskUserInput(input: { summary?: string; questions: Array<{ id?: string; header?: string; question: string; type: "text" | "single_choice" | "multiple_choice"; allowCustomInput?: boolean; customInputPlaceholder?: string; options?: Array<{ label: string; description?: string }> }> }) {
+  return {
+    summary: input.summary,
+    questions: input.questions.map((question, index) => ({
+      ...question,
+      id: question.id || `q${index + 1}`,
+      allowCustomInput: question.allowCustomInput ?? true,
+      options: question.options || [],
+    })),
+  };
+}
 
 export function buildAgentMcpServer(
   context: AgentMcpContext,
@@ -155,9 +186,39 @@ export function buildAgentMcpServer(
       tools: [
         call(
           "director_get_state",
-          "读取导演项目的权威工作区、来源、故事、剧本、剧情段落、视频段和时间线。修改前必须调用。",
+          "读取导演项目的轻量权威概览、revision 和实体数量。具体正文、剧情段落或视频段必须再调用对应读取工具。",
           {},
-          () => getDirectorState(run.userId, projectId),
+          () => getDirectorAgentOverview(run.userId, projectId),
+        ),
+        call(
+          "director_get_document",
+          "按类型分页读取故事或剧本正文及最新 revision；长文必须根据 hasMore 继续分页，不要一次读取全文。",
+          { kind: z.enum(["story", "script"]), offset: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(100_000).optional() },
+          (input) => { const value = input as { kind: "story" | "script"; offset?: number; limit?: number }; return getDirectorDocumentExcerpt(run.userId, projectId, value.kind, value); },
+        ),
+        call(
+          "director_list_sequences",
+          "分页读取剧情段落清单、摘要和最新 revision，不返回重型故事板内容。",
+          { offset: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(50).optional() },
+          (input) => listDirectorSequenceSummaries(run.userId, projectId, input),
+        ),
+        call(
+          "director_list_video_segments",
+          "按剧情段落或标题分页读取视频段完整内容；需要批量处理时逐页读取，不要调用更新工具探测 revision。",
+          {
+            sequenceId: z.string().min(1).optional(),
+            q: z.string().max(300).optional(),
+            offset: z.number().int().min(0).optional(),
+            limit: z.number().int().min(1).max(10).optional(),
+            view: z.enum(["prompt", "full"]).optional(),
+          },
+          (input) => listDirectorVideoSegments(run.userId, projectId, input),
+        ),
+        call(
+          "director_get_video_segment",
+          "按 ID 读取一个视频段的完整内容、故事板、提示词和最新 revision。",
+          { segmentId: z.string().min(1) },
+          (input) => getDirectorVideoSegment(run.userId, projectId, (input as { segmentId: string }).segmentId),
         ),
         call(
           "director_search_source",
@@ -315,7 +376,7 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_update_video_segment",
-          "按 revision 更新视频段、素材引用、故事板语义、cut/continue 边界和 H3 模式；已锁定内容需要审批。",
+          "按 revision 更新视频段结构、素材引用、cut/continue 边界和 H3 模式；不得直接写 storyboardSheet，故事板提示词必须使用专用工具。已锁定内容需要审批。",
           {
             segmentId: z.string().min(1),
             revision: z.number().int().positive(),
@@ -329,6 +390,7 @@ export function buildAgentMcpServer(
               string,
               unknown
             >;
+            if (value.payload && typeof value.payload === "object" && "storyboardSheet" in value.payload) throw mcpError(400, "DIRECTOR_STORYBOARD_TOOL_REQUIRED", "故事板提示词必须使用 director_update_storyboard_prompts，不能整体覆盖 storyboardSheet");
             const current = getDirectorState(run.userId, projectId).videoSegments.find(
               (item) => item.id === value.segmentId,
             );
@@ -341,6 +403,30 @@ export function buildAgentMcpServer(
             if (locked)
               await context.requireDecision("director_update_video_segment", value);
             return updateDirectorVideoSegment(run.userId, value.segmentId, value, locked);
+          },
+        ),
+        call(
+          "director_update_storyboard_prompts",
+          "安全更新最多 10 个视频段的画格提示语义。只接受画面、动作、机位、运镜和声音；服务端保留媒体与生成字段、重编最终提示词，并将旧故事板和视频标记过期。",
+          {
+            items: z.array(z.object({
+              segmentId: z.string().min(1),
+              revision: z.number().int().positive(),
+              frames: z.array(z.object({
+                id: z.string().min(1),
+                description: z.string().max(4_000),
+                action: z.string().max(4_000),
+                cameraAngle: z.string().max(1_000),
+                cameraMove: z.string().max(1_000),
+                sound: z.string().max(2_000),
+              })).min(1).max(9),
+            })).min(1).max(10),
+          },
+          async (input) => {
+            const value = input as { items: Array<{ segmentId: string }> };
+            const locked = value.items.some((item) => getDirectorVideoSegment(run.userId, projectId, item.segmentId).status === "locked");
+            if (locked) await context.requireDecision("director_update_storyboard_prompts", value);
+            return updateDirectorStoryboardPrompts(run.userId, projectId, input, locked);
           },
         ),
         call(
@@ -421,7 +507,7 @@ export function buildAgentMcpServer(
         ),
         tool(
           "director_create_assets",
-          "从已确认剧本提交角色、场景和道具候选；用户确认清单后创建导演资产，不创建任何节点。",
+          "从剧本直接创建角色、场景和道具导演素材，不创建任何画布节点；素材无需额外确认即可继续后续设计。",
           { items: canvasToolSchemas.creative_assets_create_batch.shape.items },
           async (input) => {
             const value = input as {
@@ -438,17 +524,11 @@ export function buildAgentMcpServer(
             });
             try {
               requireDirectorDocumentStatus(run.userId, projectId, "script");
-              const decision = await context.requireDecision(
-                "director_create_assets",
-                value,
-                "proposal",
-              );
-              const items = decision.proposalEdits || value.items;
               const output = {
                 assets: createAgentCreativeAssetBatch(
                   run.userId,
                   projectId,
-                  items,
+                  value.items,
                   undefined,
                   false,
                 ),
@@ -762,22 +842,20 @@ export function buildAgentMcpServer(
         ),
         tool(
           "ask_user",
-          "确有必要时向用户提出一个问题，并等待回答后继续。",
-          { question: z.string().min(1) },
-          async ({ question }) => {
+          "向用户提出最少必要问题并等待回答。有建议方案时，将唯一推荐项的 label 追加 ` (Recommended)` 并排在第一位，不得代用户预选。",
+          askUserShape,
+          async (input) => {
+            const normalized = normalizeAskUserInput(input);
             const result = await context.requireDecision(
               "ask_user",
-              { question },
+              normalized,
               "question",
             );
             return {
               content: [
                 {
                   type: "text",
-                  text:
-                    result.comment ||
-                    Object.values(result.answers || {}).join("\n") ||
-                    "用户已确认",
+                  text: JSON.stringify({ ok: true, answers: result.answers || {} }, null, 2),
                 },
               ],
             };
@@ -1359,22 +1437,20 @@ export function buildAgentMcpServer(
       ),
       tool(
         "ask_user",
-        "确有必要时向用户提出一个问题，并等待回答后继续。",
-        { question: z.string().min(1) },
-        async ({ question }) => {
+        "向用户提出最少必要问题并等待回答。有建议方案时，将唯一推荐项的 label 追加 ` (Recommended)` 并排在第一位，不得代用户预选。",
+        askUserShape,
+        async (input) => {
+          const normalized = normalizeAskUserInput(input);
           const result = await context.requireDecision(
             "ask_user",
-            { question },
+            normalized,
             "question",
           );
           return {
             content: [
               {
                 type: "text",
-                text:
-                  result.comment ||
-                  Object.values(result.answers || {}).join("\n") ||
-                  "用户已确认",
+                text: JSON.stringify({ ok: true, answers: result.answers || {} }, null, 2),
               },
             ],
           };

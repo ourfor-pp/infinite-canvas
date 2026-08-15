@@ -4,7 +4,7 @@ import { App } from "antd";
 import { describe, expect, it, vi } from "vitest";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import { AgentConversationFlow, AssistantRound, UserMessage } from "./agent-conversation-ui";
+import { AgentConversationFlow, AgentUserLocator, AssistantRound, UserMessage } from "./agent-conversation-ui";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver;
@@ -28,6 +28,16 @@ describe("Agent 用户消息气泡", () => {
         expect(restart).toHaveBeenCalledWith(expect.objectContaining({ seq: 7, kind: "user_text" }));
         await act(async () => root.unmount()); holder.remove();
     });
+
+    it("非图片历史附件在对话内预览并保留下载入口", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const event = { sessionId: "session-1", seq: 8, runId: "run-1", kind: "user_text" as const, payload: { text: "请参考附件", attachments: [{ fileId: "file-1", name: "剧本.pdf", mimeType: "application/pdf", bytes: 2048 }] }, createdAt: new Date().toISOString() };
+        await act(async () => root.render(<App><UserMessage event={event} theme={canvasThemes.light} restarting={false} /></App>));
+        await act(async () => (holder.querySelector("button[aria-label='预览附件剧本.pdf']") as HTMLButtonElement).click());
+        expect(document.body.querySelector("iframe[title='剧本.pdf']")).not.toBeNull();
+        expect(document.body.textContent).toContain("下载原文件");
+        await act(async () => root.unmount()); holder.remove();
+    });
 });
 
 describe("Agent 助手回合", () => {
@@ -49,12 +59,30 @@ describe("Agent 助手回合", () => {
     it("完成后才提供整轮复制", async () => {
         const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
         const events = [...processEvents, { sessionId: "session-1", seq: 4, runId: "run-1", kind: "run_state" as const, payload: { state: "completed", finalAssistantEventSeq: 3 }, createdAt: new Date().toISOString() }];
+        const writeText = vi.fn().mockResolvedValue(undefined); Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
         await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="completed" />));
         expect(holder.querySelector(".agent-process-toggle")?.getAttribute("aria-expanded")).toBe("false");
         const copyButton = holder.querySelector("button[aria-label='复制本轮回复内容']");
         expect(copyButton).not.toBeNull();
         expect(copyButton?.className).not.toContain("absolute");
         expect(copyButton?.parentElement?.className).toContain("h-6");
+        await act(async () => (copyButton as HTMLButtonElement).click());
+        expect(writeText).toHaveBeenCalledWith("阶段性回复");
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("复制本轮回复包含过程说明但排除思考文本", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const writeText = vi.fn().mockResolvedValue(undefined); Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+        const events = [
+            { sessionId: "session-1", seq: 2, runId: "run-1", kind: "assistant_text" as const, payload: { text: "我先读取当前剧本。" }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 3, runId: "run-1", kind: "assistant_text" as const, payload: { text: "思考：核对角色关系。" }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 4, runId: "run-1", kind: "assistant_text" as const, payload: { text: "剧本已经更新。" }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 5, runId: "run-1", kind: "run_state" as const, payload: { state: "completed", finalAssistantEventSeq: 4 }, createdAt: new Date().toISOString() },
+        ];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="completed" />));
+        await act(async () => (holder.querySelector("button[aria-label='复制本轮回复内容']") as HTMLButtonElement).click());
+        expect(writeText).toHaveBeenCalledWith("我先读取当前剧本。\n\n剧本已经更新。");
         await act(async () => root.unmount()); holder.remove();
     });
 
@@ -116,6 +144,93 @@ describe("Agent 助手回合", () => {
         expect(button).not.toBeNull();
         expect(button?.className).toContain("agent-status-pill-button");
         expect(button?.getAttribute("title")).toBeNull();
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("工具失败时自动展开过程并显示失败数量", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const events = [
+            { sessionId: "session-1", seq: 2, runId: "run-1", kind: "tool_call" as const, payload: { toolId: "tool-1", toolName: "director_generate_video_segment", input: {} }, result: { sessionId: "session-1", seq: 3, runId: "run-1", kind: "tool_result" as const, payload: { toolId: "tool-1", toolName: "director_generate_video_segment", output: "生成失败", isError: true }, createdAt: new Date().toISOString() }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 4, runId: "run-1", kind: "run_state" as const, payload: { state: "failed" }, createdAt: new Date().toISOString() },
+        ];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="failed" />));
+        expect(holder.querySelector(".agent-process-toggle")?.getAttribute("aria-expanded")).toBe("true");
+        expect(holder.querySelector(".agent-process-toggle")?.textContent).toContain("1 项失败");
+        expect(holder.textContent).toContain("生成失败");
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("多个工具失败时只自动展开最近一次失败详情", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const failedTool = (seq: number, output: string) => ({ sessionId: "session-1", seq, runId: "run-1", kind: "tool_call" as const, payload: { toolId: `tool-${seq}`, toolName: "director_generate_video_segment", input: {} }, result: { sessionId: "session-1", seq: seq + 1, runId: "run-1", kind: "tool_result" as const, payload: { toolId: `tool-${seq}`, toolName: "director_generate_video_segment", output, isError: true }, createdAt: new Date().toISOString() }, createdAt: new Date().toISOString() });
+        const events = [failedTool(2, "第一次失败"), failedTool(4, "第二次失败"), { sessionId: "session-1", seq: 6, runId: "run-1", kind: "run_state" as const, payload: { state: "failed" }, createdAt: new Date().toISOString() }];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="failed" />));
+        expect(holder.querySelectorAll(".agent-process-step-toggle[aria-expanded='true']")).toHaveLength(1);
+        expect(holder.textContent).not.toContain("第一次失败");
+        expect(holder.textContent).toContain("第二次失败");
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("待回答问题不在正在进行的对话流中重复显示", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const pending = {
+            id: "question-1", kind: "question" as const, source: "ask_user" as const, runId: "run-1", content: "需要确认创作方向",
+            questions: [{ id: "tone", question: "主角应该呈现怎样的气质？", type: "single_choice" as const, allowCustomInput: false, options: [{ label: "冷峻" }] }],
+        };
+        const events = [
+            { sessionId: "session-1", seq: 2, runId: "run-1", kind: "assistant_text" as const, payload: { text: "我需要你补充一个选择。" }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 3, runId: "run-1", kind: "question_request" as const, payload: pending, createdAt: new Date().toISOString() },
+        ];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="waiting_for_user" pendingDecision={pending} />));
+        expect(holder.textContent).toContain("我需要你补充一个选择。");
+        expect(holder.textContent).not.toContain("主角应该呈现怎样的气质？");
+        expect(holder.textContent).not.toContain("需要确认创作方向");
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("已回答追问按独立历史卡折叠展示", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const events = [
+            { sessionId: "session-1", seq: 2, runId: "run-1", kind: "question_request" as const, payload: { id: "question-1", kind: "question", content: "确认方向", questions: [{ id: "tone", header: "气质", question: "主角是什么气质？", type: "single_choice", options: [{ label: "冷峻" }] }] }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 3, runId: "run-1", kind: "question_response" as const, payload: { decision: "approved", answers: { tone: "冷峻" } }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 4, runId: "run-1", kind: "run_state" as const, payload: { state: "completed" }, createdAt: new Date().toISOString() },
+        ];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="completed" />));
+        await act(async () => (holder.querySelector(".agent-process-toggle") as HTMLButtonElement).click());
+        const history = holder.querySelector(".agent-question-history-header") as HTMLButtonElement;
+        expect(history.textContent).toContain("已完成回答");
+        expect(history.textContent).toContain("1 个问题");
+        expect(holder.textContent).not.toContain("主角是什么气质？");
+        await act(async () => history.click());
+        expect(holder.textContent).toContain("主角是什么气质？");
+        expect(holder.textContent).toContain("冷峻");
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("图片产物按文件去重并保持完整比例展示", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const artifact = (seq: number) => ({ sessionId: "session-1", seq, runId: "run-1", kind: "artifact" as const, payload: { fileId: "file-1", title: "故事板", mimeType: "image/png", url: "/files/file-1/content" }, createdAt: new Date().toISOString() });
+        await act(async () => root.render(<AssistantRound events={[artifact(2), artifact(3)]} theme={canvasThemes.light} status="completed" />));
+        expect(holder.querySelectorAll("img[alt='故事板']")).toHaveLength(1);
+        expect(holder.querySelector("img[alt='故事板']")?.className).toContain("object-contain");
+        expect(holder.querySelector("img[alt='故事板']")?.className).not.toContain("object-cover");
+        await act(async () => root.unmount()); holder.remove();
+    });
+});
+
+describe("Agent 用户轮次定位", () => {
+    it("从两条用户消息开始显示上游样式的定位轨道", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const scroll = document.createElement("div"); holder.append(scroll);
+        const containerRef = { current: scroll };
+        const events = [
+            { sessionId: "session-1", seq: 1, runId: "run-1", kind: "user_text" as const, payload: { text: "第一条问题" }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 2, runId: "run-2", kind: "user_text" as const, payload: { text: "第二条问题" }, createdAt: new Date().toISOString() },
+        ];
+        await act(async () => root.render(<AgentUserLocator events={events} containerRef={containerRef} theme={canvasThemes.light} />));
+        expect(holder.querySelector(".agent-user-locator-dots")?.children).toHaveLength(2);
+        expect(holder.querySelector("[aria-label='用户消息快速定位列表']")).not.toBeNull();
+        expect(holder.querySelector("button[aria-label='定位到第 2 条用户消息：第二条问题']")).not.toBeNull();
         await act(async () => root.unmount()); holder.remove();
     });
 });

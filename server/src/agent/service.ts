@@ -28,6 +28,7 @@ type RunRow = { id: string; session_id: string; user_id: string; status: string;
 type QueueRow = { id: string; user_id: string; project_id: string; session_id: string; wait_for_run_id: string | null; accepted_run_id: string | null; client_message_id: string; content: string; attachment_file_ids: string; display_text: string; status: string; error: string | null; created_at: string; updated_at: string };
 type AgentSettings = { modelRef: string; modelName?: string; providerName?: string; toolSearchMode: string; ready: boolean };
 type DecisionResult = { approved: boolean; scope: "once" | "session" | "project"; comment?: string; answers?: Record<string, string>; proposalEdits?: unknown };
+class RetriableAgentDiagnosticError extends Error { code = "AGENT_RETRIABLE_DIAGNOSTIC"; }
 
 type ConversationListener = { clientId: string; send: (event: AgentStreamEvent) => void };
 const conversationListeners = new Map<string, Set<ConversationListener>>();
@@ -336,7 +337,7 @@ export function respondClientAction(userId: string, sessionId: string, input: { 
     return { accepted: true };
 }
 
-export function subscribeConversation(userId: string, projectId: string, clientId: string, listener: (event: AgentStreamEvent) => void) {
+export function subscribeConversation(userId: string, projectId: string, clientId: string, listener: (event: AgentStreamEvent) => void, resume?: { sessionId: string; seq: number }) {
     assertProject(userId, projectId);
     const key = conversationKey(userId, projectId);
     const set = conversationListeners.get(key) || new Set();
@@ -344,6 +345,14 @@ export function subscribeConversation(userId: string, projectId: string, clientI
     set.add(subscriber);
     conversationListeners.set(key, set);
     listener(projectSnapshot(userId, projectId));
+    if (resume?.sessionId && resume.seq >= 0) {
+        const session = getSessionRow(userId, resume.sessionId);
+        if (session?.project_id === projectId && session.event_seq > resume.seq && session.event_seq - resume.seq <= 1_000) {
+            const rows = db.prepare("SELECT * FROM agent_events WHERE session_id=? AND seq>? ORDER BY seq LIMIT 1000").all(session.id, resume.seq) as Array<{ session_id: string; seq: number; run_id: string | null; kind: AgentEventKind; payload: string; created_at: string }>;
+            const events = compactStreamEvents(rows);
+            if (events.length) listener({ type: "delta", cursor: events.at(-1)!.seq, session: sessionResponse(session, false), events });
+        }
+    }
     return () => {
         set.delete(subscriber);
         if (!set.size) conversationListeners.delete(key);
@@ -446,17 +455,17 @@ async function executeRun(run: RunRow, controller: AbortController) {
         const streamState = { turn: 0 };
         const nativeTools = resolveAgentNativeTools(runtime.toolSearchEnabled);
         appendEvent(session.id, run.id, "run_state", { state: "running", content: "Agent 已开始处理" });
-        const input = new SdkInputChannel([sdkUserMessage(prompt)]);
-        const runner = query({
-            prompt: input,
-            options: {
+        let input = new SdkInputChannel([sdkUserMessage(prompt)]);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const latestSession = getSessionRow(run.user_id, session.id) || session;
+            const runner = query({ prompt: input, options: {
                 cwd: workspace,
                 abortController: controller,
                 model: selection.model.id,
                 persistSession: true,
-                resume: session.sdk_session_id || undefined,
-                forkSession: Boolean(session.sdk_session_id && session.fork_pending),
-                resumeSessionAt: session.fork_resume_at || undefined,
+                resume: latestSession.sdk_session_id || undefined,
+                forkSession: Boolean(latestSession.sdk_session_id && latestSession.fork_pending),
+                resumeSessionAt: latestSession.fork_resume_at || undefined,
                 settingSources: ["project"],
                 skills: syncedSkills.skills,
                 tools: nativeTools.tools,
@@ -472,14 +481,22 @@ async function executeRun(run: RunRow, controller: AbortController) {
                 env: runtime.env,
                 hooks: workspaceReadHooks(workspace),
                 systemPrompt: { type: "preset", preset: "claude_code", append: scene.systemPrompt(session.project_id) },
-            },
-        });
-        const active = running.get(session.id);
-        if (active) { active.query = runner; active.input = input; }
-        for await (const message of runner) {
-            if (controller.signal.aborted) throw Object.assign(new Error("用户已取消任务"), { code: "AGENT_CANCELED" });
-            await consumeSdkMessage(session.id, run.id, message, streamState);
-            if (message.type === "result") input.close();
+            } });
+            const active = running.get(session.id);
+            if (active) { active.query = runner; active.input = input; }
+            try {
+                for await (const message of runner) {
+                    if (controller.signal.aborted) throw Object.assign(new Error("用户已取消任务"), { code: "AGENT_CANCELED" });
+                    await consumeSdkMessage(session.id, run.id, message, streamState);
+                    if (message.type === "result") input.close();
+                }
+                break;
+            } catch (error) {
+                input.close();
+                if (!(error instanceof RetriableAgentDiagnosticError) || attempt === 1 || controller.signal.aborted) throw error;
+                appendEvent(session.id, run.id, "run_state", { state: "running", content: "收到补充消息后上游回合提前结束，正在自动续接" });
+                input = new SdkInputChannel([sdkUserMessage(retryAgentPrompt(session.id, run.id))]);
+            }
         }
         const now = new Date().toISOString();
         db.transaction(() => {
@@ -532,7 +549,17 @@ async function requestClientAction(session: SessionRow, run: RunRow, name: strin
 
 async function requireBusinessDecision(session: SessionRow, run: RunRow, toolName: string, input: unknown, kind: "approval" | "question" | "proposal" = "approval") {
     const id = nanoid();
-    const pending: AgentPendingDecision = { id, kind, source: kind === "question" ? "ask_user" : kind === "proposal" ? "proposal" : "business", runId: run.id, content: kind === "question" ? String((input as { question?: string }).question || "Agent 正在等待回答") : kind === "proposal" ? "请检查 Agent 拆解出的角色、场景和道具，确认后将创建为独立业务卡片" : `Agent 请求执行：${toolName}`, toolName, toolInput: input };
+    const questionInput = input as { summary?: string; questions?: AgentPendingDecision["questions"] };
+    const pending: AgentPendingDecision = {
+        id,
+        kind,
+        source: kind === "question" ? "ask_user" : kind === "proposal" ? "proposal" : "business",
+        runId: run.id,
+        content: kind === "question" ? String(questionInput.summary || "Agent 需要你补充信息") : kind === "proposal" ? "请检查 Agent 拆解出的角色、场景和道具，确认后将创建为独立业务卡片" : `Agent 请求执行：${toolName}`,
+        toolName,
+        toolInput: input,
+        ...(kind === "question" ? { questions: questionInput.questions || [] } : {}),
+    };
     db.prepare("UPDATE agent_sessions SET status='waiting_for_user', pending_decision=?, updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(pending), new Date().toISOString(), session.id, run.user_id);
     db.prepare("UPDATE agent_runs SET status='waiting_for_user' WHERE id=?").run(run.id);
     appendEvent(session.id, run.id, kind === "question" ? "question_request" : "approval_request", pending as unknown as Record<string, unknown>);
@@ -614,11 +641,31 @@ async function consumeSdkMessage(sessionId: string, runId: string, message: SDKM
         });
         return;
     }
-    if (message.type === "tool_progress") appendEvent(sessionId, runId, "run_state", { state: "running", content: `${message.tool_name} 执行中（${Math.floor(message.elapsed_time_seconds || 0)}s）` });
+    if (message.type === "tool_progress") {
+        const current = db.prepare("SELECT status FROM agent_sessions WHERE id=?").get(sessionId) as { status: string } | undefined;
+        if (current?.status !== "waiting_for_user") appendEvent(sessionId, runId, "run_state", { state: "running", content: `${message.tool_name.replace(/^mcp__infinite_canvas__/, "")} 执行中（${Math.floor(message.elapsed_time_seconds || 0)}s）` });
+    }
     if (message.type === "result") {
-        if (message.subtype !== "success") throw Object.assign(new Error((message.errors || []).join("\n") || "Agent 执行失败"), { code: "AGENT_RESULT_ERROR" });
+        if (message.subtype !== "success") {
+            const error = (message.errors || []).join("\n") || "Agent 执行失败";
+            if (isRetriableAgentDiagnostic(error)) throw new RetriableAgentDiagnosticError(error);
+            throw Object.assign(new Error(error), { code: "AGENT_RESULT_ERROR" });
+        }
         db.prepare("UPDATE agent_runs SET usage=? WHERE id=?").run(JSON.stringify((message as unknown as { usage?: unknown }).usage || {}), runId);
     }
+}
+
+export function isRetriableAgentDiagnostic(message: string) {
+    const value = message.toLowerCase();
+    return value.includes("[ede_diagnostic]") && ((value.includes("result_type=user") && value.includes("stop_reason=tool_use")) || (value.includes("result_type=assistant") && value.includes("last_content_type=none")));
+}
+
+function retryAgentPrompt(sessionId: string, runId: string) {
+    const row = db.prepare("SELECT payload FROM agent_events WHERE session_id=? AND run_id=? AND kind='user_text' ORDER BY seq DESC LIMIT 1").get(sessionId, runId) as { payload: string } | undefined;
+    const latest = parseJson<{ text?: string; submissionMode?: string }>(row?.payload || "{}", {});
+    return latest.submissionMode === "steer" && latest.text?.trim()
+        ? `继续当前任务，并优先落实用户刚刚补充的要求：${latest.text.trim()}。不要重复已经完成的工作或再次询问同一事项。`
+        : "继续完成当前任务。不要重复已经完成的工作；如果上一回合已经调用工具，从工具之后继续。";
 }
 
 function runtimeEnv(row: ProviderNonNull, credentials: ReturnType<typeof decryptCredentials>, model: AiModelDefinition, claudeDir: string) {
@@ -653,7 +700,7 @@ export function resolveAgentToolSearchMode(endpoint: AiModelDefinition["endpoint
     return endpoint === "anthropic-messages" ? "true" : "false";
 }
 
-const agentNativeDisallowedTools = ["Bash", "PowerShell", "WebFetch", "WebSearch", "Task", "Agent", "TaskOutput", "Write", "Edit", "Glob", "Grep", "LS", "NotebookEdit", "CronCreate", "CronEdit", "CronDelete", "CronList"];
+const agentNativeDisallowedTools = ["Bash", "PowerShell", "WebFetch", "WebSearch", "Task", "Agent", "TaskOutput", "AskUserQuestion", "Write", "Edit", "Glob", "Grep", "LS", "NotebookEdit", "CronCreate", "CronEdit", "CronDelete", "CronList"];
 
 export function resolveAgentNativeTools(toolSearchEnabled: boolean) {
     const allowedTools = ["Read", ...(toolSearchEnabled ? ["ToolSearch"] : [])];

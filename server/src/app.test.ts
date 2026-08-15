@@ -12,7 +12,7 @@ process.env.DATA_DIR = testData;
 process.env.AUTH_MODE = "fnos";
 process.env.APP_SECRET = "test-secret";
 
-const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { recoverAgentRuns, resolveAgentNativeTools, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js")]);
+const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { isRetriableAgentDiagnostic, recoverAgentRuns, resolveAgentNativeTools, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }, { updateDirectorStoryboardPrompts }, { listDirectorVideoSegments }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js"), import("./director-render.js"), import("./director.js")]);
 let origin = "";
 const server = app.listen(0, "127.0.0.1");
 
@@ -44,6 +44,12 @@ test("Agent Tool Search 按协议启用并允许显式覆盖", () => {
     assert.equal(resolveAgentToolSearchMode("anthropic-messages", "invalid"), "true");
 });
 
+test("Agent 将 steer 后的 EDE 空回合识别为可自动续接", () => {
+    assert.equal(isRetriableAgentDiagnostic("[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"), true);
+    assert.equal(isRetriableAgentDiagnostic("[ede_diagnostic] result_type=assistant last_content_type=none stop_reason=null"), true);
+    assert.equal(isRetriableAgentDiagnostic("permission denied"), false);
+});
+
 test("Agent 使用原生 Skill 且危险内置工具保持禁用", () => {
     const enabled = resolveAgentNativeTools(true);
     assert.deepEqual(enabled.tools, { type: "preset", preset: "claude_code" });
@@ -52,6 +58,7 @@ test("Agent 使用原生 Skill 且危险内置工具保持禁用", () => {
     assert.deepEqual(enabled.settings.permissions.allow, enabled.autoAllowedTools);
     assert.equal(enabled.allowedTools.includes("ToolSearch"), true);
     assert.equal(enabled.disallowedTools.includes("Bash"), true);
+    assert.equal(enabled.disallowedTools.includes("AskUserQuestion"), true, "提问必须走场景 ask_user，不能显示成 SDK 权限审批");
     assert.equal(enabled.disallowedTools.includes("Write"), true);
     const disabled = resolveAgentNativeTools(false);
     assert.equal(disabled.allowedTools.includes("ToolSearch"), false);
@@ -68,6 +75,8 @@ test("画布与导演 Agent 的 Skill 和工具清单完全隔离", () => {
     assert.equal(agentScenes.director.skillIds.every((id) => id.startsWith("director-")), true);
     assert.equal(agentScenes.canvas.tools.some((item) => item.id.startsWith("director_")), false);
     assert.equal(agentScenes.director.tools.some((item) => item.id.startsWith("canvas_") || item.id.startsWith("creative_asset") || item.id.startsWith("visual_style") || String(item.id) === "site_navigate"), false);
+    assert.equal(agentScenes.director.tools.some((item) => item.id === "director_list_video_segments"), true);
+    assert.equal(agentScenes.director.tools.some((item) => item.id === "director_get_video_segment"), true);
 });
 
 test("项目工作区只同步当前 Agent 场景 Skills 并清理旧场景", () => {
@@ -163,6 +172,23 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ id: "a-later-segment", sequenceId: laterSequence.body.data.id, position: 0, title: "清晨站台", payload: { durationSeconds: 4 } }) });
     const orderedState = await api(`/director/projects/${projectId}`, userOne);
     assert.deepEqual(orderedState.body.data.videoSegments.map((item: { title: string }) => item.title), ["车站全景", "清晨站台"], "视频段必须按剧情段落位置和段内位置排序，而不是按随机 ID 排序");
+    const promptSegment = orderedState.body.data.videoSegments[1];
+    const originalSheet = { ...promptSegment.payload.storyboardSheet, imageFileId: "existing-sheet", generationId: "existing-generation", promptSnapshot: "old prompt", frames: promptSegment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ ...frame, croppedFileId: `crop-${index}` })) };
+    db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, storyboardSheet: originalSheet, videoFileId: "existing-video" }), promptSegment.id, userOne["X-Trim-Userid"]);
+    const promptUpdate = updateDirectorStoryboardPrompts(userOne["X-Trim-Userid"], projectId, { items: [{ segmentId: promptSegment.id, revision: 1, frames: originalSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ id: frame.id, description: `画格 ${index + 1} 的明确画面`, action: "人物沿站台向前行走", cameraAngle: "平视中景", cameraMove: "缓慢跟拍", sound: "雨声与脚步声" })) }] });
+    assert.equal(promptUpdate.updated, 1);
+    const updatedPromptSegment = (await api(`/director/projects/${projectId}`, userOne)).body.data.videoSegments[1];
+    assert.equal(updatedPromptSegment.payload.storyboardSheet.imageFileId, "existing-sheet", "安全提示词更新必须保留故事板媒体");
+    assert.equal(updatedPromptSegment.payload.storyboardSheet.generationId, "existing-generation");
+    assert.equal(updatedPromptSegment.payload.storyboardSheet.frames[0].croppedFileId, "crop-0");
+    assert.match(updatedPromptSegment.payload.storyboardSheet.promptSnapshot, /人物沿站台向前行走/);
+    assert.equal(updatedPromptSegment.payload.storyboardStale, true);
+    assert.equal(updatedPromptSegment.payload.videoStale, true);
+    db.prepare("UPDATE director_shots SET status='locked' WHERE id=? AND user_id=?").run(promptSegment.id, userOne["X-Trim-Userid"]);
+    assert.throws(() => updateDirectorStoryboardPrompts(userOne["X-Trim-Userid"], projectId, { items: [{ segmentId: promptSegment.id, revision: updatedPromptSegment.revision, frames: updatedPromptSegment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>) => ({ id: String(frame.id), description: String(frame.description || ""), action: String(frame.action || ""), cameraAngle: String(frame.cameraAngle || ""), cameraMove: String(frame.cameraMove || ""), sound: String(frame.sound || "") })) }] }), /已锁定/);
+    const promptView = listDirectorVideoSegments(userOne["X-Trim-Userid"], projectId, { sequenceId: laterSequence.body.data.id, view: "prompt" }) as unknown as { items: Array<{ payload: { storyboardSheet: { imageFileId?: string; hasImage: boolean } } }> };
+    assert.equal(promptView.items[0].payload.storyboardSheet.imageFileId, undefined, "精简提示词视图不得返回重媒体字段");
+    assert.equal(promptView.items[0].payload.storyboardSheet.hasImage, true);
     const storyboardWithoutStyle = await api(`/director/video-segments/${segment.body.data.id}/storyboard/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: 1 }) });
     assert.equal(storyboardWithoutStyle.response.status, 409);
     assert.equal(storyboardWithoutStyle.body.error.code, "DIRECTOR_STAGE_GATE");

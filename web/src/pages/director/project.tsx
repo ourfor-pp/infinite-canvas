@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { App, Button, ConfigProvider, Drawer, Input, Progress as AntProgress, Select, Spin, Tag, theme as antdTheme, Tooltip } from "antd";
 import {
     Activity,
     AudioLines,
     Bell,
     Bot,
+    Braces,
     Check,
     ChevronRight,
     ChevronDown,
@@ -20,6 +21,7 @@ import {
     ListVideo,
     Lock,
     Loader2,
+    Maximize2,
     Package,
     Palette,
     Pause,
@@ -38,6 +40,8 @@ import {
     Upload,
     Users,
     Video,
+    Volume2,
+    VolumeX,
     X,
 } from "lucide-react";
 import { nanoid } from "nanoid";
@@ -52,6 +56,8 @@ import type { CreativeAsset, CreativeAssetKind } from "@/types/creative-asset";
 import type { DirectorDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorState, DirectorVideoSegment, DirectorVideoSegmentPreflight, H3GenerationMode, H3QualityPreset } from "@/types/director";
 import type { VisualStyle, VisualStyleDna, VisualStyleTemplate } from "@/types/visual-style";
 import { DirectorMarkdownEditor } from "./components/director-markdown-editor";
+import { WorkspaceImagePreviewLightbox, type WorkspaceImagePreviewItem } from "@/components/workspace-image-preview-lightbox";
+import { useCopyText } from "@/hooks/use-copy-text";
 import "./director-light.css";
 
 const sections: Array<{ id: DirectorSection; label: string; icon: typeof Film }> = [
@@ -593,8 +599,15 @@ function AssetGallery({ projectId, activeStyleId, assets, styles, generations, o
     const [busyId, setBusyId] = useState("");
     const [filter, setFilter] = useState<"all" | CreativeAssetKind>("all");
     const [styleOpen, setStyleOpen] = useState(false);
+    const [promptAssetId, setPromptAssetId] = useState("");
+    const [previewAssetId, setPreviewAssetId] = useState("");
     const activeStyle = styles.find((item) => item.id === activeStyleId);
     const visibleAssets = filter === "all" ? assets : assets.filter((item) => item.kind === filter);
+    const previewItems = useMemo(() => visibleAssets.flatMap((asset) => {
+        const image = primaryAssetImage(asset);
+        return image ? [{ id: asset.id, url: serverApiUrl(`/files/${image.fileId}/content`), alt: asset.name }] satisfies WorkspaceImagePreviewItem[] : [];
+    }), [visibleAssets]);
+    const previewIndex = previewAssetId ? previewItems.findIndex((item) => item.id === previewAssetId) : -1;
     const counts = { all: assets.length, character: assets.filter((item) => item.kind === "character").length, scene: assets.filter((item) => item.kind === "scene").length, prop: assets.filter((item) => item.kind === "prop").length };
     const action = async (asset: CreativeAsset, kind: "regenerate" | "copy" | "delete", mediaKind: "image" | "audio" = "image") => {
         setBusyId(asset.id);
@@ -659,6 +672,8 @@ function AssetGallery({ projectId, activeStyleId, assets, styles, generations, o
                             busy={busyId === asset.id}
                             activeGenerations={generations.filter((generation) => generationAssetId(generation) === asset.id && (generation.status === "queued" || generation.status === "running"))}
                             onAgent={() => prepare(projectId, { kind: "asset", projectId, assetId: asset.id, title: asset.name, subtitle: asset.kind })}
+                            onPreview={() => setPreviewAssetId(asset.id)}
+                            onPrompt={() => setPromptAssetId(asset.id)}
                             onAction={(kind, media) => void action(asset, kind, media)}
                         />
                     ))}
@@ -670,6 +685,8 @@ function AssetGallery({ projectId, activeStyleId, assets, styles, generations, o
                     description="和 Agent 对话，让它从已确认剧本中提出候选清单。"
                 />
             )}
+            <AssetPromptDrawer asset={assets.find((item) => item.id === promptAssetId)} generations={generations} onClose={() => setPromptAssetId("")} onAgent={() => { const asset = assets.find((item) => item.id === promptAssetId); if (asset) prepare(projectId, { kind: "asset", projectId, assetId: asset.id, title: asset.name, subtitle: asset.kind }); }} />
+            <WorkspaceImagePreviewLightbox items={previewItems} activeIndex={previewIndex >= 0 ? previewIndex : null} onClose={() => setPreviewAssetId("")} onChangeIndex={(index) => setPreviewAssetId(previewItems[index]?.id || "")} />
             <DirectorStyleDrawer open={styleOpen} projectId={projectId} activeStyleId={activeStyleId} styles={styles} onClose={() => setStyleOpen(false)} onRefresh={onRefresh} />
         </div>
     );
@@ -731,16 +748,20 @@ function DirectorStyleDrawer({ open, projectId, activeStyleId, styles, onClose, 
     );
 }
 
-function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asset: CreativeAsset; busy: boolean; activeGenerations: ServerGeneration[]; onAgent: () => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
-    const primaryImage = asset.payload.variants.find((item) => item.id === asset.payload.primaryImageId) || asset.payload.variants.find((item) => item.kind === "image");
+function primaryAssetImage(asset: CreativeAsset) {
+    return asset.payload.variants.find((item) => item.id === asset.payload.primaryImageId) || asset.payload.variants.find((item) => item.kind === "image");
+}
+
+function AssetCard({ asset, busy, activeGenerations, onAgent, onPreview, onPrompt, onAction }: { asset: CreativeAsset; busy: boolean; activeGenerations: ServerGeneration[]; onAgent: () => void; onPreview: () => void; onPrompt: () => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
+    const primaryImage = primaryAssetImage(asset);
     const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId) || asset.payload.variants.find((item) => item.kind === "audio");
     const generatingImage = activeGenerations.find((generation) => generation.kind === "image");
     const generatingAudio = activeGenerations.find((generation) => generation.kind === "audio");
     return (
         <article className="group overflow-hidden border border-slate-200 bg-white transition hover:border-slate-300 hover:shadow-[0_12px_30px_rgba(15,23,42,.06)]">
             <div className="relative aspect-[16/10] bg-slate-50">
-                {primaryImage ? <img src={serverApiUrl(`/files/${primaryImage.fileId}/content`)} className={`size-full ${asset.kind === "character" ? "object-contain" : "object-cover"}`} /> : <MediaPlaceholder />}
-                {generatingImage ? <div className="director-asset-loading absolute inset-0"><div className="relative z-10 flex h-full flex-col items-center justify-center text-center"><Loader2 className="size-5 animate-spin text-blue-600" /><p className="mt-3 text-xs font-medium text-slate-700">{generatingImage.status === "queued" ? "正在等待生成" : "正在设计素材"}</p><p className="mt-1 font-mono text-[9px] tracking-wider text-slate-400">{Math.round(generatingImage.progress * 100)}%</p></div></div> : null}
+                {primaryImage ? <button type="button" aria-label={`查看${asset.name}大图`} className="group/preview relative block size-full overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500" onClick={onPreview}><img src={serverApiUrl(`/files/${primaryImage.fileId}/content`)} alt={asset.name} className={`size-full transition duration-200 group-hover/preview:scale-[1.01] ${asset.kind === "character" ? "object-contain" : "object-cover"}`} /><span className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-slate-950/70 px-2 py-1 text-[10px] text-white opacity-0 backdrop-blur-sm transition group-hover/preview:opacity-100 group-focus-visible/preview:opacity-100"><Maximize2 className="size-3" />查看大图</span></button> : <MediaPlaceholder />}
+                {generatingImage ? <div className="director-asset-loading pointer-events-none absolute inset-0"><div className="relative z-10 flex h-full flex-col items-center justify-center text-center"><Loader2 className="size-5 animate-spin text-blue-600" /><p className="mt-3 text-xs font-medium text-slate-700">{generatingImage.status === "queued" ? "正在等待生成" : "正在设计素材"}</p><p className="mt-1 font-mono text-[9px] tracking-wider text-slate-400">{Math.round(generatingImage.progress * 100)}%</p></div></div> : null}
                 <div className="absolute left-3 top-3 bg-slate-950/75 px-2 py-1 text-[10px] tracking-widest text-white">{asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}</div>
                 {asset.payload.needsReview ? <div className="absolute bottom-3 left-3 bg-rose-600 px-2 py-1 text-[10px] text-white">风格已变化 · 需要检查</div> : null}
             </div>
@@ -762,6 +783,7 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asse
                 )}
                 <div className="mt-5 flex flex-wrap items-center border-t border-slate-200 pt-2">
                     <FlatAction icon={Bot} label="Agent" onClick={onAgent} />
+                    <FlatAction icon={Braces} label="提示词" onClick={onPrompt} />
                     <FlatAction icon={RefreshCw} label={generatingImage ? "生成中" : "抽图"} loading={busy || Boolean(generatingImage)} onClick={() => onAction("regenerate", "image")} />
                     <FlatAction icon={AudioLines} label={generatingAudio ? "生成中" : "抽声音"} loading={busy || Boolean(generatingAudio)} onClick={() => onAction("regenerate", "audio")} />
                     <FlatAction icon={Copy} label="复制" onClick={() => onAction("copy")} />
@@ -770,6 +792,24 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onAction }: { asse
                 {activeGenerations.map((generation) => <div key={generation.id} className="mt-2"><div className="flex items-center justify-between text-[10px] text-slate-400"><span>{generation.status === "queued" ? `${generation.kind === "audio" ? "声音" : "设计图"}任务已排队` : `${generation.kind === "audio" ? "声音" : "设计图"}生成中`}</span><span>{Math.round(generation.progress * 100)}%</span></div><div className="mt-1 h-0.5 overflow-hidden bg-slate-100"><div className={`h-full bg-blue-600 ${generation.progress > 0 ? "transition-all" : "director-task-progress"}`} style={generation.progress > 0 ? { width: `${Math.max(4, Math.round(generation.progress * 100))}%` } : undefined} /></div></div>)}
             </div>
         </article>
+    );
+}
+
+function AssetPromptDrawer({ asset, generations, onClose, onAgent }: { asset?: CreativeAsset; generations: ServerGeneration[]; onClose: () => void; onAgent: () => void }) {
+    const copyText = useCopyText();
+    const variant = asset?.payload.variants.find((item) => item.id === asset.payload.primaryImageId) || asset?.payload.variants.find((item) => item.kind === "image");
+    const generation = generations.find((item) => item.id === variant?.generationId);
+    const prompt = variant?.prompt || "";
+    const references = generationReferences(generation);
+    const promptPackage = generation?.request.params && typeof generation.request.params === "object" ? (generation.request.params as Record<string, unknown>).__promptPackage as { asset?: { revision?: number } } | undefined : undefined;
+    return (
+        <Drawer open={Boolean(asset)} onClose={onClose} size={520} title="素材提示词" styles={{ body: { padding: 0, background: "#fff" } }} footer={<div className="flex items-center justify-between"><Button type="text" icon={<Copy className="size-4" />} disabled={!prompt} onClick={() => copyText(prompt, "已复制素材提示词")}>复制</Button><Button type="text" icon={<Bot className="size-4" />} onClick={onAgent}>交给 Agent</Button></div>}>
+            {asset ? <div className="space-y-5 p-5">
+                <p className="text-xs text-slate-500">本次生成 · {generation?.modelId || asset.payload.mediaDrafts.image.model || "未记录模型"} · REV {promptPackage?.asset?.revision || asset.revision}</p>
+                {references.length ? <PromptReferences title={`参考图片 ${references.length}`} items={references} /> : null}
+                <div><p className="mb-2 text-xs font-medium text-slate-900">提示词</p><PromptText value={prompt} empty="当前素材还没有已保存的生图提示词，生成设计图后会记录实际请求。" /></div>
+            </div> : null}
+        </Drawer>
     );
 }
 
@@ -791,6 +831,7 @@ function Storyboard({ projectId, state, onRefresh }: { projectId: string; state:
     const prepare = useAgentStore((store) => store.prepareComposer);
     const [view, setView] = useState<"boards" | "segments">("boards");
     const [busy, setBusy] = useState("");
+    const [promptSegmentId, setPromptSegmentId] = useState("");
     const generateBoard = async (segment: DirectorVideoSegment) => {
         setBusy(segment.id);
         try {
@@ -835,18 +876,19 @@ function Storyboard({ projectId, state, onRefresh }: { projectId: string; state:
                 <div className="mt-6 space-y-7">
                     {state.sequences.map((sequence) => <section key={sequence.id}>
                         <div className="mb-3 flex items-baseline gap-3"><span className="font-mono text-xs text-blue-600">SEQ {String(sequence.position + 1).padStart(2, "0")}</span><h2 className="font-serif text-xl text-slate-950">{sequence.title}</h2></div>
-                        <div className="space-y-4">{state.videoSegments.filter((segment) => segment.sequenceId === sequence.id).map((segment) => <VideoSegmentCard key={segment.id} segment={segment} busy={busy === segment.id} onAgent={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: segment.id, title: segment.title, subtitle: "视频段与故事板" })} onGenerateBoard={() => void generateBoard(segment)} onGenerateVideo={(preset, mode) => void generateVideo(segment, preset, mode)} onRefresh={onRefresh} />)}</div>
+                        <div className="space-y-4">{state.videoSegments.filter((segment) => segment.sequenceId === sequence.id).map((segment) => <VideoSegmentCard key={segment.id} segment={segment} busy={busy === segment.id} onAgent={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: segment.id, title: segment.title, subtitle: "视频段与故事板" })} onPrompt={() => setPromptSegmentId(segment.id)} onGenerateBoard={() => void generateBoard(segment)} onGenerateVideo={(preset, mode) => void generateVideo(segment, preset, mode)} onRefresh={onRefresh} />)}</div>
                     </section>)}
                     {!state.videoSegments.length ? <EmptyPanel icon={Clapperboard} title="还没有视频段" description="让 Agent 根据剧本规划 4–15 秒视频段。" /> : null}
                 </div>
             ) : (
                 <VideoSegmentList projectId={projectId} segments={state.videoSegments} sequences={state.sequences} onRefresh={onRefresh} />
             )}
+            <StoryboardPromptDrawer segment={state.videoSegments.find((item) => item.id === promptSegmentId)} onClose={() => setPromptSegmentId("")} onAgent={() => { const segment = state.videoSegments.find((item) => item.id === promptSegmentId); if (segment) prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: segment.id, title: segment.title, subtitle: "视频段与故事板" }); }} />
         </div>
     );
 }
 
-function VideoSegmentCard({ segment, busy, onAgent, onGenerateBoard, onGenerateVideo, onRefresh }: { segment: DirectorVideoSegment; busy: boolean; onAgent: () => void; onGenerateBoard: () => void; onGenerateVideo: (preset: H3QualityPreset, mode?: H3GenerationMode) => void; onRefresh: () => Promise<void> }) {
+function VideoSegmentCard({ segment, busy, onAgent, onPrompt, onGenerateBoard, onGenerateVideo, onRefresh }: { segment: DirectorVideoSegment; busy: boolean; onAgent: () => void; onPrompt: () => void; onGenerateBoard: () => void; onGenerateVideo: (preset: H3QualityPreset, mode?: H3GenerationMode) => void; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const [preflight, setPreflight] = useState<DirectorVideoSegmentPreflight>();
     const [layoutBusy, setLayoutBusy] = useState(false);
@@ -881,15 +923,58 @@ function VideoSegmentCard({ segment, busy, onAgent, onGenerateBoard, onGenerateV
         <article data-testid="director-storyboard-card" className="overflow-hidden border border-slate-300 bg-white [content-visibility:auto]">
             <header className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
                 <div><div className="flex items-center gap-3"><span className="font-mono text-xs text-blue-600">SEG {String(segment.position + 1).padStart(2, "0")}</span><h3 className="font-serif text-xl text-slate-950">{segment.title}</h3>{segment.payload.videoStale ? <Tag color="error">视频已过期</Tag> : null}</div><p className="mt-1 text-xs text-slate-500">{segment.payload.durationSeconds || 4} 秒 · {sheet?.frames.length || 4} 格 · 内部 {new Set(sheet?.frames.map((frame) => frame.shotNumber)).size || 1} 个 Shot</p></div>
-                <div className="flex flex-wrap items-center gap-2"><Select aria-label="故事板格数" size="small" variant="borderless" loading={layoutBusy} disabled={busy} value={(sheet?.frames.length || recommendedFrames) as 4 | 6 | 9} options={([4, 6, 9] as const).map((count) => ({ value: count, label: `${count} 格${count === recommendedFrames ? " · 建议" : ""}` }))} onChange={(value) => void updateFrameCount(value)} /><Select size="small" variant="borderless" value={segment.payload.h3ModeOverride || "auto"} options={[{ value: "auto", label: `自动 · ${(preflight?.route.mode || segment.payload.h3Mode || "fl2va").toUpperCase()}` }, { value: "fl2va", label: "FL2VA" }, { value: "ref2va", label: "Ref2VA" }]} onChange={(value) => void updateMode(value as H3GenerationMode | "auto")} /><FlatAction icon={Bot} label="交给 Agent" onClick={onAgent} /><FlatAction icon={RefreshCw} label={sheet?.imageFileId ? "重抽整板" : "生成故事板"} loading={busy || layoutBusy} onClick={onGenerateBoard} /><Button type="primary" size="small" loading={busy || layoutBusy} icon={<Play className="size-3.5" />} onClick={() => onGenerateVideo("preview", segment.payload.h3ModeOverride || undefined)}>快速预览</Button><FlatAction icon={Film} label="生成成片" loading={busy || layoutBusy} onClick={() => onGenerateVideo("final", segment.payload.h3ModeOverride || undefined)} /></div>
+                <div className="flex flex-wrap items-center gap-2"><Select aria-label="故事板格数" size="small" variant="borderless" loading={layoutBusy} disabled={busy} value={(sheet?.frames.length || recommendedFrames) as 4 | 6 | 9} options={([4, 6, 9] as const).map((count) => ({ value: count, label: `${count} 格${count === recommendedFrames ? " · 建议" : ""}` }))} onChange={(value) => void updateFrameCount(value)} /><Select size="small" variant="borderless" value={segment.payload.h3ModeOverride || "auto"} options={[{ value: "auto", label: `自动 · ${(preflight?.route.mode || segment.payload.h3Mode || "fl2va").toUpperCase()}` }, { value: "fl2va", label: "FL2VA" }, { value: "ref2va", label: "Ref2VA" }]} onChange={(value) => void updateMode(value as H3GenerationMode | "auto")} /><FlatAction icon={Braces} label="提示词" onClick={onPrompt} /><FlatAction icon={Bot} label="交给 Agent" onClick={onAgent} /><FlatAction icon={RefreshCw} label={sheet?.imageFileId ? "重抽整板" : "生成故事板"} loading={busy || layoutBusy} onClick={onGenerateBoard} /><Button type="primary" size="small" loading={busy || layoutBusy} icon={<Play className="size-3.5" />} onClick={() => onGenerateVideo("preview", segment.payload.h3ModeOverride || undefined)}>快速预览</Button><FlatAction icon={Film} label="生成成片" loading={busy || layoutBusy} onClick={() => onGenerateVideo("final", segment.payload.h3ModeOverride || undefined)} /></div>
             </header>
             {segment.payload.videoFileId ? <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 bg-slate-50 px-5 py-2 text-[11px] text-slate-500"><span className={segment.payload.videoQualityPreset === "final" ? "text-blue-700" : "text-slate-700"}>{segment.payload.videoQualityPreset === "final" ? "最终成片" : "快速预览"}</span><span>{segment.payload.videoNativeResolution || "768p"}</span><span>{(segment.payload.h3Mode || preflight?.route.mode || "fl2va").toUpperCase()}</span>{segment.payload.videoGenerationDurationMs ? <span>生成耗时 {Math.max(1, Math.round(segment.payload.videoGenerationDurationMs / 1000))} 秒</span> : null}</div> : null}
             <div className="grid border-t border-slate-200 lg:grid-cols-[1fr_280px]">
-                <div data-testid="director-storyboard-sheet" className="relative overflow-hidden bg-slate-100" style={{ aspectRatio: sheetAspect }}>{sheet?.imageFileId ? <img draggable={false} src={serverApiUrl(`/files/${sheet.imageFileId}/content`)} className="pointer-events-none size-full select-none object-contain" /> : <div className="grid size-full place-items-center text-slate-400"><ImageIcon className="size-10" /></div>}{sheet?.imageFileId ? <div className={`absolute inset-0 grid ${sheet.layout === "2x2" ? "grid-cols-2" : "grid-cols-3"} ${sheet.layout === "3x3" ? "grid-rows-3" : "grid-rows-2"}`}>{sheet.frames.map((frame) => <button key={frame.id} disabled={layoutBusy} className="group relative border border-white/40 text-left" onClick={() => void toggleGuide(frame.id)}><span className={`absolute left-2 top-2 flex items-center gap-1 px-2 py-1 text-[10px] backdrop-blur-sm transition ${frame.guideEnabled ? "bg-blue-600 text-white" : "bg-slate-950/65 text-white opacity-0 group-hover:opacity-100"}`}><Clock3 className="size-3" />{frame.timeSeconds}s · {frame.guideEnabled ? "视频锚点" : "设为锚点"}</span></button>)}</div> : null}{sheet?.review?.status === "pending" ? <div className="director-asset-loading pointer-events-none absolute inset-0 grid place-items-center"><Loader2 className="size-6 animate-spin text-blue-600" /></div> : null}<span className="pointer-events-none absolute bottom-3 left-3 bg-slate-950/75 px-2 py-1 text-[10px] text-white">单张故事板 · {sheet?.frames.length || recommendedFrames} 格 · {sheet?.frames.filter((frame) => frame.guideEnabled).length || 0} 个视频锚点</span></div>
+                <div data-testid="director-storyboard-sheet" className="relative overflow-hidden bg-slate-100" style={{ aspectRatio: sheetAspect }}>{sheet?.imageFileId ? <img draggable={false} src={serverApiUrl(`/files/${sheet.imageFileId}/content`)} className="pointer-events-none size-full select-none object-contain" /> : <div className="grid size-full place-items-center text-slate-400"><ImageIcon className="size-10" /></div>}{sheet?.imageFileId ? <div className={`absolute inset-0 grid ${sheet.layout === "2x2" ? "grid-cols-2" : "grid-cols-3"} ${sheet.layout === "3x3" ? "grid-rows-3" : "grid-rows-2"}`}>{sheet.frames.map((frame) => <button key={frame.id} disabled={layoutBusy} className="director-storyboard-frame group relative border border-white/40 text-left" onClick={() => void toggleGuide(frame.id)}><span className={`absolute left-2 top-2 flex items-center gap-1 px-2 py-1 text-[10px] backdrop-blur-sm transition ${frame.guideEnabled ? "bg-blue-600 text-white" : "bg-slate-950/65 text-white opacity-0 group-hover:opacity-100"}`}><Clock3 className="size-3" />{frame.timeSeconds}s · {frame.guideEnabled ? "视频锚点" : "设为锚点"}</span></button>)}</div> : null}{sheet?.review?.status === "pending" ? <div className="director-asset-loading pointer-events-none absolute inset-0 grid place-items-center"><Loader2 className="size-6 animate-spin text-blue-600" /></div> : null}<span className="pointer-events-none absolute bottom-3 left-3 bg-slate-950/75 px-2 py-1 text-[10px] text-white">单张故事板 · {sheet?.frames.length || recommendedFrames} 格 · {sheet?.frames.filter((frame) => frame.guideEnabled).length || 0} 个视频锚点</span></div>
                 <aside className="border-l border-slate-200 p-4"><p className="text-xs font-medium text-slate-900">故事板参考 {preflight?.selected.length || 0}/6</p><div className="mt-3 grid grid-cols-3 gap-2">{preflight?.selected.map((item) => <Tooltip key={item.fileId} title={`${item.purpose} · ${item.name}`}><div><img className="aspect-square w-full object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /><p className="mt-1 truncate text-[10px] text-slate-500">{item.purpose}</p></div></Tooltip>)}</div>{preflight?.omitted.length ? <p className="mt-3 text-[11px] text-orange-600">未采用 {preflight.omitted.length} 项：{preflight.omitted.map((item) => item.name).join("、")}</p> : null}{preflight?.blockedReasons.map((reason) => <p key={reason} className="mt-2 text-[11px] text-rose-600">{reason} · 让 Agent 匹配素材</p>)}<div className="mt-4 border-t border-slate-200 pt-3 text-[11px] leading-5 text-slate-500"><strong className="text-slate-700">{(preflight?.route.mode || "fl2va").toUpperCase()}</strong><br />{preflight?.route.reason}<br /><span className="text-slate-400">{preflight?.temporalGuides.length || 0}/4 个时序锚点 · {preflight?.frameAlignment.modelFrames || "—"} 帧推理后裁至 {segment.payload.durationSeconds || 4}s</span>{preflight && !preflight.capabilities.temporalGuides ? <span className="mt-2 block text-rose-600">执行器暂不支持时间锚点，将使用首尾帧兼容模式</span> : null}{preflight?.recipes.preview.turbo ? <span className="mt-1 block text-blue-600">快速预览：480p · Turbo</span> : <span className="mt-1 block">快速预览：480p · 基础配方</span>}<span className="block">最终成片：768p · 基础模型</span></div></aside>
             </div>
         </article>
     );
+}
+
+function StoryboardPromptDrawer({ segment, onClose, onAgent }: { segment?: DirectorVideoSegment; onClose: () => void; onAgent: () => void }) {
+    const copyText = useCopyText();
+    const [kind, setKind] = useState<"storyboard" | "video">("storyboard");
+    useEffect(() => { if (segment) setKind(segment.payload.h3PromptSnapshot?.prompt ? "video" : "storyboard"); }, [segment?.id]);
+    const sheet = segment?.payload.storyboardSheet;
+    const videoSnapshot = segment?.payload.h3PromptSnapshot;
+    const prompt = kind === "storyboard" ? sheet?.promptSnapshot || "" : videoSnapshot?.prompt || "";
+    const storyboardReferences = (sheet?.referenceSnapshot?.selected || []).map((item) => ({ fileId: item.fileId, label: item.purpose }));
+    const videoReferences = (videoSnapshot?.references || []).filter((item) => (item.kind || "image") === "image").map((item, index) => ({ fileId: item.fileId, label: promptReferenceLabel(item.role, index) }));
+    const guides = kind === "video" ? videoSnapshot?.temporalGuides || [] : [];
+    return (
+        <Drawer open={Boolean(segment)} onClose={onClose} size={560} title="分镜提示词" styles={{ body: { padding: 0, background: "#fff" } }} footer={<div className="flex items-center justify-between"><Button type="text" icon={<Copy className="size-4" />} disabled={!prompt} onClick={() => copyText(prompt, "已复制分镜提示词")}>复制</Button><Button type="text" icon={<Bot className="size-4" />} onClick={onAgent}>交给 Agent</Button></div>}>
+            {segment ? <div>
+                <div className="grid grid-cols-2 border-b border-slate-200 px-5 pt-3">{(["storyboard", "video"] as const).map((item) => <button key={item} className={`border-b-2 px-3 py-3 text-sm transition ${kind === item ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-900"}`} onClick={() => setKind(item)}>{item === "storyboard" ? "故事板提示词" : "视频提示词"}</button>)}</div>
+                <div className="space-y-5 p-5">
+                    <p className="text-xs text-slate-500">{kind === "storyboard" ? `本次故事板 · GPT-Image-2 · Prompt REV ${sheet?.revision || "—"}` : `本次视频 · H3 ${(videoSnapshot?.mode || segment.payload.h3Mode || "待路由").toUpperCase()} · Prompt REV ${videoSnapshot?.storyboardRevision || sheet?.revision || "—"}`}</p>
+                    {guides.length ? <PromptReferences title={`视频锚点 ${guides.length}/4`} items={guides.map((item) => ({ fileId: item.fileId, label: `${item.timeSeconds}s` }))} /> : null}
+                    {(kind === "storyboard" ? storyboardReferences : videoReferences).length ? <PromptReferences title={`参考输入 ${(kind === "storyboard" ? storyboardReferences : videoReferences).length}`} items={kind === "storyboard" ? storyboardReferences : videoReferences} /> : null}
+                    <div><p className="mb-2 text-xs font-medium text-slate-900">提示词</p><PromptText value={prompt} empty={kind === "storyboard" ? "当前视频段还没有已保存的故事板提示词，生成故事板后会记录实际请求。" : "当前视频段还没有已保存的视频提示词，生成快速预览或成片后会记录实际请求。"} /></div>
+                </div>
+            </div> : null}
+        </Drawer>
+    );
+}
+
+function PromptText({ value, empty }: { value: string; empty: string }) {
+    return value ? <pre className="max-h-[58vh] overflow-auto whitespace-pre-wrap break-words border border-slate-200 bg-slate-50 p-4 font-mono text-xs leading-6 text-slate-700">{value}</pre> : <div className="border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-xs leading-5 text-slate-400">{empty}</div>;
+}
+
+function PromptReferences({ title, items }: { title: string; items: Array<{ fileId: string; label: string }> }) {
+    return <div><p className="text-xs font-medium text-slate-900">{title}</p><div className="mt-3 flex gap-2 overflow-x-auto">{items.map((item, index) => <div key={`${item.fileId}-${index}`} className="w-20 shrink-0"><img className="aspect-square w-full border border-slate-200 bg-slate-50 object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /><p className="mt-1 truncate text-[10px] text-slate-500">{item.label}</p></div>)}</div></div>;
+}
+
+function generationReferences(generation?: ServerGeneration) {
+    const value = generation?.request.references;
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item, index) => item && typeof item === "object" && typeof (item as Record<string, unknown>).fileId === "string" && ((item as Record<string, unknown>).kind || "image") === "image" ? [{ fileId: String((item as Record<string, unknown>).fileId), label: `参考 ${index + 1}` }] : []);
+}
+
+function promptReferenceLabel(role: string | undefined, index: number) {
+    return role === "first-frame" ? "首帧" : role === "last-frame" ? "尾帧" : role === "continuation" ? "连续参考" : `参考 ${index + 1}`;
 }
 
 function VideoSegmentList({ projectId, segments, sequences, onRefresh }: { projectId: string; segments: DirectorVideoSegment[]; sequences: DirectorSequence[]; onRefresh: () => Promise<void> }) {
@@ -910,9 +995,15 @@ function VideoSegmentList({ projectId, segments, sequences, onRefresh }: { proje
 function Studio({ projectId, state, onRefresh }: { projectId: string; state: DirectorState; onRefresh: () => Promise<void> }) {
     const { message, modal } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
-    const order = state.timeline.payload.segmentOrder?.length ? state.timeline.payload.segmentOrder : state.videoSegments.map((item) => item.id);
-    const shots = order.map((id) => state.videoSegments.find((item) => item.id === id)).filter(Boolean) as DirectorVideoSegment[];
+    const order = useMemo(() => state.timeline.payload.segmentOrder?.length ? state.timeline.payload.segmentOrder : state.videoSegments.map((item) => item.id), [state.timeline.payload.segmentOrder, state.videoSegments]);
+    const shots = useMemo(() => order.map((id) => state.videoSegments.find((item) => item.id === id)).filter(Boolean) as DirectorVideoSegment[], [order, state.videoSegments]);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const monitorRef = useRef<HTMLDivElement>(null);
+    const pendingSeekRef = useRef(0);
     const [playing, setPlaying] = useState(false);
+    const [currentShotIndex, setCurrentShotIndex] = useState(() => shots.findIndex((shot) => Boolean(shot.payload.videoFileId)));
+    const [currentShotTime, setCurrentShotTime] = useState(0);
+    const [muted, setMuted] = useState(false);
     const [dragged, setDragged] = useState("");
     const [rendering, setRendering] = useState(false);
     const [renders, setRenders] = useState<DirectorRender[]>([]);
@@ -942,6 +1033,43 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
         void saveOrder(next);
     };
     const missingVideos = shots.filter((shot) => !shot.payload.videoFileId).length;
+    const currentShot = currentShotIndex >= 0 ? shots[currentShotIndex] : undefined;
+    const nextShot = currentShotIndex >= 0 ? shots[currentShotIndex + 1] : undefined;
+    const playableCount = shots.length - missingVideos;
+    useEffect(() => {
+        if (currentShot?.payload.videoFileId) return;
+        setCurrentShotIndex(shots.findIndex((shot) => Boolean(shot.payload.videoFileId)));
+        setCurrentShotTime(0);
+        setPlaying(false);
+    }, [currentShot?.id, currentShot?.payload.videoFileId, shots]);
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return;
+        if (playing) void video.play().catch(() => setPlaying(false));
+        else video.pause();
+    }, [playing, currentShotIndex]);
+    const moveToPlayable = (direction: 1 | -1) => {
+        let index = currentShotIndex + direction;
+        while (index >= 0 && index < shots.length && !shots[index].payload.videoFileId) index += direction;
+        if (index < 0 || index >= shots.length) return false;
+        pendingSeekRef.current = 0;
+        setCurrentShotIndex(index);
+        setCurrentShotTime(0);
+        return true;
+    };
+    const selectShot = (index: number) => {
+        if (!shots[index].payload.videoFileId) return message.warning("这个视频段还没有可播放视频");
+        pendingSeekRef.current = 0;
+        setCurrentShotIndex(index);
+        setCurrentShotTime(0);
+    };
+    const advanceAfterEnd = () => {
+        const index = currentShotIndex + 1;
+        if (index >= shots.length || !shots[index].payload.videoFileId) return setPlaying(false);
+        pendingSeekRef.current = 0;
+        setCurrentShotIndex(index);
+        setCurrentShotTime(0);
+    };
     const submitRender = async () => {
         setRendering(true);
         try {
@@ -960,6 +1088,29 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
         modal.confirm({ title: "时间线仍包含快速预览", content: `当前有 ${previews} 个预览片段（480p 或兼容预览配方）。可以导出，但不建议作为最终成片。`, okText: "仍然导出", cancelText: "返回替换成片", onOk: submitRender });
     };
     const totalDuration = shots.reduce((sum, shot) => sum + (shot.payload.durationSeconds || 4), 0);
+    const elapsedBeforeCurrent = shots.slice(0, Math.max(0, currentShotIndex)).reduce((sum, shot) => sum + (shot.payload.durationSeconds || 4), 0);
+    const currentTimelineTime = Math.min(totalDuration, elapsedBeforeCurrent + currentShotTime);
+    const timelineWidth = Math.max(1000, 160 + totalDuration * 16);
+    const seekTimeline = (seconds: number) => {
+        let elapsed = 0;
+        for (let index = 0; index < shots.length; index += 1) {
+            const duration = shots[index].payload.durationSeconds || 4;
+            if (seconds <= elapsed + duration || index === shots.length - 1) {
+                if (!shots[index].payload.videoFileId) {
+                    setPlaying(false);
+                    message.warning("这个位置的视频段还未生成");
+                    return;
+                }
+                const offset = Math.max(0, Math.min(duration, seconds - elapsed));
+                pendingSeekRef.current = offset;
+                setCurrentShotIndex(index);
+                setCurrentShotTime(offset);
+                if (index === currentShotIndex && videoRef.current) videoRef.current.currentTime = offset;
+                return;
+            }
+            elapsed += duration;
+        }
+    };
     return (
         <div className="flex min-h-full flex-col">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4 lg:px-8">
@@ -1018,39 +1169,47 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
                     )}
                 </div>
             ) : null}
+            <section data-testid="director-program-monitor" className="border-b border-slate-200 bg-white px-5 py-6 lg:px-8">
+                <div ref={monitorRef} data-testid="director-program-frame" className="director-program-surface relative mx-auto aspect-video w-full max-w-[800px] overflow-hidden">
+                    {currentShot?.payload.videoFileId ? <video ref={videoRef} muted={muted} preload="auto" className="size-full object-contain" src={serverApiUrl(`/files/${currentShot.payload.videoFileId}/content`)} playsInline onLoadedMetadata={(event) => { event.currentTarget.currentTime = Math.min(pendingSeekRef.current, event.currentTarget.duration || pendingSeekRef.current); if (playing) void event.currentTarget.play().catch(() => setPlaying(false)); }} onTimeUpdate={(event) => setCurrentShotTime(event.currentTarget.currentTime)} onEnded={advanceAfterEnd} /> : <div className="grid size-full place-items-center text-center text-slate-400"><div><Video className="mx-auto size-10" /><p className="mt-3 text-sm">暂无可连续播放的视频段</p><p className="mt-1 text-xs text-slate-500">生成视频后会自动按时间线顺序播放</p></div></div>}
+                    {currentShot ? <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent px-4 py-3 text-xs text-white"><span>{String(currentShotIndex + 1).padStart(2, "0")} · {currentShot.title}</span><span>{currentShot.payload.videoQualityPreset === "final" ? "最终成片" : "快速预览"} · {currentShot.payload.videoNativeResolution || "768p"}</span></div> : null}
+                    <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-4 pb-3 pt-10 text-white">
+                        <button aria-label="上一个可播放片段" className="director-program-control grid size-8 shrink-0 place-items-center" disabled={!playableCount} onClick={() => { setPlaying(false); void moveToPlayable(-1); }}><SkipBack className="size-4" /></button>
+                        <button aria-label={playing ? "暂停连续预览" : "播放连续预览"} className="director-program-control-primary grid size-10 shrink-0 place-items-center rounded-full" disabled={!playableCount} onClick={() => setPlaying((value) => !value)}>{playing ? <Pause className="size-4" /> : <Play className="ml-0.5 size-4" />}</button>
+                        <button aria-label="下一个可播放片段" className="director-program-control grid size-8 shrink-0 place-items-center" disabled={!playableCount} onClick={() => { setPlaying(false); void moveToPlayable(1); }}><SkipForward className="size-4" /></button>
+                        <span className="ml-1 shrink-0 font-mono text-xs text-slate-100">{formatTimecode(currentTimelineTime)} / {formatTime(totalDuration)}</span>
+                        <input aria-label="全片播放进度" className="mx-2 h-1 min-w-20 flex-1 cursor-pointer accent-blue-600" type="range" min={0} max={Math.max(1, totalDuration)} step={1 / 24} value={currentTimelineTime} onChange={(event) => seekTimeline(Number(event.target.value))} />
+                        <button aria-label={muted ? "开启声音" : "静音"} className="director-program-control grid size-8 shrink-0 place-items-center" onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}</button>
+                        <button aria-label="全屏播放" className="director-program-control grid size-8 shrink-0 place-items-center" onClick={() => void monitorRef.current?.requestFullscreen()}><Maximize2 className="size-4" /></button>
+                    </div>
+                </div>
+                <div className="mx-auto mt-3 flex max-w-[800px] flex-wrap items-center gap-x-5 gap-y-2 border-y border-slate-200 py-2 text-[11px] text-slate-500">
+                    <span>当前监听：模型原声</span><span className="text-slate-700">当前片段 {currentShot ? `${String(currentShotIndex + 1).padStart(2, "0")}/${shots.length} · ${currentShot.title}` : "—"}</span><span className="ml-auto">已有 {playableCount} 段可播放{missingVideos ? "，遇到缺失片段自动暂停" : ""}</span>{nextShot ? <span className={nextShot.payload.videoFileId ? "" : "text-rose-500"}>下一段：{nextShot.title}{nextShot.payload.videoFileId ? "" : " · 缺少视频"}</span> : null}
+                </div>
+            </section>
             <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
-                <div className="flex h-16 items-center gap-2 border-b border-slate-200 bg-white px-5">
-                    <button aria-label="跳到开始" className="grid size-8 place-items-center text-slate-500 hover:bg-blue-50 hover:text-blue-700">
-                        <SkipBack className="size-4" />
-                    </button>
-                    <button aria-label={playing ? "暂停" : "播放"} className="grid size-10 place-items-center rounded-full bg-blue-600 text-white hover:bg-blue-700" onClick={() => setPlaying((value) => !value)}>
-                        {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
-                    </button>
-                    <button aria-label="跳到结尾" className="grid size-8 place-items-center text-slate-500 hover:bg-blue-50 hover:text-blue-700">
-                        <SkipForward className="size-4" />
-                    </button>
-                    <span className="ml-3 font-mono text-xs text-slate-600">00:00:00:00 / {formatTime(totalDuration)}</span>
-                    <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">
+                <div className="flex h-12 items-center justify-end gap-2 border-b border-slate-200 bg-white px-5 text-xs text-slate-500">
+                    <div className="flex items-center gap-2">
                         <span className="border border-slate-200 px-3 py-1.5">1080p</span>
                         <span className="border border-slate-200 px-3 py-1.5">24 fps</span>
                         <span className="border border-slate-200 px-3 py-1.5">{state.workspace.aspectRatio}</span>
                     </div>
                 </div>
                 <div className="min-h-64 overflow-x-auto bg-white pb-5">
-                    <div className="relative min-w-[1000px]">
-                        <div className="flex h-10 border-b border-slate-200 pl-32">
+                    <div className="relative min-w-[1000px]" style={{ width: timelineWidth }}>
+                        <div className="flex h-10 border-b border-slate-200 pl-40">
                             {Array.from({ length: Math.max(7, Math.ceil(totalDuration / 10) + 1) }, (_, index) => (
                                 <div key={index} className="w-40 shrink-0 border-l border-slate-200 pl-1 pt-3 font-mono text-[9px] text-slate-400">
                                     {formatTime(index * 10)}
                                 </div>
                             ))}
                         </div>
-                        <div data-testid="director-playhead" className="pointer-events-none absolute bottom-0 left-[calc(8rem+32%)] top-0 z-20 w-px bg-blue-600">
+                        <div data-testid="director-playhead" className="pointer-events-none absolute bottom-0 top-0 z-20 w-px bg-blue-600 transition-[left] duration-75" style={{ left: 160 + currentTimelineTime * 16 }}>
                             <span className="absolute -left-1.5 top-0 h-0 w-0 border-x-[6px] border-t-[9px] border-x-transparent border-t-blue-600" />
                         </div>
-                        <div className="flex min-h-40 border-b border-slate-200">
-                            <TrackLabel icon={Video} label="视频段主轨" />
-                            <div className="flex min-w-max flex-1 items-start gap-1 bg-slate-50 p-3">
+                        <div className="flex h-28 border-b border-slate-200">
+                            <TrackLabel icon={Video} label="视频" />
+                            <div className="flex min-w-max flex-1 items-start bg-slate-50 p-3">
                                 {shots.map((shot, index) => (
                                     <div
                                         key={shot.id}
@@ -1058,16 +1217,16 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
                                         onDragStart={() => setDragged(shot.id)}
                                         onDragOver={(event) => event.preventDefault()}
                                         onDrop={() => drop(shot.id)}
-                                        className={`relative w-48 shrink-0 cursor-grab border ${shot.payload.videoStale ? "border-orange-400" : "border-slate-300"} bg-white`}
+                                        onClick={() => selectShot(index)}
+                                        style={{ width: Math.max(96, (shot.payload.durationSeconds || 4) * 16) }}
+                                        className={`relative shrink-0 cursor-grab border ${currentShotIndex === index ? "z-10 border-blue-600 ring-1 ring-blue-600" : shot.payload.videoStale ? "border-orange-400" : "border-slate-300"} ${shot.payload.videoFileId ? "bg-white" : "border-dashed bg-slate-50"}`}
                                     >
-                                        <div className="relative aspect-video bg-slate-100">
+                                        <div className="relative h-16 bg-slate-100">
                                             {shot.payload.videoFileId ? (
                                                 <video muted src={serverApiUrl(`/files/${shot.payload.videoFileId}/content`)} className="size-full object-cover" />
-                                            ) : shot.payload.firstFrameFileId ? (
-                                                <img src={serverApiUrl(`/files/${shot.payload.firstFrameFileId}/content`)} className="size-full object-cover opacity-60" />
                                             ) : (
-                                                <div className="grid size-full place-items-center">
-                                                    <Video className="size-6 text-slate-300" />
+                                                <div className="grid size-full place-items-center text-[10px] text-slate-400">
+                                                    缺少视频
                                                 </div>
                                             )}
                                             <span className="absolute bottom-1 right-1 bg-slate-950/75 px-1 font-mono text-[10px] text-white">{shot.payload.durationSeconds || 4}s</span>
@@ -1125,7 +1284,7 @@ function EmptyPanel({ icon: Icon, title, description }: { icon: typeof Film; tit
 
 function TrackLabel({ icon: Icon, label }: { icon: typeof Film; label: string }) {
     return (
-        <div className="flex w-32 shrink-0 items-center justify-between border-r border-slate-200 bg-slate-50 px-3 text-xs text-slate-600">
+        <div className="flex w-40 shrink-0 items-center justify-between border-r border-slate-200 bg-slate-50 px-3 text-xs text-slate-600">
             <span className="flex min-w-0 items-center gap-2">
                 <Icon className="size-3.5 shrink-0 text-slate-400" />
                 <span className="truncate">{label}</span>
@@ -1144,4 +1303,10 @@ function formatTime(seconds: number) {
     const minutes = Math.floor((value % 3600) / 60);
     const remaining = value % 60;
     return [hours, minutes, remaining].map((item) => String(item).padStart(2, "0")).join(":");
+}
+
+function formatTimecode(seconds: number) {
+    const value = Math.max(0, seconds);
+    const whole = Math.floor(value);
+    return `${formatTime(whole)}:${String(Math.floor((value - whole) * 24)).padStart(2, "0")}`;
 }

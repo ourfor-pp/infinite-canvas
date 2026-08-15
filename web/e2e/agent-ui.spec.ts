@@ -35,3 +35,34 @@ test("蓝白对话回合在窄栏正确展示", async ({ page }) => {
     expect((await popover.boundingBox())?.height).toBeLessThanOrEqual(300);
     await expect(page.locator(".agent-composer")).toHaveCSS("border-radius", "20px");
 });
+
+test("待回答问题固定替换输入框且不进入对话流", async ({ page }) => {
+    await page.setViewportSize({ width: 460, height: 900 });
+    await page.goto("/__agent-test.html?state=question");
+    const question = page.locator(".agent-question-card");
+    await expect(question).toBeVisible();
+    await expect(page.locator(".agent-composer")).toHaveCount(0);
+    await expect(page.locator(".agent-assistant-round .agent-question-card")).toHaveCount(0);
+    await expect(page.getByText("主角第一次出场应呈现怎样的气质？")).toHaveCount(1);
+    await expect(question.locator(".ant-radio").first()).toHaveCSS("opacity", "0");
+    await expect(question.getByText("推荐")).toBeVisible();
+    const optionTitle = question.locator(".agent-question-option-title").first();
+    await expect(optionTitle).toHaveCSS("white-space", "nowrap");
+    expect((await optionTitle.boundingBox())?.height).toBeLessThanOrEqual(24);
+    const box = await question.boundingBox();
+    expect(box?.y).toBeGreaterThan(600);
+    expect((box?.y || 0) + (box?.height || 0)).toBeLessThanOrEqual(900);
+});
+
+test("权限审批位于输入框上方且不取代普通输入", async ({ page }) => {
+    await page.setViewportSize({ width: 460, height: 900 });
+    await page.goto("/__agent-test.html?state=approval");
+    const approval = page.locator(".agent-approval-bar");
+    const composer = page.locator(".agent-composer");
+    await expect(approval).toBeVisible();
+    await expect(approval.getByText("待你决策")).toBeVisible();
+    await expect(composer).toBeVisible();
+    const approvalBox = await approval.boundingBox();
+    const composerBox = await composer.boundingBox();
+    expect((approvalBox?.y || 0) + (approvalBox?.height || 0)).toBeLessThan(composerBox?.y || 0);
+});

@@ -57,6 +57,7 @@ export type H3QualityPreset = "preview" | "final";
 export type H3GenerationRecipe = { qualityPreset: H3QualityPreset; resolution: "480p" | "768p"; steps: number; sampler: string; scheduler: string; refImageSize: "match" | "max"; attention: string; turbo: boolean };
 export type H3TemporalGuide = { frameId: string; fileId: string; timeSeconds: number; frameIndex: number; strength: "hard" | "semantic" };
 export type H3FrameAlignment = { requestedSeconds: number; requestedFrames: number; modelFrames: number; trimFrames: number; fps: 24; stride: 17; base: 5 };
+export type DirectorH3PromptSnapshot = { mode: H3GenerationMode; qualityPreset: H3QualityPreset; prompt: string; references: Array<{ fileId: string; kind?: "image" | "video" | "audio"; role?: "reference" | "first-frame" | "last-frame" | "continuation" }>; temporalGuides: H3TemporalGuide[]; storyboardRevision: number };
 export type DirectorStoryboardFrame = { id: string; position: number; shotNumber: number; timeSeconds: number; kind: "shot-start" | "keyframe" | "shot-end"; description: string; action: string; cameraAngle: string; cameraMove: string; sound: string; guideEnabled?: boolean; guideStrength?: "hard" | "semantic"; croppedFileId?: string; resolvedFrameIndex?: number };
 export type DirectorStoryboardSheet = { revision: number; layout: "2x2" | "3x2" | "3x3"; frames: DirectorStoryboardFrame[]; imageFileId?: string; firstFrameFileId?: string; lastFrameFileId?: string; generationId?: string; promptSnapshot?: string; referenceSnapshot?: DirectorVideoSegmentPreflight; review?: DirectorVisualReview };
 export type DirectorSequence = {
@@ -107,7 +108,7 @@ export type DirectorVideoSegment = {
         h3Mode?: H3GenerationMode;
         h3ModeOverride?: H3GenerationMode | null;
         h3ModeReason?: string;
-        h3PromptSnapshot?: Record<string, unknown>;
+        h3PromptSnapshot?: DirectorH3PromptSnapshot;
         nativeAudioFileId?: string;
         nativeAudioStatus?: "ready" | "missing";
         audioCues?: Array<Record<string, unknown>>;

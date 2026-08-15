@@ -25,4 +25,17 @@ describe("Agent 输入框", () => {
 
         await act(async () => root.unmount()); holder.remove();
     });
+
+    it("超过三个附件时折叠为待发送附件摘要", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const attachments = Array.from({ length: 4 }, (_, index) => ({ id: `file-${index}`, fileId: `file-${index}`, name: `参考${index + 1}.png`, mimeType: "image/png", bytes: 1024, url: "", metadata: {}, createdAt: "2026-08-15T00:00:00.000Z" }));
+        await act(async () => root.render(<AgentComposer document={EMPTY_COMPOSER_DOCUMENT} ready busy={false} waiting={false} sending={false} uploading={false} attachments={attachments} skills={[]} references={[]} focusRequest={0} followUpMode="steer" onDocumentChange={vi.fn()} onFollowUpModeChange={vi.fn()} onSend={vi.fn()} onCancel={vi.fn()} onUpload={vi.fn()} onRemoveAttachment={vi.fn()} />));
+        const summary = holder.querySelector<HTMLButtonElement>("button[aria-label='查看 4 个待发送附件']");
+        expect(summary).not.toBeNull();
+        expect(holder.textContent).not.toContain("参考1.png");
+        await act(async () => summary?.click());
+        expect(holder.textContent).toContain("参考1.png");
+        expect(summary?.getAttribute("aria-expanded")).toBe("true");
+        await act(async () => root.unmount()); holder.remove();
+    });
 });

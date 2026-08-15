@@ -24,6 +24,8 @@ type RenderPayload = { timelineRevision: number; segmentIds: string[]; duration:
 const renderInput = z.object({ timelineRevision: z.number().int().positive() });
 const shotGenerationInput = z.object({ revision: z.number().int().positive(), mode: z.enum(["fl2va", "ref2va"]).optional(), qualityPreset: z.enum(["preview", "final"]).default("preview"), model: z.string().trim().optional() });
 const storyboardGenerationInput = z.object({ revision: z.number().int().positive(), model: z.string().trim().optional() });
+const storyboardPromptFrameInput = z.object({ id: z.string().min(1), description: z.string().max(4_000), action: z.string().max(4_000), cameraAngle: z.string().max(1_000), cameraMove: z.string().max(1_000), sound: z.string().max(2_000) });
+const storyboardPromptUpdateInput = z.object({ items: z.array(z.object({ segmentId: z.string().min(1), revision: z.number().int().positive(), frames: z.array(storyboardPromptFrameInput).min(1).max(9) })).min(1).max(10) });
 const running = new Map<string, AbortController>();
 let scheduled = false;
 let emitRender: (userId: string, entity: { type: string; projectId: string; data: unknown }) => void = () => undefined;
@@ -39,6 +41,7 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     validateShotAssetRefs(userId, shot.project_id, payload);
     let sheet = asSheet(payload.storyboardSheet);
     if (!sheet?.imageFileId) throw renderError(409, "DIRECTOR_STORYBOARD_REQUIRED", "请先生成当前视频段的整张故事板");
+    if (payload.storyboardStale) throw renderError(409, "DIRECTOR_STORYBOARD_STALE", "故事板提示词已经修改，请先重新生成整张故事板");
     if (sheet.frames.some((frame) => !frame.croppedFileId)) {
         const source = getStoredFile(userId, sheet.imageFileId);
         if (!source) throw renderError(409, "DIRECTOR_STORYBOARD_FILE_MISSING", "故事板图片不存在，请重新生成整张故事板");
@@ -123,22 +126,48 @@ export function createDirectorStoryboardGeneration(userId: string, segmentId: st
     if (model.imagePromptProfile !== "gpt-image-2") throw renderError(409, "DIRECTOR_STORYBOARD_MODEL_PROFILE", "当前故事板模型必须配置为 GPT-Image-2 提示档案");
     if ((model.maxReferenceImages || 0) < 6) throw renderError(409, "DIRECTOR_STORYBOARD_MODEL_REFERENCES", "当前 GPT-Image-2 模型需配置最多 6 张参考图");
     const sheet = asSheet(payload.storyboardSheet) || defaultSheet(segment.id, Number(payload.durationSeconds || 4), payload);
-    const frameLines = sheet.frames.map((frame, index) => `Panel ${index + 1} | ${frame.timeSeconds}s | Shot ${frame.shotNumber} | ${frame.kind}: ${frame.description}; action: ${frame.action}; camera: ${frame.cameraAngle}, ${frame.cameraMove}; sound intent: ${frame.sound}`).join("\n");
-    const prompt = [
-        `Create ONE cinematic storyboard sheet for a ${Number(payload.durationSeconds || 4)}-second video segment.`,
-        `Use an exact ${storyboardLayoutLabel(sheet.layout)} grid with ${sheet.frames.length} equal panels, thin neutral gutters, and no unused cells. Each panel is a distinct chronological visual beat, not a duplicate angle.`,
-        `Segment intent: ${String(payload.description || segment.title)}. Action: ${String(payload.action || "")}. Dialogue meaning only (do not render text): ${String(payload.dialogue || payload.narration || "none")}.`,
-        frameLines,
-        `Visual style: ${style.description}. Maintain the exact same character identity, costume, props, spatial layout, lighting and color treatment across all panels. Reference images are authoritative. Show clear chronological progress and screen direction.`,
-        "Output only the storyboard image. No title, captions, panel numbers, labels, speech bubbles, subtitles, logos, UI, decorative border, split-screen inside panels, duplicated characters, or identity drift.",
-    ].filter(Boolean).join("\n\n");
+    const prompt = compileDirectorStoryboardPrompt(segment.title, payload, sheet, style.description);
     const references = preflight.selected.map((item) => ({ fileId: item.fileId, kind: "image" as const, role: "reference" as const }));
     const generation = createGeneration(userId, { kind: "image", model: modelRef, prompt, references, params: { count: 1, size: storyboardImageSize(sheet.layout), quality: "high", imagePromptProfile: "gpt-image-2", __directorStoryboardSheet: { projectId: segment.project_id, segmentId, segmentRevision: segment.revision, storyboardRevision: sheet.revision, style: { id: style.id, revision: style.revision }, scriptRevision: script.revision } } });
     const nextSheet = { ...sheet, frames: sheet.frames.map(({ croppedFileId: _cropped, resolvedFrameIndex: _resolved, ...frame }) => frame), generationId: generation.id, imageFileId: undefined, firstFrameFileId: undefined, lastFrameFileId: undefined, promptSnapshot: prompt, referenceSnapshot: preflight, review: { status: "pending", summary: "整张故事板生成中", issues: [] } };
-    const nextPayload = { ...payload, storyboardSheet: nextSheet, videoStale: Boolean(payload.videoFileId), dependencies: { documents: { script: script.revision }, style: { id: style.id, revision: style.revision } } };
+    const nextPayload = { ...payload, storyboardSheet: nextSheet, storyboardStale: false, h3PromptStale: false, videoStale: Boolean(payload.videoFileId), dependencies: { documents: { script: script.revision }, style: { id: style.id, revision: style.revision } } };
     db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(nextPayload), new Date().toISOString(), segmentId, userId);
     emitRender(userId, { type: "video-segment", projectId: segment.project_id, data: { id: segmentId, revision: segment.revision + 1, payload: nextPayload } });
     return generation;
+}
+
+export function updateDirectorStoryboardPrompts(userId: string, projectId: string, input: unknown, allowLocked = false) {
+    assertDirector(userId, projectId);
+    const value = storyboardPromptUpdateInput.parse(input);
+    const ids = new Set(value.items.map((item) => item.segmentId));
+    if (ids.size !== value.items.length) throw renderError(400, "DIRECTOR_STORYBOARD_DUPLICATE", "同一批次不能重复更新同一个视频段");
+    const prepared = value.items.map((item) => {
+        const segment = segmentRow(userId, item.segmentId);
+        if (segment.project_id !== projectId) throw renderError(404, "DIRECTOR_VIDEO_SEGMENT_NOT_FOUND", "视频段不存在");
+        if (!allowLocked && segment.status === "locked") throw renderError(423, "DIRECTOR_LOCKED", `${segment.title} 已锁定，需要审批后修改`);
+        if (segment.revision !== item.revision) throw renderError(409, "DIRECTOR_CONFLICT", `${segment.title} 已在其他页面更新`);
+        const payload = parseJson<Record<string, unknown>>(segment.payload, {});
+        const sheet = asSheet(payload.storyboardSheet);
+        if (!sheet) throw renderError(409, "DIRECTOR_STORYBOARD_REQUIRED", `${segment.title} 还没有故事板结构`);
+        const patches = new Map(item.frames.map((frame) => [frame.id, frame]));
+        if (patches.size !== item.frames.length || item.frames.some((frame) => !sheet.frames.some((current) => current.id === frame.id))) throw renderError(400, "DIRECTOR_STORYBOARD_FRAME_INVALID", `${segment.title} 包含不存在或重复的画格`);
+        const frames = sheet.frames.map((frame) => ({ ...frame, ...(patches.get(frame.id) || {}) }));
+        const stale = Boolean(sheet.imageFileId || sheet.generationId);
+        const nextSheet = { ...sheet, revision: sheet.revision + 1, frames, promptSnapshot: compileDirectorStoryboardPrompt(segment.title, payload, { ...sheet, frames }, activeStyle(userId, projectId)?.description || ""), review: stale ? { status: "stale", summary: "提示词已修改，请重新生成故事板", issues: [] } : sheet.review };
+        const h3PromptStale = Boolean(payload.h3PromptSnapshot);
+        const videoStale = Boolean(payload.videoFileId || payload.videoGenerationId);
+        return { segment, payload: { ...payload, storyboardSheet: nextSheet, storyboardStale: stale, h3PromptStale, videoStale, needsReview: stale || h3PromptStale || videoStale }, storyboardRevision: nextSheet.revision, stale };
+    });
+    const now = new Date().toISOString();
+    db.transaction(() => prepared.forEach(({ segment, payload }) => {
+        const updated = db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?").run(JSON.stringify(payload), now, segment.id, userId, segment.revision);
+        if (!updated.changes) throw renderError(409, "DIRECTOR_CONFLICT", `${segment.title} 已在其他页面更新`);
+    }))();
+    const updatedIds = new Set(prepared.map(({ segment }) => segment.id));
+    prepared.forEach(({ segment, payload }) => { if ((payload as Record<string, unknown>).videoFileId) markContinuationStale(userId, projectId, segment.id, updatedIds); });
+    const results = prepared.map(({ segment, payload, storyboardRevision, stale }) => ({ id: segment.id, title: segment.title, revision: segment.revision + 1, storyboardRevision, storyboardStale: stale, videoStale: Boolean((payload as Record<string, unknown>).videoStale) }));
+    results.forEach((result) => emitRender(userId, { type: "video-segment", projectId, data: result }));
+    return { updated: results.length, items: results };
 }
 
 export const createDirectorVideoSegmentGeneration = createDirectorShotGeneration;
@@ -363,9 +392,9 @@ function ffmpeg(args: string[], signal?: AbortSignal, progress?: (seconds: numbe
     });
 }
 
-function markContinuationStale(userId: string, projectId: string, shotId: string) {
+function markContinuationStale(userId: string, projectId: string, shotId: string, excluded = new Set<string>()) {
     const rows = db.prepare("SELECT id,payload FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>;
-    rows.forEach((row) => { const payload = parseJson<Record<string, unknown>>(row.payload, {}); if (payload.boundary === "continue" && (payload.continuationFromSegmentId === shotId || payload.continuationFromShotId === shotId)) db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...payload, videoStale: true, needsReview: true }), new Date().toISOString(), row.id, userId); });
+    rows.forEach((row) => { const payload = parseJson<Record<string, unknown>>(row.payload, {}); if (!excluded.has(row.id) && payload.boundary === "continue" && (payload.continuationFromSegmentId === shotId || payload.continuationFromShotId === shotId)) db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...payload, videoStale: true, needsReview: true }), new Date().toISOString(), row.id, userId); });
 }
 function validateShotAssetRefs(userId: string, projectId: string, payload: Record<string, unknown>) {
     const refs = [payload.characterRefs, payload.sceneRefs, payload.propRefs].flatMap((value) => Array.isArray(value) ? value : []) as Array<{ id?: string; revision?: number }>;
@@ -442,6 +471,17 @@ function resolveH3Route(payload: Record<string, unknown>, sheet: StoryboardSheet
     return { mode: "fl2va", reason: "单镜头视频段使用首尾帧精确锚定" } as const;
 }
 function storyboardLayoutLabel(layout: DirectorStoryboardLayout) { return layout === "3x3" ? "3 columns by 3 rows" : layout === "3x2" ? "3 columns by 2 rows" : "2 columns by 2 rows"; }
+export function compileDirectorStoryboardPrompt(title: string, payload: Record<string, unknown>, sheet: StoryboardSheet, styleDescription: string) {
+    const frameLines = sheet.frames.map((frame, index) => `Panel ${index + 1} | ${frame.timeSeconds}s | Shot ${frame.shotNumber} | ${frame.kind}: ${frame.description}; action: ${frame.action}; camera: ${frame.cameraAngle}, ${frame.cameraMove}; sound intent: ${frame.sound}`).join("\n");
+    return [
+        `Create ONE cinematic storyboard sheet for a ${Number(payload.durationSeconds || 4)}-second video segment.`,
+        `Use an exact ${storyboardLayoutLabel(sheet.layout)} grid with ${sheet.frames.length} equal panels, thin neutral gutters, and no unused cells. Each panel is a distinct chronological visual beat, not a duplicate angle.`,
+        `Segment intent: ${String(payload.description || title)}. Action: ${String(payload.action || "")}. Dialogue meaning only (do not render text): ${String(payload.dialogue || payload.narration || "none")}.`,
+        frameLines,
+        styleDescription ? `Visual style: ${styleDescription}. Maintain the exact same character identity, costume, props, spatial layout, lighting and color treatment across all panels. Reference images are authoritative. Show clear chronological progress and screen direction.` : "Maintain the exact same character identity, costume, props, spatial layout, lighting and color treatment across all panels. Reference images are authoritative. Show clear chronological progress and screen direction.",
+        "Output only the storyboard image. No title, captions, panel numbers, labels, speech bubbles, subtitles, logos, UI, decorative border, split-screen inside panels, duplicated characters, or identity drift.",
+    ].join("\n\n");
+}
 function storyboardImageSize(layout: DirectorStoryboardLayout) { return layout === "3x3" ? "2304x1296" : layout === "3x2" ? "2304x864" : "2048x1152"; }
 async function extractStoryboardFrames(userId: string, segmentId: string, source: string, layout: DirectorStoryboardLayout, frameCount: number) {
     const directory = await mkdtemp(join(tmpdir(), "director-storyboard-"));

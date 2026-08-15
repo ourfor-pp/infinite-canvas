@@ -92,7 +92,7 @@ export function splitAssistantRoundEvents(events: ProjectedAgentEvent[]) {
     return { processMessages: assistants.filter((event) => event !== final), answers: final ? [final] : [] };
 }
 
-export function eventText(event: ProjectedAgentEvent) { return event.text || String(event.payload.text || event.payload.content || ""); }
+export function eventText(event: ProjectedAgentEvent) { return event.text || String(event.payload.text || event.payload.content || event.payload.message || ""); }
 
 function formatTime(timestamp: number) {
     const date = new Date(timestamp); const now = new Date();

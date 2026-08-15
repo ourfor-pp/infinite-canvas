@@ -116,7 +116,7 @@ test("导演角色使用纯视觉设定一次生成四视图", () => {
             description: "从杂役逆袭为宗门传人",
             narrativeDescription: "林尘在雪夜被欺辱，后来觉醒并击败仇敌。",
             visualDescription: "十六岁清瘦少年，窄长脸，黑色高马尾，灰白粗布交领短衫，深灰束腿裤，黑布鞋，左眉尾有细小断痕。",
-            designProfile: { apparentGender: "male", voiceGender: "male", ageBand: "16-18", identityAnchor: "清瘦少年，黑色高马尾，左眉尾细小断痕，灰白粗布短衫", uncertainties: [] },
+            designProfile: { apparentGender: "male", voiceGender: "male", ageBand: "16-18", identityAnchor: "窄长脸、狭长眼、左眉尾细小断痕", facialIdentity: { faceShape: "窄长脸，脸宽明显小于脸长", boneStructure: "颧骨平缓，下颌窄而利落", brows: "平直淡眉，左眉尾断开一小段", eyes: "狭长眼，眼距略窄", nose: "鼻梁直，鼻头小", mouth: "薄唇，嘴角平直", skin: "偏白冷调", hairline: "低而整齐", distinguishingMarks: "左眉尾细小断痕" }, uncertainties: [] },
             mediaDrafts: { image: { model: "provider-1::image-model", prompt: "保持左眉尾断痕清晰" } },
         },
     });
@@ -126,6 +126,9 @@ test("导演角色使用纯视觉设定一次生成四视图", () => {
     assert.equal(preview.params.imagePromptProfile, "gpt-image-2");
     assert.equal(preview.params.quality, "high");
     assert.match(preview.prompt, /十六岁清瘦少年/);
+    assert.match(preview.prompt, /稳定面部身份锚点：脸型比例：窄长脸/);
+    assert.match(preview.prompt, /脸型比例：窄长脸/);
+    assert.match(preview.prompt, /非对称识别点：左眉尾细小断痕/);
     assert.match(preview.prompt, /正面、左侧 90 度、右侧 90 度、背面 180 度/);
     assert.match(preview.prompt, /东方动画/);
     assert.match(preview.prompt, /精细厚涂/);

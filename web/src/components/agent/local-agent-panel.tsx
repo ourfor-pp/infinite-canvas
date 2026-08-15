@@ -17,6 +17,7 @@ import {
     ScrollToBottomButton,
 } from "./agent-conversation-ui";
 import { AgentComposer } from "./agent-composer";
+import { AgentApprovalBar, AgentQuestionComposer } from "./agent-decision-dock";
 import { EMPTY_COMPOSER_DOCUMENT, composerPlainText, normalizeComposerDocument } from "./agent-composer-model";
 import { AgentErrorBoundary } from "./agent-error-boundary";
 import { useAgentScroll } from "./use-agent-scroll";
@@ -57,7 +58,6 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
     const [backgroundUnread, setBackgroundUnread] = useState<Record<string, number>>({});
     const [historyOpen, setHistoryOpen] = useState(false);
     const [historyQuery, setHistoryQuery] = useState("");
-    const [answer, setAnswer] = useState("");
     const [decisionBusy, setDecisionBusy] = useState(false);
     const [streamVersion, setStreamVersion] = useState(0);
     const [composerFocusRequest, setComposerFocusRequest] = useState(0);
@@ -100,7 +100,6 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
         setComposerDocument(draft ? { version: 1, segments: [{ type: "text", text: draft }] } : EMPTY_COMPOSER_DOCUMENT);
         setQueuedMessages([]);
         setAttachments([]);
-        setAnswer("");
         handledClientActionsRef.current.clear();
         atBottomRef.current = true;
         Promise.all([agentApi.config(), agentApi.capabilities(projectId), agentApi.references(projectId), agentApi.conversation(projectId, savedSessionId).catch(() => agentApi.conversation(projectId))])
@@ -253,11 +252,14 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
         const content = contentRef.current;
         const dock = inputDockRef.current;
         if (!content || !dock) return;
-        const dockObserver = new ResizeObserver(() => setInputDockHeight(dock.offsetHeight));
+        const dockObserver = new ResizeObserver(() => {
+            setInputDockHeight(dock.offsetHeight);
+            if (atBottomRef.current) requestAnimationFrame(() => scrollBottom("auto"));
+        });
         dockObserver.observe(dock);
         setInputDockHeight(dock.offsetHeight);
         return () => { dockObserver.disconnect(); };
-    }, [projectId]);
+    }, [atBottomRef, projectId, scrollBottom]);
 
     const setActiveSession = (next: AgentSession | null) => {
         activeSessionRef.current = next;
@@ -395,14 +397,15 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
         finally { setUploading(false); }
     };
 
-    const decide = async (decision: "approved" | "rejected", scope: "once" | "session" | "project" = "once", proposalEdits?: unknown) => {
+    const decide = async (decision: "approved" | "rejected", scope: "once" | "session" | "project" = "once", proposalEdits?: unknown, answers?: Record<string, string>) => {
         if (!session) return;
         setDecisionBusy(true);
         try {
-            const next = await agentApi.decide(session.id, { decision, scope, comment: answer, ...(proposalEdits === undefined ? {} : { proposalEdits }) });
+            const next = await agentApi.decide(session.id, { decision, scope, ...(answers ? { answers } : {}), ...(proposalEdits === undefined ? {} : { proposalEdits }) });
             setActiveSession(next);
-            setAnswer("");
-        } catch (error) { message.error(error instanceof Error ? error.message : "提交失败"); }
+            if (next.events?.length) setEvents((current) => mergeEvents(current, next.events || []));
+            return next;
+        } catch (error) { message.error(error instanceof Error ? error.message : "提交失败"); throw error; }
         finally { setDecisionBusy(false); }
     };
 
@@ -449,8 +452,9 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
         <AgentErrorBoundary resetKey={`${projectId}:${session?.id || "loading"}:${streamVersion}`} onReload={() => void reloadConversation()}><div className="agent-panel-shell relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: theme.node.panel, color: theme.node.text }}>
             <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3" style={{ borderColor: theme.node.stroke }}>
                 <div className="min-w-0 flex-1">
-                    <button type="button" className="flex max-w-full items-center gap-1 text-left" onClick={() => setHistoryOpen(true)}>
+                    <button type="button" className="grid max-w-full gap-0.5 text-left" onClick={() => setHistoryOpen(true)}>
                         <span className="truncate text-sm font-medium">{session?.title || (capabilities?.sceneId === "director" ? "导演 Agent" : "Canvas Agent")}</span>
+                        <span className={`agent-header-status is-${session?.status || "idle"}`}><i />{statusLabel(session?.status)}</span>
                     </button>
                 </div>
                 <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={newSession} disabled={busy} /></Tooltip>
@@ -472,10 +476,6 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
                         status={session?.status}
                         currentRunId={session?.currentRunId}
                         pendingDecision={session?.pendingDecision}
-                        decisionValue={answer}
-                        decisionBusy={decisionBusy}
-                        onDecisionValue={setAnswer}
-                        onDecide={(decision, scope, proposalEdits) => void decide(decision, scope, proposalEdits)}
                         canLoadEarlier={false}
                         loadingEarlier={olderLoading}
                         onLoadEarlier={() => void loadEarlier()}
@@ -492,7 +492,10 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
 
             <div ref={inputDockRef} className="shrink-0">
                 {queuedMessages.length ? <QueuedMessages items={queuedMessages} busy={sending} onSteer={(id) => session && void agentApi.steerQueued(session.id, id).then(applyConversation).catch((error) => message.error(error.message))} onRetry={(id) => session && void agentApi.retryQueued(session.id, id).then(setQueuedMessages).catch((error) => message.error(error.message))} onDelete={(id) => session && void agentApi.deleteQueued(session.id, id).then(() => setQueuedMessages((items) => items.filter((item) => item.id !== id))).catch((error) => message.error(error.message))} /> : null}
-                <AgentComposer
+                {session?.pendingDecision?.kind === "question" ? <AgentQuestionComposer pending={session.pendingDecision} busy={decisionBusy} onDecide={decide} /> : null}
+                {session?.pendingDecision?.kind === "approval" ? <AgentApprovalBar pending={session.pendingDecision} busy={decisionBusy} onDecide={decide} /> : null}
+                {session?.pendingDecision?.kind === "proposal" ? <AgentDecisionCard pending={session.pendingDecision} theme={theme} busy={decisionBusy} onDecide={(decision, scope, proposalEdits) => void decide(decision, scope, proposalEdits)} /> : null}
+                {session?.pendingDecision?.kind !== "question" && session?.pendingDecision?.kind !== "proposal" ? <AgentComposer
                     document={composerDocument}
                     ready={model.ready}
                     busy={busy}
@@ -512,7 +515,7 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
                     onCancel={() => void cancel()}
                     onUpload={(files) => void upload(files)}
                     onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
-                />
+                /> : null}
             </div>
 
             <Drawer title="历史会话" placement="right" size={Math.min(430, window.innerWidth)} open={historyOpen} onClose={() => setHistoryOpen(false)}>
@@ -584,7 +587,7 @@ function upsertSession(current: AgentSession[], incoming: AgentSession) {
 }
 
 function statusLabel(status?: AgentSession["status"]) {
-    return ({ idle: "准备就绪", running: "正在处理", waiting_for_user: "等待确认", completed: "执行完成", failed: "执行失败", canceled: "已取消" } as Record<string, string>)[status || ""] || "已连接";
+    return ({ idle: "准备就绪", running: "正在处理", waiting_for_user: "等待你处理", completed: "执行完成", failed: "执行失败", canceled: "已取消" } as Record<string, string>)[status || ""] || "已连接";
 }
 
 function focusCanvasNodes(context: AgentCanvasContext | null, ids: string[]) {

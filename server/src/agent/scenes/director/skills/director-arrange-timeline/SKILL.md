@@ -1,7 +1,7 @@
 ---
 name: director-arrange-timeline
 description: 按视频段顺序编排导演项目的视频、模型原声与独立声音轨。
-allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_check_continuity, mcp__infinite_canvas__director_update_timeline]
+allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_list_video_segments, mcp__infinite_canvas__director_check_continuity, mcp__infinite_canvas__director_update_timeline]
 ---
 
 # 导演台时间线编排

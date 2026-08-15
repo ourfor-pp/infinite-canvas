@@ -8,7 +8,14 @@ export type CreativeAssetMediaDraft = {
     audioMode?: CreativeAssetAudioMode;
     transcript?: string;
 };
-export type CharacterDesignProfile = { apparentGender: "female" | "male" | "androgynous" | "unspecified"; voiceGender: "female" | "male" | "androgynous" | "unspecified"; ageBand: string; identityAnchor: string; uncertainties: string[] };
+export type CharacterDesignProfile = {
+    apparentGender: "female" | "male" | "androgynous" | "unspecified";
+    voiceGender: "female" | "male" | "androgynous" | "unspecified";
+    ageBand: string;
+    identityAnchor: string;
+    facialIdentity: { faceShape: string; boneStructure: string; brows: string; eyes: string; nose: string; mouth: string; skin: string; hairline: string; distinguishingMarks: string } | null;
+    uncertainties: string[];
+};
 
 export const CREATIVE_ASSET_NODE_LAYOUT = {
     character: { width: 420, height: 540, title: "角色" },

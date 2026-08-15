@@ -3,7 +3,8 @@ import { serverApiUrl, serverRequest } from "./server";
 export type AgentStatus = "idle" | "running" | "waiting_for_user" | "completed" | "failed" | "canceled";
 export type AgentEventKind = "user_text" | "assistant_text" | "thinking" | "tool_call" | "tool_result" | "approval_request" | "approval_response" | "question_request" | "question_response" | "client_action" | "artifact" | "run_state" | "error";
 export type AgentEvent = { sessionId: string; seq: number; runId: string | null; kind: AgentEventKind; payload: Record<string, unknown>; createdAt: string };
-export type AgentPendingDecision = { id: string; kind: "approval" | "question" | "proposal"; source: "policy" | "business" | "ask_user" | "proposal"; runId: string; content: string; toolName?: string; toolInput?: unknown; scopes?: Array<"once" | "session" | "project">; rulePreview?: string[] };
+export type AgentDecisionQuestion = { id: string; question: string; header?: string; type: "text" | "single_choice" | "multiple_choice"; allowCustomInput: boolean; customInputPlaceholder?: string; options: Array<{ label: string; description?: string }> };
+export type AgentPendingDecision = { id: string; kind: "approval" | "question" | "proposal"; source: "policy" | "business" | "ask_user" | "proposal"; runId: string; content: string; toolName?: string; toolInput?: unknown; scopes?: Array<"once" | "session" | "project">; rulePreview?: string[]; questions?: AgentDecisionQuestion[] };
 export type AgentSession = { id: string; projectId: string; sdkSessionId: string | null; title: string; status: AgentStatus; eventSeq: number; currentRunId: string | null; pendingDecision: AgentPendingDecision | null; lastError: string | null; lastErrorCode: string | null; createdAt: string; updatedAt: string; events?: AgentEvent[] };
 export type AgentComposerSegment =
     | { type: "text"; text: string }
@@ -23,6 +24,7 @@ export type AgentSettings = { modelRef: string; modelName?: string; providerName
 export type AdminAgentRun = { id: string; sessionId: string; status: string; modelRef: string; error: string | null; errorCode: string | null; toolSearchMode: string; toolSearchCallCount: number; startedAt: string; finishedAt: string | null; user: { id: string; username: string } };
 export type AgentStreamEvent = { type: "snapshot"; cursor: number; sessions: AgentSession[]; queuedMessages: Record<string, AgentQueuedMessage[]> } | { type: "delta"; cursor: number; session: AgentSession; events: AgentEvent[] } | { type: "queue.updated"; cursor: number; sessionId: string; queuedMessages: AgentQueuedMessage[] };
 export const agentClientId = globalThis.crypto?.randomUUID?.() || `page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const agentStreamCursors = new Map<string, string>();
 
 export const agentApi = {
     config: () => serverRequest<{ ready: boolean; modelName: string; providerName: string; protocolVersion: number; storageVersion: number }>("/agent/config"),
@@ -50,10 +52,12 @@ export const agentApi = {
 };
 
 export function subscribeAgent(projectId: string, onEvent: (event: AgentStreamEvent) => void, onConnection?: (connected: boolean) => void) {
-    const source = new EventSource(serverApiUrl(`/agent/projects/${encodeURIComponent(projectId)}/stream?clientId=${encodeURIComponent(agentClientId)}`));
+    const cursor = agentStreamCursors.get(projectId);
+    const source = new EventSource(serverApiUrl(`/agent/projects/${encodeURIComponent(projectId)}/stream?clientId=${encodeURIComponent(agentClientId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`));
     const receive = (event: MessageEvent<string>) => {
         let parsed: AgentStreamEvent;
         try { parsed = JSON.parse(event.data) as AgentStreamEvent; } catch { return; }
+        if (event.lastEventId) agentStreamCursors.set(projectId, event.lastEventId);
         onEvent(parsed);
     };
     source.addEventListener("open", () => onConnection?.(true));

@@ -1,9 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentRef, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Button, Checkbox, Empty, Image, Input, Popconfirm, Popover, Select, Tooltip } from "antd";
+import { Button, Checkbox, Empty, Image, Input, Modal, Popconfirm, Popover, Select, Tooltip } from "antd";
 import {
-    Archive, ArrowDown, AtSign, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Download,
+    Archive, ArrowDown, AtSign, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleSlash2, Download, Eye,
     Clock3, Copy, File, FileAudio, FileText, FileVideo, GitFork, History, ImageIcon, Pencil,
-    LoaderCircle, Paperclip, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Wrench, X,
+    LoaderCircle, MessageCircleQuestion, Paperclip, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Wrench, X,
 } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { formatAgentToolName } from "./tool-display-name";
@@ -27,10 +27,6 @@ export function AgentConversationFlow({
     onLoadEarlier,
     onSuggestion,
     pendingDecision,
-    decisionValue,
-    decisionBusy,
-    onDecisionValue,
-    onDecide,
     status,
     currentRunId,
     restartingMessageSeq,
@@ -46,10 +42,6 @@ export function AgentConversationFlow({
     onLoadEarlier: () => void;
     onSuggestion: (text: string) => void;
     pendingDecision?: AgentPendingDecision | null;
-    decisionValue?: string;
-    decisionBusy?: boolean;
-    onDecisionValue?: (value: string) => void;
-    onDecide?: (decision: "approved" | "rejected", scope?: "once" | "session" | "project", proposalEdits?: unknown) => void;
     status?: AgentSession["status"];
     currentRunId?: string | null;
     restartingMessageSeq?: number | null;
@@ -91,7 +83,7 @@ export function AgentConversationFlow({
                 const position = top === undefined ? undefined : { position: "absolute" as const, top: top + historyOffset, left: 0, right: 0 };
                 if (item.type === "time") return <div key={item.id} className="agent-time-note"><time>{item.label}</time></div>;
                 if (item.type === "user") return <Measured key={item.id} id={item.id} style={position} onHeight={recordHeight}><UserMessage event={item.event} theme={theme} restarting={restartingMessageSeq === item.event.seq} onRestart={onRestartFromMessage} /></Measured>;
-                return <Measured key={item.id} id={item.id} className="agent-assistant-round" style={position} onHeight={recordHeight}><AssistantRound events={item.events} theme={theme} status={item.id === activeRoundId ? status : "completed"} pendingDecision={item.id === activeRoundId ? pendingDecision : null} decisionValue={decisionValue} decisionBusy={decisionBusy} onDecisionValue={onDecisionValue} onDecide={onDecide} onBeforeProcessAutoCollapse={onBeforeProcessAutoCollapse} /></Measured>;
+                return <Measured key={item.id} id={item.id} className="agent-assistant-round" style={position} onHeight={recordHeight}><AssistantRound events={item.events} theme={theme} status={item.id === activeRoundId ? status : "completed"} pendingDecision={item.id === activeRoundId ? pendingDecision : null} onBeforeProcessAutoCollapse={onBeforeProcessAutoCollapse} /></Measured>;
             })}
         </div>
     );
@@ -124,9 +116,11 @@ function AgentEmpty({ theme, value, onSuggestion }: { theme: CanvasTheme; value?
 export const UserMessage = memo(function UserMessage({ event, theme, restarting, onRestart }: { event: ProjectedEvent; theme: CanvasTheme; restarting: boolean; onRestart?: (event: ProjectedEvent) => void }) {
     const text = eventText(event);
     const [expanded, setExpanded] = useState(false);
+    const [visibleLimit, setVisibleLimit] = useState(4_000);
+    const [previewFile, setPreviewFile] = useState<Record<string, unknown> | null>(null);
     const copyText = useCopyText();
     const long = text.length > 900 || text.split("\n").length > 12;
-    const visibleText = long && !expanded && text.length > 4_000 ? `${text.slice(0, 4_000)}\n…` : text;
+    const visibleText = text.length > visibleLimit ? `${text.slice(0, visibleLimit)}\n…` : text;
     const attachments = arrayOf<Record<string, unknown>>(event.payload.attachments);
     const references = arrayOf<Record<string, unknown>>(event.payload.references);
     const assetReferences = arrayOf<Record<string, unknown>>(event.payload.assetReferences);
@@ -139,7 +133,7 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
             <article className="group flex min-w-0 max-w-[88%] flex-col items-end">
                 <div className="agent-user-bubble w-fit max-w-full rounded-[18px_18px_5px_18px] px-3.5 py-2.5 text-sm leading-6">
                 {text ? <div className={`whitespace-pre-wrap break-words ${long && !expanded ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_75%,transparent)]" : ""}`}>{visibleText}</div> : null}
-                {long ? <button type="button" className="mt-1 text-xs font-medium opacity-55 hover:opacity-80" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开全文"}</button> : null}
+                {long ? <div className="mt-1 flex gap-3 text-xs font-medium opacity-55">{!expanded || text.length > visibleLimit ? <button type="button" className="hover:opacity-80" onClick={() => { setExpanded(true); setVisibleLimit((value) => Math.min(text.length, value + 12_000)); }}>{expanded ? "继续展开" : "展开全文"}</button> : null}{expanded ? <button type="button" className="hover:opacity-80" onClick={() => { setExpanded(false); setVisibleLimit(4_000); }}>收起</button> : null}</div> : null}
                 {images.length ? <Image.PreviewGroup><div className="mt-2 grid grid-cols-3 gap-1.5">{images.map((item, index) => <Image key={String(item.fileId || index)} src={fileUrl(String(item.fileId))} alt={String(item.name || "图片附件")} className="!h-20 !w-full rounded-lg object-cover" />)}</div></Image.PreviewGroup> : null}
                 {files.length || references.length || assetReferences.length || styleReferences.length || skill ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -147,7 +141,7 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
                         {references.map((item, index) => <MetaChip key={`r-${index}`} icon={<AtSign className="size-3" />} text={String(item.title || "画布节点")} />)}
                         {assetReferences.map((item, index) => <MetaChip key={`a-${index}`} icon={<Sparkles className="size-3" />} text={String(item.name || "创作设定")} />)}
                         {styleReferences.map((item, index) => <MetaChip key={`s-${index}`} icon={<Sparkles className="size-3" />} text={String(item.name || "视觉风格")} />)}
-                        {files.map((item, index) => item.fileId ? <a key={`f-${index}`} href={fileUrl(String(item.fileId))} target="_blank" rel="noreferrer"><MetaChip icon={<File className="size-3" />} text={String(item.name || "附件")} /></a> : <MetaChip key={`f-${index}`} icon={<File className="size-3" />} text={String(item.name || "附件")} />)}
+                        {files.map((item, index) => item.fileId ? <button type="button" key={`f-${index}`} aria-label={`预览附件${String(item.name || "附件")}`} onClick={() => setPreviewFile(item)}><MetaChip icon={fileIcon(String(item.mimeType || ""))} text={String(item.name || "附件")} /></button> : <MetaChip key={`f-${index}`} icon={fileIcon(String(item.mimeType || ""))} text={String(item.name || "附件")} />)}
                     </div>
                 ) : null}
                 </div>
@@ -155,12 +149,13 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
                     <Tooltip title="复制消息内容"><button type="button" aria-label="复制消息内容" onClick={() => copyText(text, "已复制消息内容")} className="grid size-7 place-items-center rounded-full border transition hover:-translate-y-px" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.muted }}><Copy className="size-3.5" /></button></Tooltip>
                     {onRestart ? <Popconfirm title="确认重新开始聊天线程？" description="会新建分支并把这条消息填回输入框；画布和工作目录不会回滚。" okText="确认重新开始" cancelText="取消" onConfirm={() => onRestart(event)}><Tooltip title="从这条消息重新开始"><button type="button" aria-label="从这条消息重新开始" disabled={restarting} className="grid size-7 place-items-center rounded-full border transition hover:-translate-y-px disabled:cursor-wait disabled:opacity-40" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.muted }}><Pencil className="size-3.5" /></button></Tooltip></Popconfirm> : null}
                 </div> : null}
+                <Modal title={previewFile ? String(previewFile.name || "附件") : "附件"} open={Boolean(previewFile)} onCancel={() => setPreviewFile(null)} footer={previewFile?.fileId ? <a href={fileUrl(String(previewFile.fileId))} download className="inline-flex items-center gap-2"><Download className="size-4" />下载原文件</a> : null} width="min(920px, calc(100vw - 32px))" destroyOnHidden>{previewFile?.fileId ? <iframe title={String(previewFile.name || "附件预览")} src={fileUrl(String(previewFile.fileId))} sandbox="allow-same-origin" className="h-[min(70vh,720px)] w-full border-0 bg-white" /> : null}</Modal>
             </article>
         </div>
     );
 }, (previous, next) => previous.theme === next.theme && previous.event.seq === next.event.seq && previous.event.payload === next.event.payload && previous.restarting === next.restarting && previous.onRestart === next.onRestart);
 
-export const AssistantRound = memo(function AssistantRound({ events, theme, status, pendingDecision, decisionValue = "", decisionBusy = false, onDecisionValue, onDecide, onBeforeProcessAutoCollapse }: { events: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; pendingDecision?: AgentPendingDecision | null; decisionValue?: string; decisionBusy?: boolean; onDecisionValue?: (value: string) => void; onDecide?: (decision: "approved" | "rejected", scope?: "once" | "session" | "project", proposalEdits?: unknown) => void; onBeforeProcessAutoCollapse?: (element: HTMLElement) => void }) {
+export const AssistantRound = memo(function AssistantRound({ events, theme, status, pendingDecision, onBeforeProcessAutoCollapse }: { events: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; pendingDecision?: AgentPendingDecision | null; onBeforeProcessAutoCollapse?: (element: HTMLElement) => void }) {
     const process = events.filter((event) => event.kind === "thinking" || event.kind === "tool_call");
     const { processMessages, answers } = splitAssistantRoundEvents(events);
     const artifacts = events.filter((event) => event.kind === "artifact");
@@ -177,7 +172,7 @@ export const AssistantRound = memo(function AssistantRound({ events, theme, stat
     });
     const latestState = states.at(-1);
     const roundCompleted = latestState?.payload.state === "completed" || status === "completed";
-    const copyText = answers.map(eventText).filter(Boolean).join("\n\n");
+    const copyText = [...processMessages, ...answers].map(eventText).map((text) => text.trim()).filter((text) => text && !/^思考[：:]/.test(text)).join("\n\n");
     const [copied, setCopied] = useState(false);
     const copy = async () => {
         if (!copyText) return;
@@ -193,21 +188,29 @@ export const AssistantRound = memo(function AssistantRound({ events, theme, stat
                 {copyText && roundCompleted ? <div className="mt-1 flex h-6 items-center"><Tooltip title={copied ? "已复制" : "复制回复"}><button type="button" aria-label="复制本轮回复内容" onClick={() => void copy()} className="grid size-6 place-items-center rounded-md opacity-0 transition hover:bg-black/5 group-hover/round:opacity-50 focus-visible:opacity-50 dark:hover:bg-white/10">{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}</button></Tooltip></div> : null}
             </div>
             {artifacts.length ? <ArtifactStrip events={artifacts} theme={theme} /> : null}
-            {requests.map((event) => {
-                const request = decisionFromRequest(event);
-                if (!request) return null;
-                if (pendingDecision?.id === request.id && onDecisionValue && onDecide) return <AgentDecisionCard key={event.seq} pending={pendingDecision} value={decisionValue} theme={theme} busy={decisionBusy} onChange={onDecisionValue} onDecide={onDecide} />;
-                return null;
-            })}
-            {errors.map((event) => <div key={event.seq} className="mt-3 rounded-xl border border-red-500/25 bg-red-500/5 px-3 py-2.5 text-sm text-red-600 dark:text-red-300"><div className="flex items-center gap-2 font-medium"><CircleAlert className="size-4" />{String(event.payload.code || "Agent 执行失败")}</div><div className="mt-1 opacity-80">{eventText(event)}</div></div>)}
+            {errors.map((event) => <AgentErrorNotice key={event.seq} event={event} />)}
             <RoundStatus events={events} status={status} />
         </div>
     );
 });
 
+function AgentErrorNotice({ event }: { event: ProjectedEvent }) {
+    const code = String(event.payload.code || "AGENT_RUN_FAILED");
+    const raw = eventText(event);
+    const known: Record<string, { title: string; message: string }> = {
+        AGENT_DECISION_INTERRUPTED: { title: "这次确认已经失效", message: "原任务已经中断，请重新发送刚才的请求。" },
+        AGENT_CLIENT_ACTION_TIMEOUT: { title: "页面操作等待超时", message: "请保持项目页面打开后重试。" },
+        AGENT_QUEUE_RUNNING: { title: "消息正在发送", message: "这条排队消息已经开始执行，暂时不能删除。" },
+        AGENT_RUN_FAILED: { title: "Agent 没有完成这轮任务", message: "可以直接重试；你的项目内容和草稿不会丢失。" },
+    };
+    const content = known[code] || { title: "Agent 执行遇到问题", message: raw || "请重试当前操作。" };
+    return <div className="agent-error-notice"><CircleAlert className="size-4 shrink-0" /><div className="min-w-0"><strong>{content.title}</strong><p>{content.message}</p>{known[code] && raw && raw !== content.message ? <details><summary>查看技术详情</summary><pre>{code} · {raw}</pre></details> : null}</div></div>;
+}
+
 function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, status, onBeforeAutoCollapse }: { events: ProjectedEvent[]; processMessages: ProjectedEvent[]; decisions: Array<{ request: AgentPendingDecision; event: ProjectedEvent; response?: ProjectedEvent }>; roundEvents: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; onBeforeAutoCollapse?: (element: HTMLElement) => void }) {
     const groupRef = useRef<HTMLElement>(null);
     const [open, setOpen] = useState(false);
+    const [showAllTools, setShowAllTools] = useState(false);
     const wasRunning = useRef(status === "running");
     const [now, setNow] = useState(Date.now());
     const tools = events.filter((event) => event.kind === "tool_call");
@@ -215,7 +218,11 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
     const terminal = Boolean(status && !["running", "waiting_for_user"].includes(status));
     const running = !terminal && (status === "running" || tools.some((event) => !event.result));
     const failed = tools.some((event) => Boolean(event.result?.payload.isError)) || status === "failed" || status === "canceled";
-    const headerParts = [tools.length ? `${tools.length} 次工具调用` : "", processMessages.length + decisions.length ? `${processMessages.length + decisions.length} 条过程记录` : "", thinking.length ? `思考 ${thinking.length} 轮` : ""].filter(Boolean);
+    const failedTools = tools.filter((event) => Boolean(event.result?.payload.isError)).length;
+    const latestFailedToolSeq = [...tools].reverse().find((event) => Boolean(event.result?.payload.isError))?.seq;
+    const runningTools = terminal ? 0 : tools.filter((event) => !event.result).length;
+    const headerParts = [tools.length ? `${tools.length} 次工具调用` : "", runningTools ? `${runningTools} 项进行中` : "", failedTools ? `${failedTools} 项失败` : "", processMessages.length + decisions.length ? `${processMessages.length + decisions.length} 条过程记录` : "", thinking.length ? `思考 ${thinking.length} 轮` : ""].filter(Boolean);
+    const visibleEvents = showAllTools || tools.length <= 6 ? events : events.filter((event) => event.kind === "thinking" || tools.slice(0, 4).includes(event) || tools.slice(-2).includes(event));
     const duration = roundDuration(roundEvents, running, now);
     useEffect(() => {
         if (!running) return;
@@ -224,6 +231,7 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
     }, [running]);
     useEffect(() => {
         if (wasRunning.current && !running && open && !failed) { if (groupRef.current) onBeforeAutoCollapse?.(groupRef.current); setOpen(false); }
+        if (failed) setOpen(true);
         wasRunning.current = running;
     }, [failed, onBeforeAutoCollapse, open, running]);
     return (
@@ -235,15 +243,38 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
             </button>
             {open ? (
                 <div className="agent-process-content">
-                    {events.map((event) => event.kind === "thinking"
+                    {visibleEvents.map((event) => event.kind === "thinking"
                         ? <ThinkingStep key={`${event.seq}`} event={event} theme={theme} />
-                        : <ToolStep key={`${event.seq}`} event={event} theme={theme} now={now} terminalStatus={terminal ? status : undefined} />)}
+                        : <ToolStep key={`${event.seq}`} event={event} theme={theme} now={now} terminalStatus={terminal ? status : undefined} autoOpenFailure={event.seq === latestFailedToolSeq} />)}
+                    {tools.length > 6 ? <button type="button" className="agent-process-more" onClick={() => setShowAllTools((value) => !value)}>{showAllTools ? "收起工具步骤" : `查看全部 ${tools.length} 个工具步骤`}</button> : null}
                     {processMessages.length ? <div className="agent-process-records">{processMessages.map((event) => <div key={event.seq} className="agent-process-record"><Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } }}>{eventText(event)}</Streamdown></div>)}</div> : null}
-                    {decisions.length ? <div className="agent-process-records">{decisions.map(({ request, event, response }) => <div key={event.seq} className="agent-process-record flex items-start gap-2"><ShieldAlert className="mt-1 size-3.5 shrink-0" /><span className="min-w-0"><strong className="block font-medium text-current">{request.kind === "question" ? "Agent 追问" : "操作确认"}</strong><span className="block break-words">{request.content}</span><em className="mt-0.5 block text-[10px] not-italic opacity-60">{response ? String(response.payload.decision || "completed") === "approved" ? "已允许" : "已处理" : "已结束"}</em></span></div>)}</div> : null}
+                    {decisions.length ? <div className="agent-process-records">{decisions.map(({ request, event, response }) => <DecisionHistory key={event.seq} request={request} response={response} />)}</div> : null}
                 </div>
             ) : null}
         </section>
     );
+}
+
+function DecisionHistory({ request, response }: { request: AgentPendingDecision; response?: ProjectedEvent }) {
+    const [open, setOpen] = useState(false);
+    const answers = recordOf(response?.payload.answers);
+    const approved = String(response?.payload.decision || "") === "approved";
+    if (request.kind === "question") {
+        const state = !response ? "waiting" : approved ? "answered" : "canceled";
+        const questions = request.questions || [];
+        return <div className="agent-question-history">
+            <button type="button" className="agent-question-history-header" aria-expanded={open} aria-label={open ? "收起问答详情" : "展开问答详情"} onClick={() => setOpen((value) => !value)}>
+                <span className={`agent-question-history-state is-${state}`}>{state === "canceled" ? <CircleSlash2 className="size-4" /> : state === "answered" ? <CircleCheck className="size-4" /> : <MessageCircleQuestion className="size-4" />}</span>
+                <span className="agent-question-history-summary"><strong>{state === "canceled" ? "已取消回答" : state === "answered" ? "已完成回答" : "等待回答"}</strong><span>· {questions.length} 个问题</span></span>
+                <ChevronDown className={`agent-question-history-chevron size-4 ${open ? "is-open" : ""}`} />
+            </button>
+            {open ? <div className="agent-question-history-content">{questions.map((question, index) => {
+                const answer = String(answers?.[question.id] || "").trim();
+                return <div className="agent-question-history-item" key={question.id}><span>{question.header || `问题 ${index + 1}`}</span><strong>{question.question}</strong><p>{answer || (state === "canceled" ? "未回答" : "已跳过")}</p></div>;
+            })}</div> : null}
+        </div>;
+    }
+    return <div className="agent-process-record flex items-start gap-2"><ShieldAlert className="mt-1 size-3.5 shrink-0" /><span className="min-w-0"><strong className="block font-medium text-current">操作确认</strong><span className="block break-words">{request.content}</span><em className="mt-0.5 block text-[10px] not-italic opacity-60">{response ? approved ? "已允许" : "已取消" : "已结束"}</em></span></div>;
 }
 
 function ThinkingStep({ event, theme }: { event: ProjectedEvent; theme: CanvasTheme }) {
@@ -251,7 +282,7 @@ function ThinkingStep({ event, theme }: { event: ProjectedEvent; theme: CanvasTh
     const text = eventText(event).replace(/^思考[：:]\s*/i, "");
     return (
         <div className="agent-process-step">
-            <button type="button" onClick={() => setOpen((value) => !value)} className="agent-process-step-toggle">
+            <button type="button" onClick={() => setOpen((value) => !value)} className="agent-process-step-toggle" aria-expanded={open} aria-label={open ? "收起详情" : "展开详情"}>
                 <Brain className="size-3.5 shrink-0" /><span className="min-w-0 flex-1 truncate">{text || "思考过程"}</span><ChevronDown className={`size-3 transition ${open ? "rotate-180" : ""}`} />
             </button>
             {open ? <div className="agent-process-thinking">{text}</div> : null}
@@ -259,17 +290,18 @@ function ThinkingStep({ event, theme }: { event: ProjectedEvent; theme: CanvasTh
     );
 }
 
-function ToolStep({ event, theme, now, terminalStatus }: { event: ProjectedEvent; theme: CanvasTheme; now: number; terminalStatus?: AgentSession["status"] }) {
-    const [open, setOpen] = useState(false);
+function ToolStep({ event, theme, now, terminalStatus, autoOpenFailure }: { event: ProjectedEvent; theme: CanvasTheme; now: number; terminalStatus?: AgentSession["status"]; autoOpenFailure?: boolean }) {
     const failed = Boolean(event.result?.payload.isError);
+    const [open, setOpen] = useState(Boolean(failed && autoOpenFailure));
     const name = formatAgentToolName(String(event.payload.toolName || "工具"));
     const target = toolTarget(event.payload.input);
     const duration = toolDuration(event, now);
     const settled = Boolean(event.result || terminalStatus);
     const settledFailed = failed || terminalStatus === "failed" || terminalStatus === "canceled";
+    useEffect(() => { if (failed && autoOpenFailure) setOpen(true); }, [autoOpenFailure, failed]);
     return (
         <div className="agent-process-step">
-            <button type="button" onClick={() => setOpen((value) => !value)} className="agent-process-step-toggle">
+            <button type="button" onClick={() => setOpen((value) => !value)} className="agent-process-step-toggle" aria-expanded={open} aria-label={open ? "收起详情" : "展开详情"}>
                 <Wrench className="size-3.5 shrink-0 opacity-50" />
                 <span className="min-w-0 flex-1 truncate font-medium">{name}{target ? <span className="font-normal opacity-45"> · {target}</span> : null}</span>
                 {duration ? <span className="tabular-nums opacity-40">{duration}</span> : null}
@@ -288,15 +320,23 @@ function CodeBlock({ label, value, theme }: { label: string; value: unknown; the
 }
 
 function ArtifactStrip({ events, theme }: { events: ProjectedEvent[]; theme: CanvasTheme }) {
-    const images = events.filter((event) => String(event.payload.mimeType || "").startsWith("image/"));
-    const files = events.filter((event) => !String(event.payload.mimeType || "").startsWith("image/"));
+    const [preview, setPreview] = useState<ProjectedEvent | null>(null);
+    const unique = events.filter((event, index) => events.findIndex((candidate) => artifactKey(candidate) === artifactKey(event)) === index);
+    const images = unique.filter((event) => String(event.payload.mimeType || "").startsWith("image/"));
+    const files = unique.filter((event) => !String(event.payload.mimeType || "").startsWith("image/"));
     return (
         <div className="mt-4 space-y-2">
-            {images.length ? <Image.PreviewGroup><div className="grid grid-cols-2 gap-2">{images.map((event) => <div key={event.seq} className="group/artifact relative overflow-hidden rounded-xl border" style={{ borderColor: theme.node.stroke }}><Image preview src={String(event.payload.url)} alt={String(event.payload.title || "Agent 产物")} className="!h-32 !w-full object-cover" /><span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/45 px-2 py-1 text-[11px] text-white">{String(event.payload.title || event.payload.name || "图片产物")}</span><a href={String(event.payload.url || "#")} download className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-lg bg-black/45 text-white opacity-0 transition group-hover/artifact:opacity-100" title="下载产物"><Download className="size-3.5" /></a></div>)}</div></Image.PreviewGroup> : null}
-            {files.map((event) => <a key={event.seq} href={String(event.payload.url || "#")} download className="flex items-center gap-3 rounded-xl border p-3 transition hover:opacity-75" style={{ borderColor: theme.node.stroke, color: theme.node.text }}><span className="grid size-9 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}><Archive className="size-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{String(event.payload.title || event.payload.name || "Agent 产物")}</span><span className="text-xs opacity-45">{formatBytes(Number(event.payload.bytes) || 0)}</span></span></a>)}
+            {images.length ? <Image.PreviewGroup><div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>{images.map((event) => <div key={event.seq} className="group/artifact relative grid place-items-center overflow-hidden rounded-xl border bg-white" style={{ borderColor: theme.node.stroke }}><Image preview src={String(event.payload.url)} alt={String(event.payload.title || "Agent 产物")} rootClassName="!grid !w-full place-items-center" className={`!block !h-auto !w-full object-contain ${images.length === 1 ? "!max-h-[520px]" : "!max-h-60"}`} /><span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/45 px-2 py-1 text-[11px] text-white">{String(event.payload.title || event.payload.name || "图片产物")}</span><a href={String(event.payload.url || "#")} download className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-lg bg-black/45 text-white opacity-0 transition group-hover/artifact:opacity-100" title="下载产物"><Download className="size-3.5" /></a></div>)}</div></Image.PreviewGroup> : null}
+            {files.map((event) => <div key={event.seq} className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: theme.node.stroke, color: theme.node.text }}><span className="grid size-9 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}>{artifactIcon(String(event.payload.mimeType || ""))}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{String(event.payload.title || event.payload.name || "Agent 产物")}</span><span className="text-xs opacity-45">{artifactKind(String(event.payload.mimeType || ""))}{Number(event.payload.bytes) ? ` · ${formatBytes(Number(event.payload.bytes))}` : ""}</span></span><Tooltip title="预览"><button type="button" className="grid size-8 place-items-center rounded-lg hover:bg-black/5" onClick={() => setPreview(event)}><Eye className="size-3.5" /></button></Tooltip><Tooltip title="下载"><a href={String(event.payload.url || "#")} download className="grid size-8 place-items-center rounded-lg hover:bg-black/5"><Download className="size-3.5" /></a></Tooltip></div>)}
+            <Modal title={preview ? String(preview.payload.title || preview.payload.name || "Agent 产物") : "Agent 产物"} open={Boolean(preview)} onCancel={() => setPreview(null)} footer={preview ? <a href={String(preview.payload.url || "#")} download className="inline-flex items-center gap-2"><Download className="size-4" />下载原文件</a> : null} width="min(920px, calc(100vw - 32px))" destroyOnHidden>{preview ? <iframe title="Agent 产物预览" src={String(preview.payload.url || "about:blank")} sandbox="allow-same-origin" className="h-[min(70vh,720px)] w-full border-0 bg-white" /> : null}</Modal>
         </div>
     );
 }
+
+function artifactKey(event: ProjectedEvent) { return String(event.payload.fileId || event.payload.url || (event.payload.name || event.payload.title ? `${event.payload.name || event.payload.title}:${event.payload.mimeType || ""}` : event.seq)); }
+
+function artifactIcon(mimeType: string) { if (mimeType.startsWith("audio/")) return <FileAudio className="size-4" />; if (mimeType.startsWith("video/")) return <FileVideo className="size-4" />; if (mimeType.includes("pdf") || mimeType.startsWith("text/")) return <FileText className="size-4" />; return <Archive className="size-4" />; }
+function artifactKind(mimeType: string) { if (mimeType.startsWith("audio/")) return "音频"; if (mimeType.startsWith("video/")) return "视频"; if (mimeType.includes("pdf")) return "PDF"; if (mimeType.includes("markdown")) return "Markdown"; if (mimeType.startsWith("text/")) return "文本文档"; return "文件"; }
 
 function RoundStatus({ events, status }: { events: ProjectedEvent[]; status?: AgentSession["status"] }) {
     const forkBoundary = [...events].reverse().find((event) => event.kind === "run_state" && Number(event.payload.forkSourceSeq) > 0);
@@ -327,36 +367,27 @@ function StatusPill({ state, text }: { state: "idle" | "running" | "failed" | "c
     return <div className="agent-status-row"><Popover content={text.trim()} placement="top" trigger={["hover", "click"]} mouseEnterDelay={0.12} mouseLeaveDelay={0.12} autoAdjustOverflow arrow classNames={{ root: "agent-status-popover", content: "agent-status-popover-content" }} styles={{ root: { maxWidth: "min(560px, calc(100vw - 24px))" }, container: { padding: 0, border: "1px solid #e2e8f0", borderRadius: 12, background: "#ffffff", color: "#334155", boxShadow: "0 10px 24px rgba(15, 23, 42, 0.14)" }, content: { maxHeight: "min(280px, calc(100vh - 48px))", overflow: "auto", padding: "10px 12px", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, lineHeight: 1.55 } }}>{pill}</Popover></div>;
 }
 
-export function AgentDecisionCard({ pending, value, theme, busy, onChange, onDecide }: {
+export function AgentDecisionCard({ pending, theme, busy, onDecide }: {
     pending: AgentPendingDecision;
-    value: string;
     theme: CanvasTheme;
     busy: boolean;
-    onChange: (value: string) => void;
     onDecide: (decision: "approved" | "rejected", scope?: "once" | "session" | "project", proposalEdits?: unknown) => void;
 }) {
-    const question = pending.kind === "question";
-    const proposal = pending.toolName === "creative_assets_create_batch";
-    const scopes = pending.scopes?.length ? pending.scopes : ["once"];
+    const director = pending.toolName === "director_create_assets";
+    const proposal = ["creative_assets_create_batch", "director_create_assets"].includes(pending.toolName || "");
     return (
         <section className="mx-3 mb-2 overflow-hidden rounded-2xl border" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
             <div className="flex gap-3 p-3.5">
                 <span className="grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}><ShieldAlert className="size-4" /></span>
-                <div className="min-w-0 flex-1"><div className="text-sm font-medium">{question ? "Agent 需要你补充信息" : proposal ? "检查小说拆解清单" : "Agent 请求确认权限"}</div><p className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>{pending.content}</p>{pending.toolName ? <div className="mt-2 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]" style={{ borderColor: theme.node.stroke }}><Wrench className="size-3" />{formatAgentToolName(pending.toolName)}</div> : null}{pending.rulePreview?.length ? <div className="mt-2 space-y-1 text-[11px] opacity-55">{pending.rulePreview.map((rule, index) => <div key={`${rule}-${index}`} className="truncate">规则：{rule}</div>)}</div> : null}</div>
+                <div className="min-w-0 flex-1"><div className="text-sm font-medium">{proposal ? "检查素材拆解清单" : "Agent 请求确认"}</div><p className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>{pending.content}</p>{pending.toolName ? <div className="mt-2 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]" style={{ borderColor: theme.node.stroke }}><Wrench className="size-3" />{formatAgentToolName(pending.toolName)}</div> : null}</div>
             </div>
-            {question ? <div className="px-3.5 pb-3"><Input.TextArea value={value} onChange={(event) => onChange(event.target.value)} autoFocus autoSize={{ minRows: 2, maxRows: 6 }} placeholder="输入回复，Agent 会从这里继续" /></div> : proposal ? <CreativeAssetProposal pending={pending} theme={theme} busy={busy} onReject={() => onDecide("rejected")} onConfirm={(items) => onDecide("approved", "once", items)} /> : null}
-            {proposal ? null : (
-            <div className="flex flex-wrap justify-end gap-1.5 border-t px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}>
-                <Button type="text" size="small" disabled={busy} onClick={() => onDecide("rejected")}>{question ? "拒绝并改方案" : "拒绝"}</Button>
-                {question ? <Button type="primary" size="small" disabled={!value.trim() || busy} onClick={() => onDecide("approved")}>提交回复</Button> : <>{scopes.includes("once") ? <Button size="small" disabled={busy} onClick={() => onDecide("approved", "once")}>允许一次</Button> : null}{scopes.includes("session") ? <Button size="small" disabled={busy} onClick={() => onDecide("approved", "session")}>本会话记住</Button> : null}{scopes.includes("project") ? <Button type="primary" size="small" disabled={busy} onClick={() => onDecide("approved", "project")}>此项目允许</Button> : null}</>}
-            </div>
-            )}
+            {proposal ? <CreativeAssetProposal pending={pending} theme={theme} busy={busy} director={director} onReject={() => onDecide("rejected")} onConfirm={(items) => onDecide("approved", "once", items)} /> : null}
         </section>
     );
 }
 
 type ProposalItem = { included: boolean; kind: "character" | "scene" | "prop"; name: string; status: "draft"; payload: { description: string; narrativeDescription: string; visualDescription: string; mediaDrafts: { image: { prompt: string; model: null; params: Record<string, unknown> }; audio: { prompt: string; model: null; params: Record<string, unknown>; audioMode: "speech" | "ambient" | "sfx"; transcript: string } }; [key: string]: unknown } };
-function CreativeAssetProposal({ pending, theme, busy, onReject, onConfirm }: { pending: AgentPendingDecision; theme: CanvasTheme; busy: boolean; onReject: () => void; onConfirm: (items: unknown[]) => void }) {
+function CreativeAssetProposal({ pending, theme, busy, director, onReject, onConfirm }: { pending: AgentPendingDecision; theme: CanvasTheme; busy: boolean; director: boolean; onReject: () => void; onConfirm: (items: unknown[]) => void }) {
     const source = recordOf(pending.toolInput) || {};
     const [items, setItems] = useState<ProposalItem[]>(() => arrayOf<Record<string, unknown>>(source.items).map(normalizeProposalItem));
     useEffect(() => setItems(arrayOf<Record<string, unknown>>((recordOf(pending.toolInput) || {}).items).map(normalizeProposalItem)), [pending.id, pending.toolInput]);
@@ -383,7 +414,7 @@ function CreativeAssetProposal({ pending, theme, busy, onReject, onConfirm }: { 
                 </div>)}</div></section>;
             })}
         </div>
-        <div className="flex items-center border-t px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}><span className="text-xs opacity-45">{ready ? `将在画布创建 ${selected.length} 张独立业务卡片` : "角色需要音色设计和试听台词"}</span><Button className="ml-auto" type="text" size="small" disabled={busy} onClick={onReject}>拒绝</Button><Button type="primary" size="small" disabled={!selected.length || !ready || busy} onClick={() => onConfirm(selected.map(({ included: _included, ...item }) => item))}>确认创建</Button></div>
+        <div className="flex items-center border-t px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}><span className="text-xs opacity-45">{ready ? `将在${director ? "导演项目" : "画布"}创建 ${selected.length} 张独立素材卡` : "角色需要音色设计和试听台词"}</span><Button className="ml-auto" type="text" size="small" disabled={busy} onClick={onReject}>取消</Button><Button type="primary" size="small" disabled={!selected.length || !ready || busy} onClick={() => onConfirm(selected.map(({ included: _included, ...item }) => item))}>创建素材</Button></div>
     </div>;
 }
 
@@ -555,10 +586,9 @@ export function AgentUserLocator({ events, turnIndex, containerRef, theme, onLoc
     const loadedUsers = useMemo(() => projectAgentEvents(events).filter((event) => event.kind === "user_text"), [events]);
     const users = useMemo(() => turnIndex?.length ? turnIndex.map((item) => ({ ...loadedUsers.find((event) => event.seq === item.seq), sessionId: "", seq: item.seq, runId: item.runId, kind: "user_text" as const, payload: { text: item.text }, createdAt: item.createdAt })) : loadedUsers, [loadedUsers, turnIndex]);
     const [activeSeq, setActiveSeq] = useState(0);
-    const [open, setOpen] = useState(false);
     useEffect(() => {
         const container = containerRef.current;
-        if (!container || users.length < 3) return;
+        if (!container || users.length < 2) return;
         const update = () => {
             const top = container.getBoundingClientRect().top + 80;
             let active = users[0]?.seq || 0;
@@ -571,14 +601,16 @@ export function AgentUserLocator({ events, turnIndex, containerRef, theme, onLoc
         container.addEventListener("scroll", update, { passive: true });
         return () => container.removeEventListener("scroll", update);
     }, [containerRef, users]);
-    if (users.length < 3) return null;
+    if (users.length < 2) return null;
     const activeIndex = Math.max(0, users.findIndex((event) => event.seq === activeSeq));
     const start = Math.max(0, Math.min(activeIndex - 10, users.length - 21));
     const visible = users.slice(start, start + 21);
     const jump = (seq: number) => { const node = containerRef.current?.querySelector<HTMLElement>(`[data-agent-user-seq='${seq}']`); if (node) node.scrollIntoView({ behavior: "smooth", block: "start" }); else onLocate?.(seq); };
-    return <nav className="absolute right-1 top-1/2 z-10 -translate-y-1/2" aria-label="对话轮次定位" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)} onFocus={() => setOpen(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
-        {open ? <div className="thin-scrollbar max-h-80 w-56 overflow-y-auto rounded-xl border p-1.5 shadow-xl backdrop-blur-xl" style={{ background: theme.node.panel, borderColor: theme.node.stroke }}>{users.map((event, index) => <button key={event.seq} type="button" className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition hover:bg-black/5 dark:hover:bg-white/10" style={{ opacity: event.seq === activeSeq ? 1 : .62 }} onClick={() => jump(event.seq)}><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-current" /><span className="min-w-0"><span className="block text-[10px] opacity-45">第 {index + 1} 轮</span><span className="line-clamp-2 leading-4">{eventText(event) || "空消息"}</span></span></button>)}</div>
-            : <div className="flex flex-col items-center gap-1 rounded-full bg-black/5 px-1.5 py-2 backdrop-blur dark:bg-white/5">{visible.map((event) => <button key={event.seq} type="button" aria-label={`定位到第 ${users.findIndex((item) => item.seq === event.seq) + 1} 轮`} className={`rounded-full transition-all ${event.seq === activeSeq ? "h-3 w-1.5 bg-current opacity-60" : "size-1.5 bg-current opacity-20 hover:opacity-50"}`} onClick={() => jump(event.seq)} />)}</div>}
+    return <nav className="agent-user-locator" aria-label="用户消息快速定位">
+        <div className="agent-user-locator-inner">
+            <div className="agent-user-locator-dots" aria-hidden="true">{visible.map((event) => <span key={event.seq} className={event.seq === activeSeq ? "is-active" : ""} />)}</div>
+            <div className="agent-user-locator-panel" style={{ background: theme.node.panel, borderColor: theme.node.stroke }}><div className="thin-scrollbar agent-user-locator-list" aria-label="用户消息快速定位列表">{users.map((event, index) => <button key={event.seq} type="button" aria-current={event.seq === activeSeq ? "true" : undefined} aria-label={`定位到第 ${index + 1} 条用户消息：${eventText(event) || "空消息"}`} title={eventText(event) || "空消息"} onClick={(clickEvent) => { jump(event.seq); if (clickEvent.detail > 0) clickEvent.currentTarget.blur(); }}><span>{eventText(event) || "空消息"}</span></button>)}</div></div>
+        </div>
     </nav>;
 }
 

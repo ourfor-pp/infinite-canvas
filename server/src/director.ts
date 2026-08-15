@@ -53,6 +53,25 @@ export function getDirectorState(userId: string, projectId: string) {
     return { activeStyleId: activeStyleId(userId, projectId), workspace: workspaceResponse(workspace), documents: documents.map(documentResponse), sources: sources.map(sourceResponse), sequences: sequences.map(sequenceResponse), videoSegments: shots.map(videoSegmentResponse), timeline: timelineResponse(timeline) };
 }
 
+export function getDirectorAgentOverview(userId: string, projectId: string) {
+    assertDirectorProject(userId, projectId);
+    const workspace = db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow;
+    const documents = db.prepare("SELECT project_id,kind,status,revision,created_at,updated_at FROM director_documents WHERE user_id=? AND project_id=? ORDER BY kind").all(userId, projectId) as Array<Omit<DocumentRow, "user_id" | "content">>;
+    const sources = db.prepare("SELECT id,project_id,raw_file_id,name,mime_type,status,error,char_count,chapter_count,summary,revision,created_at,updated_at FROM director_sources WHERE user_id=? AND project_id=? ORDER BY updated_at DESC").all(userId, projectId) as Array<Omit<SourceRow, "user_id" | "outline">>;
+    const sequences = db.prepare("SELECT id,project_id,position,title,summary,status,revision,created_at,updated_at FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position,created_at").all(userId, projectId) as Array<Omit<SequenceRow, "user_id" | "payload">>;
+    const videoSegmentCount = Number((db.prepare("SELECT count(*) count FROM director_shots WHERE user_id=? AND project_id=?").get(userId, projectId) as { count: number }).count);
+    const timeline = db.prepare("SELECT project_id,revision,updated_at FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as Pick<TimelineRow, "project_id" | "revision" | "updated_at">;
+    return {
+        activeStyleId: activeStyleId(userId, projectId),
+        workspace: workspaceResponse(workspace),
+        documents: documents.map((row) => ({ projectId: row.project_id, kind: row.kind, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
+        sources: sources.map((row) => ({ id: row.id, projectId: row.project_id, fileId: row.raw_file_id, name: row.name, mimeType: row.mime_type, status: row.status, error: row.error, charCount: row.char_count, chapterCount: row.chapter_count, summary: row.summary, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
+        sequences: sequences.map((row) => ({ id: row.id, projectId: row.project_id, position: row.position, title: row.title, summary: row.summary, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
+        videoSegmentCount,
+        timeline: { projectId: timeline.project_id, revision: timeline.revision, updatedAt: timeline.updated_at },
+    };
+}
+
 export function updateDirectorWorkspace(userId: string, projectId: string, body: unknown) {
     assertDirectorProject(userId, projectId);
     const value = workspacePatch.parse(body);
@@ -104,6 +123,13 @@ export function getDirectorDocument(userId: string, projectId: string, kind: str
     return documentResponse(row);
 }
 
+export function getDirectorDocumentExcerpt(userId: string, projectId: string, kind: string, query: unknown = {}) {
+    const document = getDirectorDocument(userId, projectId, kind);
+    const value = z.object({ offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(100_000).default(40_000) }).parse(query);
+    const offset = Math.min(value.offset, document.content.length);
+    return { ...document, content: document.content.slice(offset, offset + value.limit), offset, limit: value.limit, totalCharacters: document.content.length, hasMore: offset + value.limit < document.content.length };
+}
+
 export function updateDirectorDocument(userId: string, projectId: string, kind: string, body: unknown) {
     assertDirectorProject(userId, projectId);
     const documentKind = z.enum(["story", "script"]).parse(kind);
@@ -122,6 +148,35 @@ export function updateDirectorDocument(userId: string, projectId: string, kind: 
 export function listDirectorSequences(userId: string, projectId: string) {
     assertDirectorProject(userId, projectId);
     return (db.prepare("SELECT * FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position,created_at").all(userId, projectId) as SequenceRow[]).map(sequenceResponse);
+}
+
+export function listDirectorSequenceSummaries(userId: string, projectId: string, query: unknown = {}) {
+    assertDirectorProject(userId, projectId);
+    const value = z.object({ offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(50).default(20) }).parse(query);
+    const total = Number((db.prepare("SELECT count(*) count FROM director_sequences WHERE user_id=? AND project_id=?").get(userId, projectId) as { count: number }).count);
+    const rows = db.prepare("SELECT id,project_id,position,title,summary,status,revision,created_at,updated_at FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position,created_at LIMIT ? OFFSET ?").all(userId, projectId, value.limit, value.offset) as Array<Omit<SequenceRow, "user_id" | "payload">>;
+    return { items: rows.map((row) => ({ id: row.id, projectId: row.project_id, position: row.position, title: row.title, summary: row.summary, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })), total, offset: value.offset, limit: value.limit };
+}
+
+export function listDirectorVideoSegments(userId: string, projectId: string, query: unknown = {}) {
+    assertDirectorProject(userId, projectId);
+    const value = z.object({ sequenceId: id.optional(), q: z.string().trim().max(300).optional(), offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(10).default(10), view: z.enum(["prompt", "full"]).default("prompt") }).parse(query);
+    const conditions = ["shot.user_id=?", "shot.project_id=?"];
+    const params: Array<string | number> = [userId, projectId];
+    if (value.sequenceId) { conditions.push("shot.sequence_id=?"); params.push(value.sequenceId); }
+    if (value.q) { conditions.push("shot.title LIKE ? ESCAPE '\\'"); params.push(`%${value.q.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`); }
+    const where = conditions.join(" AND ");
+    const total = Number((db.prepare(`SELECT count(*) count FROM director_shots shot WHERE ${where}`).get(...params) as { count: number }).count);
+    const rows = db.prepare(`SELECT shot.* FROM director_shots shot JOIN director_sequences sequence ON sequence.id=shot.sequence_id WHERE ${where} ORDER BY sequence.position,shot.position,shot.created_at LIMIT ? OFFSET ?`).all(...params, value.limit, value.offset) as ShotRow[];
+    const response = rows.map(videoSegmentResponse);
+    return { items: value.view === "full" ? response : response.map(videoSegmentPromptResponse), total, offset: value.offset, limit: value.limit };
+}
+
+export function getDirectorVideoSegment(userId: string, projectId: string, segmentId: string) {
+    assertDirectorProject(userId, projectId);
+    const row = shotRow(userId, segmentId);
+    if (row.project_id !== projectId) throw directorError(404, "DIRECTOR_SHOT_NOT_FOUND", "视频段不存在");
+    return videoSegmentResponse(row);
 }
 
 export function createDirectorSequence(userId: string, projectId: string, body: unknown) {
@@ -446,6 +501,17 @@ function sourceResponse(row: SourceRow) { return { id: row.id, projectId: row.pr
 function documentResponse(row: DocumentRow) { return { projectId: row.project_id, kind: row.kind, content: row.content, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function sequenceResponse(row: SequenceRow) { return { id: row.id, projectId: row.project_id, position: row.position, title: row.title, summary: row.summary, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function videoSegmentResponse(row: ShotRow) { return { id: row.id, projectId: row.project_id, sequenceId: row.sequence_id, position: row.position, title: row.title, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function videoSegmentPromptResponse(segment: ReturnType<typeof videoSegmentResponse>) {
+    const payload = segment.payload as Record<string, unknown>;
+    const sheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : {};
+    const frames = Array.isArray(sheet.frames) ? sheet.frames as Array<Record<string, unknown>> : [];
+    return { ...segment, payload: {
+        durationSeconds: payload.durationSeconds, boundary: payload.boundary, description: payload.description, action: payload.action, dialogue: payload.dialogue, narration: payload.narration, camera: payload.camera, audio: payload.audio,
+        characterRefs: payload.characterRefs, sceneRefs: payload.sceneRefs, propRefs: payload.propRefs,
+        storyboardStale: Boolean(payload.storyboardStale), videoStale: Boolean(payload.videoStale),
+        storyboardSheet: { revision: sheet.revision, layout: sheet.layout, hasImage: Boolean(sheet.imageFileId), hasPrompt: Boolean(sheet.promptSnapshot), frames: frames.map((frame) => ({ id: frame.id, position: frame.position, shotNumber: frame.shotNumber, timeSeconds: frame.timeSeconds, kind: frame.kind, description: frame.description, action: frame.action, cameraAngle: frame.cameraAngle, cameraMove: frame.cameraMove, sound: frame.sound, guideEnabled: frame.guideEnabled, guideStrength: frame.guideStrength })) },
+    } };
+}
 function timelineResponse(row: TimelineRow) { return { projectId: row.project_id, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 export const createDirectorVideoSegment = createDirectorShot;
 export const updateDirectorVideoSegment = updateDirectorShot;

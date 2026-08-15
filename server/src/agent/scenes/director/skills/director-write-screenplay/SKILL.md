@@ -1,7 +1,7 @@
 ---
 name: director-write-screenplay
 description: 将导演项目故事改写为结构化场次、动作、对白和旁白组成的长视频剧本。
-allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_update_document]
+allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_get_document, mcp__infinite_canvas__director_update_document]
 ---
 
 # 导演台剧本创作
