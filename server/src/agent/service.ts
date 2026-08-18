@@ -495,6 +495,7 @@ async function executeRun(run: RunRow, controller: AbortController) {
                 input.close();
                 if (!(error instanceof RetriableAgentDiagnosticError) || attempt === 1 || controller.signal.aborted) throw error;
                 appendEvent(session.id, run.id, "run_state", { state: "running", content: "收到补充消息后上游回合提前结束，正在自动续接" });
+                await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
                 input = new SdkInputChannel([sdkUserMessage(retryAgentPrompt(session.id, run.id))]);
             }
         }
@@ -513,8 +514,9 @@ async function executeRun(run: RunRow, controller: AbortController) {
     } catch (error) {
         const current = getSessionRow(run.user_id, session.id);
         if (current?.status === "canceled") return;
-        const message = sanitizeError(error instanceof Error ? error.message : "Agent 执行失败");
-        const code = String((error as { code?: string }).code || "AGENT_RUN_FAILED");
+        const diagnostic = error instanceof RetriableAgentDiagnosticError;
+        const message = diagnostic ? "上游连续返回空回合，补充消息已经保存，可以直接重试继续" : sanitizeError(error instanceof Error ? error.message : "Agent 执行失败");
+        const code = diagnostic ? "AGENT_EMPTY_RESPONSE" : String((error as { code?: string }).code || "AGENT_RUN_FAILED");
         const now = new Date().toISOString();
         db.transaction(() => {
             db.prepare("UPDATE agent_sessions SET status='failed', current_run_id=NULL, pending_decision=NULL, last_error=?, last_error_code=?, updated_at=? WHERE id=? AND user_id=?").run(message, code, now, session.id, run.user_id);
@@ -657,7 +659,10 @@ async function consumeSdkMessage(sessionId: string, runId: string, message: SDKM
 
 export function isRetriableAgentDiagnostic(message: string) {
     const value = message.toLowerCase();
-    return value.includes("[ede_diagnostic]") && ((value.includes("result_type=user") && value.includes("stop_reason=tool_use")) || (value.includes("result_type=assistant") && value.includes("last_content_type=none")));
+    if (!value.includes("[ede_diagnostic]")) return false;
+    const emptyAssistant = value.includes("result_type=assistant") && value.includes("last_content_type=none");
+    const interruptedByUserInput = value.includes("result_type=user") && value.includes("last_content_type=n/a") && (value.includes("stop_reason=tool_use") || value.includes("stop_reason=null"));
+    return emptyAssistant || interruptedByUserInput;
 }
 
 function retryAgentPrompt(sessionId: string, runId: string) {

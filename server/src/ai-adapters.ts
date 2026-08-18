@@ -11,7 +11,7 @@ import { modelEndpointRegistry, providerBaseUrl, providerPath, type AiModelDefin
 import type { GenerationPurpose } from "./comfy-workflows.js";
 
 export type GenerationMessage = { role: "system" | "user" | "assistant"; content: unknown };
-export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text">; role?: "reference" | "first-frame" | "last-frame" | "continuation"; transcript?: string };
+export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text">; role?: "reference" | "first-frame" | "last-frame" | "continuation"; purpose?: "reference_input" | "identity_reference" | "wardrobe_reference" | "composition_reference"; label?: string; source?: "style" | "asset" | "canvas" | "primary"; transcript?: string };
 export type AiGenerationRequest = {
     kind: MediaKind;
     model?: string;

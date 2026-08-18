@@ -1,12 +1,12 @@
 ---
 name: director-breakdown-assets
-description: 从已确认剧本整理并提交角色、场景、道具候选资产。
+description: 从当前剧本整理并提交角色、场景、道具候选资产。
 allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_get_document, mcp__infinite_canvas__director_list_assets, mcp__infinite_canvas__director_create_assets]
 ---
 
 # 导演台资产拆解
 
-只从已确认剧本提取会实际出镜或发声的角色、场景和道具。先读取现有资产，按稳定身份合并同一实体。
+只从当前已保存剧本提取会实际出镜或发声的角色、场景和道具。先读取现有资产，按稳定身份合并同一实体。
 
 角色候选必须区分剧情信息与视觉信息：
 

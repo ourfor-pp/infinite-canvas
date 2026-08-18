@@ -56,7 +56,7 @@ const state = {
             position: 0,
             title: "车站全景",
             status: "confirmed",
-            payload: { description: "林夏走入车站", durationSeconds: 8, boundary: "cut", h3Mode: "fl2va", h3ModeReason: "单镜头视频段使用首尾帧精确锚定", nativeAudioStatus: "ready", videoFileId: "video-1", storyboardFrameCount: 6, h3PromptSnapshot: { mode: "fl2va", qualityPreset: "preview", prompt: "How the reference pictures align with the target video.\n\nintegrated_multimodal_description: [Shot 1] Rain falls over the station.\n\noverall_soundscape: Rain.\n\nnon_diegetic_music: N/A", references: [{ fileId: "character-image", kind: "image", role: "reference" }, { fileId: "scene-image", kind: "image", role: "reference" }], temporalGuides: [{ frameId: "frame-0", fileId: "guide-0", timeSeconds: 0, frameIndex: 0, strength: "hard" }], storyboardRevision: 1 }, storyboardSheet: { revision: 1, layout: "3x2", imageFileId: "storyboard-1", promptSnapshot: "Create ONE cinematic storyboard sheet for an 8-second video segment.", referenceSnapshot: { selected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], omitted: [], videoSelected: [], videoOmitted: [], temporalGuides: [], blockedReasons: [], route: { mode: "fl2va", reason: "单镜头视频段" }, capabilities: { temporalGuides: true, turboPreview: false }, recipes: {}, frameAlignment: {} }, frames: Array.from({ length: 6 }, (_, position) => ({ id: `frame-${position}`, position, shotNumber: 1, timeSeconds: position * 1.6, kind: position === 0 ? "shot-start" : position === 5 ? "shot-end" : "keyframe", description: "雨夜中的车站", action: "林夏走入车站", cameraAngle: "平视", cameraMove: "缓慢推进", sound: "雨声" })) } },
+            payload: { description: "林夏走入车站", durationSeconds: 8, boundary: "cut", h3Mode: "ref2va", h3ModeReason: "完整故事板作为视频段构图与动作参考", nativeAudioStatus: "ready", videoFileId: "video-1", storyboardFrameCount: 6, h3PromptSnapshot: { mode: "ref2va", qualityPreset: "preview", prompt: "subject_definitions: <Picture 1> is the complete storyboard sheet.\n\nsummary: A rainy station scene.\n\nretention_analysis: Preserve identity and geography.\n\ndetailed_description: [Shot 1] Rain falls over the station.\n\noverall_soundscape: Rain.\n\nnon_diegetic_music: N/A", references: [{ fileId: "storyboard-1", kind: "image", role: "reference" }, { fileId: "character-image", kind: "image", role: "reference" }, { fileId: "scene-image", kind: "image", role: "reference" }], storyboardRevision: 1 }, storyboardSheet: { revision: 1, layout: "3x2", imageFileId: "storyboard-1", promptSnapshot: "Create ONE cinematic storyboard sheet for an 8-second video segment.", referenceSnapshot: { selected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], omitted: [], videoSelected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], videoOmitted: [], blockedReasons: [], route: { mode: "ref2va", reason: "完整故事板作为视频段构图与动作参考" }, capabilities: { turboPreview: false }, recipes: {}, frameAlignment: {} }, frames: Array.from({ length: 6 }, (_, position) => ({ id: `frame-${position}`, position, shotNumber: 1, timeSeconds: position === 5 ? 8 : position * 1.6, kind: position === 0 ? "shot-start" : position === 5 ? "shot-end" : "keyframe", description: "雨夜中的车站", action: "林夏走入车站", cameraAngle: "平视", cameraMove: "缓慢推进", dialogue: "", sound: "雨声" })) } },
             revision: 1,
             createdAt: now,
             updatedAt: now,
@@ -121,7 +121,7 @@ async function mockApi(page: Page, directorState: typeof state = state) {
                 },
             };
         else if (path === "/agent/projects/director-e2e/references") data = [];
-        else if (path === "/director/video-segments/segment-1/preflight") data = { selected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], omitted: [], videoSelected: [], videoOmitted: [], temporalGuides: [], blockedReasons: [], route: { mode: "fl2va", reason: "单镜头视频段使用首尾帧精确锚定" }, capabilities: { temporalGuides: true, turboPreview: false }, recipes: { preview: { turbo: false }, final: { turbo: false } }, frameAlignment: { modelFrames: 209 } };
+        else if (path === "/director/video-segments/segment-1/preflight") data = { storyboardFileId: "storyboard-1", selected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], omitted: [], videoSelected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], videoOmitted: [], blockedReasons: [], route: { mode: "ref2va", reason: "完整故事板作为视频段构图与动作参考" }, capabilities: { turboPreview: false }, recipes: { preview: { turbo: false }, final: { turbo: false } }, frameAlignment: { modelFrames: 209 } };
         else if (path === "/generations") data = [{ id: "asset-generation", status: "succeeded", kind: "image", progress: 1, providerId: "openai", modelId: "gpt-image-2", request: { references: [{ fileId: "style-image", kind: "image" }], params: { __promptPackage: { asset: { revision: 1 } } } }, result: null, error: null, errorCode: null, usage: null, createdAt: now, updatedAt: now }];
         else if (path.includes("/agent/projects/director-e2e/conversation"))
             data = {
@@ -173,7 +173,7 @@ async function mockApi(page: Page, directorState: typeof state = state) {
 
 test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段时间线", async ({ page }) => {
     test.setTimeout(60_000);
-    await mockApi(page);
+    await mockApi(page, structuredClone(state));
     await page.setViewportSize({ width: 1600, height: 960 });
     await page.goto("/__director-test.html");
     await expect(page.locator("main.director-light")).toHaveCSS("background-color", "rgb(255, 255, 255)");
@@ -188,7 +188,7 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await expect(page.getByText("Agent 已绑定当前导演项目，可以改编故事、编写剧本并推进素材、分镜和成片。")).toBeVisible();
     await expect(page.getByRole("textbox")).toHaveAttribute("data-placeholder", "描述导演任务，输入 / 调用 Skill，@ 引用故事、视频段或素材…");
     await expect(page.getByText("和画布一起思考")).toHaveCount(0);
-    for (const section of ["概览", "故事", "剧本", "素材", "分镜", "视频创作台"]) await expect(page.getByRole("button", { name: section, exact: true })).toBeVisible();
+    for (const section of ["概览", "故事", "剧本", "风格", "素材", "分镜", "视频创作台"]) await expect(page.getByRole("button", { name: section, exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "角色与场景", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "道具", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "故事与剧本", exact: true })).toHaveCount(0);
@@ -238,7 +238,7 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await expect(page.getByRole("complementary", { name: "剧本场次目录" }).getByRole("button", { name: "场 1", exact: true })).toHaveAttribute("aria-current", "location");
     await page.getByRole("button", { name: "素材", exact: true }).click();
     await expect(page.getByText("林夏")).toBeVisible();
-    await expect(page.getByRole("group", { name: "素材分类" })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "素材分类" })).toBeVisible();
     await expect(page.getByRole("button", { name: "确认", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "锁定", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "提示词" }).click();
@@ -249,19 +249,19 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     const generation = page.waitForRequest((request) => request.url().includes("/creative-assets/asset-1/generations"));
     await page.getByRole("button", { name: "抽图" }).click();
     await generation;
-    await page.getByRole("button", { name: "分镜", exact: true }).click({ force: true });
+    await page.getByRole("button", { name: "分镜", exact: true }).click();
+    await expect(page.getByRole("button", { name: "分镜", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByText("雨夜车站")).toBeVisible();
     await expect(page.getByTestId("director-storyboard-card")).toHaveCount(1);
     await expect(page.getByTestId("director-storyboard-sheet").locator("img")).toHaveCount(1);
-    const lastStoryboardFrame = page.getByTestId("director-storyboard-sheet").locator("button.director-storyboard-frame").last();
-    await lastStoryboardFrame.hover();
-    await expect(lastStoryboardFrame).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await expect(page.getByText(/单张故事板 · 6 格/)).toBeVisible();
+    await expect(page.getByTestId("director-storyboard-sheet").locator("button, [role=button]")).toHaveCount(0);
+    await expect(page.getByText("完整故事板 · 6 格 · 1 个 Shot")).toBeVisible();
+    await expect(page.getByText("完整故事板作为一个参考文件，不裁格、不设置画格锚点")).toBeVisible();
     await expect(page.getByText(/8 秒 · 6 格/)).toBeVisible();
     await expect(page.getByRole("button", { name: "重抽整板" })).toBeVisible();
     await page.getByRole("button", { name: "提示词" }).click();
     await expect(page.getByText("分镜提示词")).toBeVisible();
-    await expect(page.getByText("How the reference pictures align with the target video.", { exact: false })).toBeVisible();
+    await expect(page.getByText("subject_definitions:", { exact: false })).toBeVisible();
     await page.getByRole("button", { name: "故事板提示词" }).click();
     await expect(page.getByText("Create ONE cinematic storyboard sheet for an 8-second video segment.")).toBeVisible();
     await page.keyboard.press("Escape");
@@ -291,6 +291,19 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await page.getByRole("button", { name: "仍然导出" }).click();
     await render;
     await expect(page.getByText("成片合成")).toBeVisible();
+});
+
+test("导演风格使用独立顶部工作区", async ({ page }) => {
+    await mockApi(page, structuredClone(state));
+    await page.goto("/__director-test.html");
+    await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "风格", exact: true }).click();
+    await expect(page.getByRole("button", { name: "风格", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByText("冷峻悬疑").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "保存", exact: true })).toBeVisible();
+    await expect(page.locator(".ant-drawer-content")).toHaveCount(0);
+    await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "素材", exact: true }).click();
+    await expect(page.getByRole("button", { name: /风格.*冷峻悬疑/ })).toHaveCount(0);
+    await expect(page.getByRole("tablist", { name: "素材分类" })).toBeVisible();
 });
 
 test("总播放器切换到连续视频段后保持播放", async ({ page }) => {

@@ -379,6 +379,7 @@ function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["s
         } catch { /* 保留已完成任务，避免回写冲突改写任务终态。 */ }
         try { syncVisualStyleGeneration(updated); } catch { /* 保留已完成任务，风格卡可重新生成缺失样张。 */ }
         void syncDirectorGeneration(updated).catch(() => undefined);
+        void import("./director-cast-review.js").then(({ syncDirectorCastReviewGeneration }) => syncDirectorCastReviewGeneration(updated)).catch(() => undefined);
     }
 }
 

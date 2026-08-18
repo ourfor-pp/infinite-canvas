@@ -61,6 +61,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
     director_update_video_segment: "更新视频段",
     director_delete_video_segments: "删除视频段",
     director_generate_video_segment: "生成视频段",
+    director_validate_video_segments: "校验视频段",
     director_update_timeline: "编排时间线",
     director_check_continuity: "检查连续性",
     director_list_models: "查看导演模型",

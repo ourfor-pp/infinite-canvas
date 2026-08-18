@@ -70,8 +70,12 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
     const backgroundEventsRef = useRef(new Map<string, AgentEvent[]>());
     const hydratedDraftScopeRef = useRef("");
     const activeSessionRef = useRef<AgentSession | null>(null);
+    const eventsRef = useRef<AgentEvent[]>([]);
+    const lastStreamEventAtRef = useRef(Date.now());
+    const reconcilingRef = useRef(false);
     const staleSkillWarningRef = useRef("");
     const busy = session?.status === "running" || session?.status === "waiting_for_user";
+    eventsRef.current = events;
     const eventKey = `${events.at(-1)?.seq || 0}:${String(events.at(-1)?.payload?.text || "").length}:${events.length}`;
     const { scrollRef, atBottomRef, showBottom: showScrollBottom, unread: unreadCount, onScroll: updateScroll, scrollBottom, preserveBeforePrepend, restoreAfterPrepend, beforeCollapse } = useAgentScroll({ sessionId: session?.id, eventKey, contentRef });
 
@@ -180,6 +184,7 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
 
     useEffect(() => {
         return subscribeAgent(projectId, (event) => {
+            lastStreamEventAtRef.current = Date.now();
             const activeSession = activeSessionRef.current;
             if (event.type === "queue.updated") {
                 if (event.sessionId === activeSession?.id) setQueuedMessages(event.queuedMessages);
@@ -193,7 +198,7 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
                 setQueuedMessages(event.queuedMessages[activeSession.id] || []);
                 const seen = useAgentStore.getState().seenEventSeqs;
                 setBackgroundUnread(Object.fromEntries(event.sessions.filter((item) => item.id !== activeSession.id && item.eventSeq > (seen[item.id] || 0)).map((item) => [item.id, Math.min(99, item.eventSeq - (seen[item.id] || 0))])));
-                if (selected && selected.eventSeq > activeSession.eventSeq) void agentApi.conversation(projectId, activeSession.id).then((next) => {
+                if (selected && needsConversationReconcile(selected.eventSeq, eventsRef.current)) void agentApi.conversation(projectId, activeSession.id).then((next) => {
                     if (activeSessionRef.current?.id !== activeSession.id) return;
                     applyConversation(next);
                     if (next.session) markSessionSeen(next.session.id, next.session.eventSeq);
@@ -228,6 +233,22 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
             }).catch(() => undefined);
         });
     }, [projectId]);
+
+    useEffect(() => {
+        if (!busy || !session?.id) return;
+        const timer = window.setInterval(() => {
+            const active = activeSessionRef.current;
+            if (!active || reconcilingRef.current || Date.now() - lastStreamEventAtRef.current < 4_000) return;
+            reconcilingRef.current = true;
+            void agentApi.conversation(projectId, active.id).then((next) => {
+                if (activeSessionRef.current?.id !== active.id) return;
+                applyConversation(next);
+                if (next.session) markSessionSeen(next.session.id, next.session.eventSeq);
+                lastStreamEventAtRef.current = Date.now();
+            }).catch(() => undefined).finally(() => { reconcilingRef.current = false; });
+        }, 2_000);
+        return () => window.clearInterval(timer);
+    }, [busy, projectId, session?.id]);
 
     const runClientAction = async (sessionId: string, event: AgentEvent) => {
         const actionId = String(event.payload.actionId || "");
@@ -562,6 +583,10 @@ export function mergeEvents(current: AgentEvent[], incoming: AgentEvent[]) {
         streams.set(key, merged);
     }
     return Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+}
+
+export function needsConversationReconcile(serverEventSeq: number, loadedEvents: AgentEvent[]) {
+    return serverEventSeq > (loadedEvents.at(-1)?.seq || 0);
 }
 
 function streamEventKey(event: AgentEvent) {

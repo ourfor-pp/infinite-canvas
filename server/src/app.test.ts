@@ -46,6 +46,7 @@ test("Agent Tool Search 按协议启用并允许显式覆盖", () => {
 
 test("Agent 将 steer 后的 EDE 空回合识别为可自动续接", () => {
     assert.equal(isRetriableAgentDiagnostic("[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"), true);
+    assert.equal(isRetriableAgentDiagnostic("[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null"), true, "运行中补充消息可能以 null stop_reason 提前结束当前 SDK 回合");
     assert.equal(isRetriableAgentDiagnostic("[ede_diagnostic] result_type=assistant last_content_type=none stop_reason=null"), true);
     assert.equal(isRetriableAgentDiagnostic("permission denied"), false);
 });
@@ -73,6 +74,9 @@ test("Agent Skill 解析单行和列表 allowed-tools", () => {
 test("画布与导演 Agent 的 Skill 和工具清单完全隔离", () => {
     assert.equal(agentScenes.canvas.skillIds.some((id) => id.startsWith("director-")), false);
     assert.equal(agentScenes.director.skillIds.every((id) => id.startsWith("director-")), true);
+    assert.equal(agentScenes.director.skillIds.length, 14);
+    assert.equal(agentScenes.director.skillIds.includes("director-write-story"), true);
+    assert.equal(agentScenes.canvas.skillIds.includes("director-write-story"), false);
     assert.equal(agentScenes.canvas.tools.some((item) => item.id.startsWith("director_")), false);
     assert.equal(agentScenes.director.tools.some((item) => item.id.startsWith("canvas_") || item.id.startsWith("creative_asset") || item.id.startsWith("visual_style") || String(item.id) === "site_navigate"), false);
     assert.equal(agentScenes.director.tools.some((item) => item.id === "director_list_video_segments"), true);
@@ -87,6 +91,7 @@ test("项目工作区只同步当前 Agent 场景 Skills 并清理旧场景", ()
     const directorSkills = readdirSync(join(workspace, ".claude", "skills")).filter((name) => !name.startsWith(".")).sort();
     assert.deepEqual(directorSkills, [...agentScenes.director.skillIds].sort());
     assert.equal(directorSkills.includes("write-story"), false);
+    assert.equal(directorSkills.includes("director-write-story"), true);
     syncBuiltInAgentSkills(workspace, agentScenes.director.skillIds);
     assert.deepEqual(readdirSync(join(workspace, ".claude", "skills")).filter((name) => !name.startsWith(".")).sort(), directorSkills);
 });
@@ -154,12 +159,12 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
 
     const story = await api(`/director/projects/${projectId}/documents/story`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "# 故事\n林夏追查旧怀表。" }) });
     assert.equal(story.body.data.revision, 2);
-    assert.equal(story.body.data.status, "draft");
+    assert.equal(story.body.data.status, undefined, "导演文档不再暴露确认状态");
     const storyConflict = await api(`/director/projects/${projectId}/documents/story`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "旧稿" }) });
     assert.equal(storyConflict.response.status, 409);
     const gatedSequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ title: "雨夜车站" }) });
     assert.equal(gatedSequence.response.status, 409);
-    const script = await api(`/director/projects/${projectId}/documents/script`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "## 场 1 · 雨夜车站\n林夏：我会找到真相。", status: "confirmed" }) });
+    const script = await api(`/director/projects/${projectId}/documents/script`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "## 场 1 · 雨夜车站\n林夏：我会找到真相。" }) });
     assert.equal(script.response.status, 200);
     const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ id: "z-first-sequence", position: 0, title: "雨夜车站", summary: "线索出现", payload: { storyboard: Array.from({ length: 6 }, (_, position) => ({ id: `panel-${position}`, position, title: `镜头 ${position + 1}` })) } }) });
     assert.equal(sequence.response.status, 201);
@@ -169,35 +174,39 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.equal(segment.body.data.payload.storyboardSheet.layout, "3x2");
     assert.equal(segment.body.data.payload.storyboardSheet.frames.length, 6);
     const laterSequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ id: "a-later-sequence", position: 1, title: "清晨离站" }) });
-    await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ id: "a-later-segment", sequenceId: laterSequence.body.data.id, position: 0, title: "清晨站台", payload: { durationSeconds: 4 } }) });
+    await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ id: "a-later-segment", sequenceId: laterSequence.body.data.id, position: 0, title: "清晨站台", payload: { durationSeconds: 4, sourceSceneId: "S002", sourceBeatIds: ["S002-B01"], sourceDurationSeconds: 4, dramaticBeat: "林夏决定离开车站", openingState: "林夏停在空荡站台", endingState: "林夏提起行李走向出口" } }) });
     const orderedState = await api(`/director/projects/${projectId}`, userOne);
     assert.deepEqual(orderedState.body.data.videoSegments.map((item: { title: string }) => item.title), ["车站全景", "清晨站台"], "视频段必须按剧情段落位置和段内位置排序，而不是按随机 ID 排序");
     const promptSegment = orderedState.body.data.videoSegments[1];
     const originalSheet = { ...promptSegment.payload.storyboardSheet, imageFileId: "existing-sheet", generationId: "existing-generation", promptSnapshot: "old prompt", frames: promptSegment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ ...frame, croppedFileId: `crop-${index}` })) };
     db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, storyboardSheet: originalSheet, videoFileId: "existing-video" }), promptSegment.id, userOne["X-Trim-Userid"]);
-    const promptUpdate = updateDirectorStoryboardPrompts(userOne["X-Trim-Userid"], projectId, { items: [{ segmentId: promptSegment.id, revision: 1, frames: originalSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ id: frame.id, description: `画格 ${index + 1} 的明确画面`, action: "人物沿站台向前行走", cameraAngle: "平视中景", cameraMove: "缓慢跟拍", sound: "雨声与脚步声" })) }] });
+    const promptUpdate = updateDirectorStoryboardPrompts(userOne["X-Trim-Userid"], projectId, { items: [{ segmentId: promptSegment.id, revision: 1, frames: originalSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ id: frame.id, shotNumber: Number(frame.shotNumber || 1), timeSeconds: Number(frame.timeSeconds || 0), kind: String(frame.kind || "keyframe"), description: `画格 ${index + 1} 的明确画面`, action: "人物沿站台向前行走", cameraAngle: "平视中景", cameraMove: "缓慢跟拍", h3Visual: "A medium tracking shot follows the person walking forward along the wet platform.", dialogues: [], sound: "rainfall and synchronized footsteps" })) }] });
     assert.equal(promptUpdate.updated, 1);
     const updatedPromptSegment = (await api(`/director/projects/${projectId}`, userOne)).body.data.videoSegments[1];
     assert.equal(updatedPromptSegment.payload.storyboardSheet.imageFileId, "existing-sheet", "安全提示词更新必须保留故事板媒体");
     assert.equal(updatedPromptSegment.payload.storyboardSheet.generationId, "existing-generation");
-    assert.equal(updatedPromptSegment.payload.storyboardSheet.frames[0].croppedFileId, "crop-0");
+    assert.equal(updatedPromptSegment.payload.storyboardSheet.frames[0].croppedFileId, undefined, "画格裁切不再参与普通视频生成");
     assert.match(updatedPromptSegment.payload.storyboardSheet.promptSnapshot, /人物沿站台向前行走/);
     assert.equal(updatedPromptSegment.payload.storyboardStale, true);
     assert.equal(updatedPromptSegment.payload.videoStale, true);
     db.prepare("UPDATE director_shots SET status='locked' WHERE id=? AND user_id=?").run(promptSegment.id, userOne["X-Trim-Userid"]);
-    assert.throws(() => updateDirectorStoryboardPrompts(userOne["X-Trim-Userid"], projectId, { items: [{ segmentId: promptSegment.id, revision: updatedPromptSegment.revision, frames: updatedPromptSegment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>) => ({ id: String(frame.id), description: String(frame.description || ""), action: String(frame.action || ""), cameraAngle: String(frame.cameraAngle || ""), cameraMove: String(frame.cameraMove || ""), sound: String(frame.sound || "") })) }] }), /已锁定/);
+    assert.throws(() => updateDirectorStoryboardPrompts(userOne["X-Trim-Userid"], projectId, { items: [{ segmentId: promptSegment.id, revision: updatedPromptSegment.revision, frames: updatedPromptSegment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>) => ({ id: String(frame.id), shotNumber: Number(frame.shotNumber || 1), timeSeconds: Number(frame.timeSeconds || 0), kind: String(frame.kind || "keyframe"), description: String(frame.description || ""), action: String(frame.action || ""), cameraAngle: String(frame.cameraAngle || ""), cameraMove: String(frame.cameraMove || ""), h3Visual: String(frame.h3Visual || "A static continuation of the current composition."), dialogues: Array.isArray(frame.dialogues) ? frame.dialogues : [], sound: String(frame.sound || "quiet ambient room tone") })) }] }), /已锁定/);
     const promptView = listDirectorVideoSegments(userOne["X-Trim-Userid"], projectId, { sequenceId: laterSequence.body.data.id, view: "prompt" }) as unknown as { items: Array<{ payload: { storyboardSheet: { imageFileId?: string; hasImage: boolean } } }> };
     assert.equal(promptView.items[0].payload.storyboardSheet.imageFileId, undefined, "精简提示词视图不得返回重媒体字段");
     assert.equal(promptView.items[0].payload.storyboardSheet.hasImage, true);
     const storyboardWithoutStyle = await api(`/director/video-segments/${segment.body.data.id}/storyboard/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: 1 }) });
     assert.equal(storyboardWithoutStyle.response.status, 409);
     assert.equal(storyboardWithoutStyle.body.error.code, "DIRECTOR_STAGE_GATE");
-    const directorStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "雨夜冷调", mode: "custom", description: "冷灰雨夜电影风格", status: "confirmed" }) });
-    await api(`/visual-styles/${directorStyle.body.data.id}/default`, userOne, { method: "POST" });
+    const directorStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "雨夜冷调", mode: "custom", description: "冷灰雨夜电影风格" }) });
+    assert.equal(directorStyle.body.data.status, "draft", "导演风格可以保留通用存储状态，但不再以确认状态作为阶段门");
+    const adoptedDirectorStyle = await api(`/visual-styles/${directorStyle.body.data.id}/default`, userOne, { method: "POST" });
+    assert.equal(adoptedDirectorStyle.response.status, 200, "导演项目可以直接采用尚未确认的风格");
     const stateWithStyle = await api(`/director/projects/${projectId}`, userOne);
     assert.equal(stateWithStyle.body.data.activeStyleId, directorStyle.body.data.id);
     const editedStyle = await api(`/visual-styles/${directorStyle.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, description: "冷灰雨夜电影风格，增加潮湿反光" }) });
-    assert.equal(editedStyle.body.data.status, "draft", "导演当前风格发生实质修改后必须回到草稿");
+    assert.equal(editedStyle.body.data.status, "draft", "导演风格修改不需要额外确认即可继续作为当前风格");
+    const stateAfterStyleEdit = await api(`/director/projects/${projectId}`, userOne);
+    assert.equal(stateAfterStyleEdit.body.data.activeStyleId, directorStyle.body.data.id);
     const confirmed = await api(`/director/sequences/${sequence.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "confirmed" }) });
     assert.equal(confirmed.response.status, 200);
     assert.deepEqual(segment.body.data.payload.characterRefs, [{ id: "character-stable-id", revision: 3 }]);
@@ -325,6 +334,28 @@ test("内置视觉风格提供原创预览和完整 DNA，创建时展开为项�
     assert.equal(created.body.data.description, templates.find((item) => item.id === "ink-wash")?.description);
     assert.equal(created.body.data.dna.medium, "水墨与淡彩动画");
     assert.equal(created.body.data.dna.exclusions.includes("文字"), true);
+    assert.equal(typeof created.body.data.references.board, "string", "应用内置风格时应把单张三元素预览物化为项目风格板");
+    assert.deepEqual(Object.keys(created.body.data.references), ["board"], "内置风格不再创建角色、场景、道具三张样图");
+    const previewResponse = await fetch(`${origin}/files/${created.body.data.references.board}/content`, { headers: userOne });
+    assert.equal(previewResponse.status, 200);
+});
+
+test("导演风格修改后旧统一风格板会标记过期", async () => {
+    const projectId = "director-style-board-project";
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "导演风格板" }) });
+    const templateStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "模板来源", mode: "template", templateId: "ink-wash" }) });
+    const boardFileId = String(templateStyle.body.data.references.board);
+    const customStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "自定义风格", mode: "custom", description: "冷灰写实电影风格" }) });
+    const styleId = String(customStyle.body.data.id);
+    const now = new Date().toISOString();
+    db.prepare("UPDATE visual_styles SET reference_files=?,revision=2,updated_at=? WHERE id=?").run(JSON.stringify({ board: boardFileId }), now, styleId);
+    db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,progress,created_at,updated_at) VALUES(?,?,'image','succeeded','test-model',?,?,1,?,?)")
+        .run("style-board-generation", userOne["X-Trim-Userid"], JSON.stringify({ params: { __visualStyleBoard: { styleId, styleRevision: 1 } } }), JSON.stringify({ files: [{ fileId: boardFileId }] }), now, now);
+    assert.equal((await api(`/visual-styles/${styleId}`, userOne)).body.data.boardStale, false);
+    db.prepare("UPDATE visual_styles SET description=?,revision=3,updated_at=? WHERE id=?").run("明亮 Q 版卡通风格", now, styleId);
+    const stale = await api(`/visual-styles/${styleId}`, userOne);
+    assert.equal(stale.body.data.boardStale, true);
+    assert.equal(stale.body.data.referenceFileId, null, "旧风格板不得继续作为当前风格参考");
 });
 
 test("Agent 画布操作校验语义端口类型和单连接限制", async () => {

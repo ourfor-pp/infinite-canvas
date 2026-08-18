@@ -1,6 +1,6 @@
 export type ProjectKind = "canvas" | "director";
 export type DirectorEntityStatus = "draft" | "confirmed" | "locked";
-export type DirectorSection = "overview" | "story" | "script" | "assets" | "storyboard" | "studio";
+export type DirectorSection = "overview" | "story" | "script" | "style" | "assets" | "storyboard" | "studio";
 
 export type DirectorProject = {
     id: string;
@@ -44,22 +44,33 @@ export type DirectorDocument = {
     projectId: string;
     kind: "story" | "script";
     content: string;
-    status: DirectorEntityStatus;
     revision: number;
     createdAt: string;
     updatedAt: string;
 };
 
 export type DirectorAssetRef = { id: string; revision: number };
+export type DirectorCastReview = {
+    projectId: string;
+    assetRevisions: Record<string, number>;
+    status: "running" | "passed" | "needs_review" | "manual";
+    stale: boolean;
+    summary: string;
+    characters: Array<{ assetId: string; realismIssues: string[]; identityStrengths: string[] }>;
+    pairs: Array<{ assetIds: [string, string]; similarityRisk: "low" | "medium" | "high"; overlappingFeatures: string[]; suggestions: string[] }>;
+    generationId: string | null;
+    createdAt: string;
+    updatedAt: string;
+};
 export type DirectorVisualReview = { status: "pending" | "passed" | "failed" | "manual"; summary: string; issues: string[]; metrics?: Record<string, boolean | number | string>; generationId?: string };
 export type H3GenerationMode = "fl2va" | "ref2va";
 export type H3QualityPreset = "preview" | "final";
 export type H3GenerationRecipe = { qualityPreset: H3QualityPreset; resolution: "480p" | "768p"; steps: number; sampler: string; scheduler: string; refImageSize: "match" | "max"; attention: string; turbo: boolean };
-export type H3TemporalGuide = { frameId: string; fileId: string; timeSeconds: number; frameIndex: number; strength: "hard" | "semantic" };
 export type H3FrameAlignment = { requestedSeconds: number; requestedFrames: number; modelFrames: number; trimFrames: number; fps: 24; stride: 17; base: 5 };
-export type DirectorH3PromptSnapshot = { mode: H3GenerationMode; qualityPreset: H3QualityPreset; prompt: string; references: Array<{ fileId: string; kind?: "image" | "video" | "audio"; role?: "reference" | "first-frame" | "last-frame" | "continuation" }>; temporalGuides: H3TemporalGuide[]; storyboardRevision: number };
-export type DirectorStoryboardFrame = { id: string; position: number; shotNumber: number; timeSeconds: number; kind: "shot-start" | "keyframe" | "shot-end"; description: string; action: string; cameraAngle: string; cameraMove: string; sound: string; guideEnabled?: boolean; guideStrength?: "hard" | "semantic"; croppedFileId?: string; resolvedFrameIndex?: number };
-export type DirectorStoryboardSheet = { revision: number; layout: "2x2" | "3x2" | "3x3"; frames: DirectorStoryboardFrame[]; imageFileId?: string; firstFrameFileId?: string; lastFrameFileId?: string; generationId?: string; promptSnapshot?: string; referenceSnapshot?: DirectorVideoSegmentPreflight; review?: DirectorVisualReview };
+export type DirectorH3PromptSnapshot = { mode: H3GenerationMode; qualityPreset: H3QualityPreset; prompt: string; references: Array<{ fileId: string; kind?: "image" | "video" | "audio"; role?: "reference" | "first-frame" | "last-frame" | "continuation" }>; storyboardRevision: number };
+export type DirectorDialogueCue = { speakerAssetId: string; speakerName: string; text: string; language: string; delivery: string; startSeconds: number; endSeconds: number; offScreen?: boolean };
+export type DirectorStoryboardFrame = { id: string; position: number; shotNumber: number; timeSeconds: number; kind: "shot-start" | "keyframe" | "shot-end"; description: string; action: string; cameraAngle: string; cameraMove: string; h3Visual?: string; dialogues?: DirectorDialogueCue[]; dialogue?: string; sound: string };
+export type DirectorStoryboardSheet = { revision: number; layout: "2x2" | "3x2" | "3x3"; frames: DirectorStoryboardFrame[]; imageFileId?: string; generationId?: string; promptSnapshot?: string; referenceSnapshot?: DirectorVideoSegmentPreflight; review?: DirectorVisualReview };
 export type DirectorSequence = {
     id: string;
     projectId: string;
@@ -89,14 +100,18 @@ export type DirectorVideoSegment = {
         cameraAngle?: string;
         cameraMove?: string;
         durationSeconds?: number;
+        sourceSceneId?: string;
+        sourceBeatIds?: string[];
+        sourceDurationSeconds?: number;
+        dramaticBeat?: string;
+        openingState?: string;
+        endingState?: string;
         boundary?: "cut" | "continue";
         characterRefs?: DirectorAssetRef[];
         sceneRefs?: DirectorAssetRef[];
         propRefs?: DirectorAssetRef[];
         storyboardSheet?: DirectorStoryboardSheet;
         storyboardFrameCount?: 4 | 6 | 9;
-        firstFrameFileId?: string;
-        lastFrameFileId?: string;
         actualFirstFrameFileId?: string;
         actualLastFrameFileId?: string;
         videoFileId?: string;
@@ -105,8 +120,10 @@ export type DirectorVideoSegment = {
         videoNativeResolution?: string;
         videoGenerationDurationMs?: number;
         continuationFromSegmentId?: string;
+        generationIntent?: "storyboard" | "transition";
+        transitionFromSegmentId?: string;
+        transitionToSegmentId?: string;
         h3Mode?: H3GenerationMode;
-        h3ModeOverride?: H3GenerationMode | null;
         h3ModeReason?: string;
         h3PromptSnapshot?: DirectorH3PromptSnapshot;
         nativeAudioFileId?: string;
@@ -121,7 +138,7 @@ export type DirectorVideoSegment = {
     updatedAt: string;
 };
 
-export type DirectorVideoSegmentPreflight = { selected: Array<{ fileId: string; name: string; purpose: "主角色" | "出镜角色" | "场景" | "关键道具" | "视觉风格"; assetId?: string }>; omitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoSelected: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoOmitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; temporalGuides: H3TemporalGuide[]; blockedReasons: string[]; route: { mode: H3GenerationMode; reason: string }; capabilities: { temporalGuides: boolean; turboPreview: boolean }; recipes: { preview: H3GenerationRecipe; final: H3GenerationRecipe }; frameAlignment: H3FrameAlignment };
+export type DirectorVideoSegmentPreflight = { storyboardFileId?: string; transitionInputs?: { firstFrameFileId?: string; lastFrameFileId?: string }; selected: Array<{ fileId: string; name: string; purpose: "主角色" | "出镜角色" | "场景" | "关键道具" | "视觉风格"; assetId?: string }>; omitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoSelected: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoOmitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; assetBlockedReasons: string[]; promptValidation: { blockedReasons: string[]; warnings: string[] }; blockedReasons: string[]; warnings: string[]; route: { mode: H3GenerationMode; reason: string }; capabilities: { turboPreview: boolean }; recipes: { preview: H3GenerationRecipe; final: H3GenerationRecipe }; frameAlignment: H3FrameAlignment };
 export type DirectorTimelineClip = { id: string; segmentId?: string; fileId?: string; start: number; duration: number; trimIn?: number; trimOut?: number; volume?: number; muted?: boolean; loop?: boolean };
 export type DirectorTimeline = {
     projectId: string;

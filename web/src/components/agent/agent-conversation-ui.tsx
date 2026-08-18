@@ -201,6 +201,7 @@ function AgentErrorNotice({ event }: { event: ProjectedEvent }) {
         AGENT_DECISION_INTERRUPTED: { title: "这次确认已经失效", message: "原任务已经中断，请重新发送刚才的请求。" },
         AGENT_CLIENT_ACTION_TIMEOUT: { title: "页面操作等待超时", message: "请保持项目页面打开后重试。" },
         AGENT_QUEUE_RUNNING: { title: "消息正在发送", message: "这条排队消息已经开始执行，暂时不能删除。" },
+        AGENT_EMPTY_RESPONSE: { title: "Agent 暂时没有继续回复", message: "你的补充消息已经保存，可以直接重试继续。" },
         AGENT_RUN_FAILED: { title: "Agent 没有完成这轮任务", message: "可以直接重试；你的项目内容和草稿不会丢失。" },
     };
     const content = known[code] || { title: "Agent 执行遇到问题", message: raw || "请重试当前操作。" };
@@ -409,13 +410,25 @@ function CreativeAssetProposal({ pending, theme, busy, director, onReject, onCon
                 return <section key={kind}><div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold opacity-55"><span>{kind === "character" ? "角色" : kind === "scene" ? "场景" : "道具"}</span><span>{rows.filter(({ item }) => item.included).length}/{rows.length}</span></div><div className="space-y-2">{rows.map(({ item, index }) => <div key={`${kind}-${index}`} className="rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}>
                     <div className="flex items-center gap-2"><Checkbox checked={item.included} onChange={(event) => update(index, { included: event.target.checked })} /><Input size="small" value={item.name} onChange={(event) => update(index, { name: event.target.value })} /><Select size="small" value={item.kind} className="w-20" onChange={(value) => update(index, { kind: value })} options={[{ value: "character", label: "角色" }, { value: "scene", label: "场景" }, { value: "prop", label: "道具" }]} /></div>
                     <Input.TextArea className="mt-2" value={item.payload.description} onChange={(event) => update(index, { payload: { ...item.payload, description: event.target.value } })} autoSize={{ minRows: 2, maxRows: 5 }} placeholder={item.kind === "character" ? "角色卡摘要" : "完整视觉描述"} />
-                    {item.kind === "character" ? <><Input.TextArea className="mt-2" value={item.payload.narrativeDescription} onChange={(event) => update(index, { payload: { ...item.payload, narrativeDescription: event.target.value } })} autoSize={{ minRows: 2, maxRows: 5 }} placeholder="剧情身份、关系、人物弧光和剧情用途（不用于生图）" /><Input.TextArea className="mt-2" value={item.payload.visualDescription} onChange={(event) => update(index, { payload: { ...item.payload, visualDescription: event.target.value } })} autoSize={{ minRows: 2, maxRows: 5 }} placeholder="纯视觉设定：年龄感、体态、五官、发型、基础服装和识别特征" /><Input.TextArea className="mt-2" value={item.payload.mediaDrafts.audio.prompt} onChange={(event) => update(index, { payload: { ...item.payload, mediaDrafts: { ...item.payload.mediaDrafts, audio: { ...item.payload.mediaDrafts.audio, prompt: event.target.value } } } })} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="音色、语速、口音和情绪质感" /><Input className="mt-2" size="small" value={item.payload.mediaDrafts.audio.transcript} onChange={(event) => update(index, { payload: { ...item.payload, mediaDrafts: { ...item.payload.mediaDrafts, audio: { ...item.payload.mediaDrafts.audio, transcript: event.target.value } } } })} placeholder="一句符合角色身份的试听台词" /></> : null}
+                    {item.kind === "character" ? <><ProposalCharacterProfile payload={item.payload} theme={theme} /><Input.TextArea className="mt-2" value={item.payload.narrativeDescription} onChange={(event) => update(index, { payload: { ...item.payload, narrativeDescription: event.target.value } })} autoSize={{ minRows: 2, maxRows: 5 }} placeholder="剧情身份、关系、人物弧光和剧情用途（不用于生图）" /><Input.TextArea className="mt-2" value={item.payload.visualDescription} onChange={(event) => update(index, { payload: { ...item.payload, visualDescription: event.target.value } })} autoSize={{ minRows: 2, maxRows: 5 }} placeholder="纯视觉设定：年龄痕迹、体态、五官、发型、基础服装和识别特征" /><Input.TextArea className="mt-2" value={item.payload.mediaDrafts.audio.prompt} onChange={(event) => update(index, { payload: { ...item.payload, mediaDrafts: { ...item.payload.mediaDrafts, audio: { ...item.payload.mediaDrafts.audio, prompt: event.target.value } } } })} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="音色、语速、口音和情绪质感" /><Input className="mt-2" size="small" value={item.payload.mediaDrafts.audio.transcript} onChange={(event) => update(index, { payload: { ...item.payload, mediaDrafts: { ...item.payload.mediaDrafts, audio: { ...item.payload.mediaDrafts.audio, transcript: event.target.value } } } })} placeholder="一句符合角色身份的试听台词" /></> : null}
                     <button type="button" className="mt-1.5 text-[10px] opacity-45 hover:opacity-80" onClick={() => mergePrevious(index)}>合并到上一项同类设定</button>
                 </div>)}</div></section>;
             })}
         </div>
         <div className="flex items-center border-t px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.toolbar.itemHover }}><span className="text-xs opacity-45">{ready ? `将在${director ? "导演项目" : "画布"}创建 ${selected.length} 张独立素材卡` : "角色需要音色设计和试听台词"}</span><Button className="ml-auto" type="text" size="small" disabled={busy} onClick={onReject}>取消</Button><Button type="primary" size="small" disabled={!selected.length || !ready || busy} onClick={() => onConfirm(selected.map(({ included: _included, ...item }) => item))}>创建素材</Button></div>
     </div>;
+}
+
+function ProposalCharacterProfile({ payload, theme }: { payload: ProposalItem["payload"]; theme: CanvasTheme }) {
+    const profile = recordOf(payload.designProfile);
+    if (!profile) return null;
+    const values = [
+        ["年龄痕迹", profile.visibleAgeCues],
+        ["体态剪影", profile.bodySilhouette],
+        ["身份锚点", profile.identityAnchor],
+        ["阵容差异", profile.distinctivenessSummary],
+    ].filter((item) => String(item[1] || "").trim());
+    return values.length ? <div className="mt-2 grid gap-1.5 rounded-lg border p-2 text-[11px] leading-4" style={{ borderColor: theme.node.stroke }}><span className="font-semibold opacity-65">选角设计</span>{values.map(([label, value]) => <div key={String(label)} className="grid grid-cols-[56px_1fr] gap-2"><span className="opacity-45">{String(label)}</span><span>{String(value)}</span></div>)}</div> : null;
 }
 
 function normalizeProposalItem(value: Record<string, unknown>): ProposalItem {

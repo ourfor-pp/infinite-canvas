@@ -13,7 +13,7 @@ type VisualStyleStore = {
     update: (id: string, patch: Record<string, unknown>) => Promise<VisualStyle>;
     remove: (id: string) => Promise<void>;
     analyze: (id: string) => Promise<void>;
-    generateReferences: (id: string, roles?: Array<"character" | "scene" | "prop">) => Promise<void>;
+    generateReferences: (id: string) => Promise<void>;
 };
 
 export const useVisualStyleStore = create<VisualStyleStore>((set, get) => ({
@@ -28,5 +28,5 @@ export const useVisualStyleStore = create<VisualStyleStore>((set, get) => ({
     update: async (id, patch) => { const current = get().styles.find((item) => item.id === id); if (!current) throw new Error("视觉风格不存在"); const style = await serverApi.updateVisualStyle(id, { ...patch, revision: current.revision }); get().apply(style); return style; },
     remove: async (id) => { await serverApi.deleteVisualStyle(id); set((state) => ({ styles: state.styles.filter((item) => item.id !== id) })); },
     analyze: async (id) => { const current = get().styles.find((item) => item.id === id); if (!current) throw new Error("视觉风格不存在"); await serverApi.analyzeVisualStyle(id, current.revision); },
-    generateReferences: async (id, roles) => { const current = get().styles.find((item) => item.id === id); if (!current) throw new Error("视觉风格不存在"); await serverApi.generateVisualStyleReferences(id, current.revision, roles); },
+    generateReferences: async (id) => { const current = get().styles.find((item) => item.id === id); if (!current) throw new Error("视觉风格不存在"); await serverApi.generateVisualStyleReferences(id, current.revision); },
 }));

@@ -1,16 +1,23 @@
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { db, parseJson } from "./database.js";
-import { syncFileRefs } from "./file-store.js";
+import { getStoredFile, storeLocalFile, syncFileRefs } from "./file-store.js";
 import { publishAgentProject } from "./agent/project-events.js";
 
 export type VisualStyleStatus = "draft" | "confirmed";
-export type VisualStyleReferenceRole = "source" | "character" | "scene" | "prop";
+export type VisualStyleReferenceRole = "source" | "board";
 export type VisualStyleTemplateCategory = "cinematic" | "genre" | "eastern" | "animation" | "handmade" | "graphic";
+export type VisualStyleMediumFamily = "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic";
 export type VisualStyleDna = {
+    mediumFamily: VisualStyleMediumFamily;
     medium: string;
     rendering: string;
+    characterRendering: string;
+    sceneRendering: string;
+    propRendering: string;
     palette: string;
     lighting: string;
     contrast: string;
@@ -21,8 +28,10 @@ export type VisualStyleDna = {
     exclusions: string[];
 };
 const templateExclusions = ["文字", "字幕", "水印", "标志", "边框", "拼贴错位", "不同画风混用"];
-function template(id: string, name: string, category: VisualStyleTemplateCategory, tagline: string, colors: [string, string, string], description: string, dna: Omit<VisualStyleDna, "exclusions">) {
-    return { id, name, category, tagline, colors, description, preview: `visual-styles/${id}.webp`, dna: { ...dna, exclusions: templateExclusions } };
+type TemplateDnaInput = Omit<VisualStyleDna, "exclusions" | "mediumFamily" | "characterRendering" | "sceneRendering" | "propRendering"> & Partial<Pick<VisualStyleDna, "mediumFamily" | "characterRendering" | "sceneRendering" | "propRendering">>;
+function template(id: string, name: string, category: VisualStyleTemplateCategory, tagline: string, colors: [string, string, string], description: string, dna: TemplateDnaInput) {
+    const mediumFamily = dna.mediumFamily || templateMediumFamily(id, category);
+    return { id, name, category, tagline, colors, description, preview: `visual-styles/${id}.webp`, dna: { ...dna, mediumFamily, characterRendering: dna.characterRendering || dna.rendering, sceneRendering: dna.sceneRendering || dna.rendering, propRendering: dna.propRendering || dna.rendering, exclusions: templateExclusions } };
 }
 
 export const VISUAL_STYLE_TEMPLATES = [
@@ -56,10 +65,14 @@ export type VisualStyleReferences = Partial<Record<VisualStyleReferenceRole, str
 type StyleRow = { id: string; user_id: string; project_id: string; name: string; mode: "template" | "custom"; template_id: string | null; description: string; reference_file_id: string | null; status: VisualStyleStatus; dna: string; reference_files: string; revision: number; created_at: string; updated_at: string };
 type ProjectPayload = Record<string, unknown> & { nodes: Array<Record<string, unknown> & { id?: string; metadata?: Record<string, unknown> }>; connections: Array<Record<string, unknown> & { fromNodeId?: string; toNodeId?: string }>; defaultVisualStyleId?: string | null };
 const id = z.string().trim().min(1).max(128);
-const emptyDna: VisualStyleDna = { medium: "", rendering: "", palette: "", lighting: "", contrast: "", texture: "", lensAndDepth: "", composition: "", postProcessing: "", exclusions: [] };
+const emptyDna: VisualStyleDna = { mediumFamily: "live_action", medium: "", rendering: "", characterRendering: "", sceneRendering: "", propRendering: "", palette: "", lighting: "", contrast: "", texture: "", lensAndDepth: "", composition: "", postProcessing: "", exclusions: [] };
 const dnaSchema = z.object({
+    mediumFamily: z.enum(["live_action", "animation_2d", "animation_3d", "illustration", "handmade", "graphic"]).default("live_action"),
     medium: z.string().max(500).default(""),
     rendering: z.string().max(500).default(""),
+    characterRendering: z.string().max(500).default(""),
+    sceneRendering: z.string().max(500).default(""),
+    propRendering: z.string().max(500).default(""),
     palette: z.string().max(500).default(""),
     lighting: z.string().max(500).default(""),
     contrast: z.string().max(500).default(""),
@@ -69,7 +82,7 @@ const dnaSchema = z.object({
     postProcessing: z.string().max(500).default(""),
     exclusions: z.array(z.string().max(300)).max(30).default([]),
 });
-const referencesSchema = z.object({ source: id.optional(), character: id.optional(), scene: id.optional(), prop: id.optional() }).default({});
+const referencesSchema = z.object({ source: id.optional(), board: id.optional() }).default({});
 const inputSchema = z.object({
     name: z.string().trim().min(1).max(200),
     mode: z.enum(["template", "custom"]),
@@ -87,7 +100,7 @@ const updateSchema = z.object({
     description: z.string().max(20_000).optional(),
     status: z.enum(["draft", "confirmed"]).optional(),
     dna: dnaSchema.optional(),
-    references: z.object({ source: id.optional(), character: id.optional(), scene: id.optional(), prop: id.optional() }).optional(),
+    references: z.object({ source: id.optional(), board: id.optional() }).optional(),
 });
 let emitStyle: (userId: string, style: unknown) => void = () => undefined;
 export function setVisualStyleEmitter(emitter: typeof emitStyle) { emitStyle = emitter; }
@@ -95,16 +108,16 @@ export function setVisualStyleEmitter(emitter: typeof emitStyle) { emitStyle = e
 export function listVisualStyleTemplates() { return VISUAL_STYLE_TEMPLATES; }
 export function listVisualStyles(userId: string, projectId: string) {
     assertProject(userId, projectId);
-    return (db.prepare("SELECT * FROM visual_styles WHERE user_id=? AND project_id=? ORDER BY updated_at DESC").all(userId, projectId) as StyleRow[]).map(styleResponse);
+    return (db.prepare("SELECT * FROM visual_styles WHERE user_id=? AND project_id=? ORDER BY updated_at DESC").all(userId, projectId) as StyleRow[]).map((row) => styleResponse(ensureStoredTemplateBoard(userId, row)));
 }
 export function getVisualStyle(userId: string, styleId: string) {
     const row = styleRow(userId, styleId);
     if (!row) throw styleError(404, "VISUAL_STYLE_NOT_FOUND", "视觉风格不存在或无权访问");
-    return styleResponse(row);
+    return styleResponse(ensureStoredTemplateBoard(userId, row));
 }
 export function createVisualStyle(userId: string, projectId: string, raw: unknown) {
     assertProject(userId, projectId);
-    const input = resolveTemplate(inputSchema.parse(raw));
+    const input = materializeTemplateBoard(userId, resolveTemplate(inputSchema.parse(raw)));
     assertStyleReady(input);
     assertStyleReferences(userId, input.references);
     const styleId = nanoid();
@@ -119,9 +132,15 @@ export function updateVisualStyle(userId: string, styleId: string, raw: unknown)
     if (!current) throw styleError(404, "VISUAL_STYLE_NOT_FOUND", "视觉风格不存在或无权访问");
     const patch = updateSchema.parse(raw);
     const semanticChange = ["name", "mode", "templateId", "description", "dna", "references"].some((key) => key in patch);
+    const visualChange = ["mode", "templateId", "description", "dna"].some((key) => key in patch);
     const projectKind = (db.prepare("SELECT kind FROM projects WHERE id=? AND user_id=?").get(current.project_id, userId) as { kind?: string } | undefined)?.kind;
-    const nextStatus = projectKind === "director" && semanticChange && patch.status === undefined ? "draft" : patch.status ?? current.status;
-    const input = resolveTemplate({ name: patch.name ?? current.name, mode: patch.mode ?? current.mode, templateId: patch.templateId === undefined ? current.template_id : patch.templateId, description: patch.description ?? current.description, status: nextStatus, dna: patch.dna ?? dnaSchema.parse(parseJson(current.dna, {})), references: patch.references ?? referencesSchema.parse(parseJson(current.reference_files, {})) });
+    const nextStatus = patch.status ?? current.status;
+    const customizesTemplate = projectKind === "director" && current.mode === "template" && patch.mode === undefined && (patch.description !== undefined || patch.dna !== undefined);
+    const nextMode = customizesTemplate ? "custom" : patch.mode ?? current.mode;
+    const nextTemplateId = customizesTemplate ? null : patch.templateId === undefined ? current.template_id : patch.templateId;
+    const currentReferences = referencesSchema.parse(parseJson(current.reference_files, {}));
+    const nextReferences = patch.references ?? (visualChange ? { ...currentReferences, board: undefined } : currentReferences);
+    const input = materializeTemplateBoard(userId, resolveTemplate({ name: patch.name ?? current.name, mode: nextMode, templateId: nextTemplateId, description: patch.description ?? current.description, status: nextStatus, dna: patch.dna ?? parseStyleDna(current.dna, current.template_id), references: nextReferences }));
     assertStyleReady(input);
     assertStyleReferences(userId, input.references);
     const now = new Date().toISOString();
@@ -157,7 +176,8 @@ export function placeVisualStyle(userId: string, styleId: string, position: { x?
 }
 export function setDefaultVisualStyle(userId: string, styleId: string) {
     const style = getVisualStyle(userId, styleId);
-    if (style.status !== "confirmed") throw styleError(409, "VISUAL_STYLE_NOT_CONFIRMED", "请先确认视觉风格，再设为项目默认");
+    const kind = (db.prepare("SELECT kind FROM projects WHERE id=? AND user_id=?").get(style.projectId, userId) as { kind?: string } | undefined)?.kind;
+    if (kind !== "director" && style.status !== "confirmed") throw styleError(409, "VISUAL_STYLE_NOT_CONFIRMED", "请先确认视觉风格，再设为项目默认");
     const project = projectPayload(userId, style.projectId);
     project.defaultVisualStyleId = styleId;
     saveProject(userId, style.projectId, project);
@@ -214,7 +234,7 @@ export function resolveCreativeAssetNodeInputs(userId: string, projectId: string
 
 export function syncVisualStyleGeneration(row: { id: string; user_id: string; status: string; request: string; result: string | null }) {
     if (row.status !== "succeeded") return;
-    const request = parseJson<{ params?: { __visualStyleReference?: { styleId?: string; role?: Exclude<VisualStyleReferenceRole, "source"> } } }>(row.request, {});
+    const request = parseJson<{ params?: { __visualStyleBoard?: { styleId?: string; styleRevision?: number } } }>(row.request, {});
     const analysis = (request.params as Record<string, unknown> | undefined)?.__visualStyleAnalysis as { styleId?: string } | undefined;
     if (analysis?.styleId) {
         const text = String(parseJson<{ text?: string }>(row.result, {}).text || "");
@@ -224,14 +244,15 @@ export function syncVisualStyleGeneration(row: { id: string; user_id: string; st
         updateVisualStyle(row.user_id, style.id, { revision: style.revision, mode: "custom", templateId: null, description: value.description, dna: value.dna });
         return;
     }
-    const target = request.params?.__visualStyleReference;
-    if (!target?.styleId || !target.role) return;
+    const target = request.params?.__visualStyleBoard;
+    if (!target?.styleId) return;
     const files = parseJson<{ files?: Array<{ fileId?: string; id?: string }> }>(row.result, {}).files || [];
     const fileId = String(files[0]?.fileId || files[0]?.id || "");
     if (!fileId) return;
     const style = getVisualStyle(row.user_id, target.styleId);
-    if (style.references[target.role] === fileId) return;
-    updateVisualStyle(row.user_id, style.id, { revision: style.revision, references: { ...style.references, [target.role]: fileId } });
+    if (style.revision !== target.styleRevision) return;
+    if (style.references.board === fileId) return;
+    updateVisualStyle(row.user_id, style.id, { revision: style.revision, references: { ...style.references, board: fileId } });
 }
 
 function parseStyleAnalysis(value: string) {
@@ -242,16 +263,78 @@ function parseStyleAnalysis(value: string) {
     } catch { return null; }
 }
 
+function templateMediumFamily(id: string, category: VisualStyleTemplateCategory): VisualStyleMediumFamily {
+    if (id === "stylized-3d") return "animation_3d";
+    if (id === "contemporary-cel" || id === "retro-cel") return "animation_2d";
+    if (id === "romantic-webcomic" || id === "ink-wash" || id === "watercolor-storybook") return "illustration";
+    if (category === "handmade") return "handmade";
+    if (category === "graphic") return "graphic";
+    return "live_action";
+}
+
+function inferMediumFamily(medium: string): VisualStyleMediumFamily {
+    if (/(三维|3d|CG|PBR)/i.test(medium)) return "animation_3d";
+    if (/(赛璐璐|二维动画|2d animation)/i.test(medium)) return "animation_2d";
+    if (/(水墨|水彩|插画|条漫|绘本|图像小说)/i.test(medium)) return "illustration";
+    if (/(黏土|定格|剪纸|手工)/i.test(medium)) return "handmade";
+    if (/(像素|孔版|平面|graphic)/i.test(medium)) return "graphic";
+    return "live_action";
+}
+
+function parseStyleDna(value: string | Record<string, unknown>, templateId?: string | null): VisualStyleDna {
+    const raw = typeof value === "string" ? parseJson<Record<string, unknown>>(value, {}) : value;
+    const parsed = dnaSchema.parse(raw);
+    const template = templateId ? VISUAL_STYLE_TEMPLATES.find((item) => item.id === templateId) : null;
+    const mediumFamily = Object.hasOwn(raw, "mediumFamily") ? parsed.mediumFamily : template?.dna.mediumFamily || inferMediumFamily(parsed.medium);
+    return {
+        ...parsed,
+        mediumFamily,
+        characterRendering: parsed.characterRendering || template?.dna.characterRendering || parsed.rendering,
+        sceneRendering: parsed.sceneRendering || template?.dna.sceneRendering || parsed.rendering,
+        propRendering: parsed.propRendering || template?.dna.propRendering || parsed.rendering,
+    };
+}
+
 function resolveTemplate<T extends { mode: string; templateId?: string | null; description: string; dna: VisualStyleDna }>(input: T) {
     if (input.mode !== "template") return input;
     const template = VISUAL_STYLE_TEMPLATES.find((item) => item.id === input.templateId);
     if (!template) throw styleError(400, "VISUAL_STYLE_TEMPLATE_INVALID", "视觉风格模板不存在");
-    const hasDna = Object.entries(input.dna).some(([key, value]) => key === "exclusions" ? (value as string[]).length > 0 : String(value).trim());
+    const hasDna = Object.entries(input.dna).some(([key, value]) => key === "mediumFamily" ? false : key === "exclusions" ? (value as string[]).length > 0 : String(value).trim());
     return { ...input, description: input.description.trim() || template.description, dna: hasDna ? input.dna : { ...template.dna, exclusions: [...template.dna.exclusions] } };
+}
+function materializeTemplateBoard<T extends { mode: string; templateId?: string | null; references: VisualStyleReferences }>(userId: string, input: T) {
+    if (input.mode !== "template" || !input.templateId) return input;
+    const template = VISUAL_STYLE_TEMPLATES.find((item) => item.id === input.templateId);
+    if (!template) return input;
+    const originalName = `visual-style-template-${template.id}.webp`;
+    const existing = db.prepare("SELECT id FROM stored_files WHERE user_id=? AND original_name=? ORDER BY created_at DESC LIMIT 1").get(userId, originalName) as { id: string } | undefined;
+    if (existing && getStoredFile(userId, existing.id)) return { ...input, references: { board: existing.id } };
+    const candidates = [resolve(process.cwd(), "../web/public", template.preview), resolve(process.cwd(), "web/public", template.preview)];
+    const source = candidates.find((path) => existsSync(path));
+    if (!source) throw styleError(500, "VISUAL_STYLE_TEMPLATE_PREVIEW_MISSING", `内置风格预览不存在：${template.id}`);
+    const stored = storeLocalFile(userId, source, originalName, "image/webp");
+    return { ...input, references: { board: stored.fileId } };
+}
+function ensureStoredTemplateBoard(userId: string, row: StyleRow) {
+    const references = referencesSchema.parse(parseJson(row.reference_files, {}));
+    if (row.mode !== "template" || !row.template_id || references.board) return row;
+    const materialized = materializeTemplateBoard(userId, { mode: row.mode, templateId: row.template_id, references });
+    const referenceFiles = JSON.stringify(materialized.references);
+    db.prepare("UPDATE visual_styles SET reference_files=? WHERE id=? AND user_id=?").run(referenceFiles, row.id, userId);
+    syncStyleRefs(userId, row.id, materialized.references);
+    return { ...row, reference_files: referenceFiles };
 }
 function assertStyleReady(style: { status: VisualStyleStatus; description: string }) { if (style.status === "confirmed" && !style.description.trim()) throw styleError(400, "VISUAL_STYLE_DESCRIPTION_REQUIRED", "确认视觉风格前请先填写风格描述"); }
 function styleRow(userId: string, styleId: string) { return db.prepare("SELECT * FROM visual_styles WHERE id=? AND user_id=?").get(styleId, userId) as StyleRow | undefined; }
-function styleResponse(row: StyleRow) { const references = referencesSchema.parse(parseJson(row.reference_files, {})); return { id: row.id, projectId: row.project_id, name: row.name, mode: row.mode, templateId: row.template_id, description: row.description, status: row.status, dna: dnaSchema.parse(parseJson(row.dna, {})), references, referenceFileId: references.source || null, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function styleResponse(row: StyleRow) { const references = referencesSchema.parse(parseJson(row.reference_files, {})); const boardStale = isStyleBoardStale(row, references.board); return { id: row.id, projectId: row.project_id, name: row.name, mode: row.mode, templateId: row.template_id, description: row.description, status: row.status, dna: parseStyleDna(row.dna, row.template_id), references, referenceFileId: boardStale ? references.source || null : references.board || references.source || null, boardStale, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function isStyleBoardStale(row: StyleRow, boardFileId?: string) {
+    if (!boardFileId || row.mode === "template") return false;
+    const generations = db.prepare("SELECT request,result FROM generations WHERE user_id=? AND status='succeeded' AND result LIKE ? ORDER BY updated_at DESC LIMIT 20").all(row.user_id, `%${boardFileId}%`) as Array<{ request: string; result: string | null }>;
+    const generation = generations.find((item) => (parseJson<{ files?: Array<{ fileId?: string; id?: string }> }>(item.result, {}).files || []).some((file) => String(file.fileId || file.id || "") === boardFileId));
+    if (!generation) return false;
+    const target = parseJson<{ params?: { __visualStyleBoard?: { styleId?: string; styleRevision?: number } } }>(generation.request, {}).params?.__visualStyleBoard;
+    return target?.styleId === row.id && typeof target.styleRevision === "number" && row.revision > target.styleRevision + 1;
+}
 function publishStyle(userId: string, row: StyleRow) { const style = styleResponse(row); emitStyle(userId, style); return style; }
 function assertProject(userId: string, projectId: string) { if (!db.prepare("SELECT 1 FROM projects WHERE id=? AND user_id=?").get(projectId, userId)) throw styleError(404, "PROJECT_NOT_FOUND", "画布不存在或无权访问"); }
 function assertReferenceKind(userId: string, fileId: string, prefix: string) { const row = db.prepare("SELECT mime_type FROM stored_files WHERE id=? AND user_id=?").get(fileId, userId) as { mime_type: string } | undefined; if (!row || !row.mime_type.startsWith(prefix)) throw styleError(400, "CANVAS_REFERENCE_TYPE_INVALID", "连接文件类型与语义端口不匹配"); }

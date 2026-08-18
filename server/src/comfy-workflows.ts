@@ -70,7 +70,7 @@ export function alignH3Frames(seconds: number): H3FrameAlignment {
 }
 
 export function h3Recipe(mode: "fl2va" | "ref2va", qualityPreset: H3QualityPreset, turboAvailable = false): H3GenerationRecipe {
-    if (qualityPreset === "preview" && mode === "fl2va" && turboAvailable) return { qualityPreset, resolution: "480p", steps: 8, sampler: "h3-turbo", scheduler: "beta", refImageSize: "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: true };
+    if (qualityPreset === "preview" && mode === "fl2va" && turboAvailable) return { qualityPreset, resolution: "480p", steps: 8, sampler: "h3-turbo", scheduler: "simple", refImageSize: "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: true };
     if (qualityPreset === "preview") return { qualityPreset, resolution: "480p", steps: 20, sampler: "res_multistep", scheduler: "simple", refImageSize: "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: false };
     return { qualityPreset, resolution: "768p", steps: 20, sampler: "res_multistep", scheduler: mode === "ref2va" ? "beta" : "simple", refImageSize: mode === "ref2va" ? "max" : "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: false };
 }
@@ -284,7 +284,7 @@ function miniMaxH3(input: WorkflowInput): Workflow {
     const guides = Array.isArray(input.params.temporalGuides) ? input.params.temporalGuides.slice(0, 4) as H3TemporalGuide[] : [];
     const guideIds = new Set(guides.map((guide) => guide.fileId));
     const images = imageFiles.filter((file) => !guideIds.has(file.fileId)).map((file) => file.name);
-    const videos = videoFiles.filter((file) => !guideIds.has(file.fileId) && file.role !== "continuation").map((file) => file.name);
+    const videos = videoFiles.filter((file) => !guideIds.has(file.fileId)).map((file) => file.name);
     const audios = audioFiles.filter((file) => !guideIds.has(file.fileId)).map((file) => file.name);
     const ratioParts = String(input.params.ratio || input.params.size || "16:9").split(":").map(Number);
     const ratio = ratioParts.length === 2 && ratioParts.every((value) => value > 0) ? ratioParts[0] / ratioParts[1] : 16 / 9;

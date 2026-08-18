@@ -28,6 +28,7 @@ import {
   createDirectorRender,
   createDirectorVideoSegmentGeneration,
   createDirectorStoryboardGeneration,
+  getDirectorVideoSegmentPreflight,
   listDirectorRenders,
   retryDirectorRender,
   updateDirectorStoryboardPrompts,
@@ -103,6 +104,38 @@ const askUserShape = {
     options: z.array(z.object({ label: z.string().min(1).max(120), description: z.string().max(240).optional() })).max(6).optional(),
   })).min(1).max(3),
 };
+
+const directorAssetRefSchema = z.object({ id: z.string().min(1), revision: z.number().int().positive() });
+const directorVideoSegmentPayloadShape = {
+  durationSeconds: z.number().int().min(4).max(15),
+  sourceSceneId: z.string().min(1).max(80),
+  sourceBeatIds: z.array(z.string().min(1).max(80)).min(1).max(20),
+  sourceDurationSeconds: z.number().min(1).max(3_600),
+  dramaticBeat: z.string().min(1).max(2_000),
+  openingState: z.string().min(1).max(4_000),
+  endingState: z.string().min(1).max(4_000),
+  boundary: z.enum(["cut", "continue"]).default("cut"),
+  continuationFromSegmentId: z.string().min(1).optional(),
+  generationIntent: z.enum(["storyboard", "transition"]).optional(),
+  transitionFromSegmentId: z.string().min(1).optional(),
+  transitionToSegmentId: z.string().min(1).optional(),
+  description: z.string().max(8_000).optional(),
+  action: z.string().max(8_000).optional(),
+  dialogue: z.string().max(8_000).optional(),
+  narration: z.string().max(8_000).optional(),
+  soundDesign: z.string().max(4_000).optional(),
+  h3VisualDescription: z.string().max(12_000).optional(),
+  h3Soundscape: z.string().max(4_000).optional(),
+  h3NonDiegeticMusic: z.string().max(2_000).optional(),
+  storyboardFrameCount: z.union([z.literal(4), z.literal(6), z.literal(9)]).optional(),
+  characterRefs: z.array(directorAssetRefSchema).max(20).default([]),
+  sceneRefs: z.array(directorAssetRefSchema).max(20).default([]),
+  propRefs: z.array(directorAssetRefSchema).max(20).default([]),
+};
+
+function directorVideoSegmentPayload(value: Record<string, unknown>) {
+  return Object.fromEntries(Object.keys(directorVideoSegmentPayloadShape).filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
+}
 
 function normalizeAskUserInput(input: { summary?: string; questions: Array<{ id?: string; header?: string; question: string; type: "text" | "single_choice" | "multiple_choice"; allowCustomInput?: boolean; customInputPlaceholder?: string; options?: Array<{ label: string; description?: string }> }> }) {
   return {
@@ -253,31 +286,29 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_update_document",
-          "按 revision 更新 Markdown 故事或结构化 Markdown 剧本。故事写回即采用，剧本只区分草稿与已确认。",
+          "按 revision 更新 Markdown 故事或结构化 Markdown 剧本。保存后即作为当前采用版本，不存在额外确认状态。",
           {
             kind: z.enum(["story", "script"]),
             revision: z.number().int().positive(),
             content: z.string().max(20_000_000).optional(),
-            status: z.enum(["draft", "confirmed"]).optional(),
           },
           async (input) => {
             const value = input as {
               kind: "story" | "script";
               revision: number;
               content?: string;
-              status?: string;
             };
             return updateDirectorDocument(
               run.userId,
               projectId,
               value.kind,
-              value,
+              { revision: value.revision, ...(value.content === undefined ? {} : { content: value.content }) },
             );
           },
         ),
         call(
           "director_create_sequences",
-          "根据已确认剧本批量创建剧情段落及 4–9 格结构化故事板。",
+          "根据当前已保存剧本批量创建剧情段落及 4–9 格结构化故事板。",
           {
             items: z
               .array(
@@ -346,7 +377,7 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_generate_storyboard",
-          "为一个 4–15 秒视频段生成一张包含 4–6 个画格的完整故事板；用户必须显式发起。",
+          "为一个 4–15 秒视频段生成一张包含 4、6 或 9 个画格的完整故事板；用户必须显式发起。",
           { segmentId: z.string().min(1), revision: z.number().int().positive(), model: z.string().optional() },
           (input) => {
             const value = input as { segmentId: string } & Record<string, unknown>;
@@ -355,7 +386,7 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_create_video_segments",
-          "根据剧本剧情段落规划 4–15 秒视频段；超过 15 秒必须拆段，并保存角色、场景、道具稳定 ID 与 revision。",
+          "根据剧本场次与表演节拍批量规划 4–15 秒视频段。必须填写来源场次、来源节拍、承接时长、唯一戏剧变化和开始/结束状态；不得压缩或静默丢失剧本内容。",
           {
             items: z
               .array(
@@ -363,34 +394,35 @@ export function buildAgentMcpServer(
                   sequenceId: z.string().min(1),
                   title: z.string().min(1).max(300),
                   position: z.number().int().min(0).optional(),
-                  payload: z.record(z.string(), z.unknown()).optional(),
+                  ...directorVideoSegmentPayloadShape,
                 }),
               )
               .min(1)
               .max(500),
           },
-          (input) =>
-            (input as { items: Array<Record<string, unknown>> }).items.map(
-              (item) => createDirectorVideoSegment(run.userId, projectId, item),
-            ),
+          (input) => (input as { items: Array<Record<string, unknown>> }).items.map((item) => createDirectorVideoSegment(run.userId, projectId, {
+            sequenceId: item.sequenceId,
+            title: item.title,
+            position: item.position,
+            payload: directorVideoSegmentPayload(item),
+          })),
         ),
         call(
           "director_update_video_segment",
-          "按 revision 更新视频段结构、素材引用、cut/continue 边界和 H3 模式；不得直接写 storyboardSheet，故事板提示词必须使用专用工具。已锁定内容需要审批。",
+          "按 revision 更新单个视频段结构和素材引用。批量匹配素材或统一修订时使用 director_update_video_segments；故事板画格提示使用专用工具。",
           {
             segmentId: z.string().min(1),
             revision: z.number().int().positive(),
             position: z.number().int().min(0).optional(),
             title: z.string().max(300).optional(),
             status: z.enum(["draft", "confirmed", "locked"]).optional(),
-            payload: z.record(z.string(), z.unknown()).optional(),
+            ...Object.fromEntries(Object.entries(directorVideoSegmentPayloadShape).map(([key, schema]) => [key, schema.optional()])),
           },
           async (input) => {
             const value = input as { segmentId: string; status?: string } & Record<
               string,
               unknown
             >;
-            if (value.payload && typeof value.payload === "object" && "storyboardSheet" in value.payload) throw mcpError(400, "DIRECTOR_STORYBOARD_TOOL_REQUIRED", "故事板提示词必须使用 director_update_storyboard_prompts，不能整体覆盖 storyboardSheet");
             const current = getDirectorState(run.userId, projectId).videoSegments.find(
               (item) => item.id === value.segmentId,
             );
@@ -402,22 +434,82 @@ export function buildAgentMcpServer(
                 ));
             if (locked)
               await context.requireDecision("director_update_video_segment", value);
-            return updateDirectorVideoSegment(run.userId, value.segmentId, value, locked);
+            return updateDirectorVideoSegment(run.userId, value.segmentId, {
+              revision: value.revision,
+              position: value.position,
+              title: value.title,
+              status: value.status,
+              payload: directorVideoSegmentPayload(value),
+            }, locked);
+          },
+        ),
+        call(
+          "director_update_video_segments",
+          "按各自 revision 批量更新最多 100 个视频段的结构和角色、场景、道具引用；用于素材匹配和统一规划，避免逐段重复调用。故事板画格提示仍使用专用工具。",
+          {
+            items: z.array(z.object({
+              segmentId: z.string().min(1),
+              revision: z.number().int().positive(),
+              position: z.number().int().min(0).optional(),
+              title: z.string().max(300).optional(),
+              status: z.enum(["draft", "confirmed", "locked"]).optional(),
+              ...Object.fromEntries(Object.entries(directorVideoSegmentPayloadShape).map(([key, schema]) => [key, schema.optional()])),
+            })).min(1).max(100),
+          },
+          async (input) => {
+            const items = (input as { items: Array<Record<string, unknown>> }).items;
+            const current = new Map(getDirectorState(run.userId, projectId).videoSegments.map((item) => [item.id, item]));
+            const locked = items.some((item) => current.get(String(item.segmentId))?.status === "locked");
+            if (locked) await context.requireDecision("director_update_video_segments", input);
+            return items.map((item) => updateDirectorVideoSegment(run.userId, String(item.segmentId), {
+              revision: item.revision,
+              position: item.position,
+              title: item.title,
+              status: item.status,
+              payload: directorVideoSegmentPayload(item),
+            }, locked));
+          },
+        ),
+        call(
+          "director_validate_video_segments",
+          "只读校验最多 100 个视频段的来源节拍、时长守恒、故事板 Shot 结构、素材、H3 英文视觉描述、结构化对白和声景是否可生成；不创建任务、不消费额度。",
+          { segmentIds: z.array(z.string().min(1)).min(1).max(100) },
+          (input) => {
+            const value = input as { segmentIds: string[] };
+            return value.segmentIds.map((segmentId) => {
+              const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
+              const preflight = getDirectorVideoSegmentPreflight(run.userId, segmentId);
+              return { segmentId, title: segment.title, revision: segment.revision, ready: preflight.blockedReasons.length === 0, blockedReasons: preflight.blockedReasons, warnings: preflight.warnings, route: preflight.route };
+            });
           },
         ),
         call(
           "director_update_storyboard_prompts",
-          "安全更新最多 10 个视频段的画格提示语义。只接受画面、动作、机位、运镜和声音；服务端保留媒体与生成字段、重编最终提示词，并将旧故事板和视频标记过期。",
+          "安全更新最多 10 个视频段的整板时序语义。对白必须绑定角色素材、原文、语言、英文语气及起止时间；声音字段只允许英文环境声、动作声和非语言人声。服务端保留整张故事板媒体并标记旧结果过期。",
           {
             items: z.array(z.object({
               segmentId: z.string().min(1),
               revision: z.number().int().positive(),
               frames: z.array(z.object({
                 id: z.string().min(1),
+                shotNumber: z.number().int().min(1).max(3),
+                timeSeconds: z.number().min(0).max(15),
+                kind: z.enum(["shot-start", "keyframe", "shot-end"]),
                 description: z.string().max(4_000),
                 action: z.string().max(4_000),
                 cameraAngle: z.string().max(1_000),
                 cameraMove: z.string().max(1_000),
+                h3Visual: z.string().min(1).max(6_000),
+                dialogues: z.array(z.object({
+                  speakerAssetId: z.string().min(1),
+                  speakerName: z.string().min(1).max(120),
+                  text: z.string().min(1).max(2_000),
+                  language: z.string().min(1).max(40).default("Chinese"),
+                  delivery: z.string().min(1).max(1_000),
+                  startSeconds: z.number().min(0).max(15),
+                  endSeconds: z.number().positive().max(15),
+                  offScreen: z.boolean().optional(),
+                })).max(8).default([]),
                 sound: z.string().max(2_000),
               })).min(1).max(9),
             })).min(1).max(10),
@@ -443,12 +535,11 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_generate_video_segment",
-          "锁定当前故事板 revision，自动选择 H3 FL2VA/Ref2VA 并生成带原生声音的视频段。",
+          "锁定当前故事板 revision，默认以完整故事板和素材参考生成带原生声音的视频段；连续段自动继承上一段尾部音视频。",
           {
             segmentId: z.string().min(1),
             revision: z.number().int().positive(),
             model: z.string().optional(),
-            mode: z.enum(["fl2va", "ref2va"]).optional(),
             qualityPreset: z.enum(["preview", "final"]).default("preview"),
           },
           (input) => {
@@ -523,7 +614,7 @@ export function buildAgentMcpServer(
               startedAt: new Date().toISOString(),
             });
             try {
-              requireDirectorDocumentStatus(run.userId, projectId, "script");
+              requireDirectorDocumentContent(run.userId, projectId, "script");
               const output = {
                 assets: createAgentCreativeAssetBatch(
                   run.userId,
@@ -686,19 +777,22 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_create_style",
-          "创建导演项目的模板或自定义视觉风格。",
-          canvasToolSchemas.visual_style_create.shape,
+          "创建并立即采用导演项目的模板或自定义视觉风格。",
+          canvasToolSchemas.visual_style_create.omit({ status: true }).shape,
           (input) => {
             const value = input as z.infer<
               typeof canvasToolSchemas.visual_style_create
             >;
-            return createAgentVisualStyle(run.userId, project(value), value);
+            const projectId = project(value);
+            const style = createAgentVisualStyle(run.userId, projectId, value);
+            defaultAgentVisualStyle(run.userId, projectId, style.id);
+            return style;
           },
         ),
         call(
           "director_update_style",
-          "按 revision 更新导演视觉风格。",
-          canvasToolSchemas.visual_style_update.shape,
+          "按 revision 更新当前采用的导演视觉风格。",
+          canvasToolSchemas.visual_style_update.omit({ status: true }).shape,
           (input) => {
             const value = input as z.infer<
               typeof canvasToolSchemas.visual_style_update
@@ -734,7 +828,7 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_generate_style_references",
-          "生成角色、场景和道具的中性风格参考样张。",
+          "生成一张同时展示角色、场景和道具视觉语言的统一风格板。",
           canvasToolSchemas.visual_style_generate_references.shape,
           (input) => {
             const value = input as z.infer<
@@ -823,7 +917,7 @@ export function buildAgentMcpServer(
               .string()
               .max(500)
               .regex(
-                /^\/director\/[^/]+(?:\/(?:overview|story|script|assets|storyboard|studio))?$/,
+                /^\/director\/[^/]+(?:\/(?:overview|story|script|style|assets|storyboard|studio))?$/,
                 "只能在当前导演项目内跳转",
               ),
           },
@@ -1323,7 +1417,7 @@ export function buildAgentMcpServer(
       ),
       call(
         "visual_style_generate_references",
-        "生成角色、场景和道具三类中性风格参考样张。",
+        "生成一张同时展示角色、场景和道具视觉语言的统一风格板。",
         canvasToolSchemas.visual_style_generate_references.shape,
         (input) => {
           const value = input as z.infer<
@@ -1491,7 +1585,7 @@ function continuityReport(state: ReturnType<typeof getDirectorState>) {
   };
 }
 
-function requireDirectorDocumentStatus(
+function requireDirectorDocumentContent(
   userId: string,
   projectId: string,
   kind: "story" | "script",
@@ -1499,19 +1593,19 @@ function requireDirectorDocumentStatus(
   const document = getDirectorState(userId, projectId).documents.find(
     (item) => item.kind === kind,
   );
-  if (!document || !["confirmed", "locked"].includes(document.status))
+  if (!document?.content.trim())
     throw mcpError(
       409,
       "DIRECTOR_STAGE_GATE",
-      `请先确认${kind === "script" ? "剧本" : "故事"}`,
+      `请先完成${kind === "script" ? "剧本" : "故事"}`,
     );
 }
 
 function requireDirectorMediaStage(userId: string, projectId: string) {
-  requireDirectorDocumentStatus(userId, projectId, "script");
+  requireDirectorDocumentContent(userId, projectId, "script");
   const state = getDirectorState(userId, projectId);
-  if (!state.activeStyleId || !listAgentVisualStyles(userId, projectId).some((style) => style.id === state.activeStyleId && style.status === "confirmed"))
-    throw mcpError(409, "DIRECTOR_STAGE_GATE", "请先确认视觉风格");
+  if (!state.activeStyleId || !listAgentVisualStyles(userId, projectId).some((style) => style.id === state.activeStyleId))
+    throw mcpError(409, "DIRECTOR_STAGE_GATE", "请先选择当前视觉风格");
 }
 
 function assertDirectorRender(

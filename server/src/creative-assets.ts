@@ -5,6 +5,7 @@ import { db, parseJson } from "./database.js";
 import { syncFileRefs } from "./file-store.js";
 import { publishAgentProject } from "./agent/project-events.js";
 import { getAiGlobalSettings } from "./provider-service.js";
+import { getVisualStyle } from "./visual-styles.js";
 
 export type CreativeAssetKind = "character" | "scene" | "prop";
 export type CreativeAssetStatus = "draft" | "confirmed" | "locked";
@@ -20,7 +21,11 @@ export type CharacterDesignProfile = {
     apparentGender: "female" | "male" | "androgynous" | "unspecified";
     voiceGender: "female" | "male" | "androgynous" | "unspecified";
     ageBand: string;
+    visibleAgeCues: string;
+    bodySilhouette: string;
+    posture: string;
     identityAnchor: string;
+    distinctivenessSummary: string;
     facialIdentity: {
         faceShape: string;
         boneStructure: string;
@@ -125,7 +130,11 @@ export const creativeAssetPayloadSchema = z.object({
         apparentGender: z.enum(["female", "male", "androgynous", "unspecified"]).default("unspecified"),
         voiceGender: z.enum(["female", "male", "androgynous", "unspecified"]).default("unspecified"),
         ageBand: z.string().max(100).default(""),
+        visibleAgeCues: z.string().max(1_000).default(""),
+        bodySilhouette: z.string().max(1_000).default(""),
+        posture: z.string().max(1_000).default(""),
         identityAnchor: z.string().max(2_000).default(""),
+        distinctivenessSummary: z.string().max(2_000).default(""),
         facialIdentity: z.object({
             faceShape: z.string().max(500).default(""),
             boneStructure: z.string().max(500).default(""),
@@ -238,7 +247,7 @@ export function setCreativeAssetPrimary(userId: string, assetId: string, variant
     const payload = creativeAssetPayloadSchema.parse(parseJson(row.payload, {}));
     const selected = payload.variants.find((item) => item.id === variantId);
     if (!selected) throw creativeAssetError(404, "CREATIVE_ASSET_VARIANT_NOT_FOUND", "媒体版本不存在");
-    if (selected.kind === "audio" && selected.usage === "reference_input") throw creativeAssetError(400, "CREATIVE_ASSET_REFERENCE_NOT_PRIMARY", "参考音频不能设为主音频");
+    if (isCreativeAssetReferenceUsage(selected.usage)) throw creativeAssetError(400, "CREATIVE_ASSET_REFERENCE_NOT_PRIMARY", "参考素材不能设为主结果");
     if (selected.kind === "image" && selected.review?.status !== "approved") throw creativeAssetError(409, "CREATIVE_ASSET_VARIANT_REVIEW_REQUIRED", "设计图通过审核后才能设为主图");
     return updateCreativeAsset(userId, assetId, { revision, payload: selected.kind === "image" ? { primaryImageId: variantId } : { primaryAudioId: variantId } }, true);
 }
@@ -374,7 +383,7 @@ export function syncCreativeAssetGeneration(row: { id: string; user_id: string; 
     const additions = fileIds.slice(0, 1).filter((fileId) => !payload.variants.some((item) => item.generationId === row.id && item.fileId === fileId));
     if (!additions.length) return;
     const added = additions.map((fileId) => ({ id: nanoid(), kind, fileId, label: target.label || (kind === "image" ? "生成图片" : "生成声音"), prompt: request.prompt || "", generationId: row.id, usage: target.usage, transcript: target.transcript, createdAt: new Date().toISOString() } satisfies CreativeAssetVariant));
-    payload.variants = [...payload.variants.filter((item) => item.kind !== kind || item.usage === "reference_input"), ...added];
+    payload.variants = [...payload.variants.filter((item) => item.kind !== kind || isCreativeAssetReferenceUsage(item.usage)), ...added];
     if (kind === "image") {
         payload.primaryImageId = added[0].id;
         payload.dependencies = { ...payload.dependencies, style: request.params?.__visualStyle?.id && request.params.__visualStyle.revision ? { id: request.params.__visualStyle.id, revision: request.params.__visualStyle.revision } : null };
@@ -403,10 +412,11 @@ export function creativeAssetAutomaticReviewRequest(row: { id: string; user_id: 
     variant.review = { status: "pending_review", source: "automatic", summary: "正在检查视觉一致性" };
     updateCreativeAsset(row.user_id, asset.id, { revision: asset.revision, payload }, true);
     const styleId = payload.dependencies?.style?.id;
-    const style = styleId ? db.prepare("SELECT description,reference_files FROM visual_styles WHERE id=? AND user_id=? AND project_id=?").get(styleId, row.user_id, asset.project_id) as { description: string; reference_files: string } | undefined : undefined;
-    const styleReference = style ? parseJson<{ source?: string; character?: string; scene?: string; prop?: string }>(style.reference_files, {})[asset.kind] || parseJson<{ source?: string }>(style.reference_files, {}).source : undefined;
+    const style = styleId ? getVisualStyle(row.user_id, styleId) : undefined;
+    const styleReferences = style?.references || {};
+    const styleReference = styleReferences.board || styleReferences.source;
     const criteria = asset.kind === "character"
-        ? "恰好四个视角（正面、左侧、右侧、背面）；四个完整等高全身且不裁切；面部、体型、发型、服装、材质、配色一致；纯白背景；无文字、边框、Logo；符合视觉风格。"
+        ? `恰好四个视角（正面、左侧、右侧、背面）；四个完整等高全身且不裁切；面部、年龄、体型、发型、服装、材质、配色一致；纯白背景；无文字、边框、Logo；符合视觉风格。脸型、骨相、眉眼鼻唇、发际线、体型、姿态、服装剪影和自然识别点必须稳定且与其他角色有辨识度。${style?.dna.mediumFamily === "live_action" ? "检查塑料皮肤、过度磨皮、偶像脸、图库模特感、商业精修、CGI 或插画感；应具有真实毛孔、符合年龄的纹理和自然轻微不对称。" : `按 ${style?.dna.mediumFamily || "当前"} 媒介检查线条或材质、形状概括、色块与阴影层级的一致性，不得用真人毛孔或摄影感作为验收标准。`}身份锚点：${payload.designProfile?.identityAnchor || payload.designProfile?.distinctivenessSummary || "以角色视觉设定为准"}。`
         : asset.kind === "scene"
             ? "空间结构、时代地理、陈设、材质和光线一致；无人、无剧情动作、无意外文字；符合视觉风格。"
             : "轮廓、比例、材质、结构、磨损和关键细节清晰一致；无人物、无环境、无文字；符合视觉风格。";
@@ -436,7 +446,7 @@ export function creativeAssetResponse(row: CreativeAssetRow) {
     return { id: row.id, projectId: row.project_id, kind: row.kind, name: row.name, status: row.status, payload: creativeAssetPayloadSchema.parse(parseJson(row.payload, {})), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
-export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetResponse>, kind: "image" | "audio", extra = "", profile: "generic" | "gpt-image-2" = "generic") {
+export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetResponse>, kind: "image" | "audio", extra = "", profile: "generic" | "gpt-image-2" = "generic", styleMediumFamily: "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic" = "live_action") {
     const description = asset.payload.description.trim();
     const requirement = extra.trim();
     if (kind === "audio") return requirement || asset.payload.mediaDrafts.audio.prompt || asset.payload.description;
@@ -453,16 +463,24 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
         ? Object.entries(asset.payload.designProfile.facialIdentity).map(([key, value]) => value.trim() ? `${facialIdentityLabels[key] || key}：${value.trim()}` : "").filter(Boolean).join("；")
         : "";
     if (directorCharacter) {
+        const design = asset.payload.designProfile;
+        const liveAction = styleMediumFamily === "live_action";
         const subject = [
-            "同一角色的单张横版四视图设计图，一张图片内包含四个角度。",
+            liveAction && profile === "gpt-image-2" ? "Photorealistic real-camera casting documentation of one believable human actor." : "同一个角色的单张横版四视图身份设定图。",
             visualDescription,
+            design?.visibleAgeCues ? `可见年龄痕迹：${design.visibleAgeCues}` : "",
+            design?.bodySilhouette ? `全身剪影：${design.bodySilhouette}` : "",
+            design?.posture ? `自然站姿：${design.posture}` : "",
             facialIdentity ? `稳定面部身份锚点：${facialIdentity}` : "",
+            !facialIdentity && visualDescription && design?.identityAnchor ? `稳定身份锚点：${design.identityAnchor}` : "",
+            design?.distinctivenessSummary ? `与其他角色的差异锚点：${design.distinctivenessSummary}` : "",
         ].filter(Boolean).join("\n");
-        const supplement = requirement ? `[风格与补充要求]\n${requirement}` : "";
-        const forbidden = "负面约束：背景场景、剧情动作、叙事事件、情绪变化、换装、伤势、水印、文字、字母、数字、Logo、UI、边框标题。";
+        const supplement = requirement ? `[当前风格]\n${requirement}` : "";
+        const renderingQuality = characterRenderingQuality(styleMediumFamily);
+        const forbidden = "禁止项：背景场景、剧情动作、叙事事件、夸张情绪、换装、伤势、水印、文字、字母、数字、Logo、UI、边框和标题。";
         return profile === "gpt-image-2"
-            ? [`[主体视觉设定]\n${subject}`, supplement, `[输出规格]\n${layout}`, `[禁止项与验收]\n${forbidden}`].filter(Boolean).join("\n\n")
-            : [subject, requirement, layout, forbidden].filter(Boolean).join("\n\n");
+            ? [`[角色身份]\n${subject}`, supplement, `[媒介质量要求]\n${renderingQuality}`, `[单张四视图规格]\n${layout}`, `[通用禁止项]\n${forbidden}`].filter(Boolean).join("\n\n")
+            : [subject, requirement, renderingQuality, layout, forbidden].filter(Boolean).join("\n\n");
     }
     const sections = [
         `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}「${asset.name}」的视觉设计参考。`,
@@ -475,6 +493,15 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
     return profile === "gpt-image-2"
         ? [`[主体视觉设定]\n${sections[0]}\n${sections[1] || ""}`, `[风格与补充要求]\n${sections.slice(2, -2).join("\n")}`, `[输出规格]\n${layout}`, `[禁止项与验收]\n${sections.at(-1)}`].join("\n\n")
         : sections.join("\n\n");
+}
+
+function characterRenderingQuality(family: "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic") {
+    if (family === "live_action") return "真实摄影要求：真实相机拍摄的人类演员，保持自然毛孔、轻微肤色不均、真实眼下纹理、符合年龄的细纹与自然轻微不对称；中性自然光、中性放松表情、准确的人体比例。不得美颜磨皮，不得塑料皮肤、网红脸、偶像海报、美妆广告、图库模特、商业时装精修、CGI、3D 渲染或插画质感。";
+    if (family === "animation_2d") return "二维动画要求：以清晰稳定的角色轮廓、五官形状、发束、服装色块与阴影层级保持身份；四个视图的线条语言、造型简化程度和上色方式完全一致。不得生成真人照片、皮肤毛孔摄影或三维渲染。";
+    if (family === "animation_3d") return "三维动画要求：保持统一建模比例、拓扑感、材质和灯光响应，四个视图具有同一角色模型的稳定轮廓与身份特征。不得生成真人照片或二维线稿拼贴。";
+    if (family === "illustration") return "插画要求：保持统一笔触、轮廓概括、色彩层次和纸面或数字绘画质感；即使经过风格化，脸型、骨相、发型、体型和识别点仍须清晰可辨。不得生成真人照片或不一致的混合媒介。";
+    if (family === "handmade") return "手工媒介要求：保持材料、边缘、纹理和制作痕迹统一，四个视图像由同一套实体角色工艺制作；身份轮廓和服装结构必须稳定。不得混入真人摄影或无关数字渲染。";
+    return "图形风格要求：保持统一的形状语言、轮廓、有限色彩和图形纹理，四个视图以脸型、发型、体型、服装剪影和识别点维持同一身份。不得混入真人照片或不一致媒介。";
 }
 
 const facialIdentityLabels: Record<string, string> = {
@@ -504,6 +531,10 @@ function normalizeCreativeAssetPayload(kind: CreativeAssetKind, name: string, ra
     });
 }
 
+export function isCreativeAssetReferenceUsage(usage: string | undefined) {
+    return ["reference_input", "identity_reference", "wardrobe_reference", "composition_reference"].includes(usage || "");
+}
+
 function cleanImageDraftPrompt(kind: CreativeAssetKind, name: string, description: string, value: unknown) {
     const prompt = typeof value === "string" ? value.trim() : "";
     if (!prompt || prompt === description.trim()) return "";
@@ -513,8 +544,8 @@ function cleanImageDraftPrompt(kind: CreativeAssetKind, name: string, descriptio
 }
 
 function assertPrimaryVariants(payload: CreativeAssetPayload) {
-    if (payload.primaryImageId && !payload.variants.some((item) => item.id === payload.primaryImageId && item.kind === "image" && item.usage !== "reference_input")) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_IMAGE", "主设计图必须来自生成或上传的设计版本");
-    if (payload.primaryAudioId && !payload.variants.some((item) => item.id === payload.primaryAudioId && item.kind === "audio" && item.usage !== "reference_input")) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_AUDIO", "主音频必须来自生成的媒体版本");
+    if (payload.primaryImageId && !payload.variants.some((item) => item.id === payload.primaryImageId && item.kind === "image" && !isCreativeAssetReferenceUsage(item.usage))) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_IMAGE", "主设计图必须来自生成或上传的设计版本");
+    if (payload.primaryAudioId && !payload.variants.some((item) => item.id === payload.primaryAudioId && item.kind === "audio" && !isCreativeAssetReferenceUsage(item.usage))) throw creativeAssetError(400, "CREATIVE_ASSET_INVALID_PRIMARY_AUDIO", "主音频必须来自生成的媒体版本");
 }
 
 function creativeAssetRow(userId: string, assetId: string) {

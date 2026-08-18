@@ -1,8 +1,9 @@
 export type VisualStyleMode = "template" | "custom";
 export type VisualStyleStatus = "draft" | "confirmed";
-export type VisualStyleReferenceRole = "source" | "character" | "scene" | "prop";
+export type VisualStyleReferenceRole = "source" | "board";
 export type VisualStyleTemplateCategory = "cinematic" | "genre" | "eastern" | "animation" | "handmade" | "graphic";
-export type VisualStyleDna = { medium: string; rendering: string; palette: string; lighting: string; contrast: string; texture: string; lensAndDepth: string; composition: string; postProcessing: string; exclusions: string[] };
+export type VisualStyleMediumFamily = "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic";
+export type VisualStyleDna = { mediumFamily: VisualStyleMediumFamily; medium: string; rendering: string; characterRendering: string; sceneRendering: string; propRendering: string; palette: string; lighting: string; contrast: string; texture: string; lensAndDepth: string; composition: string; postProcessing: string; exclusions: string[] };
 export type VisualStyle = {
     id: string;
     projectId: string;
@@ -14,6 +15,7 @@ export type VisualStyle = {
     dna: VisualStyleDna;
     references: Partial<Record<VisualStyleReferenceRole, string>>;
     referenceFileId: string | null;
+    boardStale?: boolean;
     revision: number;
     createdAt: string;
     updatedAt: string;

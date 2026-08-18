@@ -12,7 +12,11 @@ export type CharacterDesignProfile = {
     apparentGender: "female" | "male" | "androgynous" | "unspecified";
     voiceGender: "female" | "male" | "androgynous" | "unspecified";
     ageBand: string;
+    visibleAgeCues: string;
+    bodySilhouette: string;
+    posture: string;
     identityAnchor: string;
+    distinctivenessSummary: string;
     facialIdentity: { faceShape: string; boneStructure: string; brows: string; eyes: string; nose: string; mouth: string; skin: string; hairline: string; distinguishingMarks: string } | null;
     uncertainties: string[];
 };

@@ -95,10 +95,12 @@ test("MiniMax H3 按 17k+5 对齐并串联最多四个时间锚点", () => {
 
 test("MiniMax H3 两档配方只给 FL2VA 预览使用已探测 Turbo", () => {
     assert.equal(h3Recipe("fl2va", "preview", true).turbo, true);
+    assert.equal(h3Recipe("fl2va", "preview", true).scheduler, "simple");
     assert.equal(h3Recipe("ref2va", "preview", true).turbo, false);
     const turbo = buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", params: { seconds: 5, qualityPreset: "preview", turboAvailable: true }, files: [] });
     assert.equal(turbo["16"].class_type, "MiniMaxH3TurboLoRA");
     assert.equal(turbo["7"].class_type, "MiniMaxH3TurboSampler");
+    assert.equal(turbo["8"].inputs.scheduler, "simple");
     const refPreview = buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", params: { seconds: 5, qualityPreset: "preview", turboAvailable: true }, files: [image()] });
     assert.equal(refPreview["16"], undefined);
     assert.equal(refPreview["5"].inputs.ref_image_size, "match");

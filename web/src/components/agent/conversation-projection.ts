@@ -55,7 +55,7 @@ export function buildConversationItems(events: AgentEvent[]): AgentConversationI
     let roundRunId: string | null = null;
     let lastTime = 0;
     const flush = () => {
-        if (round.length) items.push({ type: "round", id: `round-${roundRunId || round[0].seq}`, runId: roundRunId, events: round });
+        if (round.length) items.push({ type: "round", id: `round-${roundRunId || "none"}-${round[0].seq}`, runId: roundRunId, events: round });
         round = []; roundRunId = null;
     };
     for (const event of projectAgentEvents(events)) {

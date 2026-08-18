@@ -16,7 +16,7 @@ const template: VisualStyleTemplate = {
     colors: ["#111", "#777", "#eee"],
     description: "克制的当代电影质感",
     preview: "/visual-styles/cinematic.webp",
-    dna: { medium: "电影", rendering: "写实", palette: "低饱和", lighting: "自然光", contrast: "柔和", texture: "胶片", lensAndDepth: "浅景深", composition: "克制", postProcessing: "轻颗粒", exclusions: [] },
+    dna: { mediumFamily: "live_action", medium: "电影", rendering: "写实", characterRendering: "写实演员", sceneRendering: "写实场景", propRendering: "写实道具", palette: "低饱和", lighting: "自然光", contrast: "柔和", texture: "胶片", lensAndDepth: "浅景深", composition: "克制", postProcessing: "轻颗粒", exclusions: [] },
 };
 
 describe("视觉风格模板弹窗", () => {

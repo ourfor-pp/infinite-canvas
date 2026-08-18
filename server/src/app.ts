@@ -34,6 +34,7 @@ import {
     updateDirectorDocument, updateDirectorSequence, updateDirectorTimeline, updateDirectorVideoSegment, updateDirectorWorkspace,
 } from "./director.js";
 import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflight, listDirectorRenders, retryDirectorRender } from "./director-render.js";
+import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
 
 type ProjectKind = "canvas" | "director";
 type ProjectRow = { id: string; kind: ProjectKind; title: string; payload: string; revision: number; created_at: string; updated_at: string };
@@ -176,6 +177,8 @@ api.delete("/projects/:id", route((req) => {
 }));
 
 api.get("/director/projects/:id", route((req) => getDirectorState(req.user.id, routeId(req))));
+api.get("/director/projects/:id/cast-review", route((req) => getDirectorCastReview(req.user.id, routeId(req))));
+api.post("/director/projects/:id/cast-review", route((req) => startDirectorCastReview(req.user.id, routeId(req)), 202));
 api.put("/director/projects/:id/workspace", route((req) => updateDirectorWorkspace(req.user.id, routeId(req), req.body)));
 api.post("/director/projects/:id/sources", route((req) => createDirectorSource(req.user.id, routeId(req), req.body), 202));
 api.post("/director/sources/:id/retry", route((req) => retryDirectorSource(req.user.id, routeId(req)), 202));

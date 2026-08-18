@@ -27,7 +27,7 @@ const workspacePatch = z.object({
     aspectRatio: z.enum(["16:9", "9:16", "1:1", "2.39:1"]).optional(), language: z.string().trim().min(2).max(20).optional(),
     stage: z.enum(["source", "story", "script", "style", "assets", "storyboard", "shots", "timeline", "render"]).optional(), status: status.optional(),
 });
-const documentPatch = z.object({ revision: z.number().int().positive(), content: z.string().max(20_000_000).optional(), status: z.enum(["draft", "confirmed"]).optional() });
+const documentPatch = z.object({ revision: z.number().int().positive(), content: z.string().max(20_000_000).optional() });
 const sequenceInput = z.object({ id: id.optional(), position: z.number().int().min(0).optional(), title: z.string().trim().min(1).max(300), summary: z.string().max(20_000).default(""), status: status.default("draft"), payload: record.default({}) });
 const sequencePatch = sequenceInput.partial().extend({ revision: z.number().int().positive() });
 const shotInput = z.object({ id: id.optional(), sequenceId: id, position: z.number().int().min(0).optional(), title: z.string().trim().min(1).max(300), status: status.default("draft"), payload: record.default({}) });
@@ -56,7 +56,7 @@ export function getDirectorState(userId: string, projectId: string) {
 export function getDirectorAgentOverview(userId: string, projectId: string) {
     assertDirectorProject(userId, projectId);
     const workspace = db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow;
-    const documents = db.prepare("SELECT project_id,kind,status,revision,created_at,updated_at FROM director_documents WHERE user_id=? AND project_id=? ORDER BY kind").all(userId, projectId) as Array<Omit<DocumentRow, "user_id" | "content">>;
+    const documents = db.prepare("SELECT project_id,kind,length(trim(content)) > 0 has_content,revision,created_at,updated_at FROM director_documents WHERE user_id=? AND project_id=? ORDER BY kind").all(userId, projectId) as Array<{ project_id: string; kind: "story" | "script"; has_content: number; revision: number; created_at: string; updated_at: string }>;
     const sources = db.prepare("SELECT id,project_id,raw_file_id,name,mime_type,status,error,char_count,chapter_count,summary,revision,created_at,updated_at FROM director_sources WHERE user_id=? AND project_id=? ORDER BY updated_at DESC").all(userId, projectId) as Array<Omit<SourceRow, "user_id" | "outline">>;
     const sequences = db.prepare("SELECT id,project_id,position,title,summary,status,revision,created_at,updated_at FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position,created_at").all(userId, projectId) as Array<Omit<SequenceRow, "user_id" | "payload">>;
     const videoSegmentCount = Number((db.prepare("SELECT count(*) count FROM director_shots WHERE user_id=? AND project_id=?").get(userId, projectId) as { count: number }).count);
@@ -64,7 +64,7 @@ export function getDirectorAgentOverview(userId: string, projectId: string) {
     return {
         activeStyleId: activeStyleId(userId, projectId),
         workspace: workspaceResponse(workspace),
-        documents: documents.map((row) => ({ projectId: row.project_id, kind: row.kind, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
+        documents: documents.map((row) => ({ projectId: row.project_id, kind: row.kind, hasContent: Boolean(row.has_content), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
         sources: sources.map((row) => ({ id: row.id, projectId: row.project_id, fileId: row.raw_file_id, name: row.name, mimeType: row.mime_type, status: row.status, error: row.error, charCount: row.char_count, chapterCount: row.chapter_count, summary: row.summary, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
         sequences: sequences.map((row) => ({ id: row.id, projectId: row.project_id, position: row.position, title: row.title, summary: row.summary, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
         videoSegmentCount,
@@ -136,7 +136,7 @@ export function updateDirectorDocument(userId: string, projectId: string, kind: 
     const value = documentPatch.parse(body);
     const current = db.prepare("SELECT * FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, documentKind) as DocumentRow;
     const now = new Date().toISOString();
-    const nextStatus = documentKind === "story" ? "draft" : value.status ?? (current.status === "locked" ? "confirmed" : current.status);
+    const nextStatus = "draft";
     const result = db.prepare(`UPDATE director_documents SET content=?, status=?, revision=revision+1, updated_at=?
         WHERE user_id=? AND project_id=? AND kind=? AND revision=?`).run(value.content ?? current.content, nextStatus, now, userId, projectId, documentKind, value.revision);
     if (!result.changes) conflict(documentKind === "story" ? "故事" : "剧本", documentResponse(current));
@@ -181,7 +181,7 @@ export function getDirectorVideoSegment(userId: string, projectId: string, segme
 
 export function createDirectorSequence(userId: string, projectId: string, body: unknown) {
     assertDirectorProject(userId, projectId);
-    requireConfirmedDocument(userId, projectId, "script");
+    requireDocumentContent(userId, projectId, "script");
     const value = sequenceInput.parse(body);
     assertStoryboardSize(value.payload.storyboard);
     const sequenceId = value.id || nanoid();
@@ -241,7 +241,7 @@ export function updateDirectorShot(userId: string, shotId: string, body: unknown
     if (sequence.project_id !== current.project_id) throw directorError(404, "DIRECTOR_SEQUENCE_NOT_FOUND", "剧情段落不存在");
     const currentPayload = parseJson<Record<string, unknown>>(current.payload, {});
     const payload: Record<string, unknown> = value.payload ? normalizeShotPayload({ ...currentPayload, ...value.payload }, sequence) : currentPayload;
-    if (storyboardGuidesChanged(currentPayload, payload) && payload.videoFileId) payload.videoStale = true;
+    if (storyboardPlanChanged(currentPayload, payload) && payload.videoFileId) payload.videoStale = true;
     const now = new Date().toISOString();
     const result = db.prepare(`UPDATE director_shots SET sequence_id=?,position=?,title=?,status=?,payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?`)
         .run(sequenceId, value.position ?? current.position, value.title ?? current.title, value.status ?? current.status, JSON.stringify(payload), now, shotId, userId, value.revision);
@@ -398,13 +398,15 @@ function markContinuationDependentsStale(userId: string, projectId: string, shot
     const now = new Date().toISOString();
     rows.forEach((row) => {
         const payload = parseJson<Record<string, unknown>>(row.payload, {});
-        if (payload.boundary === "continue" && payload.continuationFromShotId === shotId) update.run(JSON.stringify({ ...payload, needsReview: true, videoStale: true }), now, row.id, userId);
+        const continuationDepends = payload.boundary === "continue" && (payload.continuationFromSegmentId === shotId || payload.continuationFromShotId === shotId);
+        const transitionDepends = payload.generationIntent === "transition" && (payload.transitionFromSegmentId === shotId || payload.transitionToSegmentId === shotId);
+        if (continuationDepends || transitionDepends) update.run(JSON.stringify({ ...payload, needsReview: true, videoStale: true }), now, row.id, userId);
     });
 }
 
 function shotVideoChanged(previous: string, next: Record<string, unknown>) {
     const before = parseJson<Record<string, unknown>>(previous, {});
-    return before.videoFileId !== next.videoFileId || before.actualLastFrameFileId !== next.actualLastFrameFileId;
+    return before.videoFileId !== next.videoFileId || before.actualFirstFrameFileId !== next.actualFirstFrameFileId || before.actualLastFrameFileId !== next.actualLastFrameFileId;
 }
 
 function normalizeStoryboard(value: unknown) {
@@ -427,8 +429,9 @@ function normalizeShotPayload(payload: Record<string, unknown>, sequence: Sequen
     const requestedCount = Number(payload.storyboardFrameCount);
     const frameCount = [4, 6, 9].includes(requestedCount) ? requestedCount : [4, 6, 9].includes(existingFrames.length) ? existingFrames.length : recommendedStoryboardFrameCount(durationSeconds);
     const sheetChanged = Boolean(existingSheet && existingFrames.length !== frameCount);
-    const storyboardSheet = existingSheet && !sheetChanged ? { ...existingSheet, layout: storyboardLayout(frameCount), frames: normalizeStoryboardGuides(existingFrames) } : buildStoryboardSheet(durationSeconds, frameCount, payload, existingFrames, Number(existingSheet?.revision || 0) + 1);
-    return { ...payload, entityKind: "video-segment", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), storyboardFrameCount: frameCount, storyboardSheet, ...(sheetChanged ? { firstFrameFileId: undefined, lastFrameFileId: undefined, videoStale: Boolean(payload.videoFileId) } : {}), dependencies, needsReview: false };
+    const storyboardSheet = existingSheet && !sheetChanged ? { ...existingSheet, layout: storyboardLayout(frameCount), frames: normalizeStoryboardFrames(existingFrames, durationSeconds) } : buildStoryboardSheet(durationSeconds, frameCount, payload, existingFrames, Number(existingSheet?.revision || 0) + 1);
+    const { references: _references, h3ModeOverride: _h3ModeOverride, firstFrameFileId: _firstFrameFileId, lastFrameFileId: _lastFrameFileId, ...cleanPayload } = payload;
+    return { ...cleanPayload, entityKind: "video-segment", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), storyboardFrameCount: frameCount, storyboardSheet, ...(sheetChanged ? { videoStale: Boolean(payload.videoFileId) } : {}), dependencies, needsReview: false };
 }
 
 export function recommendedStoryboardFrameCount(durationSeconds: number) { return durationSeconds <= 6 ? 4 : durationSeconds <= 10 ? 6 : 9; }
@@ -439,28 +442,37 @@ function buildStoryboardSheet(duration: number, frameCount: number, payload: Rec
     const frames = Array.from({ length: frameCount }, (_, position) => {
         const timeSeconds = Number((duration * position / Math.max(1, frameCount - 1)).toFixed(2));
         const nearest = source.length ? source[Math.round(position * (source.length - 1) / Math.max(1, frameCount - 1))] : undefined;
-        return { id: nanoid(), position, shotNumber: Number(nearest?.shotNumber || 1), timeSeconds, kind: position === 0 ? "shot-start" : position === frameCount - 1 ? "shot-end" : "keyframe", description: String(nearest?.description || `${timeSeconds} 秒时清晰呈现“${intent}”的第 ${position + 1} 个连续视觉节拍`), action: String(nearest?.action || payload.action || ""), cameraAngle: String(nearest?.cameraAngle || payload.cameraAngle || ""), cameraMove: String(nearest?.cameraMove || payload.cameraMove || ""), sound: String(nearest?.sound || payload.sound || "") };
+        return { id: nanoid(), position, shotNumber: Number(nearest?.shotNumber ?? nearest?.shot ?? 1), timeSeconds, kind: position === 0 ? "shot-start" : position === frameCount - 1 ? "shot-end" : "keyframe", description: String(nearest?.description || `${timeSeconds} 秒时清晰呈现“${intent}”的第 ${position + 1} 个连续视觉节拍`), action: String(nearest?.action || payload.action || ""), cameraAngle: String(nearest?.cameraAngle || payload.cameraAngle || ""), cameraMove: String(nearest?.cameraMove || payload.cameraMove || ""), h3Visual: String(nearest?.h3Visual || ""), dialogue: String(nearest?.dialogue || ""), sound: String(nearest?.sound || payload.sound || "") };
     });
-    return { revision: Math.max(1, revision), layout: storyboardLayout(frameCount), frames: normalizeStoryboardGuides(frames) };
+    return { revision: Math.max(1, revision), layout: storyboardLayout(frameCount), frames: normalizeStoryboardFrames(frames, duration) };
 }
 
-function normalizeStoryboardGuides(frames: Array<Record<string, unknown>>) {
-    const preferred = new Set([0, frames.length - 1, Math.round((frames.length - 1) / 3), Math.round((frames.length - 1) * 2 / 3)]);
-    const selected = frames.filter((frame) => frame.guideEnabled === true);
-    if (selected.length > 4) throw directorError(400, "DIRECTOR_H3_GUIDE_LIMIT", "每个视频段最多选择 4 个视频锚点");
-    const explicit = selected.map((frame) => String(frame.id));
-    const useDefaults = !frames.some((frame) => "guideEnabled" in frame);
-    return frames.map((frame, index) => {
-        const enabled = useDefaults ? preferred.has(index) : explicit.includes(String(frame.id));
-        return { ...frame, guideEnabled: enabled, guideStrength: frame.guideStrength === "semantic" ? "semantic" : "hard", croppedFileId: typeof frame.croppedFileId === "string" ? frame.croppedFileId : undefined, resolvedFrameIndex: Number.isInteger(frame.resolvedFrameIndex) ? frame.resolvedFrameIndex : undefined };
+function normalizeStoryboardFrames(frames: Array<Record<string, unknown>>, duration: number) {
+    return frames.map((frame, position) => {
+        const { guideEnabled: _guideEnabled, guideStrength: _guideStrength, croppedFileId: _croppedFileId, resolvedFrameIndex: _resolvedFrameIndex, shot: _shot, ...rest } = frame;
+        return {
+            ...rest,
+            id: String(frame.id || nanoid()),
+            position,
+            shotNumber: Math.max(1, Math.round(Number(frame.shotNumber ?? frame.shot ?? 1) || 1)),
+            timeSeconds: Math.max(0, Math.min(duration, Number(frame.timeSeconds) || 0)),
+            kind: frame.kind === "shot-start" || frame.kind === "shot-end" ? frame.kind : "keyframe",
+            description: String(frame.description || ""),
+            action: String(frame.action || ""),
+            cameraAngle: String(frame.cameraAngle || ""),
+            cameraMove: String(frame.cameraMove || ""),
+            h3Visual: String(frame.h3Visual || ""),
+            dialogue: String(frame.dialogue || ""),
+            sound: String(frame.sound || ""),
+        };
     });
 }
 
-function storyboardGuidesChanged(before: Record<string, unknown>, after: Record<string, unknown>) {
+function storyboardPlanChanged(before: Record<string, unknown>, after: Record<string, unknown>) {
     const values = (payload: Record<string, unknown>) => {
         const sheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : {};
         const frames = Array.isArray(sheet.frames) ? sheet.frames as Array<Record<string, unknown>> : [];
-        return frames.map((frame) => [String(frame.id), Boolean(frame.guideEnabled), String(frame.guideStrength || "semantic")]);
+        return frames.map((frame) => [String(frame.id), Number(frame.shotNumber || 1), Number(frame.timeSeconds || 0), String(frame.kind || "keyframe"), String(frame.description || ""), String(frame.action || ""), String(frame.cameraAngle || ""), String(frame.cameraMove || ""), String(frame.h3Visual || ""), String(frame.dialogue || ""), String(frame.sound || "")]);
     };
     return JSON.stringify(values(before)) !== JSON.stringify(values(after));
 }
@@ -471,9 +483,9 @@ function validateTimeline(userId: string, projectId: string, payload: Record<str
     if (order.some((shotId) => typeof shotId !== "string" || !shotIds.has(shotId))) throw directorError(400, "DIRECTOR_TIMELINE_SEGMENT", "时间线包含不属于本项目的视频段");
 }
 
-function requireConfirmedDocument(userId: string, projectId: string, kind: string) {
-    const row = db.prepare("SELECT status FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, kind) as { status: string } | undefined;
-    if (!row || !["confirmed", "locked"].includes(row.status)) throw directorError(409, "DIRECTOR_STAGE_GATE", `请先确认${kind === "script" ? "剧本" : "故事"}`);
+function requireDocumentContent(userId: string, projectId: string, kind: string) {
+    const row = db.prepare("SELECT content FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, kind) as { content: string } | undefined;
+    if (!row?.content.trim()) throw directorError(409, "DIRECTOR_STAGE_GATE", `请先完成${kind === "script" ? "剧本" : "故事"}`);
 }
 
 function directorDependencies(userId: string, projectId: string) {
@@ -498,7 +510,7 @@ function shotRow(userId: string, shotId: string) { const row = db.prepare("SELEC
 
 function workspaceResponse(row: WorkspaceRow) { return { projectId: row.project_id, targetDurationSeconds: row.target_duration_seconds, aspectRatio: row.aspect_ratio, language: row.language, stage: row.stage, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function sourceResponse(row: SourceRow) { return { id: row.id, projectId: row.project_id, fileId: row.raw_file_id, name: row.name, mimeType: row.mime_type, status: row.status, error: row.error, charCount: row.char_count, chapterCount: row.chapter_count, summary: row.summary, outline: row.outline, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
-function documentResponse(row: DocumentRow) { return { projectId: row.project_id, kind: row.kind, content: row.content, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function documentResponse(row: DocumentRow) { return { projectId: row.project_id, kind: row.kind, content: row.content, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function sequenceResponse(row: SequenceRow) { return { id: row.id, projectId: row.project_id, position: row.position, title: row.title, summary: row.summary, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function videoSegmentResponse(row: ShotRow) { return { id: row.id, projectId: row.project_id, sequenceId: row.sequence_id, position: row.position, title: row.title, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function videoSegmentPromptResponse(segment: ReturnType<typeof videoSegmentResponse>) {
@@ -506,10 +518,10 @@ function videoSegmentPromptResponse(segment: ReturnType<typeof videoSegmentRespo
     const sheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : {};
     const frames = Array.isArray(sheet.frames) ? sheet.frames as Array<Record<string, unknown>> : [];
     return { ...segment, payload: {
-        durationSeconds: payload.durationSeconds, boundary: payload.boundary, description: payload.description, action: payload.action, dialogue: payload.dialogue, narration: payload.narration, camera: payload.camera, audio: payload.audio,
+        durationSeconds: payload.durationSeconds, sourceSceneId: payload.sourceSceneId, sourceBeatIds: payload.sourceBeatIds, sourceDurationSeconds: payload.sourceDurationSeconds, dramaticBeat: payload.dramaticBeat, openingState: payload.openingState, endingState: payload.endingState, boundary: payload.boundary, continuationFromSegmentId: payload.continuationFromSegmentId, description: payload.description, action: payload.action, dialogue: payload.dialogue, narration: payload.narration, soundDesign: payload.soundDesign, h3VisualDescription: payload.h3VisualDescription, h3Soundscape: payload.h3Soundscape, h3NonDiegeticMusic: payload.h3NonDiegeticMusic,
         characterRefs: payload.characterRefs, sceneRefs: payload.sceneRefs, propRefs: payload.propRefs,
         storyboardStale: Boolean(payload.storyboardStale), videoStale: Boolean(payload.videoStale),
-        storyboardSheet: { revision: sheet.revision, layout: sheet.layout, hasImage: Boolean(sheet.imageFileId), hasPrompt: Boolean(sheet.promptSnapshot), frames: frames.map((frame) => ({ id: frame.id, position: frame.position, shotNumber: frame.shotNumber, timeSeconds: frame.timeSeconds, kind: frame.kind, description: frame.description, action: frame.action, cameraAngle: frame.cameraAngle, cameraMove: frame.cameraMove, sound: frame.sound, guideEnabled: frame.guideEnabled, guideStrength: frame.guideStrength })) },
+        storyboardSheet: { revision: sheet.revision, layout: sheet.layout, hasImage: Boolean(sheet.imageFileId), hasPrompt: Boolean(sheet.promptSnapshot), frames: frames.map((frame) => ({ id: frame.id, position: frame.position, shotNumber: frame.shotNumber, timeSeconds: frame.timeSeconds, kind: frame.kind, description: frame.description, action: frame.action, cameraAngle: frame.cameraAngle, cameraMove: frame.cameraMove, h3Visual: frame.h3Visual, dialogue: frame.dialogue, sound: frame.sound })) },
     } };
 }
 function timelineResponse(row: TimelineRow) { return { projectId: row.project_id, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }

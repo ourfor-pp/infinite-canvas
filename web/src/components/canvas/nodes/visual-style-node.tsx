@@ -1,23 +1,16 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { App, Button, Dropdown, Image, Input, Modal } from "antd";
-import { ArrowUp, Bot, Check, ChevronDown, ImagePlus, LayoutGrid, MoreHorizontal, Palette, Pencil, Search, Sparkles, Star, WandSparkles, X } from "lucide-react";
+import { App, Button, Dropdown, Input, Modal, Select } from "antd";
+import { ArrowUp, Bot, ChevronDown, ImagePlus, LayoutGrid, MoreHorizontal, Palette, Pencil, Sparkles, Star, WandSparkles, X } from "lucide-react";
 
+import { VisualStyleTemplatePicker } from "@/components/visual-style-template-picker";
 import { serverApi, serverFileUrl, uploadServerFile } from "@/services/api/server";
-import { filterVisualStyleTemplates } from "@/lib/canvas/visual-style-templates";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useVisualStyleStore } from "@/stores/use-visual-style-store";
 import type { CanvasNodeContext } from "@/types/canvas-plugin";
-import type { VisualStyle, VisualStyleDna, VisualStyleReferenceRole, VisualStyleTemplate, VisualStyleTemplateCategory } from "@/types/visual-style";
-
-const referenceRoles = [
-    { role: "character", label: "角色样张", hint: "白底造型" },
-    { role: "scene", label: "场景样张", hint: "无人空间" },
-    { role: "prop", label: "道具样张", hint: "白底材质" },
-] as const;
-const emptyDna: VisualStyleDna = { medium: "", rendering: "", palette: "", lighting: "", contrast: "", texture: "", lensAndDepth: "", composition: "", postProcessing: "", exclusions: [] };
-const templateCategories: Array<{ value: "all" | VisualStyleTemplateCategory; label: string }> = [{ value: "all", label: "全部" }, { value: "cinematic", label: "电影基底" }, { value: "genre", label: "类型片" }, { value: "eastern", label: "东方影像" }, { value: "animation", label: "动画" }, { value: "handmade", label: "手工媒介" }, { value: "graphic", label: "图形实验" }];
+import type { VisualStyle, VisualStyleDna, VisualStyleTemplate } from "@/types/visual-style";
+const emptyDna: VisualStyleDna = { mediumFamily: "live_action", medium: "", rendering: "", characterRendering: "", sceneRendering: "", propRendering: "", palette: "", lighting: "", contrast: "", texture: "", lensAndDepth: "", composition: "", postProcessing: "", exclusions: [] };
 const templateAssetUrl = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
 export const VISUAL_STYLE_NODE_LAYOUT = { width: 420, height: 615 } as const;
 
@@ -102,7 +95,7 @@ function VisualStyleCard({ style, ctx }: { style: VisualStyle; ctx: CanvasNodeCo
         try {
             if (kind === "analyze") await analyze(style.id);
             else await generateReferences(style.id);
-            message.success(kind === "analyze" ? "风格分析已进入任务队列" : "三类风格样张已进入任务队列");
+            message.success(kind === "analyze" ? "风格分析已进入任务队列" : "统一风格板已进入任务队列");
         } catch (error) { message.error(error instanceof Error ? error.message : "任务提交失败"); }
         finally { setBusy(""); }
     };
@@ -125,8 +118,7 @@ function VisualStyleCard({ style, ctx }: { style: VisualStyle; ctx: CanvasNodeCo
     };
     const isDefault = project?.defaultVisualStyleId === style.id;
     const template = templates.find((item) => item.id === draft.templateId);
-    const colors = template?.colors || ["#26323a", "#8b7764", "#ded6c8"];
-    const hasGeneratedReferences = referenceRoles.some(({ role }) => Boolean(draft.references[role]));
+    const boardUrl = draft.references.board ? serverFileUrl(`server:${draft.references.board}`) : draft.references.source ? serverFileUrl(`server:${draft.references.source}`) : template ? templateAssetUrl(template.preview) : "";
     const tags = visualStyleTags(draft.dna);
 
     return <article ref={cardRef} className="relative flex size-full flex-col overflow-hidden px-5 py-4" data-canvas-no-pan style={{ background: ctx.theme.node.panel, color: ctx.theme.node.text }} onMouseDownCapture={(event) => { if (shouldStopVisualStyleNodePointer(event.target)) event.stopPropagation(); }}>
@@ -137,9 +129,9 @@ function VisualStyleCard({ style, ctx }: { style: VisualStyle; ctx: CanvasNodeCo
             <Dropdown menu={{ items: [{ key: "agent", label: "交给 Agent", icon: <Bot className="size-3.5" /> }, { key: "delete", danger: true, label: "永久删除风格" }], onClick: ({ key }) => key === "agent" ? void askAgent() : key === "delete" && Modal.confirm({ title: "永久删除这个视觉风格？", content: "所有画布视图和相关连接都会移除，此操作不可撤销。", okText: "永久删除", okButtonProps: { danger: true }, cancelText: "取消", onOk: () => remove(style.id) }) }} trigger={["click"]}><Button aria-label="更多风格操作" type="text" size="small" className="!ml-auto" icon={<MoreHorizontal className="size-4" />} /></Dropdown>
         </header>
 
-        {template && !hasGeneratedReferences ? <button type="button" aria-label="编辑当前视觉风格" className="group relative mt-2 aspect-[3/2] shrink-0 overflow-hidden rounded-xl border border-current/10 text-left" onClick={() => setEditorOpen(true)}>
-            <img src={templateAssetUrl(template.preview)} alt={`${template.name}风格预览`} className="size-full object-cover transition duration-300 group-hover:scale-[1.015]" />
-        </button> : <button type="button" aria-label="编辑当前视觉风格" className="mt-2 grid aspect-[3/2] shrink-0 grid-cols-3 gap-1 overflow-hidden rounded-xl" onClick={() => setEditorOpen(true)}>{referenceRoles.map(({ role, label, hint }) => <ReferenceTile key={role} role={role} label={label} hint={hint} fileId={draft.references[role]} colors={colors} preview={false} />)}</button>}
+        <button type="button" aria-label="编辑当前视觉风格" className="group relative mt-2 aspect-[3/2] shrink-0 overflow-hidden rounded-xl border border-current/10 text-left" onClick={() => setEditorOpen(true)}>
+            {boardUrl ? <img src={boardUrl} alt={`${draft.name}统一风格板`} className="size-full object-cover transition duration-300 group-hover:scale-[1.015]" /> : <div className="grid size-full place-items-center bg-black/[0.03] text-xs opacity-45"><span>选择模板或生成统一风格板</span></div>}
+        </button>
         <div className="mt-4 flex min-w-0 items-center gap-2">
             {nameEditing ? <Input autoFocus variant="borderless" value={draft.name} className="min-w-0 flex-1 !px-0 !text-xl !font-semibold" onChange={(event) => change({ name: event.target.value, status: "draft" })} onBlur={() => setNameEditing(false)} onPressEnter={() => setNameEditing(false)} /> : <button type="button" className="group/name flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setNameEditing(true)}><strong className="truncate text-xl font-semibold">{draft.name}</strong><Pencil className="size-3.5 shrink-0 opacity-0 transition-opacity group-hover/name:opacity-40 group-focus-visible/name:opacity-50" /></button>}
             {isDefault ? <span className="flex shrink-0 items-center gap-1 text-[11px] text-[#d26b98]"><Star className="size-4 fill-current" />项目默认</span> : <span className={`shrink-0 text-[11px] ${draft.status === "confirmed" ? "text-emerald-600" : "opacity-40"}`}>{draft.status === "confirmed" ? "已确认" : "草稿"}</span>}
@@ -149,12 +141,12 @@ function VisualStyleCard({ style, ctx }: { style: VisualStyle; ctx: CanvasNodeCo
         <div className="mt-4 grid grid-cols-3 border-y border-current/10 py-1">
             <button type="button" className="flex h-11 items-center justify-center gap-1.5 text-[13px] text-[#d26b98] hover:bg-black/5 dark:hover:bg-white/10" onClick={() => setEditorOpen(true)}><Pencil className="size-4" />编辑风格</button>
             <button type="button" className="flex h-11 items-center justify-center gap-1.5 border-x border-current/10 text-[13px] hover:bg-black/5 dark:hover:bg-white/10" onClick={() => setTemplatePickerOpen(true)}><LayoutGrid className="size-4" />更换模板</button>
-            <button type="button" disabled={!draft.description.trim()} className="flex h-11 items-center justify-center gap-1.5 text-[13px] hover:bg-black/5 disabled:opacity-35 dark:hover:bg-white/10" onClick={() => void run("generate")}><Sparkles className="size-4" />{busy === "generate" ? "提交中" : "生成样张"}</button>
+            <button type="button" disabled={!draft.description.trim()} className="flex h-11 items-center justify-center gap-1.5 text-[13px] hover:bg-black/5 disabled:opacity-35 dark:hover:bg-white/10" onClick={() => void run("generate")}><Sparkles className="size-4" />{busy === "generate" ? "提交中" : "生成风格板"}</button>
         </div>
         <button type="button" className="mt-2 flex h-9 items-center gap-2 px-1 text-[12px] opacity-55 hover:opacity-90" onClick={() => { setDnaOpen(true); setEditorOpen(true); }}><ChevronDown className="size-4" />完整 Style DNA</button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file); }} />
         <VisualStyleEditorPopover anchorRef={cardRef} open={editorOpen} onClose={() => setEditorOpen(false)} theme={ctx.theme} draft={draft} template={template} isDefault={isDefault} busy={busy} dnaOpen={dnaOpen} setDnaOpen={setDnaOpen} change={change} openTemplates={() => setTemplatePickerOpen(true)} upload={() => fileRef.current?.click()} analyze={() => void run("analyze")} generate={() => void run("generate")} confirm={() => void confirmStyle()} setDefault={() => void serverApi.setDefaultVisualStyle(style.id).then(() => message.success("已设为项目默认风格")).catch((error) => message.error(error.message))} askAgent={() => void askAgent()} />
-        <TemplatePickerModal open={templatePickerOpen} templates={templates} selectedId={draft.templateId} onClose={() => setTemplatePickerOpen(false)} onSelect={selectTemplate} />
+        <VisualStyleTemplatePicker open={templatePickerOpen} templates={templates} selectedId={draft.templateId} onClose={() => setTemplatePickerOpen(false)} onSelect={selectTemplate} />
     </article>;
 }
 
@@ -211,50 +203,29 @@ function VisualStyleEditorPopover({ anchorRef, open, onClose, theme, draft, temp
         <div className="mt-3 flex min-w-0 items-center gap-1 border-t border-current/10 pt-3">
             <button type="button" className="flex h-9 min-w-0 max-w-[190px] items-center gap-2 rounded-lg px-2 text-xs hover:bg-black/5 dark:hover:bg-white/10" onClick={openTemplates}><Palette className="size-4 shrink-0 text-[#d26b98]" /><span className="truncate">{template?.name || "选择内置风格"}</span><ChevronDown className="size-3.5 shrink-0 opacity-40" /></button>
             <button type="button" className="flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs hover:bg-black/5 dark:hover:bg-white/10" onClick={() => setDnaOpen(!dnaOpen)}>完整 Style DNA<ChevronDown className={`size-3.5 opacity-40 transition-transform ${dnaOpen ? "rotate-180" : ""}`} /></button>
-            <button type="button" disabled={!draft.description.trim()} className="flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs hover:bg-black/5 disabled:opacity-35 dark:hover:bg-white/10" onClick={generate}><Sparkles className="size-3.5 text-[#d26b98]" />{busy === "generate" ? "提交中" : "生成样张"}</button>
+            <button type="button" disabled={!draft.description.trim()} className="flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs hover:bg-black/5 disabled:opacity-35 dark:hover:bg-white/10" onClick={generate}><Sparkles className="size-3.5 text-[#d26b98]" />{busy === "generate" ? "提交中" : "生成风格板"}</button>
             <Button aria-label="应用视觉风格" type="primary" className="ml-auto !size-10 shrink-0 !rounded-full !p-0" icon={<ArrowUp className="size-4" />} disabled={!draft.description.trim()} onClick={() => { confirm(); onClose(); }} />
         </div>
         <div className="mt-2 flex items-center gap-2 px-1 text-[10px] opacity-45"><span>{draft.status === "confirmed" ? "已确认" : "自动保存草稿"}</span><span>·</span>{isDefault ? <span>项目默认</span> : <button type="button" className="hover:opacity-100" disabled={draft.status !== "confirmed"} onClick={setDefault}>设为项目默认</button>}<button type="button" className="ml-auto hover:opacity-100" onClick={() => change({ mode: "custom", templateId: null, status: "draft", dna: emptyDna })}>切换为自定义</button></div>
     </div>, document.body);
 }
 
-export function TemplatePickerModal({ open, templates, selectedId, onClose, onSelect }: { open: boolean; templates: VisualStyleTemplate[]; selectedId: string | null; onClose: () => void; onSelect: (id: string) => void }) {
-    const [category, setCategory] = useState<"all" | VisualStyleTemplateCategory>("all");
-    const [query, setQuery] = useState("");
-    const visible = filterVisualStyleTemplates(templates, category, query);
-    const stopCanvasEvent = (event: { stopPropagation: () => void }) => event.stopPropagation();
-    return <div className="contents" onPointerDown={stopCanvasEvent} onMouseDown={stopCanvasEvent} onClick={stopCanvasEvent} onDoubleClick={stopCanvasEvent} onContextMenu={stopCanvasEvent} onWheel={stopCanvasEvent} onKeyDown={stopCanvasEvent}><Modal rootClassName="visual-style-template-picker" open={open} onCancel={onClose} footer={null} width={1040} centered title={<div className="flex items-center gap-3 pr-8"><span className="grid size-9 shrink-0 place-items-center rounded-xl border border-current/10"><Palette className="size-4" /></span><div><div className="text-[15px] font-semibold leading-5">浏览影视视觉风格</div><div className="mt-0.5 text-[11px] font-normal leading-4 opacity-50">人物、场景与道具共享同一套 Style DNA</div></div></div>} destroyOnHidden>
-        <div className="mb-4 flex min-w-0 items-end gap-4 border-b border-current/10">
-            <div className="thin-scrollbar flex min-w-0 flex-1 items-center gap-5 overflow-x-auto">{templateCategories.map((item) => <button key={item.value} type="button" className={`relative shrink-0 whitespace-nowrap px-0.5 pb-2.5 pt-1 text-[13px] transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full ${category === item.value ? "text-blue-600 after:bg-blue-600" : "opacity-60 after:bg-transparent hover:opacity-100"}`} onClick={() => setCategory(item.value)}>{item.label}</button>)}</div>
-            <Input variant="borderless" value={query} onChange={(event) => setQuery(event.target.value)} allowClear prefix={<Search className="size-3.5 opacity-40" />} placeholder="搜索风格或题材" className="mb-1.5 !h-8 !w-56 shrink-0 !rounded-lg !bg-black/[0.035] !px-2.5 dark:!bg-white/[0.06]" />
-        </div>
-        <div className="grid max-h-[68vh] grid-cols-2 gap-3 overflow-y-auto pr-1 md:grid-cols-3">
-            {visible.map((item) => <button key={item.id} data-testid={`visual-style-template-${item.id}`} type="button" className={`group overflow-hidden rounded-xl border text-left transition-colors ${selectedId === item.id ? "border-blue-500 ring-2 ring-blue-500/15" : "border-current/10 hover:border-current/25"}`} onClick={() => onSelect(item.id)}>
-                <div className="relative aspect-video overflow-hidden"><img src={templateAssetUrl(item.preview)} alt={`${item.name}人物场景道具预览`} loading="lazy" className="size-full object-cover transition duration-300 group-hover:scale-[1.02]" />{selectedId === item.id ? <span className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-blue-600 text-white"><Check className="size-3.5" /></span> : null}</div>
-                <div className="px-3 py-2.5"><strong className="block text-[13px] font-semibold">{item.name}</strong><span className="mt-0.5 block text-[11px] leading-4 opacity-50">{item.tagline}</span></div>
-            </button>)}
-        </div>
-        {!visible.length ? <div className="py-16 text-center text-sm opacity-45">没有匹配的风格</div> : null}
-    </Modal></div>;
-}
+export const TemplatePickerModal = VisualStyleTemplatePicker;
 
 export function shouldStopVisualStyleNodePointer(target: EventTarget | null) {
     return target instanceof Element && !target.closest(".visual-style-template-picker") && Boolean(target.closest("input,textarea,button,.ant-select,.ant-image"));
 }
 
-function ReferenceTile({ role, label, hint, fileId, colors, preview = true }: { role: VisualStyleReferenceRole; label: string; hint: string; fileId?: string; colors: readonly string[]; preview?: boolean }) {
-    return <div className={`relative overflow-hidden rounded-lg border border-current/10 ${preview ? "aspect-[4/3]" : "size-full"}`} title={label} style={{ background: `linear-gradient(135deg, ${colors[0]}, ${colors[1]} 55%, ${colors[2]})` }}>
-        {fileId ? <Image rootClassName="size-full" src={serverFileUrl(`server:${fileId}`)} alt={label} className="!size-full !object-cover" preview={preview ? { mask: false } : false} /> : <div className="absolute inset-0 grid place-items-center bg-black/10 px-1 text-center text-[9px] text-white/85"><span><strong className="block font-medium">{label}</strong>{hint}</span></div>}
-    </div>;
-}
-
 function DnaEditor({ value, onChange }: { value: VisualStyleDna; onChange: (value: VisualStyleDna) => void }) {
-    const fields: Array<[Exclude<keyof VisualStyleDna, "exclusions">, string]> = [["medium", "媒介"], ["rendering", "渲染"], ["palette", "色彩"], ["lighting", "光线"], ["contrast", "明暗"], ["texture", "质感"], ["lensAndDepth", "镜头"], ["composition", "构图"], ["postProcessing", "后期"]];
+    const fields: Array<[Exclude<keyof VisualStyleDna, "exclusions" | "mediumFamily">, string]> = [["medium", "媒介"], ["rendering", "通用渲染"], ["characterRendering", "角色呈现"], ["sceneRendering", "场景呈现"], ["propRendering", "道具呈现"], ["palette", "色彩"], ["lighting", "光线"], ["contrast", "明暗"], ["texture", "质感"], ["lensAndDepth", "镜头"], ["composition", "构图"], ["postProcessing", "后期"]];
     return <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1">
+        <Select size="small" className="w-full" value={value.mediumFamily} options={mediumFamilyOptions} onChange={(mediumFamily) => onChange({ ...value, mediumFamily })} />
         <div className="grid grid-cols-2 gap-1.5">{fields.map(([key, label]) => <Input key={key} size="small" value={value[key]} addonBefore={label} onChange={(event) => onChange({ ...value, [key]: event.target.value })} />)}</div>
         <Input size="small" value={value.exclusions.join("，")} addonBefore="排除" placeholder="文字，水印，品牌标志" onChange={(event) => onChange({ ...value, exclusions: event.target.value.split(/[，,]/).map((item) => item.trim()).filter(Boolean) })} />
     </div>;
 }
+
+const mediumFamilyOptions: Array<{ value: VisualStyleDna["mediumFamily"]; label: string }> = [{ value: "live_action", label: "真人摄影" }, { value: "animation_2d", label: "二维动画" }, { value: "animation_3d", label: "三维动画" }, { value: "illustration", label: "插画" }, { value: "handmade", label: "手工媒介" }, { value: "graphic", label: "图形风格" }];
 
 export function visualStyleTags(dna: VisualStyleDna) {
     const tags = [dna.palette, dna.lighting, dna.texture].map((item) => item.trim().split(/[、，,；;。]/)[0]?.trim().slice(0, 12)).filter(Boolean).slice(0, 3);

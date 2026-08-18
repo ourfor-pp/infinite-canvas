@@ -70,7 +70,7 @@ export const canvasToolSchemas = {
     visual_style_place: z.object({ projectId: z.string().optional(), styleId: z.string(), x: z.number().optional(), y: z.number().optional() }),
     visual_style_set_default: z.object({ projectId: z.string().optional(), styleId: z.string() }),
     visual_style_analyze: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive() }),
-    visual_style_generate_references: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive(), roles: z.array(z.enum(["character", "scene", "prop"])).min(1).max(3).optional() }),
+    visual_style_generate_references: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive() }),
     visual_style_delete: z.object({ projectId: z.string().optional(), styleId: z.string() }),
 };
 

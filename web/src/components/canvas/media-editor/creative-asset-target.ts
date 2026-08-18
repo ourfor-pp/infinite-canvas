@@ -20,6 +20,9 @@ const META = {
     prop: { label: "道具", image: "道具设计图", audio: "道具音效" },
 } satisfies Record<CreativeAssetKind, { label: string; image: string; audio: string }>;
 
+const REFERENCE_USAGES = new Set(["reference_input", "identity_reference", "wardrobe_reference", "composition_reference"]);
+const isReferenceUsage = (usage?: string) => REFERENCE_USAGES.has(usage || "");
+
 type CreativeAssetMediaConnections = {
     references: CanvasResourceReference[];
     visualStyleId?: string;
@@ -40,11 +43,11 @@ export function useCreativeAssetMediaTarget(asset: CreativeAsset, nodeId: string
     const meta = META[asset.kind];
     return useMemo(() => {
         const draft = asset.payload.mediaDrafts[kind];
-        const assetReferences = asset.payload.variants.filter((item) => item.kind === kind && item.usage === "reference_input");
+        const assetReferences = asset.payload.variants.filter((item) => item.kind === kind && isReferenceUsage(item.usage));
         const references: MediaEditorReference[] = assetReferences.map((item, index) => ({ id: item.id, label: item.label || `参考${kind === "image" ? "图" : "音频"}${index + 1}`, kind, url: serverFileUrl(`server:${item.fileId}`), source: "asset" as const }));
         references.push(...connections.references.filter((item) => item.kind === kind && item.active).map((item) => ({ id: `canvas:${item.nodeId}`, nodeId: item.nodeId, label: item.label, kind, url: item.previewUrl, source: "canvas" as const })));
         const primaryId = kind === "image" ? asset.payload.primaryImageId : asset.payload.primaryAudioId;
-        const variants = asset.payload.variants.filter((item) => item.kind === kind && item.usage !== "reference_input").map((item) => ({ id: item.id, label: item.label, kind, url: serverFileUrl(`server:${item.fileId}`), prompt: item.prompt, primary: item.id === primaryId, review: item.review }));
+        const variants = asset.payload.variants.filter((item) => item.kind === kind && !isReferenceUsage(item.usage)).map((item) => ({ id: item.id, label: item.label, kind, url: serverFileUrl(`server:${item.fileId}`), prompt: item.prompt, primary: item.id === primaryId, review: item.review }));
         const linkedStyleId = connections.visualStyleId;
         const projectStyle = styles.find((item) => item.id === project?.defaultVisualStyleId);
         const style = styles.find((item) => item.id === linkedStyleId) || projectStyle;
@@ -95,7 +98,7 @@ export function useCreativeAssetMediaTarget(asset: CreativeAsset, nodeId: string
             uploadReference: async (file: File) => {
                 const uploaded = await uploadServerFile(file, file.name);
                 const current = useCreativeAssetStore.getState().assets.find((item) => item.id === asset.id) || asset;
-                const referenceCount = current.payload.variants.filter((item) => item.kind === kind && item.usage === "reference_input").length;
+                const referenceCount = current.payload.variants.filter((item) => item.kind === kind && isReferenceUsage(item.usage)).length;
                 const variant: CreativeAssetVariant = { id: randomId(), kind, fileId: uploaded.fileId, label: `参考${kind === "image" ? "图" : "音频"}${referenceCount + 1}`, prompt: "", usage: "reference_input", createdAt: new Date().toISOString() };
                 await update(asset.id, { payload: { variants: [...current.payload.variants, variant] } });
             },

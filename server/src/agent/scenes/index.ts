@@ -29,7 +29,7 @@ const directorToolIds = [
     "director_get_state", "director_get_document", "director_list_sequences", "director_list_video_segments", "director_get_video_segment", "director_search_source", "director_update_workspace", "director_update_document",
     "director_list_assets", "director_get_asset", "director_create_assets", "director_update_asset", "director_generate_asset", "director_copy_asset", "director_delete_assets",
     "director_list_styles", "director_list_style_templates", "director_get_style", "director_create_style", "director_update_style", "director_set_active_style", "director_analyze_style", "director_generate_style_references", "director_delete_style",
-    "director_create_sequences", "director_update_sequence", "director_delete_sequences", "director_generate_storyboard", "director_create_video_segments", "director_update_video_segment", "director_update_storyboard_prompts", "director_delete_video_segments", "director_generate_video_segment", "director_update_timeline", "director_check_continuity",
+    "director_create_sequences", "director_update_sequence", "director_delete_sequences", "director_generate_storyboard", "director_create_video_segments", "director_update_video_segment", "director_update_video_segments", "director_validate_video_segments", "director_update_storyboard_prompts", "director_delete_video_segments", "director_generate_video_segment", "director_update_timeline", "director_check_continuity",
     "director_list_models", "director_get_generation_status", "director_list_renders", "director_start_render", "director_cancel_render", "director_retry_render", "director_navigate", "ask_user",
 ] as const;
 const directorAlways = new Set(["director_delete_assets", "director_delete_style", "director_delete_sequences", "director_delete_video_segments"]);
@@ -44,10 +44,10 @@ const definitions = {
     },
     director: {
         id: "director", projectKind: "director", systemPrompt: directorSystemPrompt,
-        skillIds: ["director-adapt-long-fiction", "director-write-screenplay", "director-breakdown-assets", "director-design-character", "director-design-scene", "director-design-prop", "director-design-style", "director-generate-assets", "director-plan-storyboards", "director-generate-shots", "director-check-continuity", "director-arrange-timeline", "director-render-film"],
+        skillIds: ["director-write-story", "director-adapt-long-fiction", "director-write-screenplay", "director-breakdown-assets", "director-design-character", "director-design-scene", "director-design-prop", "director-design-style", "director-generate-assets", "director-plan-storyboards", "director-generate-shots", "director-check-continuity", "director-arrange-timeline", "director-render-film"],
         tools: directorToolIds.map((id) => ({ id, policy: directorAlways.has(id) ? "always" as const : "auto" as const })),
         referenceKinds: ["director", "asset", "style"],
-        composer: { placeholder: "描述导演任务，输入 / 调用 Skill，@ 引用故事、视频段或素材…", referenceLabel: "引用导演台内容", emptyTitle: "和导演台一起创作", emptyDescription: "Agent 已绑定当前导演项目，可以改编故事、编写剧本并推进素材、分镜和成片。", suggestions: ["根据小说生成故事总纲和改编方案", "从剧本整理角色、场景和道具", "规划下一组视频段与故事板"] },
+        composer: { placeholder: "描述导演任务，输入 / 调用 Skill，@ 引用故事、视频段或素材…", referenceLabel: "引用导演台内容", emptyTitle: "和导演台一起创作", emptyDescription: "Agent 已绑定当前导演项目，可以创作或改编章节式故事、编写剧本并推进素材、分镜和成片。", suggestions: ["把创意写成可直接阅读的章节式故事", "从故事改写可拍摄的分场剧本", "规划下一组视频段与故事板"] },
     },
 } satisfies Record<AgentSceneId, AgentSceneDefinition>;
 

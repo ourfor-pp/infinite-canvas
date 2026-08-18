@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentEvent } from "@/services/api/agent";
-import { mergeEvents } from "./local-agent-panel";
+import { mergeEvents, needsConversationReconcile } from "./local-agent-panel";
 
 const event = (sessionId: string, seq: number, kind: AgentEvent["kind"]): AgentEvent => ({ sessionId, seq, runId: null, kind, payload: {}, createdAt: new Date().toISOString() });
 const streamEvent = (seq: number, text: string, delta = true): AgentEvent => ({ ...event("branch", seq, "thinking"), payload: { streamId: "thinking-1", text, delta } });
 
 describe("Agent 会话事件合并", () => {
+    it("会话状态领先于页面实际事件时必须重新拉取权威快照", () => {
+        expect(needsConversationReconcile(9, [event("branch", 7, "assistant_text")])).toBe(true);
+        expect(needsConversationReconcile(7, [event("branch", 7, "assistant_text")])).toBe(false);
+    });
+
     it("不会把旧线程的同序号事件合入当前分支", () => {
         const branch = event("branch", 3, "run_state");
         const sourceUser = event("source", 3, "user_text");

@@ -254,6 +254,8 @@ applyVersionSixteen();
 applyVersionSeventeen();
 applyVersionEighteen();
 applyVersionNineteen();
+applyVersionTwenty();
+applyVersionTwentyOne();
 ensureAgentMetadata(3, 2);
 
 function applyVersionTwo() {
@@ -520,7 +522,7 @@ function applyVersionTwelve() {
         for (const row of assets) {
             const payload = parseJson<Record<string, unknown>>(row.payload, {});
             const variants = Array.isArray(payload.variants) ? payload.variants as Array<Record<string, unknown>> : [];
-            const lastImagePrompt = [...variants].reverse().find((item) => item.kind === "image" && item.usage !== "reference_input" && typeof item.prompt === "string")?.prompt;
+            const lastImagePrompt = [...variants].reverse().find((item) => item.kind === "image" && !["reference_input", "identity_reference", "wardrobe_reference", "composition_reference"].includes(String(item.usage || "")) && typeof item.prompt === "string")?.prompt;
             const existingDrafts = payload.mediaDrafts && typeof payload.mediaDrafts === "object" ? payload.mediaDrafts as Record<string, unknown> : {};
             const existingImage = existingDrafts.image && typeof existingDrafts.image === "object" ? existingDrafts.image as Record<string, unknown> : {};
             const existingAudio = existingDrafts.audio && typeof existingDrafts.audio === "object" ? existingDrafts.audio as Record<string, unknown> : {};
@@ -847,6 +849,73 @@ function applyVersionNineteen() {
             db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...payload, storyboardSheet: sheet }), new Date().toISOString(), row.id, row.user_id);
         }
         db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(19, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionTwenty() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=20").get()) return;
+    db.transaction(() => {
+        db.exec(`
+            CREATE TABLE director_cast_reviews (
+              project_id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              status TEXT NOT NULL,
+              summary TEXT NOT NULL DEFAULT '',
+              asset_revisions TEXT NOT NULL DEFAULT '{}',
+              characters TEXT NOT NULL DEFAULT '[]',
+              pairs TEXT NOT NULL DEFAULT '[]',
+              generation_id TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (project_id, user_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_director_cast_reviews_generation ON director_cast_reviews(user_id, generation_id);
+        `);
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(20, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionTwentyOne() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=21").get()) return;
+    db.transaction(() => {
+        const rows = db.prepare("SELECT id,user_id,payload FROM director_shots").all() as Array<{ id: string; user_id: string; payload: string }>;
+        for (const row of rows) {
+            const payload = JSON.parse(row.payload || "{}") as Record<string, unknown>;
+            const rawSheet = payload.storyboardSheet;
+            if (!rawSheet || typeof rawSheet !== "object") continue;
+            const sheet = { ...(rawSheet as Record<string, unknown>) };
+            const rawFrames = Array.isArray(sheet.frames) ? sheet.frames as Array<Record<string, unknown>> : [];
+            const duration = Math.max(4, Math.min(15, Number(payload.durationSeconds || payload.duration || 4)));
+            const frames = rawFrames.map((frame, index) => {
+                const { guideEnabled: _guideEnabled, guideStrength: _guideStrength, croppedFileId: _croppedFileId, resolvedFrameIndex: _resolvedFrameIndex, shot: _shot, ...clean } = frame;
+                const fallbackTime = rawFrames.length > 1 ? duration * index / (rawFrames.length - 1) : 0;
+                return {
+                    ...clean,
+                    position: index,
+                    shotNumber: Math.max(1, Math.min(3, Number(frame.shotNumber ?? frame.shot ?? 1))),
+                    timeSeconds: index === 0 ? 0 : index === rawFrames.length - 1 ? duration : Math.max(0, Math.min(duration, Number(frame.timeSeconds ?? fallbackTime))),
+                    h3Visual: String(frame.h3Visual || ""),
+                    dialogue: String(frame.dialogue || ""),
+                };
+            });
+            const { firstFrameFileId: _firstFrameFileId, lastFrameFileId: _lastFrameFileId, ...cleanSheet } = sheet;
+            const { firstFrameFileId: _payloadFirstFrameFileId, lastFrameFileId: _payloadLastFrameFileId, references: _references, ...cleanPayload } = payload;
+            const nextPayload: Record<string, unknown> = {
+                ...cleanPayload,
+                storyboardSheet: { ...cleanSheet, frames },
+                h3ModeOverride: undefined,
+                h3PromptSnapshot: undefined,
+                h3PromptStale: true,
+                needsReview: true,
+            };
+            if (payload.videoFileId) nextPayload.videoStale = true;
+            delete nextPayload.h3ModeOverride;
+            delete nextPayload.h3PromptSnapshot;
+            db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?")
+                .run(JSON.stringify(nextPayload), new Date().toISOString(), row.id, row.user_id);
+        }
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(21, ?)").run(new Date().toISOString());
     })();
 }
 

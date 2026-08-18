@@ -40,4 +40,18 @@ describe("conversation projection", () => {
         expect(result.filter((item) => item.type === "time")).toHaveLength(1);
         expect(result.at(-1)).toMatchObject({ type: "round", events: [expect.objectContaining({ payload: expect.objectContaining({ forkSourceSeq: 2 }) })] });
     });
+    it("gives steer-separated rounds in the same run unique identities", () => {
+        const result = buildConversationItems([
+            event(1, "user_text", { text: "原请求", submissionMode: "direct" }),
+            event(2, "run_state", { state: "running", content: "Agent 已开始处理" }),
+            event(3, "user_text", { text: "补充要求", submissionMode: "steer" }),
+            event(4, "run_state", { state: "running", content: "正在自动续接" }),
+            event(5, "assistant_text", { text: "已按补充要求继续" }),
+        ]);
+        const rounds = result.filter((item) => item.type === "round");
+        expect(rounds).toHaveLength(2);
+        expect(new Set(rounds.map((item) => item.id)).size).toBe(2);
+        expect(rounds.map((item) => item.runId)).toEqual(["run-1", "run-1"]);
+        expect(rounds.at(-1)?.events.map((item) => item.seq)).toEqual([4, 5]);
+    });
 });

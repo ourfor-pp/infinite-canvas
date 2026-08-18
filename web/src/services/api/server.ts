@@ -73,7 +73,8 @@ export type CreativeAssetGenerationPreview = {
     model: { value: string; name: string; providerName: string; inputs: ModelCapability[]; audioModes?: AudioMode[] };
     prompt: string;
     instructions: string;
-    references: Array<{ fileId: string; kind: "image" | "audio"; source: "style" | "asset" | "canvas" | "primary"; label: string; nodeId?: string; title?: string }>;
+    references: Array<{ fileId: string; kind: "image" | "audio"; source: "style" | "asset" | "canvas" | "primary"; label: string; purpose?: string; nodeId?: string; title?: string }>;
+    excludedReferences: Array<{ fileId: string; source: "style" | "asset" | "canvas"; label: string; reason: string }>;
     style: { id: string; revision: number; name: string; description: string; referenceFileId: string | null; imageApplied: boolean } | null;
     canvasInputs: { texts: string[]; imageFileIds: string[]; audioFileIds: string[]; imageReferences: Array<{ nodeId: string; fileId: string; label: string; title: string }>; audioReferences: Array<{ nodeId: string; fileId: string; label: string; title: string }> };
     warnings: Array<{ code: string; message: string; blocking: boolean }>;
@@ -135,7 +136,7 @@ export const serverApi = {
     placeVisualStyle: (id: string, input: Record<string, unknown>) => serverRequest<{ nodeId: string; projectId: string }>(`/visual-styles/${encodeURIComponent(id)}/place`, { method: "POST", body: JSON.stringify(input) }),
     setDefaultVisualStyle: (id: string) => serverRequest<VisualStyle>(`/visual-styles/${encodeURIComponent(id)}/default`, { method: "POST" }),
     analyzeVisualStyle: (id: string, revision: number) => serverRequest<ServerGeneration>(`/visual-styles/${encodeURIComponent(id)}/analyze`, { method: "POST", body: JSON.stringify({ revision }) }),
-    generateVisualStyleReferences: (id: string, revision: number, roles: Array<"character" | "scene" | "prop"> = ["character", "scene", "prop"]) => serverRequest<ServerGeneration[]>(`/visual-styles/${encodeURIComponent(id)}/references/generate`, { method: "POST", body: JSON.stringify({ revision, roles }) }),
+    generateVisualStyleReferences: (id: string, revision: number) => serverRequest<ServerGeneration>(`/visual-styles/${encodeURIComponent(id)}/references/generate`, { method: "POST", body: JSON.stringify({ revision }) }),
     assets: () => serverRequest<Array<Record<string, unknown>>>("/assets"),
     createAsset: (asset: Record<string, unknown>) => serverRequest<Record<string, unknown>>("/assets", { method: "POST", body: JSON.stringify(asset) }),
     updateAsset: (id: string, asset: Record<string, unknown>) => serverRequest<Record<string, unknown>>(`/assets/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(asset) }),
