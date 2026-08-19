@@ -241,6 +241,17 @@
         border-radius: 999px;
     }
 
+    .thin-scrollbar::-webkit-scrollbar-button,
+    .thin-scrollbar::-webkit-scrollbar-button:single-button {
+        display: none;
+        height: 0;
+        width: 0;
+    }
+
+    .thin-scrollbar::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+
     .hover-scrollbar {
         scrollbar-color: transparent transparent;
         scrollbar-width: thin;

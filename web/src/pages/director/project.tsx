@@ -146,7 +146,7 @@ export default function DirectorProjectPage() {
         );
     return (
         <ConfigProvider theme={{ algorithm: antdTheme.defaultAlgorithm }}>
-            <main className="director-light flex h-full min-w-0 bg-white text-slate-950">
+            <main className="director-light flex h-dvh min-w-0 bg-white text-slate-950">
                 {!agentCollapsed ? <AgentPanel projectId={id} themeMode="light" /> : null}
                 <div className="flex min-w-0 flex-1 flex-col bg-white">
                     <header className="flex h-16 shrink-0 items-stretch border-b border-black/10 bg-white px-5">
@@ -188,7 +188,7 @@ export default function DirectorProjectPage() {
                             </Tooltip>
                         </div>
                     </header>
-                    <section className={`min-w-0 flex-1 bg-white ${active === "story" || active === "script" ? "overflow-hidden" : "overflow-auto"}`}>
+                    <section className={`min-w-0 flex-1 bg-white ${active === "story" || active === "script" || active === "storyboard" ? "overflow-hidden" : "overflow-auto"}`}>
                         {active === "overview" ? <Overview state={state} assets={assets} styles={styles} onNavigate={(target) => navigate(`/director/${id}/${target}`)} /> : null}
                         {active === "story" || active === "script" ? <Writing projectId={id} kind={active} state={state} onRefresh={refresh} /> : null}
                         {active === "style" ? <DirectorStylePage projectId={id} activeStyleId={state.activeStyleId} styles={styles} onRefresh={refresh} /> : null}
@@ -882,9 +882,25 @@ function FlatAction({ icon: Icon, label, loading, disabled, danger, onClick }: {
 function Storyboard({ projectId, state, onRefresh }: { projectId: string; state: DirectorState; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
-    const [view, setView] = useState<"boards" | "segments">("boards");
+    const orderedSegments = useMemo(() => orderDirectorSegments(state.videoSegments, state.sequences), [state.sequences, state.videoSegments]);
+    const initialUi = useMemo(() => readStoryboardUi(projectId), [projectId]);
+    const [selectedId, setSelectedId] = useState(initialUi.selectedId);
+    const [modes, setModes] = useState<Record<string, StoryboardWorkspaceMode>>(initialUi.modes);
     const [busy, setBusy] = useState("");
-    const [promptSegmentId, setPromptSegmentId] = useState("");
+    const [preview, setPreview] = useState<{ items: WorkspaceImagePreviewItem[]; activeIndex: number } | null>(null);
+    const selected = orderedSegments.find((segment) => segment.id === selectedId) || orderedSegments[0];
+    const mode = selected ? modes[selected.id] || "storyboard" : "storyboard";
+    const [preflight, setPreflight] = useState<DirectorVideoSegmentPreflight>();
+    useEffect(() => {
+        if (!selected) return setPreflight(undefined);
+        let active = true;
+        void directorApi.videoSegmentPreflight(selected.id).then((value) => active && setPreflight(value)).catch(() => active && setPreflight(undefined));
+        return () => { active = false; };
+    }, [selected?.id, selected?.revision]);
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        window.localStorage.setItem(storyboardUiKey(projectId), JSON.stringify({ selectedId: selected?.id || "", modes }));
+    }, [modes, projectId, selected?.id]);
     const generateBoard = async (segment: DirectorVideoSegment) => {
         setBusy(segment.id);
         try {
@@ -913,33 +929,121 @@ function Storyboard({ projectId, state, onRefresh }: { projectId: string; state:
         failed ? message.warning(`${targets.length - failed} 个已提交，${failed} 个因素材预检未通过`) : message.success(`${targets.length} 个故事板已提交，生图队列并发上限 10`);
     };
     return (
-        <div className="mx-auto max-w-7xl px-6 pb-8 lg:px-8">
-            <div className="sticky top-0 z-20 -mx-6 flex min-h-11 items-center justify-between gap-4 overflow-x-auto border-b border-slate-200 bg-slate-50 px-6 lg:-mx-8 lg:px-8">
-                <div role="tablist" aria-label="分镜视图" className="flex h-11 shrink-0 items-center gap-5">
-                    <button type="button" role="tab" aria-selected={view === "boards"} className={`flex items-center gap-2 whitespace-nowrap text-sm transition-colors ${view === "boards" ? "font-medium text-slate-950" : "text-slate-500 hover:text-slate-900"}`} onClick={() => setView("boards")}>
-                        <span aria-hidden="true" className={`size-1.5 rounded-full ${view === "boards" ? "bg-blue-600" : "bg-transparent"}`} />
-                        故事板 <span className={`font-mono text-[10px] font-normal ${view === "boards" ? "text-slate-500" : "text-slate-400"}`}>{state.sequences.length}</span>
-                    </button>
-                    <button type="button" role="tab" aria-selected={view === "segments"} className={`flex items-center gap-2 whitespace-nowrap text-sm transition-colors ${view === "segments" ? "font-medium text-slate-950" : "text-slate-500 hover:text-slate-900"}`} onClick={() => setView("segments")}>
-                        <span aria-hidden="true" className={`size-1.5 rounded-full ${view === "segments" ? "bg-blue-600" : "bg-transparent"}`} />
-                        视频段列表 <span className={`font-mono text-[10px] font-normal ${view === "segments" ? "text-slate-500" : "text-slate-400"}`}>{state.videoSegments.length}</span>
-                    </button>
-                </div>
-                {view === "boards" ? <Button type="text" size="small" className="shrink-0 !px-2 !text-slate-600 hover:!bg-blue-50 hover:!text-blue-700" loading={busy === "batch"} icon={<ImageIcon className="size-3.5" />} onClick={() => void batchGenerate()}>批量生成缺失故事板</Button> : null}
-            </div>
-            {view === "boards" ? (
-                <div className="mt-5 space-y-7">
-                    {state.sequences.map((sequence) => <section key={sequence.id}>
-                        <div className="mb-3 flex items-baseline gap-3"><span className="font-mono text-xs text-blue-600">SEQ {String(sequence.position + 1).padStart(2, "0")}</span><h2 className="font-serif text-xl text-slate-950">{sequence.title}</h2></div>
-                        <div className="space-y-4">{state.videoSegments.filter((segment) => segment.sequenceId === sequence.id).map((segment) => <VideoSegmentCard key={segment.id} segment={segment} busy={busy === segment.id} onAgent={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: segment.id, title: segment.title, subtitle: "视频段与故事板" })} onPrompt={() => setPromptSegmentId(segment.id)} onGenerateBoard={() => void generateBoard(segment)} onGenerateVideo={(preset) => void generateVideo(segment, preset)} onRefresh={onRefresh} />)}</div>
-                    </section>)}
-                    {!state.videoSegments.length ? <EmptyPanel icon={Clapperboard} title="还没有视频段" description="让 Agent 根据剧本规划 4–15 秒视频段。" /> : null}
-                </div>
-            ) : (
-                <VideoSegmentList projectId={projectId} segments={state.videoSegments} sequences={state.sequences} onRefresh={onRefresh} />
-            )}
-            <StoryboardPromptDrawer segment={state.videoSegments.find((item) => item.id === promptSegmentId)} onClose={() => setPromptSegmentId("")} onAgent={() => { const segment = state.videoSegments.find((item) => item.id === promptSegmentId); if (segment) prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: segment.id, title: segment.title, subtitle: "视频段与故事板" }); }} />
+        <div className="grid h-full min-h-0 w-full min-w-0 grid-rows-[minmax(0,1fr)_180px] overflow-hidden bg-slate-50">
+            {selected ? <StoryboardWorkspace segment={selected} sequence={state.sequences.find((item) => item.id === selected.sequenceId)} mode={mode} preflight={preflight} busy={busy === selected.id} onMode={(value) => setModes((current) => ({ ...current, [selected.id]: value }))} onAgent={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: selected.id, title: selected.title, subtitle: "视频段与故事板" })} onPreview={(items, activeIndex) => setPreview({ items, activeIndex })} onGenerateBoard={() => void generateBoard(selected)} onGenerateVideo={(preset) => void generateVideo(selected, preset)} /> : <EmptyPanel icon={Clapperboard} title="还没有视频段" description="让 Agent 根据剧本规划 4–15 秒视频段。" />}
+            <SegmentFilmstrip segments={orderedSegments} selectedId={selected?.id || ""} busy={busy === "batch"} onSelect={setSelectedId} onBatch={() => void batchGenerate()} />
+            <WorkspaceImagePreviewLightbox items={preview?.items || []} activeIndex={preview?.activeIndex ?? null} onClose={() => setPreview(null)} onChangeIndex={(activeIndex) => setPreview((current) => current ? { ...current, activeIndex } : null)} />
         </div>
+    );
+}
+
+type StoryboardWorkspaceMode = "storyboard" | "video";
+
+function storyboardUiKey(projectId: string) { return `director-storyboard-workspace:${projectId}`; }
+function readStoryboardUi(projectId: string): { selectedId: string; modes: Record<string, StoryboardWorkspaceMode> } {
+    if (typeof window === "undefined") return { selectedId: "", modes: {} };
+    try {
+        const value = JSON.parse(window.localStorage.getItem(storyboardUiKey(projectId)) || "{}") as { selectedId?: unknown; modes?: unknown };
+        const modes = value.modes && typeof value.modes === "object" ? Object.fromEntries(Object.entries(value.modes).filter(([, mode]) => mode === "storyboard" || mode === "video")) as Record<string, StoryboardWorkspaceMode> : {};
+        return { selectedId: typeof value.selectedId === "string" ? value.selectedId : "", modes };
+    } catch { return { selectedId: "", modes: {} }; }
+}
+
+function orderDirectorSegments(segments: DirectorVideoSegment[], sequences: DirectorSequence[]) {
+    const positions = new Map(sequences.map((sequence) => [sequence.id, sequence.position]));
+    return [...segments].sort((a, b) => (positions.get(a.sequenceId) ?? 0) - (positions.get(b.sequenceId) ?? 0) || a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+}
+
+function StoryboardWorkspace({ segment, sequence, mode, preflight, busy, onMode, onAgent, onPreview, onGenerateBoard, onGenerateVideo }: { segment: DirectorVideoSegment; sequence?: DirectorSequence; mode: StoryboardWorkspaceMode; preflight?: DirectorVideoSegmentPreflight; busy: boolean; onMode: (value: StoryboardWorkspaceMode) => void; onAgent: () => void; onPreview: (items: WorkspaceImagePreviewItem[], activeIndex: number) => void; onGenerateBoard: () => void; onGenerateVideo: (preset: H3QualityPreset) => void }) {
+    const sheet = segment.payload.storyboardSheet;
+    const isTransition = segment.payload.generationIntent === "transition";
+    const recommendedFrames = (segment.payload.durationSeconds || 4) <= 6 ? 4 : (segment.payload.durationSeconds || 4) <= 10 ? 6 : 9;
+    return (
+        <section data-testid="director-storyboard-card" className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-white">
+            <header className="flex min-h-16 min-w-0 shrink-0 flex-wrap items-center justify-between gap-3 overflow-hidden border-b border-slate-200 px-6 py-3">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-3"><span className="font-mono text-[11px] text-blue-600">SEG {String(segment.position + 1).padStart(2, "0")}</span><h1 className="truncate font-serif text-xl text-slate-950">{segment.title}</h1>{segment.payload.videoStale ? <Tag color="error">视频已过期</Tag> : null}</div>
+                    <p className="mt-1 truncate text-xs text-slate-500">{sequence?.title || "未分组"} · {segment.payload.durationSeconds || 4} 秒 · {sheet?.frames.length || recommendedFrames} 格 · {segment.payload.description || "等待补充分镜描述"}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                    <div role="tablist" aria-label="分镜创作模式" className="flex bg-slate-100 p-1">
+                        {(["storyboard", "video"] as const).map((item) => <button key={item} role="tab" aria-selected={mode === item} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition ${mode === item ? "bg-white font-medium text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-900"}`} onClick={() => onMode(item)}>{item === "storyboard" ? <ImageIcon className="size-3.5" /> : <Video className="size-3.5" />}{item === "storyboard" ? "故事板" : "视频"}</button>)}
+                    </div>
+                    <Button type="text" size="small" icon={<Bot className="size-3.5" />} onClick={onAgent}>交给 Agent</Button>
+                </div>
+            </header>
+            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)] overflow-hidden max-[760px]:grid-cols-1 max-[760px]:grid-rows-[minmax(280px,45vh)_minmax(360px,1fr)]">
+                <StoryboardMediaStage segment={segment} mode={mode} preflight={preflight} busy={busy} onPreview={onPreview} onGenerateBoard={onGenerateBoard} onGenerateVideo={onGenerateVideo} />
+                <StoryboardInspector segment={segment} mode={mode} preflight={preflight} />
+            </div>
+        </section>
+    );
+}
+
+function StoryboardMediaStage({ segment, mode, preflight, busy, onPreview, onGenerateBoard, onGenerateVideo }: { segment: DirectorVideoSegment; mode: StoryboardWorkspaceMode; preflight?: DirectorVideoSegmentPreflight; busy: boolean; onPreview: (items: WorkspaceImagePreviewItem[], activeIndex: number) => void; onGenerateBoard: () => void; onGenerateVideo: (preset: H3QualityPreset) => void }) {
+    const sheet = segment.payload.storyboardSheet;
+    const isTransition = segment.payload.generationIntent === "transition";
+    const selected = mode === "storyboard" ? sheet?.referenceSnapshot?.selected || preflight?.selected || [] : preflight?.videoSelected || [];
+    const blocked = preflight?.blockedReasons || [];
+    const inputCount = selected.length + (mode === "video" && sheet?.imageFileId ? 1 : 0);
+    const inputPreviewItems = [
+        ...(mode === "video" && sheet?.imageFileId ? [{ id: `storyboard-${sheet.imageFileId}`, url: serverApiUrl(`/files/${sheet.imageFileId}/content`), alt: `${segment.title} · 完整故事板` }] : []),
+        ...selected.map((item, index) => ({ id: `input-${index}-${item.fileId}`, url: serverApiUrl(`/files/${item.fileId}/content`), alt: item.name || item.purpose })),
+    ];
+    const inputOffset = mode === "video" && sheet?.imageFileId ? 1 : 0;
+    return (
+        <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-slate-200 bg-white">
+            <div className="flex min-h-[80px] min-w-0 shrink-0 items-start gap-3 border-b border-slate-200 bg-white px-4 py-2">
+                <div className="min-w-0 flex-1">
+                    <h2 className="text-xs font-medium text-slate-900">{mode === "storyboard" ? "故事板输入" : "视频输入"}<span className="ml-1 font-normal text-slate-400">（{inputCount}）</span></h2>
+                    <div className="thin-scrollbar mt-1.5 flex gap-2 overflow-x-auto overflow-y-hidden">
+                        {mode === "video" && sheet?.imageFileId ? <ReferenceThumb fileId={sheet.imageFileId} label="完整故事板" onPreview={() => onPreview(inputPreviewItems, 0)} /> : null}
+                        {selected.map((item, index) => <ReferenceThumb key={`${item.fileId}-${item.purpose}`} fileId={item.fileId} label={item.purpose} title={item.name} onPreview={() => onPreview(inputPreviewItems, inputOffset + index)} />)}
+                        {!selected.length && !(mode === "video" && sheet?.imageFileId) ? <p className="py-4 text-[11px] text-slate-400">还没有可用输入素材</p> : null}
+                    </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">{mode === "storyboard" ? <Button type="primary" size="small" loading={busy} disabled={isTransition} icon={<RefreshCw className="size-3.5" />} onClick={onGenerateBoard}>{sheet?.imageFileId ? "重抽整板" : "生成故事板"}</Button> : <><Button size="small" loading={busy} disabled={!preflight || blocked.length > 0} icon={<Play className="size-3.5" />} onClick={() => onGenerateVideo("preview")}>快速预览</Button><Button type="primary" size="small" loading={busy} disabled={!preflight || blocked.length > 0} icon={<Film className="size-3.5" />} onClick={() => onGenerateVideo("final")}>生成成片</Button></>}</div>
+            </div>
+            <div data-testid="director-storyboard-sheet" className={`relative min-h-0 flex-1 ${mode === "storyboard" ? "thin-scrollbar overflow-auto bg-white" : "overflow-hidden bg-slate-950"}`}>
+                {mode === "video" ? segment.payload.videoFileId ? <video key={segment.payload.videoFileId} controls className="absolute inset-0 size-full bg-slate-950 object-contain" src={serverApiUrl(`/files/${segment.payload.videoFileId}/content`)} /> : <MediaPlaceholder icon={Video} label="当前视频段还没有视频，先生成快速预览" /> : isTransition ? <div className="grid w-full grid-cols-2 gap-px bg-slate-300">{([preflight?.transitionInputs?.firstFrameFileId, preflight?.transitionInputs?.lastFrameFileId] as const).map((fileId, index) => fileId ? <img key={fileId} draggable={false} className="w-full bg-slate-100 object-contain" src={serverApiUrl(`/files/${fileId}/content`)} /> : <div key={index} className="aspect-video"><MediaPlaceholder label={index ? "等待后段实际首帧" : "等待前段实际尾帧"} /></div>)}</div> : sheet?.imageFileId ? <img draggable={false} aria-label="放大查看完整故事板" className="block h-auto w-full cursor-zoom-in" src={serverApiUrl(`/files/${sheet.imageFileId}/content`)} onClick={() => onPreview([{ id: `storyboard-${sheet.imageFileId}`, url: serverApiUrl(`/files/${sheet.imageFileId}/content`), alt: `${segment.title} · 故事板` }], 0)} /> : <MediaPlaceholder label="当前视频段还没有故事板" />}
+                {busy ? <div className="director-asset-loading absolute inset-0 grid place-items-center bg-white/55"><Loader2 className="size-7 animate-spin text-blue-600" /></div> : null}
+            </div>
+        </div>
+    );
+}
+
+function StoryboardInspector({ segment, mode, preflight }: { segment: DirectorVideoSegment; mode: StoryboardWorkspaceMode; preflight?: DirectorVideoSegmentPreflight }) {
+    const copyText = useCopyText();
+    const sheet = segment.payload.storyboardSheet;
+    const prompt = mode === "storyboard" ? sheet?.promptSnapshot || "" : segment.payload.h3PromptSnapshot?.prompt || "";
+    const blocked = preflight?.blockedReasons || [];
+    return (
+        <aside data-testid="director-storyboard-inspector" className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-white">
+            <section className="flex min-h-0 flex-1 flex-col">
+                <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4"><h2 className="text-sm font-medium text-slate-900">{mode === "storyboard" ? "故事板提示词" : "视频生成提示词"}</h2><Button type="text" size="small" disabled={!prompt} icon={<Copy className="size-3.5" />} onClick={() => copyText(prompt, "已复制提示词")}>复制</Button></div>
+                {prompt ? <pre className="thin-scrollbar min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words bg-slate-50 px-5 py-4 font-mono text-[11px] leading-5 text-slate-700">{prompt}</pre> : <div className="grid min-h-0 flex-1 place-items-center bg-slate-50 px-6 text-center text-xs leading-5 text-slate-400">{mode === "storyboard" ? "生成故事板后，这里会显示实际使用的提示词。" : "生成快速预览或成片后，这里会显示实际使用的 H3 提示词。"}</div>}
+                {blocked.length ? <p className="shrink-0 border-t border-rose-100 bg-rose-50 px-4 py-2 text-[11px] text-rose-600">{blocked.join("；")}</p> : null}
+            </section>
+        </aside>
+    );
+}
+
+function ReferenceThumb({ fileId, label, title, onPreview }: { fileId: string; label: string; title?: string; onPreview: () => void }) {
+    return <Tooltip title={`查看${title || label}大图`}><button type="button" aria-label={`查看${title || label}大图`} className="w-16 shrink-0 text-left" onClick={onPreview}><img className="h-10 w-full border border-slate-200 bg-slate-50 object-cover transition hover:border-blue-400" src={serverApiUrl(`/files/${fileId}/content`)} /><p className="mt-1 truncate text-[10px] text-slate-500">{label}</p></button></Tooltip>;
+}
+
+function SegmentFilmstrip({ segments, selectedId, busy, onSelect, onBatch }: { segments: DirectorVideoSegment[]; selectedId: string; busy: boolean; onSelect: (id: string) => void; onBatch: () => void }) {
+    return (
+        <section data-testid="director-segment-filmstrip" className="flex min-h-0 min-w-0 max-w-full flex-col overflow-hidden border-t border-slate-200 bg-white">
+            <header className="flex h-10 shrink-0 items-center justify-between px-5"><div className="flex items-center gap-3"><h2 className="text-xs font-medium text-slate-900">视频段</h2><span className="font-mono text-[10px] text-slate-400">{segments.length}</span></div><Button type="text" size="small" loading={busy} icon={<ImageIcon className="size-3.5" />} onClick={onBatch}>批量生成缺失故事板</Button></header>
+            <div data-testid="director-segment-filmstrip-scroll" className="thin-scrollbar flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-x-auto overflow-y-hidden border-t border-slate-200 px-4 pb-4 pt-3">
+                {segments.map((segment, index) => {
+                    const sheet = segment.payload.storyboardSheet;
+                    const imageFileId = sheet?.imageFileId || segment.payload.actualFirstFrameFileId || segment.payload.actualLastFrameFileId;
+                    return <button key={segment.id} type="button" data-testid="director-segment-filmstrip-item" aria-current={selectedId === segment.id ? "true" : undefined} className={`group w-44 shrink-0 overflow-hidden border text-left transition ${selectedId === segment.id ? "border-blue-600 ring-1 ring-blue-600" : "border-slate-200 hover:border-blue-300"}`} onClick={() => onSelect(segment.id)}><div className="relative h-[72px] bg-slate-100">{imageFileId ? <img className="size-full object-cover" src={serverApiUrl(`/files/${imageFileId}/content`)} /> : segment.payload.videoFileId ? <video muted preload="metadata" className="size-full object-cover" src={serverApiUrl(`/files/${segment.payload.videoFileId}/content`)} /> : <div className="grid size-full place-items-center"><Clapperboard className="size-5 text-slate-300" /></div>}<span className="absolute left-1.5 top-1.5 bg-slate-950/75 px-1.5 py-0.5 font-mono text-[9px] text-white">{String(index + 1).padStart(2, "0")}</span><span className="absolute bottom-1.5 right-1.5 bg-slate-950/75 px-1.5 py-0.5 text-[9px] text-white">{segment.payload.durationSeconds || 4}s</span></div><div className="px-2 py-2"><p className="truncate text-[11px] font-medium text-slate-800">{segment.title}</p></div></button>;
+                })}
+            </div>
+        </section>
     );
 }
 
