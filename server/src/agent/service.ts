@@ -7,12 +7,12 @@ import { z } from "zod";
 import { config } from "../config.js";
 import { db, parseJson } from "../database.js";
 import { getStoredFile } from "../file-store.js";
-import { decryptCredentials, getProviderRow, resolveAgentModel, type AiModelDefinition } from "../provider-service.js";
+import { decryptCredentials, getProviderRow, resolveAgentModel, resolveMediaUnderstandingModel, type AiModelDefinition } from "../provider-service.js";
 import { registerAgentProviderProxy } from "./provider-proxy.js";
 import { buildAgentMcpServer } from "./mcp/index.js";
 import { getBuiltInAgentSkill, listBuiltInAgentSkills, syncBuiltInAgentSkills, validateBuiltInAgentSkills, type BuiltInAgentSkill } from "./skill-registry.js";
 import { getCanvasState, listAgentCreativeAssets, listAgentVisualStyles } from "./canvas-tools.js";
-import { agentScenes, resolveAgentScene, sceneAutoAllowedTools, sceneHasReference, sceneHasSkill, sceneRegisteredTools, validateAgentScenes, type AgentSceneDefinition } from "./scenes/index.js";
+import { agentScenes, resolveAgentScene, sceneAutoAllowedTools, sceneHasReference, sceneHasSkill, sceneRegisteredTools, sceneSkillIds, validateAgentScenes, type AgentSceneDefinition } from "./scenes/index.js";
 import { creativeAssetInputSchema, getCreativeAsset } from "../creative-assets.js";
 import { getVisualStyle } from "../visual-styles.js";
 import { getDirectorState } from "../director.js";
@@ -26,7 +26,7 @@ type SessionRow = {
 };
 type RunRow = { id: string; session_id: string; user_id: string; status: string; model_ref: string; usage: string | null; error: string | null; error_code: string | null; tool_search_mode: string; tool_search_call_count: number; started_at: string; finished_at: string | null };
 type QueueRow = { id: string; user_id: string; project_id: string; session_id: string; wait_for_run_id: string | null; accepted_run_id: string | null; client_message_id: string; content: string; attachment_file_ids: string; display_text: string; status: string; error: string | null; created_at: string; updated_at: string };
-type AgentSettings = { modelRef: string; modelName?: string; providerName?: string; toolSearchMode: string; ready: boolean };
+type AgentSettings = { modelRef: string; modelName?: string; providerName?: string; mediaModelRef: string; mediaModelName?: string; mediaProviderName?: string; mediaReady: boolean; toolSearchMode: string; ready: boolean };
 type DecisionResult = { approved: boolean; scope: "once" | "session" | "project"; comment?: string; answers?: Record<string, string>; proposalEdits?: unknown };
 class RetriableAgentDiagnosticError extends Error { code = "AGENT_RETRIABLE_DIAGNOSTIC"; }
 
@@ -40,7 +40,7 @@ const workspaceWrites = new Map<string, Promise<void>>();
 let pumpScheduled = false;
 
 validateAgentScenes();
-Object.values(agentScenes).forEach((scene) => validateBuiltInAgentSkills(scene.skillIds, sceneAutoAllowedTools(scene)));
+Object.values(agentScenes).forEach((scene) => validateBuiltInAgentSkills(sceneSkillIds(scene), sceneAutoAllowedTools(scene)));
 
 export function recoverAgentRuns() {
     const now = new Date().toISOString();
@@ -60,12 +60,16 @@ export function recoverAgentRuns() {
 }
 
 export function getAgentSettings(): AgentSettings {
-    const row = db.prepare("SELECT model_ref FROM agent_settings WHERE id=1").get() as { model_ref: string } | undefined;
+    const row = db.prepare("SELECT model_ref,media_model_ref FROM agent_settings WHERE id=1").get() as { model_ref: string; media_model_ref: string } | undefined;
     const modelRef = row?.model_ref || "";
+    const mediaModelRef = row?.media_model_ref || "";
     let modelName = "";
     let providerName = "";
     let toolSearchMode = "false";
     let ready = false;
+    let mediaModelName = "";
+    let mediaProviderName = "";
+    let mediaReady = false;
     if (modelRef) {
         try {
             const selection = resolveAgentModel(modelRef);
@@ -75,14 +79,25 @@ export function getAgentSettings(): AgentSettings {
             ready = true;
         } catch { /* Invalid admin configuration is represented as not ready. */ }
     }
-    return { modelRef, modelName, providerName, toolSearchMode, ready };
+    if (mediaModelRef) {
+        try {
+            const selection = resolveMediaUnderstandingModel(mediaModelRef);
+            mediaModelName = selection.model.name;
+            mediaProviderName = selection.provider.name;
+            mediaReady = selection.model.inputs.includes("image");
+        } catch { /* Invalid media configuration is represented as not ready. */ }
+    }
+    return { modelRef, modelName, providerName, mediaModelRef, mediaModelName, mediaProviderName, mediaReady, toolSearchMode, ready };
 }
 
-export function saveAgentSettings(input: { modelRef: string }) {
-    const value = z.object({ modelRef: z.string().trim().min(1) }).parse(input);
+export function saveAgentSettings(input: { modelRef: string; mediaModelRef?: string }) {
+    const value = z.object({ modelRef: z.string().trim().min(1), mediaModelRef: z.string().trim().default("") }).parse(input);
     resolveAgentModel(value.modelRef);
-    db.prepare("INSERT INTO agent_settings(id, model_ref, updated_at) VALUES(1, ?, ?) ON CONFLICT(id) DO UPDATE SET model_ref=excluded.model_ref, updated_at=excluded.updated_at")
-        .run(value.modelRef, new Date().toISOString());
+    if (value.mediaModelRef) {
+        resolveMediaUnderstandingModel(value.mediaModelRef);
+    }
+    db.prepare("INSERT INTO agent_settings(id, model_ref, media_model_ref, updated_at) VALUES(1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET model_ref=excluded.model_ref, media_model_ref=excluded.media_model_ref, updated_at=excluded.updated_at")
+        .run(value.modelRef, value.mediaModelRef, new Date().toISOString());
     return getAgentSettings();
 }
 
@@ -366,7 +381,7 @@ export function getSessionEvents(userId: string, sessionId: string, beforeSeq?: 
 
 export function getAgentCapabilities(userId: string, projectId: string) {
     const scene = resolveAgentScene(userId, projectId);
-    return { sceneId: scene.id, skills: listBuiltInAgentSkills(scene.skillIds), referenceKinds: scene.referenceKinds, composer: { ...scene.composer, suggestions: [...scene.composer.suggestions] } };
+    return { sceneId: scene.id, skills: listBuiltInAgentSkills(sceneSkillIds(scene)), referenceKinds: scene.referenceKinds, composer: { ...scene.composer, suggestions: [...scene.composer.suggestions] } };
 }
 
 export function listAgentReferences(userId: string, projectId: string, query: { q?: string; limit?: number } = {}) {
@@ -437,14 +452,14 @@ async function executeRun(run: RunRow, controller: AbortController) {
         const skill = context.skillIds?.[0] ? getEnabledSkill(context.skillIds[0], scene) : null;
         const workspace = projectWorkspace(run.user_id, session.project_id);
         mkdirSync(workspace, { recursive: true });
-        validateBuiltInAgentSkills(scene.skillIds, sceneAutoAllowedTools(scene));
-        const syncedSkills = syncBuiltInAgentSkills(workspace, scene.skillIds);
+        validateBuiltInAgentSkills(sceneSkillIds(scene), sceneAutoAllowedTools(scene));
+        const syncedSkills = syncBuiltInAgentSkills(workspace, sceneSkillIds(scene));
         const prompt = buildPrompt(session, { ...context, attachments: stageAttachments(workspace, context.attachments || []) }, skill);
         const runtime = runtimeEnv(selection.provider, selection.provider.credentials, selection.model, resolve(workspace, ".claude"));
         db.prepare("UPDATE agent_runs SET tool_search_mode=? WHERE id=?").run(runtime.toolSearchMode, run.id);
         const mcp = buildAgentMcpServer({
             session: { id: session.id, projectId: session.project_id },
-            run: { userId: run.user_id },
+            run: { userId: run.user_id, mediaModelRef: getAgentSettings().mediaModelRef },
             appendEvent: (kind, payload) => appendEvent(session.id, run.id, kind, payload),
             requireDecision: (toolName, input, kind) => requireBusinessDecision(session, run, toolName, input, kind),
             requestClientAction: (name, input) => requestClientAction(session, run, name, input),
@@ -726,7 +741,7 @@ function mergeAllowedTools(...lists: string[][]) {
 
 type ProviderNonNull = NonNullable<ReturnType<typeof getProviderRow>>;
 
-function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
+function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
     const sections = [context.input || "请处理本次请求。"];
     if (skill) sections.unshift(`使用原生 Skill 工具加载并遵循“${skill.id}”（${skill.name}）完成本次请求。Skill 已同步到当前会话，不要使用 Read 查找服务端 Skill 源文件。`);
     if (context.references?.length) sections.push(`## 本次画布引用\n${JSON.stringify(context.references, null, 2)}`);
@@ -735,8 +750,8 @@ function buildPrompt(session: SessionRow, context: { input?: string; attachments
     if (context.directorReferences?.length) sections.push(`## 本次导演台引用\n${JSON.stringify(context.directorReferences, null, 2)}\n修改前读取最新 revision；交给 Agent 只表示把引用放入本次输入，不代表用户已经确认修改。`);
     const readableAttachments = context.attachments?.filter((file) => isAgentContextFile(file.mimeType)) || [];
     const savedOnlyAttachments = context.attachments?.filter((file) => !isAgentContextFile(file.mimeType)) || [];
-    if (readableAttachments.length) sections.push(`## 本次附件\n${readableAttachments.map((file) => `- ${file.name} (${file.mimeType})：${file.path}`).join("\n")}\n只允许通过受控上下文使用这些文件。`);
-    if (savedOnlyAttachments.length) sections.push(`以下附件仅保存和展示，不进入本次模型上下文：${savedOnlyAttachments.map((file) => file.name).join("、")}`);
+    if (readableAttachments.length) sections.push(`## 本次附件\n${readableAttachments.map((file) => `- ${file.name}（fileId=${file.fileId}，${file.mimeType}）：${file.path}`).join("\n")}\n只允许通过受控上下文使用这些文件。`);
+    if (savedOnlyAttachments.length) sections.push(`## 本次媒体附件\n${savedOnlyAttachments.map((file) => `- ${file.name}（fileId=${file.fileId}，${file.mimeType}）`).join("\n")}\n图片和声音使用媒体理解工具；视频先生成联系表或抽帧。不要用 Read 读取二进制文件。`);
     sections.push(`当前项目 projectId：${session.project_id}。操作前先读取最新 revision。`);
     return sections.join("\n\n");
 }
@@ -820,7 +835,7 @@ function safeWorkspaceReadPath(workspace: string, value: string) {
 }
 
 function isAgentContextFile(mimeType: string) {
-    return mimeType.startsWith("image/") || mimeType.startsWith("text/") || mimeType === "application/pdf" || ["application/json", "application/xml"].includes(mimeType);
+    return mimeType.startsWith("text/") || mimeType === "application/pdf" || ["application/json", "application/xml"].includes(mimeType);
 }
 
 function settleSessionWaiters(sessionId: string, error: string) {

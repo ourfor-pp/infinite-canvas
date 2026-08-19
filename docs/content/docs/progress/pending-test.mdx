@@ -180,3 +180,10 @@ The Chinese version contains the complete item-by-item acceptance checklist.
 - Agent steer continuation: while a tool-backed run is active, send one or more “马上发” supplemental messages. An SDK result shaped as `result_type=user last_content_type=n/a stop_reason=null` must be treated as a resumable boundary, the latest persisted supplement must be included in one automatic continuation, and no raw EDE diagnostic may appear in the conversation. If the upstream returns an empty boundary twice, show only the friendly retry notice while preserving the supplemental messages.
 - Agent scroll affordance: in the light Director workspace, hover and keyboard-focus the floating scroll-to-bottom button. It must retain a solid blue background, white arrow and visible focus ring instead of inheriting the page-level pale hover background.
 - Agent steer round identity: send a direct message and then a “马上发” supplement before the assistant responds. Both user messages may remain visible, but only the assistant round after the latest supplement may show the live running state; the earlier “模型正在处理中” pill must disappear once continuation output starts, and React must not report duplicate keys.
+- Agent failed process collapse: open a round containing one or more failed tools, then click the process summary to collapse it. It may auto-expand once when a new failure first arrives, but must stay collapsed after the user closes it instead of immediately reopening or shaking.
+# Agent 媒体理解
+
+- 管理后台可为 Agent 单独选择媒体理解模型；图片理解与声音语义使用同一个已配置模型。
+- 画布与导演项目 Agent 均可读取项目内图片并给出内容、文字与不确定性分析，也可理解音频中的语音语义、情绪、音乐、环境声和声音事件。
+- 视频先由本地 FFmpeg 生成单张联系表或按指定时间抽帧，再交给图片理解模型分析；项目外文件会被拒绝。
+- 待人工验证所选在线模型和渠道确实接受音频输入，并检查真实图片、音频及长视频上的结果质量。

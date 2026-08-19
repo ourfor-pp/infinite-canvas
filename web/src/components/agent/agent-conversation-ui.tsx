@@ -210,10 +210,6 @@ function AgentErrorNotice({ event }: { event: ProjectedEvent }) {
 
 function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, status, onBeforeAutoCollapse }: { events: ProjectedEvent[]; processMessages: ProjectedEvent[]; decisions: Array<{ request: AgentPendingDecision; event: ProjectedEvent; response?: ProjectedEvent }>; roundEvents: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; onBeforeAutoCollapse?: (element: HTMLElement) => void }) {
     const groupRef = useRef<HTMLElement>(null);
-    const [open, setOpen] = useState(false);
-    const [showAllTools, setShowAllTools] = useState(false);
-    const wasRunning = useRef(status === "running");
-    const [now, setNow] = useState(Date.now());
     const tools = events.filter((event) => event.kind === "tool_call");
     const thinking = events.filter((event) => event.kind === "thinking");
     const terminal = Boolean(status && !["running", "waiting_for_user"].includes(status));
@@ -221,6 +217,12 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
     const failed = tools.some((event) => Boolean(event.result?.payload.isError)) || status === "failed" || status === "canceled";
     const failedTools = tools.filter((event) => Boolean(event.result?.payload.isError)).length;
     const latestFailedToolSeq = [...tools].reverse().find((event) => Boolean(event.result?.payload.isError))?.seq;
+    const failureKey = latestFailedToolSeq ? `tool:${latestFailedToolSeq}` : failed ? `status:${status}` : undefined;
+    const [open, setOpen] = useState(Boolean(failureKey));
+    const [showAllTools, setShowAllTools] = useState(false);
+    const wasRunning = useRef(status === "running");
+    const lastAutoOpenedFailure = useRef(failureKey);
+    const [now, setNow] = useState(Date.now());
     const runningTools = terminal ? 0 : tools.filter((event) => !event.result).length;
     const headerParts = [tools.length ? `${tools.length} 次工具调用` : "", runningTools ? `${runningTools} 项进行中` : "", failedTools ? `${failedTools} 项失败` : "", processMessages.length + decisions.length ? `${processMessages.length + decisions.length} 条过程记录` : "", thinking.length ? `思考 ${thinking.length} 轮` : ""].filter(Boolean);
     const visibleEvents = showAllTools || tools.length <= 6 ? events : events.filter((event) => event.kind === "thinking" || tools.slice(0, 4).includes(event) || tools.slice(-2).includes(event));
@@ -232,9 +234,12 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
     }, [running]);
     useEffect(() => {
         if (wasRunning.current && !running && open && !failed) { if (groupRef.current) onBeforeAutoCollapse?.(groupRef.current); setOpen(false); }
-        if (failed) setOpen(true);
         wasRunning.current = running;
     }, [failed, onBeforeAutoCollapse, open, running]);
+    useEffect(() => {
+        if (failureKey && failureKey !== lastAutoOpenedFailure.current) setOpen(true);
+        lastAutoOpenedFailure.current = failureKey;
+    }, [failureKey]);
     return (
         <section ref={groupRef} className="agent-process-group">
             <button type="button" className="agent-process-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>

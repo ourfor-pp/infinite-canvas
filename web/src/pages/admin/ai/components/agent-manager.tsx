@@ -14,6 +14,7 @@ export function AgentManager() {
     const { data: providers = [] } = useQuery({ queryKey: ["ai-providers"], queryFn: serverApi.aiProviders });
     const { data: runs = [], isFetching: runsLoading } = useQuery({ queryKey: ["admin-agent-runs"], queryFn: agentApi.adminRuns, refetchInterval: 3000 });
     const modelOptions = providers.flatMap((provider) => provider.enabled ? provider.models.filter((model) => model.enabled && model.output === "text" && model.agentEnabled).map((model) => ({ value: `${provider.id}::${model.id}`, label: `${provider.name} / ${model.name}` })) : []);
+    const mediaModelOptions = providers.flatMap((provider) => provider.enabled ? provider.models.filter((model) => model.enabled && model.output === "text" && model.inputs.includes("image")).map((model) => ({ value: `${provider.id}::${model.id}`, label: `${provider.name} / ${model.name}` })) : []);
 
     useEffect(() => {
         if (settings) form.setFieldsValue(settings);
@@ -27,9 +28,10 @@ export function AgentManager() {
 
     return <section className="space-y-5">
         <div className="max-w-2xl rounded-xl border border-stone-200 bg-background p-5 dark:border-stone-800">
-            <div className="mb-4 flex items-center gap-2"><Bot className="size-4" /><h3 className="font-semibold">运行配置</h3>{settings?.ready ? <Tag color="green">可用</Tag> : <Tag color="orange">待配置</Tag>}{settings?.ready ? <Tag>工具搜索 {settings.toolSearchMode}</Tag> : null}</div>
+            <div className="mb-4 flex items-center gap-2"><Bot className="size-4" /><h3 className="font-semibold">运行配置</h3>{settings?.ready ? <Tag color="green">Agent 可用</Tag> : <Tag color="orange">Agent 待配置</Tag>}{settings?.mediaReady ? <Tag color="blue">媒体理解可用</Tag> : <Tag>媒体理解未配置</Tag>}{settings?.ready ? <Tag>工具搜索 {settings.toolSearchMode}</Tag> : null}</div>
             <Form form={form} layout="vertical">
                 <Form.Item name="modelRef" label="全局 Agent 模型" rules={[{ required: true, message: "请选择 Agent 模型" }]}><Select showSearch options={modelOptions} placeholder="选择已启用 Agent 能力的文本模型" optionFilterProp="label" /></Form.Item>
+                <Form.Item name="mediaModelRef" label="媒体理解模型" extra="同一个模型用于图片理解和声音语义；视频由本地抽帧/联系表后进行图片理解。"><Select allowClear showSearch options={mediaModelOptions} placeholder="选择支持图片输入的文本模型" optionFilterProp="label" /></Form.Item>
                 <div className="flex flex-wrap justify-end gap-2"><Button icon={<Wifi className="size-4" />} onClick={() => void form.validateFields(["modelRef"]).then((value) => agentApi.testAdminSettings(value)).then((result) => message.success(`${result.provider} / ${result.model} 的连接与工具调用正常（工具搜索：${result.toolSearchMode}）`)).catch((error) => message.error(error.message))}>测试连接与工具</Button><Button type="primary" loading={save.isPending} onClick={() => void form.validateFields().then((value) => save.mutate(value))}>保存配置</Button></div>
             </Form>
         </div>

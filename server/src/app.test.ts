@@ -526,7 +526,10 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     }) });
     const modelRef = `${provider.body.data.id}::agent-test-model`;
     assert.equal((await api("/admin/ai/agent", userTwo)).response.status, 403);
-    assert.equal((await api("/admin/ai/agent", userOne, { method: "PUT", body: JSON.stringify({ modelRef }) })).response.status, 200);
+    const savedAgentSettings = await api("/admin/ai/agent", userOne, { method: "PUT", body: JSON.stringify({ modelRef, mediaModelRef: modelRef }) });
+    assert.equal(savedAgentSettings.response.status, 200);
+    assert.equal(savedAgentSettings.body.data.mediaReady, true);
+    assert.equal(savedAgentSettings.body.data.mediaModelName, "Agent 测试模型");
     const publicConfig = await api("/agent/config", userTwo);
     assert.deepEqual(publicConfig.body.data, { ready: true, modelName: "Agent 测试模型", providerName: "Agent 测试渠道", protocolVersion: 3, storageVersion: 2 });
     assert.equal(JSON.stringify(publicConfig.body).includes(modelRef), false);
@@ -602,10 +605,12 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     assert.equal(capabilities.response.status, 200);
     assert.equal(capabilities.body.data.sceneId, "canvas");
     assert.equal(capabilities.body.data.skills.some((skill: { id: string }) => skill.id === "write-story"), true);
+    assert.equal(capabilities.body.data.skills.some((skill: { id: string }) => skill.id === "media-understand"), true);
     assert.equal((await api("/agent/projects/project-1/capabilities", userTwo)).response.status, 404);
     const directorCapabilities = await api("/agent/projects/director-project-1/capabilities", userOne);
     assert.equal(directorCapabilities.body.data.sceneId, "director");
-    assert.equal(directorCapabilities.body.data.skills.every((skill: { id: string }) => skill.id.startsWith("director-")), true);
+    assert.equal(directorCapabilities.body.data.skills.every((skill: { id: string }) => skill.id === "media-understand" || skill.id.startsWith("director-")), true);
+    assert.equal(directorCapabilities.body.data.skills.some((skill: { id: string }) => skill.id === "media-understand"), true);
     assert.equal(directorCapabilities.body.data.skills.some((skill: { id: string }) => skill.id === "write-story"), false);
     const directorReferences = await api("/agent/projects/director-project-1/references?limit=100", userOne);
     assert.equal(directorReferences.response.status, 200);

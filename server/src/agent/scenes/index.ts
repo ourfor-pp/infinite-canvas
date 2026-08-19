@@ -21,7 +21,7 @@ const canvasToolIds = [
     "assets_list", "assets_add", "assets_delete", "prompts_search", "generation_list_models", "generation_get_status", "generation_create",
     "creative_assets_list", "creative_asset_get", "creative_assets_create_batch", "creative_asset_update", "creative_asset_place", "creative_asset_generate", "creative_asset_set_primary", "creative_asset_delete",
     "visual_styles_list", "visual_style_templates_list", "visual_style_get", "visual_style_create", "visual_style_update", "visual_style_place", "visual_style_set_default", "visual_style_analyze", "visual_style_generate_references", "visual_style_delete",
-    "site_navigate", "canvas_select_nodes", "canvas_focus_nodes", "workspace_write_text", "artifact_publish", "ask_user",
+    "site_navigate", "canvas_select_nodes", "canvas_focus_nodes", "workspace_write_text", "artifact_publish", "media_understand_images", "media_understand_audios", "media_prepare_video_overview", "media_sample_video_frames", "ask_user",
 ] as const;
 const canvasPolicy = new Set(["canvas_delete_nodes", "canvas_delete_connections", "assets_delete", "creative_asset_set_primary", "creative_asset_delete", "visual_style_delete"]);
 
@@ -30,7 +30,7 @@ const directorToolIds = [
     "director_list_assets", "director_get_asset", "director_create_assets", "director_update_asset", "director_generate_asset", "director_copy_asset", "director_delete_assets",
     "director_list_styles", "director_list_style_templates", "director_get_style", "director_create_style", "director_update_style", "director_set_active_style", "director_analyze_style", "director_generate_style_references", "director_delete_style",
     "director_create_sequences", "director_update_sequence", "director_delete_sequences", "director_generate_storyboard", "director_create_video_segments", "director_update_video_segment", "director_update_video_segments", "director_validate_video_segments", "director_update_storyboard_prompts", "director_delete_video_segments", "director_generate_video_segment", "director_update_timeline", "director_check_continuity",
-    "director_list_models", "director_get_generation_status", "director_list_renders", "director_start_render", "director_cancel_render", "director_retry_render", "director_navigate", "ask_user",
+    "director_list_models", "director_get_generation_status", "director_list_renders", "director_start_render", "director_cancel_render", "director_retry_render", "director_navigate", "media_understand_images", "media_understand_audios", "media_prepare_video_overview", "media_sample_video_frames", "ask_user",
 ] as const;
 const directorAlways = new Set(["director_delete_assets", "director_delete_style", "director_delete_sequences", "director_delete_video_segments"]);
 
@@ -51,6 +51,8 @@ const definitions = {
     },
 } satisfies Record<AgentSceneId, AgentSceneDefinition>;
 
+const sharedSkillIds = ["media-understand"] as const;
+
 export const agentScenes = definitions;
 
 export function getAgentScene(id: AgentSceneId) { return definitions[id]; }
@@ -65,7 +67,8 @@ export function resolveAgentScene(userId: string, projectId: string) {
 export function sceneToolName(id: string) { return `mcp__infinite_canvas__${id}`; }
 export function sceneRegisteredTools(scene: AgentSceneDefinition) { return scene.tools.map((item) => sceneToolName(item.id)); }
 export function sceneAutoAllowedTools(scene: AgentSceneDefinition) { return scene.tools.filter((item) => item.policy === "auto").map((item) => sceneToolName(item.id)); }
-export function sceneHasSkill(scene: AgentSceneDefinition, skillId: string) { return scene.skillIds.includes(skillId); }
+export function sceneSkillIds(scene: AgentSceneDefinition) { return [...sharedSkillIds, ...scene.skillIds]; }
+export function sceneHasSkill(scene: AgentSceneDefinition, skillId: string) { return sceneSkillIds(scene).includes(skillId); }
 export function sceneHasReference(scene: AgentSceneDefinition, kind: AgentReferenceKind) { return scene.referenceKinds.includes(kind); }
 
 export function validateAgentScenes() {

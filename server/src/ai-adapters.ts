@@ -87,12 +87,17 @@ async function languageMessages(context: ProviderContext) {
     const messages = provided.length ? provided : [{ role: "user" as const, content: context.request.prompt || "" }];
     const systemPrompt = String(context.request.params?.systemPrompt || "").trim();
     if (systemPrompt && !messages.some((message) => message.role === "system")) messages.unshift({ role: "system", content: systemPrompt });
-    const references = await referenceParts(context, "image");
-    if (!references.length) return messages;
+    const images = await referenceParts(context, "image");
+    const audios = await referenceParts(context, "audio");
+    if (!images.length && !audios.length) return messages;
     const index = Math.max(0, messages.map((message) => message.role).lastIndexOf("user"));
     const current = messages[index] || { role: "user" as const, content: context.request.prompt || "" };
     const text = typeof current.content === "string" ? current.content : context.request.prompt || "";
-    messages[index] = { ...current, content: [{ type: "text", text }, ...references.map((reference) => ({ type: "image", image: reference.bytes, mediaType: reference.mimeType }))] };
+    messages[index] = { ...current, content: [
+        { type: "text", text },
+        ...images.map((reference) => ({ type: "image", image: reference.bytes, mediaType: reference.mimeType })),
+        ...audios.map((reference) => ({ type: "file", data: reference.bytes, mediaType: reference.mimeType })),
+    ] };
     return messages;
 }
 

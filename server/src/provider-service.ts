@@ -371,6 +371,14 @@ export function resolveAgentModel(value: string) {
     return selection as typeof selection & { provider: ProviderRow & { credentials: ProviderCredentials } };
 }
 
+export function resolveMediaUnderstandingModel(value: string) {
+    const selection = resolveProviderModel(value, "text");
+    if (!selection.provider || !("endpoint" in selection.model) || !selection.model.inputs.includes("image")) {
+        throw providerError(400, "MEDIA_UNDERSTANDING_MODEL_UNAVAILABLE", "媒体理解模型必须是支持图片输入的在线文本模型");
+    }
+    return selection as typeof selection & { provider: ProviderRow & { credentials: ProviderCredentials }; model: AiModelDefinition };
+}
+
 export async function testProvider(id: string) {
     const row = getProviderRow(id);
     if (!row) throw providerError(404, "AI_PROVIDER_NOT_FOUND", "AI 渠道不存在");

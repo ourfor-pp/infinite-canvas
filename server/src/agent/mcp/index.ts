@@ -66,10 +66,11 @@ import {
   analyzeAgentVisualStyle,
   generateAgentVisualStyleReferences,
 } from "../canvas-tools.js";
+import { prepareProjectVideoOverview, sampleProjectVideoFrames, understandProjectAudios, understandProjectImages } from "../media-understanding.js";
 
 type AgentMcpContext = {
   session: { id: string; projectId: string };
-  run: { userId: string };
+  run: { userId: string; mediaModelRef: string };
   appendEvent: (
     kind: "tool_call" | "tool_result" | "artifact",
     payload: Record<string, unknown>,
@@ -212,11 +213,38 @@ export function buildAgentMcpServer(
       throw mcpError(403, "AGENT_PROJECT_ISOLATED", "项目会话不能操作其他项目");
     return input.projectId || projectId;
   };
+  const sharedMediaTools = [
+    call(
+      "media_understand_images",
+      "使用管理员配置的媒体理解模型分析一组图片。适合描述、比较、识别可见文字、检查风格或质量；同组图片共享上下文。",
+      { fileIds: z.array(z.string().min(1)).min(1).max(8), prompt: z.string().max(4_000).optional(), detail: z.enum(["low", "high", "xhigh"]).optional() },
+      (input) => understandProjectImages(run.userId, projectId, run.mediaModelRef, input as { fileIds: string[]; prompt?: string; detail?: "low" | "high" | "xhigh" }),
+    ),
+    call(
+      "media_understand_audios",
+      "使用同一个媒体理解模型批量理解音频的语音、语气、音乐、环境声和声音事件；只做声音语义，不提供精确逐词时间。",
+      { items: z.array(z.object({ fileId: z.string().min(1), prompt: z.string().max(4_000).optional() })).min(1).max(8) },
+      (input) => understandProjectAudios(run.userId, projectId, run.mediaModelRef, input as { items: Array<{ fileId: string; prompt?: string }> }),
+    ),
+    call(
+      "media_prepare_video_overview",
+      "使用本地 FFprobe/FFmpeg 探测视频并生成一张均匀覆盖全片的联系表，不调用模型；随后可把 contactSheet.fileId 交给图片理解工具。",
+      { fileId: z.string().min(1), frameCount: z.number().int().min(4).max(20).optional() },
+      (input) => prepareProjectVideoOverview(run.userId, projectId, input as { fileId: string; frameCount?: number }),
+    ),
+    call(
+      "media_sample_video_frames",
+      "使用本地 FFmpeg 从视频均匀抽帧或按明确秒数抽帧，不调用模型；返回的每张帧图可继续交给图片理解工具。",
+      { fileId: z.string().min(1), count: z.number().int().min(1).max(16).optional(), timesSeconds: z.array(z.number().min(0)).min(1).max(16).optional() },
+      (input) => sampleProjectVideoFrames(run.userId, projectId, input as { fileId: string; count?: number; timesSeconds?: number[] }),
+    ),
+  ];
 
   if (scene.id === "director")
     return createSdkMcpServer({
       name: "infinite_canvas",
       tools: [
+        ...sharedMediaTools,
         call(
           "director_get_state",
           "读取导演项目的轻量权威概览、revision 和实体数量。具体正文、剧情段落或视频段必须再调用对应读取工具。",
@@ -961,6 +989,7 @@ export function buildAgentMcpServer(
   return createSdkMcpServer({
     name: "infinite_canvas",
     tools: [
+      ...sharedMediaTools,
       call(
         "canvas_list_projects",
         "列出当前会话允许访问的画布项目。项目会话只返回当前画布。",

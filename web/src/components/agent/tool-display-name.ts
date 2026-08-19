@@ -76,6 +76,10 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
     canvas_focus_nodes: "聚焦节点",
     workspace_write_text: "写入产物",
     artifact_publish: "发布产物",
+    media_understand_images: "理解图片内容",
+    media_understand_audios: "理解声音语义",
+    media_prepare_video_overview: "生成视频联系表",
+    media_sample_video_frames: "抽取视频画面",
     ask_user: "向用户追问",
 };
 

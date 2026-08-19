@@ -160,6 +160,21 @@ describe("Agent 助手回合", () => {
         await act(async () => root.unmount()); holder.remove();
     });
 
+    it("失败过程自动展开后允许用户手动收起", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const events = [
+            { sessionId: "session-1", seq: 2, runId: "run-1", kind: "tool_call" as const, payload: { toolId: "tool-1", toolName: "director_generate_video_segment", input: {} }, result: { sessionId: "session-1", seq: 3, runId: "run-1", kind: "tool_result" as const, payload: { toolId: "tool-1", toolName: "director_generate_video_segment", output: "生成失败", isError: true }, createdAt: new Date().toISOString() }, createdAt: new Date().toISOString() },
+            { sessionId: "session-1", seq: 4, runId: "run-1", kind: "run_state" as const, payload: { state: "failed" }, createdAt: new Date().toISOString() },
+        ];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="failed" />));
+        const toggle = holder.querySelector(".agent-process-toggle") as HTMLButtonElement;
+        expect(toggle.getAttribute("aria-expanded")).toBe("true");
+        await act(async () => toggle.click());
+        expect(toggle.getAttribute("aria-expanded")).toBe("false");
+        expect(holder.querySelector(".agent-process-content")).toBeNull();
+        await act(async () => root.unmount()); holder.remove();
+    });
+
     it("多个工具失败时只自动展开最近一次失败详情", async () => {
         const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
         const failedTool = (seq: number, output: string) => ({ sessionId: "session-1", seq, runId: "run-1", kind: "tool_call" as const, payload: { toolId: `tool-${seq}`, toolName: "director_generate_video_segment", input: {} }, result: { sessionId: "session-1", seq: seq + 1, runId: "run-1", kind: "tool_result" as const, payload: { toolId: `tool-${seq}`, toolName: "director_generate_video_segment", output, isError: true }, createdAt: new Date().toISOString() }, createdAt: new Date().toISOString() });

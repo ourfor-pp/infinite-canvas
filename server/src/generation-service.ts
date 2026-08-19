@@ -7,7 +7,7 @@ import { decryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
 import { buildComfyWorkflow, type GenerationPurpose } from "./comfy-workflows.js";
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
-import { decryptCredentials, getProviderRow, resolveImageModel, resolveProviderModel, resolvePurposeModel, resolveSelectableModel, type AiModelDefinition, type AudioMode, type AudioOperation, type MediaKind } from "./provider-service.js";
+import { decryptCredentials, getProviderRow, resolveImageModel, resolveMediaUnderstandingModel, resolveProviderModel, resolvePurposeModel, resolveSelectableModel, type AiModelDefinition, type AudioMode, type AudioOperation, type MediaKind } from "./provider-service.js";
 import { syncAgentGenerationCanvas } from "./agent/generation-canvas.js";
 import { creativeAssetAutomaticReviewRequest, syncCreativeAssetGeneration } from "./creative-assets.js";
 import { syncVisualStyleGeneration } from "./visual-styles.js";
@@ -223,6 +223,23 @@ async function runPublicGeneration(row: GenerationRow, request: AiGenerationRequ
         onProgress: (progress) => updateGeneration(row, { progress }),
     };
     return method(context);
+}
+
+export async function runTextModelOnce(userId: string, modelRef: string, request: Omit<AiGenerationRequest, "kind" | "model">, signal: AbortSignal = AbortSignal.timeout(10 * 60_000)) {
+    const selection = resolveMediaUnderstandingModel(modelRef);
+    const adapter = adapterFor(selection.model.endpoint);
+    if (!adapter.generateText) throw generationError("AI_CAPABILITY_UNSUPPORTED", "当前媒体理解模型不支持文本响应");
+    return adapter.generateText({
+        row: selection.provider,
+        credentials: selection.provider.credentials,
+        model: selection.model,
+        userId,
+        request: { ...request, kind: "text", model: modelRef },
+        signal,
+        onDelta: () => undefined,
+        onRemoteTask: () => undefined,
+        onProgress: () => undefined,
+    });
 }
 
 async function cancelProviderTask(row: GenerationRow) {

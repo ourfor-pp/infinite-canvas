@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS browser_imports (
 CREATE TABLE IF NOT EXISTS agent_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   model_ref TEXT NOT NULL DEFAULT '',
+  media_model_ref TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agent_sessions (
@@ -256,6 +257,7 @@ applyVersionEighteen();
 applyVersionNineteen();
 applyVersionTwenty();
 applyVersionTwentyOne();
+applyVersionTwentyTwo();
 ensureAgentMetadata(3, 2);
 
 function applyVersionTwo() {
@@ -916,6 +918,15 @@ function applyVersionTwentyOne() {
                 .run(JSON.stringify(nextPayload), new Date().toISOString(), row.id, row.user_id);
         }
         db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(21, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionTwentyTwo() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=22").get()) return;
+    const columns = db.prepare("PRAGMA table_info(agent_settings)").all() as Array<{ name: string }>;
+    db.transaction(() => {
+        if (!columns.some((column) => column.name === "media_model_ref")) db.exec("ALTER TABLE agent_settings ADD COLUMN media_model_ref TEXT NOT NULL DEFAULT ''");
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(22, ?)").run(new Date().toISOString());
     })();
 }
 
