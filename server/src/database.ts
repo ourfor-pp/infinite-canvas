@@ -258,6 +258,9 @@ applyVersionNineteen();
 applyVersionTwenty();
 applyVersionTwentyOne();
 applyVersionTwentyTwo();
+applyVersionTwentyThree();
+applyVersionTwentyFour();
+applyVersionTwentyFive();
 ensureAgentMetadata(3, 2);
 
 function applyVersionTwo() {
@@ -927,6 +930,73 @@ function applyVersionTwentyTwo() {
     db.transaction(() => {
         if (!columns.some((column) => column.name === "media_model_ref")) db.exec("ALTER TABLE agent_settings ADD COLUMN media_model_ref TEXT NOT NULL DEFAULT ''");
         db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(22, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionTwentyThree() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=23").get()) return;
+    db.transaction(() => {
+        db.exec(`
+            CREATE TABLE director_screenplay_breakdowns (
+              project_id TEXT NOT NULL,
+              user_id TEXT NOT NULL,
+              script_revision INTEGER NOT NULL DEFAULT 0,
+              payload TEXT NOT NULL DEFAULT '{"scenes":[],"estimatedDurationSeconds":0}',
+              revision INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (project_id, user_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+        `);
+        const now = new Date().toISOString();
+        db.prepare(`INSERT INTO director_screenplay_breakdowns(project_id,user_id,created_at,updated_at)
+            SELECT id,user_id,?,? FROM projects WHERE kind='director'`).run(now, now);
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(23, ?)").run(now);
+    })();
+}
+
+function applyVersionTwentyFour() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=24").get()) return;
+    db.transaction(() => {
+        db.exec(`ALTER TABLE director_workspaces ADD COLUMN directing_rules TEXT NOT NULL DEFAULT '{"photography":"","performance":"","pacing":"","sound":"","prohibitions":""}'`);
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(24, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionTwentyFive() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=25").get()) return;
+    db.transaction(() => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS director_file_index (
+              user_id TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              path TEXT NOT NULL,
+              entity_id TEXT,
+              kind TEXT NOT NULL,
+              sha256 TEXT NOT NULL,
+              revision INTEGER NOT NULL DEFAULT 1,
+              bytes INTEGER NOT NULL DEFAULT 0,
+              media_type TEXT,
+              metadata TEXT NOT NULL DEFAULT '{}',
+              diagnostics TEXT NOT NULL DEFAULT '[]',
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (user_id, project_id, path),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_director_file_entity ON director_file_index(user_id, project_id, entity_id);
+            CREATE TABLE IF NOT EXISTS director_project_storage (
+              user_id TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              format_version INTEGER NOT NULL DEFAULT 1,
+              root_hash TEXT NOT NULL DEFAULT '',
+              migrated_at TEXT NOT NULL,
+              indexed_at TEXT NOT NULL,
+              PRIMARY KEY (user_id, project_id),
+              FOREIGN KEY (project_id, user_id) REFERENCES projects(id, user_id) ON DELETE CASCADE
+            );
+        `);
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(25, ?)").run(new Date().toISOString());
     })();
 }
 

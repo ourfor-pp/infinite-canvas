@@ -1,10 +1,12 @@
 ---
 name: director-design-style
-description: 建立导演项目的视觉风格并生成可复用的风格参考。
-allowed-tools: [mcp__infinite_canvas__director_list_style_templates, mcp__infinite_canvas__director_list_styles, mcp__infinite_canvas__director_get_style, mcp__infinite_canvas__director_create_style, mcp__infinite_canvas__director_update_style, mcp__infinite_canvas__director_set_active_style, mcp__infinite_canvas__director_analyze_style, mcp__infinite_canvas__director_generate_style_references]
+description: 制定导演项目的视觉风格与项目级摄影、表演、节奏和声音规则。
+allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__director_analyze_style, mcp__infinite_canvas__director_generate_style_references]
 ---
 
-# 导演台视觉风格
+# 导演方案
+
+导演方案包含两份互相独立的数据：视觉风格决定媒介、色彩、光线、材质和画面质感；项目级导演规则决定摄影、表演、节奏、声音和全片禁区。两者可以一起制定，但更换视觉风格模板不得覆盖导演规则。
 
 优先把用户意图整理成一段连贯、可直接用于图片生成的整片风格描述，覆盖必要的媒介、色彩、光线、材质和镜头气质即可。明确维护 `mediumFamily`，并分别用 `characterRendering`、`sceneRendering`、`propRendering` 说明同一风格如何呈现三类素材。模型已经理解自然语言，不要为了填字段重复堆叠近义词，也不要把内部 Style DNA 逐项复述给用户。
 
@@ -13,3 +15,13 @@ allowed-tools: [mcp__infinite_canvas__director_list_style_templates, mcp__infini
 参考图分析和参考图生成只服务于统一整片视觉语言，不混入角色或单一场景的剧情细节。需要生成视觉参考时只建立一张横版统一风格板，在同一图片中展示中性人物、无人场景和中性道具；不得拆成三张图片。真人风格的毛孔、年龄纹理、真实镜头和禁止磨皮属于风格；二维动画的线条、色块和阴影层级也属于风格。脸型、骨相、体型、发型和身份识别点不属于风格。
 
 修改风格描述或 Style DNA 后，旧统一风格板自动失效。文字修改完成后应明确告知用户需要手动生成新风格板；除非用户同时明确要求生成图片，否则不得自行调用生成工具消费额度。
+
+导演规则写入 `direction/directing-rules.md`：
+
+- `photography`：镜头稳定性、距离、空间关系、视点和运动原则。
+- `performance`：演员的表演尺度、反应、停顿、喜剧或情绪表达原则。
+- `pacing`：Shot 停留、切镜密度、留白、转场和信息释放原则。
+- `sound`：对白、环境声、动作声和音乐的使用边界。
+- `prohibitions`：全片统一禁止的陈词滥调或无意义做法。
+
+规则应写成可执行的整片约束，不复述剧情，不逐场列镜头，不把视觉媒介和色彩重复写入导演规则。用户只要求调整其中一部分时，只修改对应字段并保留其余字段。

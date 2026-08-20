@@ -1,12 +1,12 @@
 ---
 name: director-generate-shots
 description: 用完整故事板、素材和可选音频生成视频段，并处理连续续写、预览与最终成片。
-allowed-tools: [mcp__infinite_canvas__director_get_state, mcp__infinite_canvas__director_list_video_segments, mcp__infinite_canvas__director_get_video_segment, mcp__infinite_canvas__director_get_asset, mcp__infinite_canvas__director_list_models, mcp__infinite_canvas__director_validate_video_segments, mcp__infinite_canvas__director_update_storyboard_prompts, mcp__infinite_canvas__director_update_video_segment, mcp__infinite_canvas__director_generate_video_segment, mcp__infinite_canvas__director_get_generation_status]
+allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__director_list_models, mcp__infinite_canvas__director_validate_video_segments, mcp__infinite_canvas__director_generate_video_segment, mcp__infinite_canvas__director_get_generation_status]
 ---
 
 # 导演台视频段生成
 
-先读 [MiniMax H3 官方提示规则](references/official-h3-prompt.md)，再读 [H3 交接与提示结构](references/shot-handoff.md)。读取视频段、整张故事板、资产、风格和服务端声明的能力。默认先生成快速预览；用户要求交付、定稿或最终质量时生成最终成片。普通视频段统一使用整张故事板参考生成，不要求用户选择底层模式。
+先读 [MiniMax H3 官方提示规则](references/official-h3-prompt.md)，再读 [H3 交接与提示结构](references/shot-handoff.md)。读取视频段、整张故事板、资产、视觉风格、`workspace.directingRules` 和服务端声明的能力。导演规则约束摄影、表演、节奏与声画处理，视觉风格只约束画面呈现；不得互相代替。默认先生成快速预览；用户要求交付、定稿或最终质量时生成最终成片。普通视频段统一使用整张故事板参考生成，不要求用户选择底层模式。
 
 生成前必须调用 `director_validate_video_segments`。有阻断项时先按 `director-plan-storyboards` 修订视频段或画格，再重新校验；不得用一次失败的媒体生成充当校验。校验必须通过来源节拍、开始/结束状态、时长、Shot 边界、同镜头摄影连续性、对白窗口和英文声景，不能只检查字段是否非空。
 

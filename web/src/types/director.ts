@@ -11,6 +11,17 @@ export type DirectorProject = {
     updatedAt: string;
 };
 
+export type DirectorDiagnostic = { severity: "error" | "warning" | "info"; code: string; path: string; line?: number; entityId?: string; message: string };
+export type DirectorValidation = { projectId: string; valid: boolean; scope?: string; diagnostics: DirectorDiagnostic[] };
+
+export type DirectorDirectingRules = {
+    photography: string;
+    performance: string;
+    pacing: string;
+    sound: string;
+    prohibitions: string;
+};
+
 export type DirectorWorkspace = {
     projectId: string;
     targetDurationSeconds: number;
@@ -18,6 +29,7 @@ export type DirectorWorkspace = {
     language: string;
     stage: "source" | "story" | "script" | "style" | "assets" | "storyboard" | "shots" | "timeline" | "render";
     status: DirectorEntityStatus;
+    directingRules: DirectorDirectingRules;
     revision: number;
     createdAt: string;
     updatedAt: string;
@@ -44,6 +56,36 @@ export type DirectorDocument = {
     projectId: string;
     kind: "story" | "script";
     content: string;
+    revision: number;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type DirectorScreenplayBreakdown = {
+    projectId: string;
+    scriptRevision: number;
+    stale: boolean;
+    payload: {
+        estimatedDurationSeconds: number;
+        review: {
+            status: "not_run" | "passed" | "needs_revision";
+            targetDurationSeconds: number;
+            estimatedDurationSeconds: number;
+            issues: Array<{
+                type: "duration" | "repetition" | "causality" | "scene_function" | "coverage";
+                sceneIds: string[];
+                summary: string;
+                suggestion: string;
+            }>;
+        };
+        scenes: Array<{
+            id: string; heading: string; title: string; location: string; timeOfDay: string;
+            interiorExterior: "interior" | "exterior" | "mixed"; characterNames: string[]; propNames: string[];
+            openingState: string; endingState: string; dramaticTurn: string; requiredDialogue: string[];
+            beats: Array<{ id: string; summary: string; estimatedSeconds: number }>;
+            estimatedSeconds: number;
+        }>;
+    };
     revision: number;
     createdAt: string;
     updatedAt: string;
@@ -147,6 +189,6 @@ export type DirectorTimeline = {
     createdAt: string;
     updatedAt: string;
 };
-export type DirectorState = { activeStyleId: string | null; workspace: DirectorWorkspace; sources: DirectorSource[]; documents: DirectorDocument[]; sequences: DirectorSequence[]; videoSegments: DirectorVideoSegment[]; timeline: DirectorTimeline };
+export type DirectorState = { activeStyleId: string | null; workspace: DirectorWorkspace; sources: DirectorSource[]; documents: DirectorDocument[]; screenplayBreakdown: DirectorScreenplayBreakdown; sequences: DirectorSequence[]; videoSegments: DirectorVideoSegment[]; timeline: DirectorTimeline };
 
 export type DirectorRender = { id: string; projectId: string; status: "queued" | "running" | "succeeded" | "failed" | "canceled"; progress: number; outputFileId: string | null; error: string | null; createdAt: string; updatedAt: string };

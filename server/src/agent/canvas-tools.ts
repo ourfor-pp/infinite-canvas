@@ -59,7 +59,7 @@ export const canvasToolSchemas = {
     creative_assets_create_batch: z.object({ projectId: z.string().optional(), sourceNodeId: z.string().optional(), items: z.array(creativeAssetInputSchema).min(1).max(200) }),
     creative_asset_update: z.object({ projectId: z.string().optional(), assetId: z.string(), revision: z.number().int().positive(), patch: creativeAssetInputSchema.partial() }),
     creative_asset_place: z.object({ projectId: z.string().optional(), assetId: z.string(), x: z.number().optional(), y: z.number().optional() }),
-    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), nodeId: z.string().optional(), kind: z.enum(["image", "audio"]), revision: z.number().int().positive() }),
+    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), nodeId: z.string().optional(), kind: z.enum(["image", "audio"]), revision: z.number().int().positive(), mediaRole: z.enum(["face_closeup", "body_front", "body_back"]).optional() }),
     creative_asset_set_primary: z.object({ projectId: z.string().optional(), assetId: z.string(), variantId: z.string(), revision: z.number().int().positive() }),
     creative_asset_delete: z.object({ projectId: z.string().optional(), assetId: z.string() }),
     visual_styles_list: z.object({ projectId: z.string().optional() }),

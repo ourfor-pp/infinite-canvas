@@ -359,6 +359,21 @@ main.director-light .ant-progress .ant-progress-bg {
     font-size: 25px;
 }
 
+.director-script-preview .director-markdown p:has(> [data-streamdown="strong"]:only-child),
+.director-script-preview .director-markdown p:has(> [data-streamdown="strong"]:first-child:last-child) {
+    margin-top: 24px;
+    color: #0f172a;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+}
+
+.director-script-preview .director-markdown p:has(> [data-streamdown="strong"]:only-child) + p,
+.director-script-preview .director-markdown p:has(> [data-streamdown="strong"]:first-child:last-child) + p {
+    margin-top: 5px;
+    padding-left: 24px;
+    color: #1e293b;
+}
+
 .director-script-preview .director-markdown h1,
 .director-script-preview .director-markdown h2,
 .director-script-preview .director-markdown h3 {

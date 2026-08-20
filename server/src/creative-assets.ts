@@ -6,6 +6,7 @@ import { syncFileRefs } from "./file-store.js";
 import { publishAgentProject } from "./agent/project-events.js";
 import { getAiGlobalSettings } from "./provider-service.js";
 import { getVisualStyle } from "./visual-styles.js";
+import { syncDirectorAssetFile, trashDirectorAssetFolder } from "./director-workspace.js";
 
 export type CreativeAssetKind = "character" | "scene" | "prop";
 export type CreativeAssetStatus = "draft" | "confirmed" | "locked";
@@ -201,6 +202,7 @@ export function createCreativeAsset(userId: string, projectId: string, raw: unkn
     db.prepare("INSERT INTO creative_assets(id, user_id, project_id, kind, name, status, payload, revision, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?, ?)")
         .run(assetId, userId, projectId, input.kind, input.name, input.status, JSON.stringify(payload), now, now);
     syncFileRefs(userId, "creative_asset", assetId, payload);
+    if (isDirectorProject(projectId)) syncDirectorAssetFile(userId, projectId, assetId);
     return publishAsset(creativeAssetRow(userId, assetId)!);
 }
 
@@ -237,6 +239,7 @@ export function updateCreativeAsset(userId: string, assetId: string, raw: unknow
         });
         if (changed) saveProjectPayload(userId, current.project_id, project);
     }
+    if (isDirectorProject(current.project_id)) syncDirectorAssetFile(userId, current.project_id, assetId);
     return publishAsset(creativeAssetRow(userId, assetId)!);
 }
 
@@ -273,6 +276,7 @@ export function reviewCreativeAssetVariant(userId: string, assetId: string, vari
 export function deleteCreativeAsset(userId: string, assetId: string) {
     const row = creativeAssetRow(userId, assetId);
     if (!row) throw creativeAssetError(404, "CREATIVE_ASSET_NOT_FOUND", "创作资产不存在或无权访问");
+    if (isDirectorProject(row.project_id)) trashDirectorAssetFolder(userId, row.project_id, assetId);
     const project = projectPayload(userId, row.project_id);
     project.nodes = project.nodes.filter((node) => String(node.metadata?.assetId || "") !== assetId);
     project.connections = project.connections.filter((connection) => project.nodes.some((node) => node.id === connection.fromNodeId) && project.nodes.some((node) => node.id === connection.toNodeId));
@@ -359,6 +363,7 @@ export function createCreativeAssetsBatch(userId: string, projectId: string, raw
         if (placeOnCanvas) saveProjectPayload(userId, projectId, project, false);
     })();
     created.forEach((asset) => emitAsset(userId, asset));
+    if (isDirectorProject(projectId)) created.forEach((asset) => syncDirectorAssetFile(userId, projectId, asset.id));
     if (placeOnCanvas) publishProjectRow(userId, projectId);
     return created;
 }
@@ -383,7 +388,7 @@ export function syncCreativeAssetGeneration(row: { id: string; user_id: string; 
     const additions = fileIds.slice(0, 1).filter((fileId) => !payload.variants.some((item) => item.generationId === row.id && item.fileId === fileId));
     if (!additions.length) return;
     const added = additions.map((fileId) => ({ id: nanoid(), kind, fileId, label: target.label || (kind === "image" ? "生成图片" : "生成声音"), prompt: request.prompt || "", generationId: row.id, usage: target.usage, transcript: target.transcript, createdAt: new Date().toISOString() } satisfies CreativeAssetVariant));
-    payload.variants = [...payload.variants.filter((item) => item.kind !== kind || isCreativeAssetReferenceUsage(item.usage)), ...added];
+    payload.variants = [...payload.variants.filter((item) => item.kind !== kind || isCreativeAssetReferenceUsage(item.usage) || item.usage !== target.usage), ...added];
     if (kind === "image") {
         payload.primaryImageId = added[0].id;
         payload.dependencies = { ...payload.dependencies, style: request.params?.__visualStyle?.id && request.params.__visualStyle.revision ? { id: request.params.__visualStyle.id, revision: request.params.__visualStyle.revision } : null };
@@ -416,11 +421,11 @@ export function creativeAssetAutomaticReviewRequest(row: { id: string; user_id: 
     const styleReferences = style?.references || {};
     const styleReference = styleReferences.board || styleReferences.source;
     const criteria = asset.kind === "character"
-        ? `恰好四个视角（正面、左侧、右侧、背面）；四个完整等高全身且不裁切；面部、年龄、体型、发型、服装、材质、配色一致；纯白背景；无文字、边框、Logo；符合视觉风格。脸型、骨相、眉眼鼻唇、发际线、体型、姿态、服装剪影和自然识别点必须稳定且与其他角色有辨识度。${style?.dna.mediumFamily === "live_action" ? "检查塑料皮肤、过度磨皮、偶像脸、图库模特感、商业精修、CGI 或插画感；应具有真实毛孔、符合年龄的纹理和自然轻微不对称。" : `按 ${style?.dna.mediumFamily || "当前"} 媒介检查线条或材质、形状概括、色块与阴影层级的一致性，不得用真人毛孔或摄影感作为验收标准。`}身份锚点：${payload.designProfile?.identityAnchor || payload.designProfile?.distinctivenessSummary || "以角色视觉设定为准"}。`
+        ? `${variant.usage === "face_closeup_reference" ? "单人中性面部身份特写，脸部结构、年龄痕迹、发际线和自然识别点清晰" : variant.usage === "body_back_reference" ? "单人完整背面身体参考，发型背面、体型、服装结构和鞋履完整且不裁切" : "单人完整正面身体参考，体型、姿态、服装剪影、材质和鞋履完整且不裁切"}；纯净中性背景；无文字、边框、Logo；符合视觉风格，并与同角色其他身份媒体保持年龄、体型、发型和基础服装一致。${style?.dna.mediumFamily === "live_action" ? "检查塑料皮肤、过度磨皮、偶像脸、图库模特感、商业精修、CGI 或插画感；应具有真实毛孔、符合年龄的纹理和自然轻微不对称。" : `按 ${style?.dna.mediumFamily || "当前"} 媒介检查线条或材质、形状概括、色块与阴影层级的一致性，不得用真人毛孔或摄影感作为验收标准。`}身份锚点：${payload.designProfile?.identityAnchor || payload.designProfile?.distinctivenessSummary || "以角色视觉设定为准"}。`
         : asset.kind === "scene"
             ? "空间结构、时代地理、陈设、材质和光线一致；无人、无剧情动作、无意外文字；符合视觉风格。"
             : "轮廓、比例、材质、结构、磨损和关键细节清晰一致；无人物、无环境、无文字；符合视觉风格。";
-    return { kind: "text" as const, model, prompt: `你是影视美术视觉质检员。第一张参考图片是待检查的${asset.kind === "character" ? "角色四视图" : asset.kind === "scene" ? "场景母版" : "道具母版"}${styleReference ? "，第二张是风格参考" : ""}。\n验收标准：${criteria}\n当前风格：${style?.description || "以待检查图片自身为准"}\n只输出 JSON：{"passed":boolean,"summary":string,"issues":string[],"metrics":object}。`, references: [{ fileId: variant.fileId, kind: "image" as const }, ...(styleReference ? [{ fileId: styleReference, kind: "image" as const }] : [])], params: { __creativeAssetReview: { assetId: asset.id, sourceGenerationId: row.id, fileId: variant.fileId } } };
+    return { kind: "text" as const, model, prompt: `你是影视美术视觉质检员。第一张参考图片是待检查的${asset.kind === "character" ? variant.label || "角色身份媒体" : asset.kind === "scene" ? "场景母版" : "道具母版"}${styleReference ? "，第二张是风格参考" : ""}。\n验收标准：${criteria}\n当前风格：${style?.description || "以待检查图片自身为准"}\n只输出 JSON：{"passed":boolean,"summary":string,"issues":string[],"metrics":object}。`, references: [{ fileId: variant.fileId, kind: "image" as const }, ...(styleReference ? [{ fileId: styleReference, kind: "image" as const }] : [])], params: { __creativeAssetReview: { assetId: asset.id, sourceGenerationId: row.id, fileId: variant.fileId } } };
 }
 
 function applyAutomaticReview(row: { id: string; user_id: string; result: string | null }, target: { assetId: string; sourceGenerationId: string; fileId: string }) {
@@ -446,7 +451,7 @@ export function creativeAssetResponse(row: CreativeAssetRow) {
     return { id: row.id, projectId: row.project_id, kind: row.kind, name: row.name, status: row.status, payload: creativeAssetPayloadSchema.parse(parseJson(row.payload, {})), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
-export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetResponse>, kind: "image" | "audio", extra = "", profile: "generic" | "gpt-image-2" = "generic", styleMediumFamily: "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic" = "live_action") {
+export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetResponse>, kind: "image" | "audio", extra = "", profile: "generic" | "gpt-image-2" = "generic", styleMediumFamily: "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic" = "live_action", mediaRole?: "face_closeup" | "body_front" | "body_back") {
     const description = asset.payload.description.trim();
     const requirement = extra.trim();
     if (kind === "audio") return requirement || asset.payload.mediaDrafts.audio.prompt || asset.payload.description;
@@ -454,7 +459,7 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
     const visualDescription = asset.payload.visualDescription.trim();
     const layout = {
         character: directorCharacter
-            ? "横版 16:9 单张角色四视图设定图，严格纯白无影背景。同一张图片内按从左到右顺序并排展示同一个角色的正面、左侧 90 度、右侧 90 度、背面 180 度全身 A-Pose；四个视图从头到脚完整入画、等比例、等高度、间距均匀，面部身份、年龄、体型、发型、服装结构、材质、配色、鞋履和配饰完全一致。只输出一张包含四个角度的完整图片，不拆成四张图片，不画胸像、四分之三视角、环境、情节、道具、文字、字母、数字、标题、标注、边框、Logo 或 UI。"
+            ? mediaRole === "face_closeup" ? "单张中性面部身份特写，正面或极轻微三分之四角度，头顶至肩部完整入画；清晰呈现脸型骨相、眉眼鼻唇、肤色、发际线、年龄痕迹与自然识别点。纯净中性背景，中性表情和中性光，不画全身、环境、情节、道具、文字、标注、边框或 UI。" : mediaRole === "body_back" ? "单张完整背面身体参考，角色自然直立，严格从头顶到鞋底完整入画；清晰呈现背面体型、姿态、发型、服装结构、材质、配色和配饰。纯净中性背景，不画正面脸、环境、情节、道具、文字、标注、边框或 UI。" : "单张完整正面身体参考，角色自然直立，严格从头顶到鞋底完整入画；清晰呈现体型、肩颈比例、姿态、基础服装轮廓、材质、配色、鞋履和配饰。纯净中性背景和中性光，不画多视角、环境、情节、道具、文字、标注、边框或 UI。"
             : "横版 16:9 四格角色设定图，严格纯白无影背景：左侧约 40% 为胸像特写，右侧依次为正面、四分之三侧面、背面的 A-Pose 全身视图。四个视图必须是同一角色，面部、性别表达、年龄、发型、服装和配饰完全一致。只画角色，不画环境、情节、文字或标注。",
         scene: "横版 16:9 场景设定图，严格无人、无文字、无标注：主画面占四分之三区域，完整展示空间结构、固定陈设、光线和氛围；右下角嵌入标志性局部细节图。",
         prop: "横版 16:9 道具设定图，严格纯白无影背景：正面全视图、45 度侧视图、关键细节特写水平排列，各视图必须是同一件道具，结构、材质和比例保持一致。只画道具，不画人物、环境、文字或标注。",
@@ -466,7 +471,7 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
         const design = asset.payload.designProfile;
         const liveAction = styleMediumFamily === "live_action";
         const subject = [
-            liveAction && profile === "gpt-image-2" ? "Photorealistic real-camera casting documentation of one believable human actor." : "同一个角色的单张横版四视图身份设定图。",
+            liveAction && profile === "gpt-image-2" ? "Photorealistic real-camera casting documentation of one believable human actor." : "同一个角色的一张稳定身份参考图。",
             visualDescription,
             design?.visibleAgeCues ? `可见年龄痕迹：${design.visibleAgeCues}` : "",
             design?.bodySilhouette ? `全身剪影：${design.bodySilhouette}` : "",
@@ -479,7 +484,7 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
         const renderingQuality = characterRenderingQuality(styleMediumFamily);
         const forbidden = "禁止项：背景场景、剧情动作、叙事事件、夸张情绪、换装、伤势、水印、文字、字母、数字、Logo、UI、边框和标题。";
         return profile === "gpt-image-2"
-            ? [`[角色身份]\n${subject}`, supplement, `[媒介质量要求]\n${renderingQuality}`, `[单张四视图规格]\n${layout}`, `[通用禁止项]\n${forbidden}`].filter(Boolean).join("\n\n")
+            ? [`[角色身份]\n${subject}`, supplement, `[目标媒体规格]\n${layout}`, `[媒介质量要求]\n${renderingQuality}`, `[通用禁止项]\n${forbidden}`].filter(Boolean).join("\n\n")
             : [subject, requirement, renderingQuality, layout, forbidden].filter(Boolean).join("\n\n");
     }
     const sections = [

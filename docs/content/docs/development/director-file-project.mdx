@@ -1,0 +1,31 @@
+---
+title: Director file project format
+description: Authoritative on-disk format and safety rules for Director projects
+---
+
+# Director file project format
+
+A Director project is stored under its own server-owned directory. Creative files are the authority; SQLite keeps permissions, Agent sessions, jobs, generation history and a rebuildable file index.
+
+## Main layout
+
+- `project.yaml` identifies format version and project-wide settings.
+- `story/` and `screenplay/` contain Markdown documents and chapter/scene files.
+- `direction/` separates visual style from project-specific directing rules.
+- `assets/characters`, `assets/locations` and `assets/props` contain one folder per authoritative asset. Identity media and persistent state variants stay inside that folder.
+- `storyboards/<sequence>/<segment>` contains `segment.md`, `storyboard.yaml`, the compiled prompt and one complete storyboard image.
+- `videos/<segment>` contains the compiled video prompt, preview/final video and model audio.
+- `timeline/timeline.json` is the only intentionally JSON-heavy creative file.
+- `.trash/` contains recoverable deletions and is excluded from normal export.
+
+Markdown frontmatter stores stable IDs, ordering and references. Display revisions come from the rebuildable file index; write conflicts and generation dependencies use SHA-256 content hashes.
+
+## Editing and validation
+
+Page saves use atomic replacement and `If-Match`. Director Agents may use only project-confined `Read`, `Write`, `Edit`, `Glob`, `Grep` and `LS`; absolute paths, path traversal, symlink escape, Bash and arbitrary binary writes are not available.
+
+Validation reports a path, code and severity. Drafts may remain incomplete. Warnings do not block work; errors such as malformed frontmatter, duplicate IDs, broken references, invalid storyboard structure or video segments outside 4–15 seconds block paid generation and final export.
+
+## ZIP exchange
+
+Exports contain current creative files and referenced current media, but exclude credentials, Agent sessions, queues, caches, `.trash` and unreferenced generation history. Imports unpack to a temporary directory, reject absolute/traversal paths and symlinks, validate the whole project, assign a new project ID, rebuild media authorization and indexes, then switch atomically.

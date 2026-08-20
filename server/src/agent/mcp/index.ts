@@ -12,12 +12,14 @@ import {
   deleteDirectorVideoSegment,
   getDirectorAgentOverview,
   getDirectorDocumentExcerpt,
+  getDirectorScreenplayBreakdown,
   getDirectorState,
   getDirectorVideoSegment,
   listDirectorSequenceSummaries,
   listDirectorSourceChunks,
   listDirectorVideoSegments,
   updateDirectorDocument,
+  updateDirectorScreenplayBreakdown,
   updateDirectorSequence,
   updateDirectorVideoSegment,
   updateDirectorTimeline,
@@ -34,6 +36,7 @@ import {
   updateDirectorStoryboardPrompts,
 } from "../../director-render.js";
 import type { AgentSceneDefinition } from "../scenes/index.js";
+import { resolveDirectorEntityReference, trashDirectorProjectPath, validateDirectorProject } from "../../director-workspace.js";
 import {
   addAsset,
   applyCanvasOps,
@@ -246,6 +249,18 @@ export function buildAgentMcpServer(
       tools: [
         ...sharedMediaTools,
         call(
+          "director_validate",
+          "检查当前文件工程或指定相对目录的结构、Frontmatter、引用和媒体依赖；只诊断，不自动修改文件。",
+          { scope: z.string().max(500).optional() },
+          (input) => validateDirectorProject(run.userId, projectId, String((input as { scope?: string }).scope || "")),
+        ),
+        call(
+          "director_trash",
+          "将当前导演工程中的创作文件或实体目录移入可恢复的 .trash；禁止移动工程清单和必要入口文件。",
+          { path: z.string().min(1).max(500) },
+          (input) => trashDirectorProjectPath(run.userId, projectId, String((input as { path: string }).path)),
+        ),
+        call(
           "director_get_state",
           "读取导演项目的轻量权威概览、revision 和实体数量。具体正文、剧情段落或视频段必须再调用对应读取工具。",
           {},
@@ -256,6 +271,12 @@ export function buildAgentMcpServer(
           "按类型分页读取故事或剧本正文及最新 revision；长文必须根据 hasMore 继续分页，不要一次读取全文。",
           { kind: z.enum(["story", "script"]), offset: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(100_000).optional() },
           (input) => { const value = input as { kind: "story" | "script"; offset?: number; limit?: number }; return getDirectorDocumentExcerpt(run.userId, projectId, value.kind, value); },
+        ),
+        call(
+          "director_get_screenplay_breakdown",
+          "读取当前剧本的结构化制作拆解、预计时长和是否已因剧本 revision 变化而过期。剧本正文仍应使用 director_get_document 读取。",
+          {},
+          () => getDirectorScreenplayBreakdown(run.userId, projectId),
         ),
         call(
           "director_list_sequences",
@@ -302,19 +323,26 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_update_workspace",
-          "按 revision 更新导演项目目标时长、画幅、阶段或确认状态。",
+          "按 revision 更新导演项目目标时长、画幅、阶段或项目级导演规则。视觉风格不写入这里。",
           {
             revision: z.number().int().positive(),
             targetDurationSeconds: z.number().int().min(10).optional(),
             aspectRatio: z.enum(["16:9", "9:16", "1:1", "2.39:1"]).optional(),
             stage: z.string().optional(),
             status: z.enum(["draft", "confirmed", "locked"]).optional(),
+            directingRules: z.object({
+              photography: z.string().max(10_000),
+              performance: z.string().max(10_000),
+              pacing: z.string().max(10_000),
+              sound: z.string().max(10_000),
+              prohibitions: z.string().max(10_000),
+            }).partial().optional(),
           },
           (input) => updateDirectorWorkspace(run.userId, projectId, input),
         ),
         call(
           "director_update_document",
-          "按 revision 更新 Markdown 故事或结构化 Markdown 剧本。保存后即作为当前采用版本，不存在额外确认状态。",
+          "按 revision 更新 Markdown 小说或标准分场剧本正文。保存后即作为当前采用版本，不存在额外确认状态；生产拆解不得写入正文。",
           {
             kind: z.enum(["story", "script"]),
             revision: z.number().int().positive(),
@@ -335,8 +363,30 @@ export function buildAgentMcpServer(
           },
         ),
         call(
+          "director_update_screenplay_breakdown",
+          "按剧本 revision 保存独立制作拆解。只写场次、表演节拍、素材候选和预计时长，不得改写剧本正文。",
+          {
+            revision: z.number().int().positive(),
+            scriptRevision: z.number().int().positive(),
+            scenes: z.array(z.object({
+              id: z.string().min(1).max(128), heading: z.string().min(1).max(500), title: z.string().min(1).max(300),
+              location: z.string().min(1).max(300), timeOfDay: z.string().min(1).max(100), interiorExterior: z.enum(["interior", "exterior", "mixed"]),
+              characterNames: z.array(z.string().min(1).max(200)).max(100), propNames: z.array(z.string().min(1).max(200)).max(100),
+              openingState: z.string().max(2_000), endingState: z.string().max(2_000), dramaticTurn: z.string().max(2_000),
+              requiredDialogue: z.array(z.string().min(1).max(2_000)).max(100),
+              beats: z.array(z.object({ id: z.string().min(1).max(128), summary: z.string().min(1).max(2_000), estimatedSeconds: z.number().int().min(1).max(3_600) })).min(1).max(100),
+              estimatedSeconds: z.number().int().min(1).max(86_400),
+            })).max(1_000),
+            reviewIssues: z.array(z.object({
+              type: z.enum(["duration", "repetition", "causality", "scene_function", "coverage"]),
+              sceneIds: z.array(z.string().min(1).max(128)).max(100), summary: z.string().min(1).max(2_000), suggestion: z.string().min(1).max(2_000),
+            })).max(500),
+          },
+          (input) => updateDirectorScreenplayBreakdown(run.userId, projectId, input),
+        ),
+        call(
           "director_create_sequences",
-          "根据当前已保存剧本批量创建剧情段落及 4–9 格结构化故事板。",
+          "根据当前未过期的剧本制作拆解批量创建剧情段落及结构化故事板规划。",
           {
             items: z
               .array(
@@ -349,10 +399,12 @@ export function buildAgentMcpServer(
               .min(1)
               .max(200),
           },
-          (input) =>
-            (input as { items: Array<Record<string, unknown>> }).items.map(
+          (input) => {
+            requireDirectorScreenplayReady(run.userId, projectId);
+            return (input as { items: Array<Record<string, unknown>> }).items.map(
               (item) => createDirectorSequence(run.userId, projectId, item),
-            ),
+            );
+          },
         ),
         call(
           "director_update_sequence",
@@ -405,11 +457,14 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_generate_storyboard",
-          "为一个 4–15 秒视频段生成一张包含 4、6 或 9 个画格的完整故事板；用户必须显式发起。",
-          { segmentId: z.string().min(1), revision: z.number().int().positive(), model: z.string().optional() },
+          "读取视频段工程目录，为一个 4–15 秒视频段生成一张包含 4、6 或 9 个画格的完整故事板；用户必须显式发起。优先传 segmentPath。",
+          { segmentPath: z.string().min(1).optional(), segmentId: z.string().min(1).optional(), revision: z.number().int().positive().optional(), model: z.string().optional() },
           (input) => {
-            const value = input as { segmentId: string } & Record<string, unknown>;
-            return createDirectorStoryboardGeneration(run.userId, value.segmentId, value);
+            const value = input as { segmentPath?: string; segmentId?: string; revision?: number } & Record<string, unknown>;
+            const segmentId = value.segmentPath ? resolveDirectorEntityReference(run.userId, projectId, value.segmentPath, ["video-segment"]).id : value.segmentId;
+            if (!segmentId) throw mcpError(400, "DIRECTOR_SEGMENT_REQUIRED", "请提供 segmentPath");
+            const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
+            return createDirectorStoryboardGeneration(run.userId, segmentId, { ...value, revision: value.revision ?? segment.revision });
           },
         ),
         call(
@@ -563,19 +618,23 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_generate_video_segment",
-          "锁定当前故事板 revision，默认以完整故事板和素材参考生成带原生声音的视频段；连续段自动继承上一段尾部音视频。",
+          "读取视频段工程目录并锁定当前故事板快照，默认以完整故事板和素材参考生成带原生声音的视频段；连续段自动继承上一段尾部音视频。优先传 segmentPath。",
           {
-            segmentId: z.string().min(1),
-            revision: z.number().int().positive(),
+            segmentPath: z.string().min(1).optional(),
+            segmentId: z.string().min(1).optional(),
+            revision: z.number().int().positive().optional(),
             model: z.string().optional(),
             qualityPreset: z.enum(["preview", "final"]).default("preview"),
           },
           (input) => {
-            const value = input as { segmentId: string } & Record<string, unknown>;
+            const value = input as { segmentPath?: string; segmentId?: string; revision?: number } & Record<string, unknown>;
+            const segmentId = value.segmentPath ? resolveDirectorEntityReference(run.userId, projectId, value.segmentPath, ["video-segment"]).id : value.segmentId;
+            if (!segmentId) throw mcpError(400, "DIRECTOR_SEGMENT_REQUIRED", "请提供 segmentPath");
+            const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
             return createDirectorVideoSegmentGeneration(
               run.userId,
-              value.segmentId,
-              value,
+              segmentId,
+              { ...value, revision: value.revision ?? segment.revision },
             );
           },
         ),
@@ -626,7 +685,7 @@ export function buildAgentMcpServer(
         ),
         tool(
           "director_create_assets",
-          "从剧本直接创建角色、场景和道具导演素材，不创建任何画布节点；素材无需额外确认即可继续后续设计。",
+          "根据剧本正文与当前未过期制作拆解创建角色、场景和道具导演素材，不创建任何画布节点；素材无需额外确认即可继续后续设计。",
           { items: canvasToolSchemas.creative_assets_create_batch.shape.items },
           async (input) => {
             const value = input as {
@@ -642,7 +701,7 @@ export function buildAgentMcpServer(
               startedAt: new Date().toISOString(),
             });
             try {
-              requireDirectorDocumentContent(run.userId, projectId, "script");
+              requireDirectorScreenplayReady(run.userId, projectId);
               const output = {
                 assets: createAgentCreativeAssetBatch(
                   run.userId,
@@ -709,17 +768,18 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_generate_asset",
-          "阶段门满足后生成并替换导演资产的当前主设计图或声音。",
-          canvasToolSchemas.creative_asset_generate.shape,
+          "读取素材工程目录，生成并替换导演素材的当前主设计图或声音。优先传 assetPath。",
+          { assetPath: z.string().min(1).optional(), assetId: z.string().min(1).optional(), kind: z.enum(["image", "audio"]), revision: z.number().int().positive().optional(), nodeId: z.string().optional(), mediaRole: z.enum(["face_closeup", "body_front", "body_back"]).optional() },
           (input) => {
-            const value = input as z.infer<
-              typeof canvasToolSchemas.creative_asset_generate
-            >;
-            requireDirectorMediaStage(run.userId, project(value));
+            const value = input as { assetPath?: string; assetId?: string; kind: "image" | "audio"; revision?: number; nodeId?: string; mediaRole?: "face_closeup" | "body_front" | "body_back" };
+            const assetId = value.assetPath ? resolveDirectorEntityReference(run.userId, projectId, value.assetPath, ["character", "scene", "prop"]).id : value.assetId;
+            if (!assetId) throw mcpError(400, "DIRECTOR_ASSET_REQUIRED", "请提供 assetPath");
+            const asset = getAgentCreativeAsset(run.userId, projectId, assetId);
+            requireDirectorMediaStage(run.userId, projectId);
             return generateAgentCreativeAsset(
               run.userId,
-              project(value),
-              value,
+              projectId,
+              { projectId, assetId, nodeId: value.nodeId, kind: value.kind, revision: value.revision ?? asset.revision, mediaRole: value.mediaRole },
             );
           },
         ),
@@ -1628,6 +1688,15 @@ function requireDirectorDocumentContent(
       "DIRECTOR_STAGE_GATE",
       `请先完成${kind === "script" ? "剧本" : "故事"}`,
     );
+}
+
+function requireDirectorScreenplayReady(userId: string, projectId: string) {
+  requireDirectorDocumentContent(userId, projectId, "script");
+  const breakdown = getDirectorScreenplayBreakdown(userId, projectId);
+  if (breakdown.stale || breakdown.payload.review.status === "not_run")
+    throw mcpError(409, "DIRECTOR_SCREENPLAY_BREAKDOWN_REQUIRED", "请先运行最新剧本的制作拆解");
+  if (breakdown.payload.review.status === "needs_revision")
+    throw mcpError(409, "DIRECTOR_SCREENPLAY_NEEDS_REVISION", "制作拆解发现剧本仍需修订，请先处理诊断问题");
 }
 
 function requireDirectorMediaStage(userId: string, projectId: string) {

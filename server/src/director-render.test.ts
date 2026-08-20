@@ -21,10 +21,12 @@ test("连续段使用 Ref2VA 尾部音视频，独立视觉过渡才使用 FL2VA
 });
 
 test("故事板只继承视觉风格并明确忽略风格中的快切节奏", () => {
-    const prompt = compileDirectorStoryboardPrompt("晨会", { durationSeconds: 8, dramaticBeat: "会议室从松散变为安静", openingState: "员工仍在交谈", endingState: "所有人看向白板" }, sheet([1, 1, 1, 1]), "真实职场，奶油高光，短促切镜，快速蒙太奇");
+    const prompt = compileDirectorStoryboardPrompt("晨会", { durationSeconds: 8, dramaticBeat: "会议室从松散变为安静", openingState: "员工仍在交谈", endingState: "所有人看向白板" }, sheet([1, 1, 1, 1]), "真实职场，奶油高光，短促切镜，快速蒙太奇", { photography: "稳定观察", performance: "克制生活化", pacing: "完整动作优先", sound: "保留办公室环境声", prohibitions: "禁止无意义慢动作" });
     assert.match(prompt, /Visual appearance only/);
     assert.match(prompt, /Ignore any editing-rhythm, rapid-cut, montage or pacing instructions/);
     assert.match(prompt, /Within one Shot, keep the same camera setup/);
+    assert.match(prompt, /Project directing rules: photography — 稳定观察/);
+    assert.match(prompt, /prohibitions — 禁止无意义慢动作/);
 });
 
 test("故事板使用任意已配置图片模型并按其能力路由参考图", () => {

@@ -95,7 +95,7 @@ test("媒体草稿预览按业务语义组装且生成结果直接替换主版�
     assert.equal(voicePreview.warnings.some((warning) => warning.code === "CREATIVE_ASSET_VOICE_GENDER_CONFLICT" && warning.blocking), true);
 });
 
-test("导演角色使用纯视觉设定一次生成四视图", () => {
+test("导演角色按用途生成面部与正背面身份媒体", () => {
     const userId = "user-1";
     const projectId = "director-character-project";
     const now = new Date().toISOString();
@@ -132,7 +132,7 @@ test("导演角色使用纯视觉设定一次生成四视图", () => {
     assert.match(preview.prompt, /稳定面部身份锚点：脸型比例：窄长脸/);
     assert.match(preview.prompt, /脸型比例：窄长脸/);
     assert.match(preview.prompt, /非对称识别点：左眉尾细小断痕/);
-    assert.match(preview.prompt, /正面、左侧 90 度、右侧 90 度、背面 180 度/);
+    assert.match(preview.prompt, /单张完整正面身体参考/);
     assert.match(preview.prompt, /真人电影摄影/);
     assert.match(preview.prompt, /真实相机写实/);
     assert.doesNotMatch(preview.prompt, /林尘/);
@@ -140,12 +140,17 @@ test("导演角色使用纯视觉设定一次生成四视图", () => {
     assert.doesNotMatch(preview.prompt, /雪夜宗门/);
     assert.doesNotMatch(preview.prompt, /月光与火把/);
     assert.doesNotMatch(preview.prompt, /长焦浅景深/);
-    assert.match(preview.prompt, /单张角色四视图设定图/);
-    assert.match(preview.prompt, /不拆成四张图片/);
+    assert.match(preview.prompt, /严格从头顶到鞋底完整入画/);
     assert.match(preview.prompt, /自然毛孔/);
     assert.match(preview.prompt, /窄肩长肢/);
     assert.equal(preview.references.length, 0, "带人物面貌的角色风格样张不得作为初次角色输入");
     assert.deepEqual(preview.excludedReferences.map((item) => item.fileId), ["director-character-style-reference"]);
+    const facePreview = previewCreativeAssetGeneration(userId, character.id, { kind: "image", revision: character.revision, mediaRole: "face_closeup" });
+    assert.match(facePreview.prompt, /单张中性面部身份特写/);
+    assert.equal(facePreview.params.__creativeAsset.usage, "face_closeup_reference");
+    const backPreview = previewCreativeAssetGeneration(userId, character.id, { kind: "image", revision: character.revision, mediaRole: "body_back" });
+    assert.match(backPreview.prompt, /单张完整背面身体参考/);
+    assert.equal(backPreview.params.__creativeAsset.usage, "body_back_reference");
 
     const animatedStyle = createVisualStyle(userId, projectId, { name: "当代赛璐璐动画", mode: "template", templateId: "contemporary-cel", status: "confirmed" });
     setDefaultVisualStyle(userId, animatedStyle.id);

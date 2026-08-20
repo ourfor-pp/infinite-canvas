@@ -77,7 +77,7 @@ export type AgentComposerSegment =
     | { type: "canvas"; mentionId: string; projectId: string; nodeId: string }
     | { type: "asset"; mentionId: string; projectId: string; assetId: string; nodeId?: string }
     | { type: "style"; mentionId: string; projectId: string; styleId: string; nodeId?: string }
-    | { type: "director"; mentionId: string; projectId: string; entityKind: "story" | "script" | "sequence" | "video-segment" | "timeline"; entityId: string };
+    | { type: "director"; mentionId: string; projectId: string; entityKind: "story" | "script" | "directing-plan" | "sequence" | "video-segment" | "timeline"; entityId: string };
 
 export type AgentComposerDocument = { version: 1; segments: AgentComposerSegment[] };
 export type AgentQueuedMessageStatus = "queued" | "dispatching" | "running" | "held" | "failed";

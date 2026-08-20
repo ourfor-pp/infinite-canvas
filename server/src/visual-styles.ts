@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { db, parseJson } from "./database.js";
+import { syncDirectorDirectionFiles } from "./director-workspace.js";
 import { getStoredFile, storeLocalFile, syncFileRefs } from "./file-store.js";
 import { publishAgentProject } from "./agent/project-events.js";
 
@@ -149,6 +150,7 @@ export function updateVisualStyle(userId: string, styleId: string, raw: unknown)
     if (!result.changes) throw styleError(409, "VISUAL_STYLE_CONFLICT", "视觉风格已在其他页面更新", { current: styleResponse(styleRow(userId, styleId)!) });
     syncStyleRefs(userId, styleId, input.references);
     if (projectKind === "director" && semanticChange) markDirectorStyleDependents(userId, current.project_id, styleId, current.revision + 1);
+    if (projectKind === "director") syncDirectorDirectionFiles(userId, current.project_id);
     return publishStyle(userId, styleRow(userId, styleId)!);
 }
 export function deleteVisualStyle(userId: string, styleId: string) {
@@ -181,6 +183,7 @@ export function setDefaultVisualStyle(userId: string, styleId: string) {
     const project = projectPayload(userId, style.projectId);
     project.defaultVisualStyleId = styleId;
     saveProject(userId, style.projectId, project);
+    if (kind === "director") syncDirectorDirectionFiles(userId, style.projectId);
     return style;
 }
 

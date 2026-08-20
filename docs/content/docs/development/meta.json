@@ -2,5 +2,5 @@
   "title": "Development",
   "root": true,
   "defaultOpen": true,
-  "pages": ["local-development", "testing-strategy", "fnos-application-deployment", "canvas-data-structure"]
+  "pages": ["local-development", "testing-strategy", "fnos-application-deployment", "canvas-data-structure", "director-file-project"]
 }

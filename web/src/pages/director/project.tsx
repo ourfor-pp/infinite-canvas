@@ -6,6 +6,7 @@ import {
     Bell,
     Bot,
     Braces,
+    Camera,
     Check,
     ChevronRight,
     ChevronDown,
@@ -22,6 +23,7 @@ import {
     Lock,
     Loader2,
     Maximize2,
+    NotebookText,
     Package,
     Palette,
     Pause,
@@ -33,11 +35,14 @@ import {
     Save,
     Scissors,
     ScrollText,
+    SlidersHorizontal,
     Sparkles,
     SkipBack,
     SkipForward,
     Trash2,
     Upload,
+    Download,
+    ShieldCheck,
     Users,
     Video,
     Volume2,
@@ -54,7 +59,7 @@ import { serverApi, serverApiUrl, uploadServerFile, type ServerGeneration } from
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useDirectorStore } from "@/stores/use-director-store";
 import type { CreativeAsset, CreativeAssetKind } from "@/types/creative-asset";
-import type { DirectorDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorState, DirectorVideoSegment, DirectorVideoSegmentPreflight, H3QualityPreset } from "@/types/director";
+import type { DirectorDirectingRules, DirectorDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorState, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
 import type { VisualStyle, VisualStyleDna, VisualStyleTemplate } from "@/types/visual-style";
 import { DirectorMarkdownEditor } from "./components/director-markdown-editor";
 import { WorkspaceImagePreviewLightbox, type WorkspaceImagePreviewItem } from "@/components/workspace-image-preview-lightbox";
@@ -65,7 +70,7 @@ const sections: Array<{ id: DirectorSection; label: string; icon: typeof Film }>
     { id: "overview", label: "概览", icon: LayoutDashboard },
     { id: "story", label: "故事", icon: FileText },
     { id: "script", label: "剧本", icon: ScrollText },
-    { id: "style", label: "风格", icon: Palette },
+    { id: "style", label: "导演方案", icon: Palette },
     { id: "assets", label: "素材", icon: Package },
     { id: "storyboard", label: "分镜", icon: Clapperboard },
     { id: "studio", label: "视频创作台", icon: Scissors },
@@ -73,6 +78,12 @@ const sections: Array<{ id: DirectorSection; label: string; icon: typeof Film }>
 
 function Progress(props: ComponentProps<typeof AntProgress>) {
     return <AntProgress {...props} strokeColor="#2563eb" trailColor="#e2e8f0" />;
+}
+
+function formatDirectorDuration(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    const remaining = seconds % 60;
+    return minutes ? `${minutes} 分${remaining ? ` ${remaining} 秒` : ""}` : `${remaining} 秒`;
 }
 
 export default function DirectorProjectPage() {
@@ -191,7 +202,7 @@ export default function DirectorProjectPage() {
                     <section className={`min-w-0 flex-1 bg-white ${active === "story" || active === "script" || active === "storyboard" ? "overflow-hidden" : "overflow-auto"}`}>
                         {active === "overview" ? <Overview state={state} assets={assets} styles={styles} onNavigate={(target) => navigate(`/director/${id}/${target}`)} /> : null}
                         {active === "story" || active === "script" ? <Writing projectId={id} kind={active} state={state} onRefresh={refresh} /> : null}
-                        {active === "style" ? <DirectorStylePage projectId={id} activeStyleId={state.activeStyleId} styles={styles} onRefresh={refresh} /> : null}
+                        {active === "style" ? <DirectorTreatmentPage projectId={id} workspace={state.workspace} activeStyleId={state.activeStyleId} styles={styles} onRefresh={refresh} /> : null}
                         {active === "assets" ? <AssetGallery projectId={id} assets={assets} generations={generations} onGeneration={applyGeneration} onRefresh={refresh} /> : null}
                         {active === "storyboard" ? <Storyboard projectId={id} state={state} onRefresh={refresh} /> : null}
                         {active === "studio" ? <Studio projectId={id} state={state} onRefresh={refresh} /> : null}
@@ -304,6 +315,31 @@ function recordValue(value: unknown): Record<string, unknown> { return value && 
 function readLocalIds(key: string): string[] { try { const value = JSON.parse(localStorage.getItem(key) || "[]"); return Array.isArray(value) ? value.map(String) : []; } catch { return []; } }
 
 function Overview({ state, assets, styles, onNavigate }: { state: DirectorState; assets: CreativeAsset[]; styles: VisualStyle[]; onNavigate: (section: DirectorSection) => void }) {
+    const { message } = App.useApp();
+    const navigate = useNavigate();
+    const importRef = useRef<HTMLInputElement>(null);
+    const [validation, setValidation] = useState<DirectorValidation | null>(null);
+    const [projectBusy, setProjectBusy] = useState<"validate" | "export" | "import" | "">("");
+    useEffect(() => { void directorApi.validation(state.workspace.projectId).then(setValidation).catch(() => undefined); }, [state.workspace.projectId, state.workspace.updatedAt]);
+    const runValidation = async () => {
+        setProjectBusy("validate");
+        try { const result = await directorApi.validate(state.workspace.projectId); setValidation(result); message.success(result.valid ? "工程规范检查通过" : `发现 ${result.diagnostics.length} 项问题`); }
+        catch (error) { message.error(error instanceof Error ? error.message : "工程检查失败"); }
+        finally { setProjectBusy(""); }
+    };
+    const exportProject = async () => {
+        setProjectBusy("export");
+        try { const blob = await directorApi.exportProject(state.workspace.projectId); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `director-${state.workspace.projectId}.zip`; anchor.click(); URL.revokeObjectURL(url); }
+        catch (error) { message.error(error instanceof Error ? error.message : "工程导出失败"); }
+        finally { setProjectBusy(""); }
+    };
+    const importProject = async (file?: File) => {
+        if (!file) return;
+        setProjectBusy("import");
+        try { const result = await directorApi.importProject(file); message.success("导演工程已导入"); navigate(`/director/${result.projectId}/overview`); }
+        catch (error) { message.error(error instanceof Error ? error.message : "工程导入失败"); }
+        finally { setProjectBusy(""); if (importRef.current) importRef.current.value = ""; }
+    };
     const documents = Object.fromEntries(state.documents.map((item) => [item.kind, item]));
     const stale = state.sequences.filter((item) => item.payload.needsReview).length + state.videoSegments.filter((item) => item.payload.needsReview || item.payload.videoStale).length;
     const readyAssets = assets.filter((item) => item.payload.variants.some((variant) => variant.kind === "image")).length;
@@ -319,7 +355,7 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
     const stageItems = [
         { label: "故事", detail: documents.story?.content.trim() ? "已编写" : "待创作", done: stages[0], target: "story" as const },
         { label: "剧本", detail: stages[1] ? "已编写" : "待创作", done: stages[1], target: "script" as const },
-        { label: "风格", detail: styles.find((item) => item.id === state.activeStyleId)?.name || "待设置", done: stages[2], target: "style" as const },
+        { label: "导演方案", detail: styles.find((item) => item.id === state.activeStyleId)?.name || "待设置", done: stages[2], target: "style" as const },
         { label: "素材", detail: `${readyAssets}/${assets.length}`, done: stages[3], target: "assets" as const },
         { label: "故事板", detail: `${state.sequences.filter((item) => item.status !== "draft").length}/${state.sequences.length}`, done: stages[4], target: "storyboard" as const },
         { label: "视频段", detail: `${state.videoSegments.filter((item) => item.payload.videoFileId).length}/${state.videoSegments.length}`, done: stages[5], target: "storyboard" as const },
@@ -328,6 +364,18 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
     const nextStage = stageItems.find((item) => !item.done) || stageItems.at(-1)!;
     return (
         <div className="mx-auto max-w-7xl p-6 lg:p-8">
+            <section className="mb-6 flex flex-wrap items-center justify-between gap-4 border border-slate-200 bg-slate-50 px-5 py-4">
+                <div className="flex min-w-0 items-center gap-3">
+                    <span className={`grid size-9 shrink-0 place-items-center ${validation?.valid ? "bg-emerald-50 text-emerald-600" : "bg-white text-slate-500"}`}><ShieldCheck className="size-4" /></span>
+                    <div className="min-w-0"><div className="text-sm font-medium text-slate-900">工程健康</div><div className="mt-0.5 truncate text-xs text-slate-500">{validation ? validation.valid ? "目录、引用和创作文件通过检查" : `${validation.diagnostics.filter((item) => item.severity === "error").length} 个错误，${validation.diagnostics.filter((item) => item.severity === "warning").length} 个提醒` : "正在读取工程诊断"}</div></div>
+                </div>
+                <div className="flex items-center gap-1">
+                    <Button type="text" icon={<ShieldCheck className="size-4" />} loading={projectBusy === "validate"} onClick={() => void runValidation()}>检查工程</Button>
+                    <Button type="text" icon={<Download className="size-4" />} loading={projectBusy === "export"} onClick={() => void exportProject()}>导出 ZIP</Button>
+                    <Button type="text" icon={<Upload className="size-4" />} loading={projectBusy === "import"} onClick={() => importRef.current?.click()}>导入工程</Button>
+                    <input ref={importRef} type="file" accept=".zip,application/zip" className="hidden" onChange={(event) => void importProject(event.target.files?.[0])} />
+                </div>
+            </section>
             <div className="grid gap-px overflow-hidden border border-slate-200 bg-slate-200 md:grid-cols-4">
                 {[
                     ["目标时长", `${Math.round(state.workspace.targetDurationSeconds / 60)} 分钟`],
@@ -401,6 +449,19 @@ function statusLabel(status: string) {
     return status === "confirmed" ? "已确认" : status === "locked" ? "已锁定" : status === "draft" ? "草稿" : status;
 }
 
+const screenplaySpeakerCue = /^[\p{L}\p{N}·・]{1,16}(?:（[^）\n]{1,12}）)?$/u;
+
+function formatScreenplayPreview(source: string) {
+    const lines = source.split("\n");
+    return lines.map((line, index) => {
+        const cue = line.trim();
+        if (!cue || cue.startsWith("**") || !screenplaySpeakerCue.test(cue)) return line;
+        const previous = index ? lines[index - 1]!.trim() : "";
+        const next = lines[index + 1]?.trim() || "";
+        return !previous && next ? `**${cue}**` : line;
+    }).join("\n");
+}
+
 function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kind: "story" | "script"; state: DirectorState; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const fileRef = useRef<HTMLInputElement>(null);
@@ -420,11 +481,14 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
     const giveAgent = useAgentStore((store) => store.prepareComposer);
     const dirty = content !== document.content;
     const contentLength = content.replace(/\s/g, "").length;
-    const sectionCount = (content.match(/^#{1,3}\s/gm) || []).length;
+    const sectionCount = (content.match(/^##\s/gm) || []).length;
+    const previewContent = useMemo(() => kind === "script" ? formatScreenplayPreview(content) : content, [content, kind]);
+    const screenplayDuration = kind === "script" && !state.screenplayBreakdown.stale && state.screenplayBreakdown.scriptRevision === document.revision
+        ? state.screenplayBreakdown.payload.estimatedDurationSeconds : 0;
     const outline = content
         .split("\n")
         .map((line) => line.match(/^(#{1,3})\s+(.+)/))
-        .filter(Boolean)
+        .filter((match) => Boolean(match) && (kind !== "script" || match![1].length === 2))
         .map((match, index) => ({ id: index + 1, depth: match![1].length, title: match![2] }));
     const previewHeadings = () => Array.from(previewRef.current?.querySelectorAll<HTMLElement>("h1, h2, h3") || []);
     const navigateOutline = (index: number) => {
@@ -486,7 +550,7 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
                 <div className="flex min-w-0 items-center gap-3">
                     <span className="font-mono text-[11px] text-slate-400">REV {document.revision}</span>
                     <span className="hidden text-[11px] text-slate-400 sm:inline">
-                        {contentLength.toLocaleString()} 字 · {sectionCount} 节
+                        {contentLength.toLocaleString()} 字 · {sectionCount} {kind === "script" ? "场" : "章"}{screenplayDuration ? ` · 预计 ${formatDirectorDuration(screenplayDuration)}` : ""}
                     </span>
                     {dirty ? <span className="text-[11px] text-blue-600">未保存</span> : null}
                     {kind === "story" && source ? (
@@ -563,7 +627,7 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
                     <article ref={previewRef} className="director-markdown min-w-0 overflow-auto" onScroll={kind === "script" ? syncOutline : undefined}>
                         <div className={`mx-auto px-8 py-10 lg:px-12 ${kind === "story" ? "max-w-4xl" : "max-w-5xl"}`}>
                             <Streamdown mode="static" controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } }}>
-                                {content}
+                                {previewContent}
                             </Streamdown>
                         </div>
                     </article>
@@ -672,7 +736,7 @@ function AssetGallery({ projectId, assets, generations, onGeneration, onRefresh 
                     description="和 Agent 对话，让它从当前剧本中提出候选清单。"
                 />
             )}
-            <AssetPromptDrawer asset={assets.find((item) => item.id === promptAssetId)} generations={generations} onRefresh={onRefresh} onClose={() => setPromptAssetId("")} onAgent={() => { const asset = assets.find((item) => item.id === promptAssetId); if (asset) prepare(projectId, { kind: "asset", projectId, assetId: asset.id, title: asset.name, subtitle: asset.kind }); }} />
+            <AssetPromptDrawer asset={assets.find((item) => item.id === promptAssetId)} generations={generations} onGeneration={onGeneration} onRefresh={onRefresh} onClose={() => setPromptAssetId("")} onAgent={() => { const asset = assets.find((item) => item.id === promptAssetId); if (asset) prepare(projectId, { kind: "asset", projectId, assetId: asset.id, title: asset.name, subtitle: asset.kind }); }} />
             <WorkspaceImagePreviewLightbox items={previewItems} activeIndex={previewIndex >= 0 ? previewIndex : null} onClose={() => setPreviewAssetId("")} onChangeIndex={(index) => setPreviewAssetId(previewItems[index]?.id || "")} />
         </div>
     );
@@ -681,13 +745,22 @@ function AssetGallery({ projectId, assets, generations, onGeneration, onRefresh 
 const emptyStyleDna: VisualStyleDna = { mediumFamily: "live_action", medium: "", rendering: "", characterRendering: "", sceneRendering: "", propRendering: "", palette: "", lighting: "", contrast: "", texture: "", lensAndDepth: "", composition: "", postProcessing: "", exclusions: [] };
 const dnaLabels: Array<[Exclude<keyof VisualStyleDna, "exclusions" | "mediumFamily">, string]> = [["medium", "媒介"], ["rendering", "通用渲染"], ["characterRendering", "角色呈现"], ["sceneRendering", "场景呈现"], ["propRendering", "道具呈现"], ["palette", "色彩"], ["lighting", "光线"], ["contrast", "反差"], ["texture", "质感"], ["lensAndDepth", "镜头与景深"], ["composition", "构图"], ["postProcessing", "后期"]];
 const mediumFamilyOptions: Array<{ value: VisualStyleDna["mediumFamily"]; label: string }> = [{ value: "live_action", label: "真人摄影" }, { value: "animation_2d", label: "二维动画" }, { value: "animation_3d", label: "三维动画" }, { value: "illustration", label: "插画" }, { value: "handmade", label: "手工媒介" }, { value: "graphic", label: "图形风格" }];
+const emptyDirectingRules: DirectorDirectingRules = { photography: "", performance: "", pacing: "", sound: "", prohibitions: "" };
+const directingRuleFields: Array<{ key: keyof DirectorDirectingRules; label: string; hint: string; placeholder: string }> = [
+    { key: "photography", label: "摄影", hint: "镜头怎样观看人物与空间", placeholder: "例如：以稳定观察为主；近景留给关键反应，运动镜头必须有明确叙事动机。" },
+    { key: "performance", label: "表演", hint: "演员的表达尺度与反应方式", placeholder: "例如：克制、生活化；情绪先通过停顿、视线和动作呈现，不用台词解释。" },
+    { key: "pacing", label: "节奏", hint: "停留、切镜、留白与信息释放", placeholder: "例如：完整动作优先；笑点后留反应空间，不为追求热闹频繁切特写。" },
+    { key: "sound", label: "声音", hint: "对白、环境声、动作声与音乐原则", placeholder: "例如：对白清楚自然；环境声维持空间连续，音乐只在段落转折进入。" },
+    { key: "prohibitions", label: "全片禁区", hint: "整部影片统一避免的表达", placeholder: "例如：禁止无意义慢动作、每句对白切特写、滥用升格和用旁白重复画面信息。" },
+];
 
-function DirectorStylePage({ projectId, activeStyleId, styles, onRefresh }: { projectId: string; activeStyleId: string | null; styles: VisualStyle[]; onRefresh: () => Promise<void> }) {
+function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, onRefresh }: { projectId: string; workspace: DirectorWorkspace; activeStyleId: string | null; styles: VisualStyle[]; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
     const [templates, setTemplates] = useState<VisualStyleTemplate[]>([]);
     const [selectedId, setSelectedId] = useState("");
     const [draft, setDraft] = useState<{ name: string; description: string; dna: VisualStyleDna }>({ name: "", description: "", dna: emptyStyleDna });
+    const [rules, setRules] = useState<DirectorDirectingRules>(workspace.directingRules || emptyDirectingRules);
     const [busy, setBusy] = useState("");
     const [customOpen, setCustomOpen] = useState(false);
     const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -695,14 +768,14 @@ function DirectorStylePage({ projectId, activeStyleId, styles, onRefresh }: { pr
     const style = styles.find((item) => item.id === selectedId);
     const template = templates.find((item) => item.id === style?.templateId);
     const previewUrl = style?.references.board && !style.boardStale ? serverApiUrl(`/files/${style.references.board}/content`) : template ? `${import.meta.env.BASE_URL}${template.preview}` : "";
-    const orderedTemplates = Array.from(new Map([...(template ? [template] : []), ...templates].map((item) => [item.id, item])).values());
     useEffect(() => { void serverApi.visualStyleTemplates().then(setTemplates); }, []);
     useEffect(() => { setSelectedId(activeStyleId || styles[0]?.id || ""); }, [activeStyleId, styles[0]?.id]);
     useEffect(() => { if (style) setDraft({ name: style.name, description: style.description, dna: structuredClone(style.dna) }); }, [style]);
+    useEffect(() => { setRules(workspace.directingRules || emptyDirectingRules); }, [workspace.revision]);
     const run = async (label: string, action: () => Promise<unknown>) => {
         setBusy(label);
-        try { await action(); await onRefresh(); message.success("视觉风格已更新"); }
-        catch (error) { message.error(error instanceof Error ? error.message : "视觉风格操作失败"); }
+        try { await action(); await onRefresh(); message.success("导演方案已更新"); }
+        catch (error) { message.error(error instanceof Error ? error.message : "导演方案操作失败"); }
         finally { setBusy(""); }
     };
     const applyTemplate = (template: VisualStyleTemplate) => void run("template", async () => {
@@ -725,57 +798,53 @@ function DirectorStylePage({ projectId, activeStyleId, styles, onRefresh }: { pr
         await serverApi.setDefaultVisualStyle(current.id);
         return current;
     };
-    const save = () => void run("save", persist);
+    const persistRules = async () => {
+        if (JSON.stringify(rules) === JSON.stringify(workspace.directingRules || emptyDirectingRules)) return workspace;
+        return directorApi.updateWorkspace(projectId, { revision: workspace.revision, directingRules: rules });
+    };
+    const save = () => void run("save", async () => { if (draft.name.trim() && draft.description.trim()) await persist(); await persistRules(); });
     const generateBoard = () => void run("board", async () => { const current = await persist(); await serverApi.generateVisualStyleReferences(current.id, current.revision); });
     const upload = async (file: File) => { await run("upload", async () => { const current = await persist(); const uploaded = await uploadServerFile(file, file.name); const updated = await serverApi.updateVisualStyle(current.id, { revision: current.revision, mode: "custom", templateId: null, references: { source: uploaded.fileId } }); await serverApi.analyzeVisualStyle(updated.id, updated.revision); }); };
     return (
-        <div className="mx-auto max-w-7xl px-6 pb-8 lg:px-8">
-            <div className="sticky top-0 z-20 -mx-6 flex min-h-12 items-center gap-3 border-b border-slate-200 bg-slate-50 px-6 lg:-mx-8 lg:px-8">
-                <Palette className="size-4 text-blue-600" />
-                <strong className="min-w-0 truncate text-sm font-medium text-slate-900">{style?.name || "视觉风格"}</strong>
-                {style ? <span className="shrink-0 font-mono text-[10px] text-slate-400">REV {style.revision}</span> : null}
-                {style?.boardStale ? <span className="shrink-0 text-xs text-rose-500">风格板已过期</span> : null}
-                <div className="ml-auto flex shrink-0 items-center gap-1">
-                    <Button type="text" size="small" icon={<Bot className="size-3.5" />} disabled={!style} onClick={() => style && prepare(projectId, { kind: "style", projectId, styleId: style.id, title: style.name, subtitle: "视觉风格" })}>交给 Agent</Button>
-                    <Button type="text" size="small" icon={<Sparkles className="size-3.5" />} loading={busy === "board"} disabled={Boolean(busy) || !style || !draft.description.trim()} onClick={generateBoard}>{style?.references.board ? "重新生成风格板" : "生成风格板"}</Button>
-                    <Button type="primary" size="small" aria-label="保存" loading={busy === "save"} disabled={Boolean(busy) || !draft.name.trim() || !draft.description.trim()} onClick={save}>保存</Button>
-                </div>
-            </div>
-            <div className="space-y-4 py-5">
-                <section className="grid overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid-cols-[minmax(0,1.15fr)_minmax(240px,.85fr)]">
-                <div className="min-w-0 bg-slate-50 sm:border-r sm:border-slate-200">
-                    <div className="relative aspect-[3/2] overflow-hidden bg-slate-100">
+        <div className="mx-auto flex min-h-full max-w-7xl flex-col px-6 pb-4 lg:px-8">
+            <div className="grid items-start py-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+                <div className="min-w-0 space-y-5 lg:pr-6">
+                <div className="flex min-h-[72px] items-start justify-between gap-5 py-1"><div className="flex min-w-0 items-start gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-600"><Camera className="size-[18px]" /></span><div className="min-w-0"><div className="flex items-center gap-2"><h2 className="text-sm font-semibold leading-5 text-slate-900">视觉风格</h2>{style ? <span className="font-mono text-[10px] text-slate-400">REV {style.revision}</span> : null}</div><div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><p className="text-[11px] leading-4 text-slate-400">决定媒介、色彩、光线、材质与画面质感，可跨项目复用</p>{style?.boardStale ? <span className="text-[10px] text-rose-500">风格板已过期</span> : null}</div></div></div><Button className="shrink-0 !border-blue-500 !bg-white !text-blue-600 hover:!border-blue-600 hover:!text-blue-700" size="small" icon={<Palette className="size-3.5" />} onClick={() => setTemplatePickerOpen(true)}>更换风格</Button></div>
+                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                    <div className="relative aspect-[14/5] overflow-hidden bg-slate-100">
                         {previewUrl ? <AntImage rootClassName="size-full" src={previewUrl} alt={`${style?.name || "当前视觉风格"}三元素风格板`} className="!size-full !object-cover" preview={{ mask: <span className="flex items-center gap-1.5 text-xs"><Maximize2 className="size-3.5" />查看大图</span> }} /> : <div className="grid size-full place-items-center text-center text-slate-500"><div><ImageIcon className="mx-auto size-8 text-slate-400" /><p className="mt-2 text-xs">{style?.boardStale ? "风格设定已更新，旧风格板不再使用" : "当前风格还没有统一风格板"}</p><Button type="link" size="small" className="mt-1" loading={busy === "board"} disabled={!style || !draft.description.trim()} onClick={generateBoard}>生成新风格板</Button></div></div>}
-                        <span className="absolute left-3 top-3 bg-slate-950/75 px-2.5 py-1 text-[11px] text-white">当前风格</span>
-                        {style ? <span className="absolute bottom-3 left-3 max-w-[70%] truncate bg-slate-950/75 px-2.5 py-1 text-xs text-white">{style.name}</span> : null}
+                        {previewUrl ? <Button size="small" className="!absolute right-3 top-3 z-10 !border-white/80 !bg-white/90 !text-slate-700 shadow-sm backdrop-blur hover:!bg-white" icon={<Sparkles className="size-3.5" />} loading={busy === "board"} disabled={Boolean(busy) || !style || !draft.description.trim()} onClick={generateBoard}>重新生成风格板</Button> : null}
                     </div>
-                    <div className="flex items-center gap-2 border-t border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-500"><Check className={`size-3.5 ${style?.id === activeStyleId ? "text-emerald-600" : "text-slate-300"}`} /><span>{style?.mode === "template" ? "内置风格" : style?.references.source ? "自定义参考" : "自定义风格"}</span>{style ? <span className="border border-slate-200 px-1.5 py-0.5 font-mono text-[9px]">REV {style.revision}</span> : null}</div>
-                </div>
-
-                <div className="flex max-h-[310px] min-h-0 flex-col p-3">
-                    <div className="mb-2 flex shrink-0 items-center justify-between"><h3 className="text-sm font-medium text-slate-900">选择风格</h3><button type="button" className="text-xs text-blue-600 hover:text-blue-700" onClick={() => setTemplatePickerOpen(true)}>分类与搜索</button></div>
-                    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-color:#94a3b8_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-button]:hidden [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400 [&::-webkit-scrollbar-thumb:hover]:bg-slate-500 [&::-webkit-scrollbar-track]:bg-transparent">{orderedTemplates.map((item) => <button key={item.id} type="button" className={`flex w-full items-center gap-3 overflow-hidden rounded-md border p-1.5 text-left transition ${style?.templateId === item.id ? "border-blue-600 bg-blue-50/50 ring-1 ring-blue-600/10" : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`} onClick={() => applyTemplate(item)}><img loading="lazy" src={`${import.meta.env.BASE_URL}${item.preview}`} alt={`${item.name}三元素预览`} className="aspect-video w-20 shrink-0 rounded-sm object-cover" /><span className="min-w-0 truncate text-[11px] text-slate-700">{item.name}</span>{style?.templateId === item.id ? <Check className="ml-auto size-3.5 shrink-0 text-blue-600" /> : null}</button>)}</div>
-                </div>
+                    <div className="space-y-4 border-t border-slate-200 p-4">
+                        <label className="block text-xs leading-5 text-slate-500">风格名称<div className="mt-2"><Input value={draft.name} placeholder="例如：克制东方仙侠" onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} /></div></label>
+                        <label className="block text-xs leading-5 text-slate-500">风格描述<div className="mt-2"><Input.TextArea value={draft.description} autoSize={{ minRows: 2, maxRows: 4 }} placeholder="描述整片共同的媒介、色彩、光线、材质与镜头气质。" onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} /></div></label>
+                    </div>
                 </section>
 
-                <section className="grid gap-3 rounded-lg border border-slate-200 p-3 sm:grid-cols-[220px_1fr]">
-                    <label className="block text-xs text-slate-500">风格名称<Input value={draft.name} className="mt-1" placeholder="例如：克制东方仙侠" onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} /></label>
-                    <label className="block text-xs text-slate-500">风格描述<Input.TextArea value={draft.description} className="mt-1" autoSize={{ minRows: 1, maxRows: 3 }} placeholder="描述整片共同的媒介、色彩、光线、材质与镜头气质。" onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} /></label>
-                </section>
-
-                <section className="border-y border-slate-200">
-                    <button type="button" className="flex w-full items-center justify-between py-3 text-left text-sm text-slate-600 hover:text-slate-950" onClick={() => setCustomOpen((value) => !value)}><span><strong className="font-medium">自定义参考图</strong><span className="ml-2 text-xs text-slate-400">可选 · 单张统一风格板</span></span><ChevronDown className={`size-4 transition-transform ${customOpen ? "rotate-180" : ""}`} /></button>
-                    {customOpen ? <div className="pb-4">
+                <section className="rounded-lg border border-slate-200 bg-white">
+                    <button type="button" className="flex w-full items-center justify-between px-3 py-3 text-left text-sm text-slate-600 hover:text-slate-950" onClick={() => setCustomOpen((value) => !value)}><span className="flex min-w-0 items-center gap-2"><ImageIcon className="size-4 shrink-0 text-blue-600" /><span className="min-w-0"><strong className="font-medium">自定义参考图</strong><span className="ml-2 text-xs text-slate-400">可选 · 单张统一风格板</span></span></span><ChevronDown className={`size-4 shrink-0 transition-transform ${customOpen ? "rotate-180" : ""}`} /></button>
+                    {customOpen ? <div className="border-t border-slate-100 px-3 pb-4 pt-3">
                     <p className="mt-1 text-xs leading-5 text-slate-500">上传一张同时表达角色、场景和道具视觉语言的参考图；系统只维护一张统一风格板。</p>
                     <label className={`mt-3 flex min-h-20 items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 transition ${busy === "upload" ? "cursor-wait opacity-70" : "cursor-pointer hover:border-blue-300 hover:bg-blue-50/40"}`}>{style?.references.source ? <img src={serverApiUrl(`/files/${style.references.source}/content`)} alt="自定义风格来源" className="size-14 rounded object-cover" /> : <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-white text-slate-400">{busy === "upload" ? <Loader2 className="size-4 animate-spin text-blue-600" /> : <Upload className="size-4" />}</span>}<span className="min-w-0 text-xs text-slate-500"><strong className="block truncate font-medium text-slate-700">{busy === "upload" ? "正在上传并分析…" : style?.references.source ? "替换并重新分析" : "上传并分析参考图"}</strong><span className="mt-1 block">JPG / PNG / WEBP，单张图片</span></span><input type="file" accept="image/*" disabled={Boolean(busy)} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }} /></label>
                     <Button className="mt-3" loading={busy === "board"} icon={<Sparkles className="size-3.5" />} disabled={Boolean(busy) || !draft.description.trim()} onClick={generateBoard}>生成统一风格板</Button>
                     </div> : null}
                 </section>
 
-                <section className="border-y border-slate-200">
-                    <button type="button" className="flex w-full items-center justify-between py-3 text-left text-sm text-slate-600 hover:text-slate-950" onClick={() => setAdvancedOpen((value) => !value)}><span><strong className="font-medium">高级风格参数</strong><span className="ml-2 text-xs text-slate-400">通常无需修改</span></span><ChevronDown className={`size-4 transition-transform ${advancedOpen ? "rotate-180" : ""}`} /></button>
-                    {advancedOpen ? <div className="space-y-3 pb-4"><p className="text-xs leading-5 text-slate-400">由模板或参考图分析生成，用于跨素材一致性与自动检查。</p><label className="block text-xs text-slate-500">媒介分类<Select className="mt-1 w-full" value={draft.dna.mediumFamily} options={mediumFamilyOptions} onChange={(mediumFamily) => setDraft((value) => ({ ...value, dna: { ...value.dna, mediumFamily } }))} /></label><div className="grid gap-3 sm:grid-cols-2">{dnaLabels.map(([key, label]) => <label key={key} className="text-xs text-slate-500">{label}<Input value={draft.dna[key]} className="mt-1" onChange={(event) => setDraft((value) => ({ ...value, dna: { ...value.dna, [key]: event.target.value } }))} /></label>)}</div><label className="block text-xs text-slate-500">避免元素<Input value={draft.dna.exclusions.join("、")} className="mt-1" onChange={(event) => setDraft((value) => ({ ...value, dna: { ...value.dna, exclusions: event.target.value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean) } }))} /></label></div> : null}
+                <section className="rounded-lg border border-slate-200 bg-white">
+                    <button type="button" className="flex w-full items-center justify-between px-3 py-3 text-left text-sm text-slate-600 hover:text-slate-950" onClick={() => setAdvancedOpen((value) => !value)}><span className="flex min-w-0 items-center gap-2"><SlidersHorizontal className="size-4 shrink-0 text-blue-600" /><span className="min-w-0"><strong className="font-medium">高级风格参数</strong><span className="ml-2 text-xs text-slate-400">通常无需修改</span></span></span><ChevronDown className={`size-4 shrink-0 transition-transform ${advancedOpen ? "rotate-180" : ""}`} /></button>
+                    {advancedOpen ? <div className="space-y-4 border-t border-slate-100 px-3 pb-4 pt-3"><p className="text-xs leading-5 text-slate-400">由模板或参考图分析生成，用于跨素材一致性与自动检查。</p><label className="block text-xs leading-5 text-slate-500">媒介分类<div className="mt-2"><Select className="w-full" value={draft.dna.mediumFamily} options={mediumFamilyOptions} onChange={(mediumFamily) => setDraft((value) => ({ ...value, dna: { ...value.dna, mediumFamily } }))} /></div></label><div className="grid gap-4 sm:grid-cols-2">{dnaLabels.map(([key, label]) => <label key={key} className="text-xs leading-5 text-slate-500">{label}<div className="mt-2"><Input value={draft.dna[key]} onChange={(event) => setDraft((value) => ({ ...value, dna: { ...value.dna, [key]: event.target.value } }))} /></div></label>)}</div><label className="block text-xs leading-5 text-slate-500">避免元素<div className="mt-2"><Input value={draft.dna.exclusions.join("、")} onChange={(event) => setDraft((value) => ({ ...value, dna: { ...value.dna, exclusions: event.target.value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean) } }))} /></div></label></div> : null}
                 </section>
+                </div>
+                <aside className="mt-5 min-w-0 border-t border-slate-200 bg-white lg:mt-0 lg:border-l lg:border-t-0 lg:pl-6">
+                    <div className="flex min-h-[72px] items-start gap-3 border-b border-slate-200 pb-5 pt-1"><span className="grid size-8 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-600"><NotebookText className="size-[18px]" /></span><div><h2 className="text-sm font-semibold leading-5 text-slate-900">导演规则</h2><p className="mt-1 text-[11px] leading-4 text-slate-400">属于当前影片；更换视觉风格不会覆盖</p></div></div>
+                    <div className="space-y-5 pt-5">
+                        {directingRuleFields.map((field) => <label key={field.key} className="block"><span className="flex items-baseline justify-between gap-3"><strong className="text-xs font-medium text-slate-800">{field.label}</strong><span className="text-[10px] leading-4 text-slate-400">{field.hint}</span></span><div className="mt-2"><Input.TextArea value={rules[field.key]} className="!resize-none" autoSize={{ minRows: field.key === "prohibitions" ? 3 : 2, maxRows: 5 }} placeholder={field.placeholder} onChange={(event) => setRules((value) => ({ ...value, [field.key]: event.target.value }))} /></div></label>)}
+                    </div>
+                </aside>
+            </div>
+            <div className="mt-auto flex justify-end gap-2 border-t border-slate-200 pt-4">
+                <Button className="!border-slate-200 !bg-white !text-slate-700" icon={<Bot className="size-4" />} onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "directing-plan", entityId: "directing-plan", title: "导演方案", subtitle: "视觉风格与导演规则" })}>交给 Agent</Button>
+                <Button type="primary" aria-label="保存导演方案" loading={busy === "save"} disabled={Boolean(busy) || (!draft.name.trim() && Object.values(rules).every((value) => !value.trim()))} onClick={save}>保存</Button>
             </div>
             <VisualStyleTemplatePicker open={templatePickerOpen} templates={templates} selectedId={style?.templateId || null} onClose={() => setTemplatePickerOpen(false)} onSelect={(id) => { const template = templates.find((item) => item.id === id); if (template) applyTemplate(template); }} />
         </div>
@@ -819,7 +888,7 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onPreview, onPromp
                 )}
                 <div className="mt-5 flex flex-wrap items-center border-t border-slate-200 pt-2">
                     <FlatAction icon={Bot} label="Agent" onClick={onAgent} />
-                    <FlatAction icon={Braces} label="提示词" onClick={onPrompt} />
+                    <FlatAction icon={Braces} label="详情" onClick={onPrompt} />
                     <FlatAction icon={RefreshCw} label={generatingImage ? "生成中" : "抽图"} loading={busy || Boolean(generatingImage)} onClick={() => onAction("regenerate", "image")} />
                     <FlatAction icon={AudioLines} label={generatingAudio ? "生成中" : "抽声音"} loading={busy || Boolean(generatingAudio)} onClick={() => onAction("regenerate", "audio")} />
                     <FlatAction icon={Copy} label="复制" onClick={() => onAction("copy")} />
@@ -831,10 +900,11 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onPreview, onPromp
     );
 }
 
-function AssetPromptDrawer({ asset, generations, onRefresh, onClose, onAgent }: { asset?: CreativeAsset; generations: ServerGeneration[]; onRefresh: () => Promise<void>; onClose: () => void; onAgent: () => void }) {
+function AssetPromptDrawer({ asset, generations, onGeneration, onRefresh, onClose, onAgent }: { asset?: CreativeAsset; generations: ServerGeneration[]; onGeneration: (generation: ServerGeneration) => void; onRefresh: () => Promise<void>; onClose: () => void; onAgent: () => void }) {
     const { message } = App.useApp();
     const copyText = useCopyText();
     const [uploading, setUploading] = useState(false);
+    const [generatingRole, setGeneratingRole] = useState("");
     const variant = asset ? primaryAssetImage(asset) : undefined;
     const generation = generations.find((item) => item.id === variant?.generationId);
     const prompt = variant?.prompt || "";
@@ -853,9 +923,24 @@ function AssetPromptDrawer({ asset, generations, onRefresh, onClose, onAgent }: 
         } catch (error) { message.error(error instanceof Error ? error.message : "上传参考图失败"); }
         finally { setUploading(false); }
     };
+    const generateIdentity = async (mediaRole: "face_closeup" | "body_front" | "body_back") => {
+        if (!asset) return;
+        setGeneratingRole(mediaRole);
+        try {
+            onGeneration(await serverApi.generateCreativeAsset(asset.id, { kind: "image", revision: asset.revision, mediaRole }));
+            message.success("身份媒体已加入生成队列");
+        } catch (error) { message.error(error instanceof Error ? error.message : "生成身份媒体失败"); }
+        finally { setGeneratingRole(""); }
+    };
+    const identityRoles = asset?.kind === "character" ? ([
+        ["face_closeup", "面部特写", "face_closeup_reference"],
+        ["body_front", "正面身体", "body_front_reference"],
+        ["body_back", "背面身体", "body_back_reference"],
+    ] as const) : [];
     return (
-        <Drawer open={Boolean(asset)} onClose={onClose} size={520} title="素材提示词" styles={{ body: { padding: 0, background: "#fff" } }} footer={<div className="flex items-center justify-between"><Button type="text" icon={<Copy className="size-4" />} disabled={!prompt} onClick={() => copyText(prompt, "已复制素材提示词")}>复制</Button><Button type="text" icon={<Bot className="size-4" />} onClick={onAgent}>交给 Agent</Button></div>}>
+        <Drawer open={Boolean(asset)} onClose={onClose} size={560} title={asset ? `${asset.name} · 素材详情` : "素材详情"} styles={{ body: { padding: 0, background: "#fff" } }} footer={<div className="flex items-center justify-between"><Button type="text" icon={<Copy className="size-4" />} disabled={!prompt} onClick={() => copyText(prompt, "已复制素材提示词")}>复制提示词</Button><Button type="text" icon={<Bot className="size-4" />} onClick={onAgent}>交给 Agent</Button></div>}>
             {asset ? <div className="space-y-5 p-5">
+                {identityRoles.length ? <section><div className="mb-3 flex items-baseline justify-between"><p className="text-xs font-medium text-slate-900">身份媒体</p><span className="text-[10px] text-slate-400">同一角色 · 按镜头用途选用</span></div><div className="grid grid-cols-3 gap-2">{identityRoles.map(([role, label, usage]) => { const media = asset.payload.variants.find((item) => item.kind === "image" && item.usage === usage); return <div key={role} className="overflow-hidden border border-slate-200 bg-slate-50"><div className="aspect-[4/5] bg-white">{media ? <AntImage rootClassName="size-full" src={serverApiUrl(`/files/${media.fileId}/content`)} alt={label} className="!size-full !object-contain" /> : <MediaPlaceholder label="尚未生成" />}</div><div className="flex items-center justify-between border-t border-slate-200 bg-white px-2 py-1.5"><span className="text-[11px] text-slate-600">{label}</span><Button type="text" size="small" className="!h-6 !px-1.5 !text-[10px]" loading={generatingRole === role} onClick={() => void generateIdentity(role)}>{media ? "重抽" : "生成"}</Button></div></div>; })}</div></section> : null}
                 <div className="flex items-start justify-between gap-4"><p className="text-xs leading-5 text-slate-500">本次生成 · {generation?.modelId || asset.payload.mediaDrafts.image.model || "未记录模型"}<br />{String(params.size || "未记录尺寸")} · {String(params.quality || "默认质量")} · {promptPackage?.profile || String(params.imagePromptProfile || "generic")} · REV {promptPackage?.asset?.revision || asset.revision}</p>{asset.kind === "character" ? <label className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-2 border border-slate-200 px-3 text-xs text-slate-600 hover:bg-blue-50"><Upload className="size-3.5" />{uploading ? "上传中" : "上传面貌参考"}<input disabled={uploading} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadIdentity(file); }} /></label> : null}</div>
                 {references.length ? <PromptReferences title={`参考图片 ${references.length}`} items={references} /> : null}
                 {currentReferences.length ? <PromptReferences title={`下次生成将采用 ${currentReferences.length} 张参考`} items={currentReferences} /> : null}

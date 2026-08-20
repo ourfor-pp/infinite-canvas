@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, relative, resolve, sep } from "node:path";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 import { createSdkMcpServer, query, tool, type Options, type PermissionResult, type PermissionUpdate, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import { agentScenes, resolveAgentScene, sceneAutoAllowedTools, sceneHasReferenc
 import { creativeAssetInputSchema, getCreativeAsset } from "../creative-assets.js";
 import { getVisualStyle } from "../visual-styles.js";
 import { getDirectorState } from "../director.js";
+import { ensureDirectorProjectWorkspace, reconcileDirectorProjectFiles } from "../director-workspace.js";
 import type { AgentComposerDocument, AgentEvent, AgentEventKind, AgentMessageInput, AgentPendingDecision, AgentQueuedMessage, AgentSession, AgentSessionStatus, AgentStreamEvent } from "./types.js";
 import { SdkInputChannel } from "./sdk-input-channel.js";
 
@@ -188,7 +189,7 @@ export function deleteSession(userId: string, sessionId: string) {
 }
 
 export function removeAgentProjectWorkspace(userId: string, projectId: string) {
-    rmSync(projectWorkspace(userId, projectId), { recursive: true, force: true });
+    rmSync(legacyAgentProjectWorkspace(userId, projectId), { recursive: true, force: true });
 }
 
 export async function sendMessage(userId: string, projectId: string, input: AgentMessageInput) {
@@ -395,6 +396,7 @@ export function listAgentReferences(userId: string, projectId: string, query: { 
     if (sceneHasReference(scene, "director")) {
         const state = getDirectorState(userId, projectId);
         state.documents.forEach((document) => items.push({ key: `director:${document.kind}`, label: document.kind === "story" ? "故事" : "剧本", detail: `REV ${document.revision}`, segment: { type: "director", mentionId: nanoid(), projectId, entityKind: document.kind, entityId: document.kind } }));
+        items.push({ key: "director:directing-plan", label: "导演方案", detail: `REV ${state.workspace.revision}`, segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "directing-plan", entityId: "directing-plan" } });
         state.sequences.forEach((sequence) => items.push({ key: `director:sequence:${sequence.id}`, label: sequence.title, detail: "剧情段落", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "sequence", entityId: sequence.id } }));
         state.videoSegments.forEach((segment) => items.push({ key: `director:video-segment:${segment.id}`, label: segment.title, detail: "视频段", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "video-segment", entityId: segment.id } }));
         items.push({ key: "director:timeline", label: "时间线", detail: `REV ${state.timeline.revision}`, segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "timeline", entityId: "timeline" } });
@@ -468,7 +470,7 @@ async function executeRun(run: RunRow, controller: AbortController) {
             waitForWorkspacePath: (path) => waitForWorkspacePath(safeWorkspacePath(workspace, path)),
         }, scene);
         const streamState = { turn: 0 };
-        const nativeTools = resolveAgentNativeTools(runtime.toolSearchEnabled);
+        const nativeTools = resolveAgentNativeTools(runtime.toolSearchEnabled, scene.id);
         appendEvent(session.id, run.id, "run_state", { state: "running", content: "Agent 已开始处理" });
         let input = new SdkInputChannel([sdkUserMessage(prompt)]);
         for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -542,6 +544,10 @@ async function executeRun(run: RunRow, controller: AbortController) {
         })();
         publishQueue(session);
     } finally {
+        const project = db.prepare("SELECT kind FROM projects WHERE id=? AND user_id=?").get(session.project_id, run.user_id) as { kind: string } | undefined;
+        if (project?.kind === "director") {
+            try { reconcileDirectorProjectFiles(run.user_id, session.project_id); publishProjectSnapshot(run.user_id, session.project_id); } catch { /* validation is surfaced in the workbench */ }
+        }
         running.get(session.id)?.input?.close();
         settleSessionWaiters(session.id, "Agent 任务已经结束");
     }
@@ -720,17 +726,19 @@ export function resolveAgentToolSearchMode(endpoint: AiModelDefinition["endpoint
     return endpoint === "anthropic-messages" ? "true" : "false";
 }
 
-const agentNativeDisallowedTools = ["Bash", "PowerShell", "WebFetch", "WebSearch", "Task", "Agent", "TaskOutput", "AskUserQuestion", "Write", "Edit", "Glob", "Grep", "LS", "NotebookEdit", "CronCreate", "CronEdit", "CronDelete", "CronList"];
+const agentNativeAlwaysDisallowedTools = ["Bash", "PowerShell", "WebFetch", "WebSearch", "Task", "Agent", "TaskOutput", "AskUserQuestion", "NotebookEdit", "CronCreate", "CronEdit", "CronDelete", "CronList"];
+const directorFileTools = ["Write", "Edit", "Glob", "Grep", "LS"];
 
-export function resolveAgentNativeTools(toolSearchEnabled: boolean) {
-    const allowedTools = ["Read", ...(toolSearchEnabled ? ["ToolSearch"] : [])];
+export function resolveAgentNativeTools(toolSearchEnabled: boolean, sceneId: "canvas" | "director" = "canvas") {
+    const fileTools = sceneId === "director" ? directorFileTools : [];
+    const allowedTools = ["Read", ...fileTools, ...(toolSearchEnabled ? ["ToolSearch"] : [])];
     const autoAllowedTools = ["Skill", ...allowedTools];
     return {
         tools: { type: "preset" as const, preset: "claude_code" as const },
         allowedTools,
         autoAllowedTools,
         settings: { permissions: { allow: autoAllowedTools } },
-        disallowedTools: [...agentNativeDisallowedTools, ...(toolSearchEnabled ? [] : ["ToolSearch"])],
+        disallowedTools: [...agentNativeAlwaysDisallowedTools, ...(sceneId === "director" ? [] : directorFileTools), ...(toolSearchEnabled ? [] : ["ToolSearch"])],
     };
 }
 
@@ -757,6 +765,12 @@ function buildPrompt(session: SessionRow, context: { input?: string; attachments
 }
 
 function projectWorkspace(userId: string, projectId: string) {
+    const project = db.prepare("SELECT kind FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as { kind: string } | undefined;
+    if (project?.kind === "director") return ensureDirectorProjectWorkspace(userId, projectId);
+    return legacyAgentProjectWorkspace(userId, projectId);
+}
+
+function legacyAgentProjectWorkspace(userId: string, projectId: string) {
     return resolve(config.agentRoot, "users", createHash("sha256").update(userId).digest("hex"), "projects", createHash("sha256").update(projectId).digest("hex"));
 }
 
@@ -778,6 +792,7 @@ function safeWorkspacePath(workspace: string, value: string) {
     if (target !== workspace && !target.startsWith(`${workspace}${sep}`)) throw agentError(403, "AGENT_PATH_FORBIDDEN", "不能访问会话沙箱外的文件");
     const local = relative(workspace, target);
     if (local === ".claude" || local.startsWith(`.claude${sep}`)) throw agentError(403, "AGENT_PATH_FORBIDDEN", "不能访问 Agent 的内部配置目录");
+    assertNoWorkspaceSymlink(workspace, target);
     return target;
 }
 
@@ -812,13 +827,14 @@ function serializeWorkspacePath<T>(target: string, action: () => Promise<T>) {
 
 function workspaceReadHooks(workspace: string): NonNullable<Options["hooks"]> {
     return { PreToolUse: [{ hooks: [async (value: unknown) => {
-        const event = value && typeof value === "object" ? value as { tool_name?: string; tool_input?: { file_path?: string } } : {};
-        if (event.tool_name !== "Read") return {};
+        const event = value && typeof value === "object" ? value as { tool_name?: string; tool_input?: Record<string, unknown> } : {};
+        if (!["Read", "Write", "Edit", "Glob", "Grep", "LS"].includes(String(event.tool_name))) return {};
         try {
-            safeWorkspaceReadPath(workspace, String(event.tool_input?.file_path || ""));
+            const candidate = String(event.tool_input?.file_path || event.tool_input?.path || event.tool_input?.directory || ".");
+            safeWorkspaceReadPath(workspace, candidate);
             return {};
         } catch (error) {
-            return { continue: true, suppressOutput: false, decision: "approve", hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: error instanceof Error ? error.message : "禁止读取会话沙箱外的文件" } };
+            return { continue: true, suppressOutput: false, decision: "approve", hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: error instanceof Error ? error.message : "禁止访问当前导演工程外的文件" } };
         }
     }] }] };
 }
@@ -831,7 +847,16 @@ function safeWorkspaceReadPath(workspace: string, value: string) {
     if ((local === ".claude" || local.startsWith(`.claude${sep}`)) && local !== `.claude${sep}skills` && !local.startsWith(`.claude${sep}skills${sep}`)) {
         throw agentError(403, "AGENT_PATH_FORBIDDEN", "不能读取 Agent 的内部配置目录");
     }
+    assertNoWorkspaceSymlink(workspace, target);
     return target;
+}
+
+function assertNoWorkspaceSymlink(workspace: string, target: string) {
+    let cursor = target;
+    while (cursor !== workspace && cursor.startsWith(`${workspace}${sep}`)) {
+        if (existsSync(cursor) && lstatSync(cursor).isSymbolicLink()) throw agentError(403, "AGENT_PATH_FORBIDDEN", "禁止通过符号链接访问导演工程外文件");
+        cursor = dirname(cursor);
+    }
 }
 
 function isAgentContextFile(mimeType: string) {
@@ -864,7 +889,7 @@ function validateMessageInput(input: AgentMessageInput) {
             z.object({ type: z.literal("canvas"), ...mention, nodeId: z.string().trim().min(1).max(128) }),
             z.object({ type: z.literal("asset"), ...mention, assetId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
             z.object({ type: z.literal("style"), ...mention, styleId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
-            z.object({ type: z.literal("director"), ...mention, entityKind: z.enum(["story", "script", "sequence", "video-segment", "timeline"]), entityId: z.string().trim().min(1).max(128) }),
+            z.object({ type: z.literal("director"), ...mention, entityKind: z.enum(["story", "script", "directing-plan", "sequence", "video-segment", "timeline"]), entityId: z.string().trim().min(1).max(128) }),
         ])).min(1).max(200) }),
         attachmentFileIds: z.array(z.string().max(128)).max(20).optional().default([]),
     }).superRefine((value, issue) => {
@@ -909,11 +934,12 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
             const state = getDirectorState(userId, projectId);
             const entity = segment.entityKind === "story" || segment.entityKind === "script"
                 ? state.documents.find((item) => item.kind === segment.entityKind)
+                : segment.entityKind === "directing-plan" ? { workspace: state.workspace, activeStyleId: state.activeStyleId }
                 : segment.entityKind === "sequence" ? state.sequences.find((item) => item.id === segment.entityId)
                 : segment.entityKind === "video-segment" ? state.videoSegments.find((item) => item.id === segment.entityId)
                 : state.timeline;
             if (!entity) throw agentError(404, "AGENT_DIRECTOR_REFERENCE_NOT_FOUND", "导演台引用不存在或不属于当前项目");
-            const label = segment.entityKind === "story" ? "故事" : segment.entityKind === "script" ? "剧本" : segment.entityKind === "timeline" ? "时间线" : "title" in entity ? String(entity.title) : segment.entityId;
+            const label = segment.entityKind === "story" ? "故事" : segment.entityKind === "script" ? "剧本" : segment.entityKind === "directing-plan" ? "导演方案" : segment.entityKind === "timeline" ? "时间线" : "title" in entity ? String(entity.title) : segment.entityId;
             directorReferences.push({ projectId, entityKind: segment.entityKind, entityId: segment.entityId, entity }); displayParts.push(`@${label}`); displaySegments.push({ ...segment, label });
         }
     }

@@ -64,6 +64,11 @@ test("Agent 使用原生 Skill 且危险内置工具保持禁用", () => {
     const disabled = resolveAgentNativeTools(false);
     assert.equal(disabled.allowedTools.includes("ToolSearch"), false);
     assert.equal(disabled.disallowedTools.includes("ToolSearch"), true);
+    const director = resolveAgentNativeTools(true, "director");
+    assert.equal(director.allowedTools.includes("Write"), true);
+    assert.equal(director.allowedTools.includes("Edit"), true);
+    assert.equal(director.allowedTools.includes("Glob"), true);
+    assert.equal(director.disallowedTools.includes("Bash"), true);
 });
 
 test("Agent Skill 解析单行和列表 allowed-tools", () => {
@@ -74,13 +79,13 @@ test("Agent Skill 解析单行和列表 allowed-tools", () => {
 test("画布与导演 Agent 的 Skill 和工具清单完全隔离", () => {
     assert.equal(agentScenes.canvas.skillIds.some((id) => id.startsWith("director-")), false);
     assert.equal(agentScenes.director.skillIds.every((id) => id.startsWith("director-")), true);
-    assert.equal(agentScenes.director.skillIds.length, 14);
+    assert.equal(agentScenes.director.skillIds.length, 15);
     assert.equal(agentScenes.director.skillIds.includes("director-write-story"), true);
     assert.equal(agentScenes.canvas.skillIds.includes("director-write-story"), false);
     assert.equal(agentScenes.canvas.tools.some((item) => item.id.startsWith("director_")), false);
     assert.equal(agentScenes.director.tools.some((item) => item.id.startsWith("canvas_") || item.id.startsWith("creative_asset") || item.id.startsWith("visual_style") || String(item.id) === "site_navigate"), false);
-    assert.equal(agentScenes.director.tools.some((item) => item.id === "director_list_video_segments"), true);
-    assert.equal(agentScenes.director.tools.some((item) => item.id === "director_get_video_segment"), true);
+    assert.equal(agentScenes.director.tools.map((item) => String(item.id)).some((id) => id === "director_list_video_segments" || id === "director_update_video_segment"), false, "导演内容读写应使用受控文件工具，不再暴露语义 CRUD");
+    assert.equal(agentScenes.director.tools.some((item) => item.id === "director_generate_video_segment"), true);
 });
 
 test("项目工作区只同步当前 Agent 场景 Skills 并清理旧场景", () => {
@@ -135,7 +140,13 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
 
     const initial = await api(`/director/projects/${projectId}`, userOne);
     assert.deepEqual(initial.body.data.documents.map((item: { kind: string }) => item.kind).sort(), ["script", "story"]);
+    assert.equal(initial.body.data.screenplayBreakdown.stale, true);
     assert.equal(initial.body.data.timeline.revision, 1);
+    assert.deepEqual(initial.body.data.workspace.directingRules, { photography: "", performance: "", pacing: "", sound: "", prohibitions: "" });
+    const directingPlan = await api(`/director/projects/${projectId}/workspace`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, directingRules: { photography: "稳定观察人物与空间", performance: "克制生活化", pacing: "完整动作优先", sound: "环境声维持空间连续", prohibitions: "禁止无意义慢动作" } }) });
+    assert.equal(directingPlan.response.status, 200);
+    assert.equal(directingPlan.body.data.revision, 2);
+    assert.equal(directingPlan.body.data.directingRules.performance, "克制生活化");
 
     const chapter = "林夏走进雨夜车站。她看见旧怀表，决定追查失踪案。".repeat(450);
     const novel = Array.from({ length: 100 }, (_, index) => `第${index + 1}章 雨夜\n${chapter}`).join("\n");
@@ -166,6 +177,31 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.equal(gatedSequence.response.status, 409);
     const script = await api(`/director/projects/${projectId}/documents/script`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "## 场 1 · 雨夜车站\n林夏：我会找到真相。" }) });
     assert.equal(script.response.status, 200);
+    const screenplayBreakdown = await api(`/director/projects/${projectId}/screenplay-breakdown`, userOne, { method: "PUT", body: JSON.stringify({
+        revision: 1,
+        scriptRevision: 2,
+        scenes: [{
+            id: "S001", heading: "场 1 · 外景 · 雨夜车站 · 夜", title: "雨夜车站", location: "车站", timeOfDay: "夜", interiorExterior: "exterior",
+            characterNames: ["林夏"], propNames: ["旧怀表"], openingState: "林夏没有线索", endingState: "林夏决定追查旧怀表", dramaticTurn: "旧怀表成为失踪案线索",
+            requiredDialogue: ["我会找到真相。"], beats: [{ id: "S001-B01", summary: "林夏发现旧怀表并作出决定", estimatedSeconds: 25 }], estimatedSeconds: 25,
+        }],
+        reviewIssues: [],
+    }) });
+    assert.equal(screenplayBreakdown.response.status, 200);
+    assert.equal(screenplayBreakdown.body.data.stale, false);
+    assert.equal(screenplayBreakdown.body.data.payload.estimatedDurationSeconds, 25);
+    const revisedScript = await api(`/director/projects/${projectId}/documents/script`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, content: "## 场 1 · 雨夜车站\n林夏握紧旧怀表。\n\n林夏：我一定会找到真相。" }) });
+    assert.equal(revisedScript.response.status, 200);
+    assert.equal((await api(`/director/projects/${projectId}/screenplay-breakdown`, userOne)).body.data.stale, true, "剧本 revision 改变后制作拆解必须过期");
+    const refreshedBreakdown = await api(`/director/projects/${projectId}/screenplay-breakdown`, userOne, { method: "PUT", body: JSON.stringify({
+        revision: 2,
+        scriptRevision: 3,
+        scenes: screenplayBreakdown.body.data.payload.scenes,
+        reviewIssues: [{ type: "duration", sceneIds: ["S001"], summary: "当前场次短于项目目标", suggestion: "补足关键选择的表演过程" }],
+    }) });
+    assert.equal(refreshedBreakdown.response.status, 200);
+    assert.equal(refreshedBreakdown.body.data.stale, false);
+    assert.equal(refreshedBreakdown.body.data.payload.review.status, "needs_revision");
     const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ id: "z-first-sequence", position: 0, title: "雨夜车站", summary: "线索出现", payload: { storyboard: Array.from({ length: 6 }, (_, position) => ({ id: `panel-${position}`, position, title: `镜头 ${position + 1}` })) } }) });
     assert.equal(sequence.response.status, 201);
     const segment = await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "车站全景", payload: { durationSeconds: 8, boundary: "cut", characterRefs: [{ id: "character-stable-id", revision: 3 }] } }) });
@@ -196,7 +232,7 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.equal(promptView.items[0].payload.storyboardSheet.hasImage, true);
     const storyboardWithoutStyle = await api(`/director/video-segments/${segment.body.data.id}/storyboard/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: 1 }) });
     assert.equal(storyboardWithoutStyle.response.status, 409);
-    assert.equal(storyboardWithoutStyle.body.error.code, "DIRECTOR_STAGE_GATE");
+    assert.equal(storyboardWithoutStyle.body.error.code, "DIRECTOR_ASSET_MISSING", "付费生成应先报告视频段中已经失效的素材引用");
     const directorStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "雨夜冷调", mode: "custom", description: "冷灰雨夜电影风格" }) });
     assert.equal(directorStyle.body.data.status, "draft", "导演风格可以保留通用存储状态，但不再以确认状态作为阶段门");
     const adoptedDirectorStyle = await api(`/visual-styles/${directorStyle.body.data.id}/default`, userOne, { method: "POST" });
@@ -218,6 +254,12 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     const stale = await api(`/director/projects/${projectId}`, userOne);
     assert.equal(stale.body.data.sequences[0].payload.needsReview, true);
     assert.equal(stale.body.data.videoSegments[0].payload.needsReview, true);
+    const revisedDirection = await api(`/director/projects/${projectId}/workspace`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, directingRules: { pacing: "关键反应后保留停顿" } }) });
+    assert.equal(revisedDirection.response.status, 200);
+    assert.equal(revisedDirection.body.data.directingRules.photography, "稳定观察人物与空间", "局部更新导演规则必须保留其他字段");
+    const directionStale = await api(`/director/projects/${projectId}`, userOne);
+    assert.equal(directionStale.body.data.videoSegments.every((item: { payload: { needsReview?: boolean } }) => item.payload.needsReview), true, "导演规则更新只标记现有视频段待检查");
+    assert.equal(directionStale.body.data.videoSegments.some((item: { payload: { storyboardStale?: boolean } }) => item.payload.storyboardStale), true, "已有故事板应因导演规则变化而过期，但不得自动重生成");
 });
 
 test("导演来源解析 Markdown、PDF 与 EPUB", async () => {
@@ -244,6 +286,38 @@ test("导演来源解析 Markdown、PDF 与 EPUB", async () => {
     const epubSource = await uploadDirectorSource(projectId, new Blob([Uint8Array.from(epub.toBuffer())], { type: "application/epub+zip" }), "novel.epub");
     assert.equal(epubSource.status, "ready");
     assert.equal(epubSource.chapterCount, 1);
+});
+
+test("导演文件工程支持哈希冲突、校验和 ZIP 往返", async () => {
+    const projectId = "director-file-workspace";
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "文件工程" }) });
+    await api(`/director/projects/${projectId}`, userOne);
+    const current = await api(`/director/projects/${projectId}/file?path=${encodeURIComponent("story/index.md")}`, userOne);
+    assert.equal(current.response.status, 200);
+    const content = `${current.body.data.content.trimEnd()}\n\n第一章正文。\n`;
+    const saved = await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", headers: { "If-Match": current.body.data.hash }, body: JSON.stringify({ path: "story/index.md", content }) });
+    assert.equal(saved.response.status, 200, JSON.stringify(saved.body));
+    const conflict = await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", headers: { "If-Match": current.body.data.hash }, body: JSON.stringify({ path: "story/index.md", content: `${content}\n旧页面覆盖` }) });
+    assert.equal(conflict.response.status, 409);
+    assert.equal(conflict.body.error.code, "DIRECTOR_FILE_CONFLICT");
+    const validation = await api(`/director/projects/${projectId}/validate`, userOne, { method: "POST", body: JSON.stringify({}) });
+    assert.equal(validation.body.data.valid, true);
+
+    const exportResponse = await fetch(`${origin}/director/projects/${projectId}/export`, { headers: userOne });
+    assert.equal(exportResponse.status, 200);
+    const archive = Buffer.from(await exportResponse.arrayBuffer());
+    assert.equal(archive.subarray(0, 2).toString(), "PK");
+    const importedResponse = await fetch(`${origin}/director/projects/import`, { method: "POST", headers: { ...userOne, "Content-Type": "application/zip", "X-Project-Name": encodeURIComponent("往返工程") }, body: new Uint8Array(archive) });
+    const importedBody = await importedResponse.json() as { data: { projectId: string }; error?: unknown };
+    assert.equal(importedResponse.status, 201, JSON.stringify(importedBody));
+    const imported = importedBody;
+    const importedStory = await api(`/director/projects/${imported.data.projectId}/file?path=${encodeURIComponent("story/index.md")}`, userOne);
+    assert.match(importedStory.body.data.content, /第一章正文/);
+
+    const malicious = new AdmZip();
+    malicious.addFile("/escape.txt", Buffer.from("escape"));
+    const rejected = await fetch(`${origin}/director/projects/import`, { method: "POST", headers: { ...userOne, "Content-Type": "application/zip" }, body: new Uint8Array(malicious.toBuffer()) });
+    assert.equal(rejected.status, 400);
 });
 
 test("创作资产按项目隔离、保存自然语言描述并检测 revision", async () => {

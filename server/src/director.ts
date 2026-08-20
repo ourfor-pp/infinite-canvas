@@ -7,11 +7,18 @@ import { convert } from "html-to-text";
 import { z } from "zod";
 import { db, parseJson } from "./database.js";
 import { getStoredFile, syncFileRefs } from "./file-store.js";
+import {
+    reconcileDirectorProjectFiles, syncDirectorBreakdownFile, syncDirectorDirectionFiles, syncDirectorDocumentFile,
+    syncDirectorSequenceFile, syncDirectorSourceFiles, syncDirectorTimelineFile, syncDirectorVideoSegmentFile, trashDirectorSequenceFolder, trashDirectorVideoSegmentFolder,
+} from "./director-workspace.js";
 
 export type DirectorEntityStatus = "draft" | "confirmed" | "locked";
-type WorkspaceRow = { project_id: string; user_id: string; target_duration_seconds: number; aspect_ratio: string; language: string; stage: string; status: DirectorEntityStatus; revision: number; created_at: string; updated_at: string };
+type DirectorDirectingRules = { photography: string; performance: string; pacing: string; sound: string; prohibitions: string };
+type WorkspaceRow = { project_id: string; user_id: string; target_duration_seconds: number; aspect_ratio: string; language: string; stage: string; status: DirectorEntityStatus; directing_rules: string; revision: number; created_at: string; updated_at: string };
 type SourceRow = { id: string; user_id: string; project_id: string; raw_file_id: string; name: string; mime_type: string; status: string; error: string | null; char_count: number; chapter_count: number; summary: string; outline: string; revision: number; created_at: string; updated_at: string };
 type DocumentRow = { project_id: string; user_id: string; kind: "story" | "script"; content: string; status: DirectorEntityStatus; revision: number; created_at: string; updated_at: string };
+type ScreenplayBreakdownRow = { project_id: string; user_id: string; script_revision: number; payload: string; revision: number; created_at: string; updated_at: string };
+type ScreenplayReview = { status: "not_run" | "passed" | "needs_revision"; targetDurationSeconds: number; estimatedDurationSeconds: number; issues: Array<{ type: "duration" | "repetition" | "causality" | "scene_function" | "coverage"; sceneIds: string[]; summary: string; suggestion: string }> };
 type SequenceRow = { id: string; user_id: string; project_id: string; position: number; title: string; summary: string; status: DirectorEntityStatus; payload: string; revision: number; created_at: string; updated_at: string };
 type ShotRow = { id: string; user_id: string; project_id: string; sequence_id: string; position: number; title: string; status: DirectorEntityStatus; payload: string; revision: number; created_at: string; updated_at: string };
 type TimelineRow = { project_id: string; user_id: string; payload: string; revision: number; created_at: string; updated_at: string };
@@ -26,8 +33,29 @@ const workspacePatch = z.object({
     revision: z.number().int().positive(), targetDurationSeconds: z.number().int().min(10).max(86_400).optional(),
     aspectRatio: z.enum(["16:9", "9:16", "1:1", "2.39:1"]).optional(), language: z.string().trim().min(2).max(20).optional(),
     stage: z.enum(["source", "story", "script", "style", "assets", "storyboard", "shots", "timeline", "render"]).optional(), status: status.optional(),
+    directingRules: z.object({
+        photography: z.string().trim().max(10_000), performance: z.string().trim().max(10_000), pacing: z.string().trim().max(10_000),
+        sound: z.string().trim().max(10_000), prohibitions: z.string().trim().max(10_000),
+    }).partial().optional(),
 });
 const documentPatch = z.object({ revision: z.number().int().positive(), content: z.string().max(20_000_000).optional() });
+const screenplayBeat = z.object({ id: id, summary: z.string().trim().min(1).max(2_000), estimatedSeconds: z.number().int().min(1).max(3_600) });
+const screenplayScene = z.object({
+    id, heading: z.string().trim().min(1).max(500), title: z.string().trim().min(1).max(300),
+    location: z.string().trim().min(1).max(300), timeOfDay: z.string().trim().min(1).max(100),
+    interiorExterior: z.enum(["interior", "exterior", "mixed"]), characterNames: z.array(z.string().trim().min(1).max(200)).max(100),
+    propNames: z.array(z.string().trim().min(1).max(200)).max(100), openingState: z.string().max(2_000), endingState: z.string().max(2_000),
+    dramaticTurn: z.string().max(2_000), requiredDialogue: z.array(z.string().trim().min(1).max(2_000)).max(100),
+    beats: z.array(screenplayBeat).min(1).max(100), estimatedSeconds: z.number().int().min(1).max(86_400),
+});
+const screenplayReviewIssue = z.object({
+    type: z.enum(["duration", "repetition", "causality", "scene_function", "coverage"]),
+    sceneIds: z.array(id).max(100), summary: z.string().trim().min(1).max(2_000), suggestion: z.string().trim().min(1).max(2_000),
+});
+const screenplayBreakdownPatch = z.object({
+    revision: z.number().int().positive(), scriptRevision: z.number().int().positive(),
+    scenes: z.array(screenplayScene).max(1_000), reviewIssues: z.array(screenplayReviewIssue).max(500),
+});
 const sequenceInput = z.object({ id: id.optional(), position: z.number().int().min(0).optional(), title: z.string().trim().min(1).max(300), summary: z.string().max(20_000).default(""), status: status.default("draft"), payload: record.default({}) });
 const sequencePatch = sequenceInput.partial().extend({ revision: z.number().int().positive() });
 const shotInput = z.object({ id: id.optional(), sequenceId: id, position: z.number().int().min(0).optional(), title: z.string().trim().min(1).max(300), status: status.default("draft"), payload: record.default({}) });
@@ -41,8 +69,10 @@ export function setDirectorEmitter(emitter: typeof emitDirectorUpdate) { emitDir
 
 export function getDirectorState(userId: string, projectId: string) {
     assertDirectorProject(userId, projectId);
+    reconcileDirectorProjectFiles(userId, projectId);
     const workspace = db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow;
     const documents = db.prepare("SELECT * FROM director_documents WHERE user_id=? AND project_id=? ORDER BY kind").all(userId, projectId) as DocumentRow[];
+    const screenplayBreakdown = db.prepare("SELECT * FROM director_screenplay_breakdowns WHERE user_id=? AND project_id=?").get(userId, projectId) as ScreenplayBreakdownRow;
     const sources = db.prepare("SELECT * FROM director_sources WHERE user_id=? AND project_id=? ORDER BY updated_at DESC").all(userId, projectId) as SourceRow[];
     const sequences = db.prepare("SELECT * FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position, created_at").all(userId, projectId) as SequenceRow[];
     const shots = db.prepare(`SELECT shot.* FROM director_shots shot
@@ -50,13 +80,14 @@ export function getDirectorState(userId: string, projectId: string) {
         WHERE shot.user_id=? AND shot.project_id=?
         ORDER BY sequence.position, shot.position, shot.created_at`).all(userId, projectId) as ShotRow[];
     const timeline = db.prepare("SELECT * FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
-    return { activeStyleId: activeStyleId(userId, projectId), workspace: workspaceResponse(workspace), documents: documents.map(documentResponse), sources: sources.map(sourceResponse), sequences: sequences.map(sequenceResponse), videoSegments: shots.map(videoSegmentResponse), timeline: timelineResponse(timeline) };
+    return { activeStyleId: activeStyleId(userId, projectId), workspace: workspaceResponse(workspace), documents: documents.map(documentResponse), screenplayBreakdown: screenplayBreakdownResponse(screenplayBreakdown, documents.find((item) => item.kind === "script")?.revision || 0), sources: sources.map(sourceResponse), sequences: sequences.map(sequenceResponse), videoSegments: shots.map(videoSegmentResponse), timeline: timelineResponse(timeline) };
 }
 
 export function getDirectorAgentOverview(userId: string, projectId: string) {
     assertDirectorProject(userId, projectId);
     const workspace = db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow;
     const documents = db.prepare("SELECT project_id,kind,length(trim(content)) > 0 has_content,revision,created_at,updated_at FROM director_documents WHERE user_id=? AND project_id=? ORDER BY kind").all(userId, projectId) as Array<{ project_id: string; kind: "story" | "script"; has_content: number; revision: number; created_at: string; updated_at: string }>;
+    const screenplayBreakdown = db.prepare("SELECT * FROM director_screenplay_breakdowns WHERE user_id=? AND project_id=?").get(userId, projectId) as ScreenplayBreakdownRow;
     const sources = db.prepare("SELECT id,project_id,raw_file_id,name,mime_type,status,error,char_count,chapter_count,summary,revision,created_at,updated_at FROM director_sources WHERE user_id=? AND project_id=? ORDER BY updated_at DESC").all(userId, projectId) as Array<Omit<SourceRow, "user_id" | "outline">>;
     const sequences = db.prepare("SELECT id,project_id,position,title,summary,status,revision,created_at,updated_at FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position,created_at").all(userId, projectId) as Array<Omit<SequenceRow, "user_id" | "payload">>;
     const videoSegmentCount = Number((db.prepare("SELECT count(*) count FROM director_shots WHERE user_id=? AND project_id=?").get(userId, projectId) as { count: number }).count);
@@ -65,6 +96,7 @@ export function getDirectorAgentOverview(userId: string, projectId: string) {
         activeStyleId: activeStyleId(userId, projectId),
         workspace: workspaceResponse(workspace),
         documents: documents.map((row) => ({ projectId: row.project_id, kind: row.kind, hasContent: Boolean(row.has_content), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
+        screenplayBreakdown: screenplayBreakdownSummary(screenplayBreakdown, documents.find((item) => item.kind === "script")?.revision || 0),
         sources: sources.map((row) => ({ id: row.id, projectId: row.project_id, fileId: row.raw_file_id, name: row.name, mimeType: row.mime_type, status: row.status, error: row.error, charCount: row.char_count, chapterCount: row.chapter_count, summary: row.summary, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
         sequences: sequences.map((row) => ({ id: row.id, projectId: row.project_id, position: row.position, title: row.title, summary: row.summary, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at })),
         videoSegmentCount,
@@ -76,11 +108,17 @@ export function updateDirectorWorkspace(userId: string, projectId: string, body:
     assertDirectorProject(userId, projectId);
     const value = workspacePatch.parse(body);
     const current = db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow;
+    const currentRules = parseJson<DirectorDirectingRules>(current.directing_rules, emptyDirectingRules());
+    const nextRules = { ...currentRules, ...value.directingRules };
+    const directingRulesChanged = Boolean(value.directingRules && JSON.stringify(nextRules) !== JSON.stringify(currentRules));
     const now = new Date().toISOString();
-    const result = db.prepare(`UPDATE director_workspaces SET target_duration_seconds=?, aspect_ratio=?, language=?, stage=?, status=?, revision=revision+1, updated_at=?
-        WHERE user_id=? AND project_id=? AND revision=?`).run(value.targetDurationSeconds ?? current.target_duration_seconds, value.aspectRatio ?? current.aspect_ratio, value.language ?? current.language, value.stage ?? current.stage, value.status ?? current.status, now, userId, projectId, value.revision);
+    const result = db.prepare(`UPDATE director_workspaces SET target_duration_seconds=?, aspect_ratio=?, language=?, stage=?, status=?, directing_rules=?, revision=revision+1, updated_at=?
+        WHERE user_id=? AND project_id=? AND revision=?`).run(value.targetDurationSeconds ?? current.target_duration_seconds, value.aspectRatio ?? current.aspect_ratio, value.language ?? current.language, value.stage ?? current.stage, value.status ?? current.status, JSON.stringify(nextRules), now, userId, projectId, value.revision);
     if (!result.changes) conflict("工作区", workspaceResponse(current));
-    return publish(userId, "workspace", projectId, workspaceResponse(db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow));
+    if (directingRulesChanged) markDirectingRulesDependentsStale(userId, projectId);
+    const updated = db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow;
+    syncDirectorDirectionFiles(userId, projectId);
+    return publish(userId, "workspace", projectId, workspaceResponse(updated));
 }
 
 export function createDirectorSource(userId: string, projectId: string, body: unknown) {
@@ -95,6 +133,7 @@ export function createDirectorSource(userId: string, projectId: string, body: un
     db.prepare(`INSERT INTO director_sources(id,user_id,project_id,raw_file_id,name,mime_type,status,created_at,updated_at)
         VALUES(?,?,?,?,?,?,'processing',?,?)`).run(sourceId, userId, projectId, value.fileId, file.original_name, file.mime_type, now, now);
     syncFileRefs(userId, "director_source", sourceId, { fileId: value.fileId });
+    syncDirectorSourceFiles(userId, projectId, sourceId);
     queueSourceProcessing(userId, sourceId);
     return sourceResponse(db.prepare("SELECT * FROM director_sources WHERE id=? AND user_id=?").get(sourceId, userId) as SourceRow);
 }
@@ -118,6 +157,7 @@ export function listDirectorSourceChunks(userId: string, sourceId: string, query
 
 export function getDirectorDocument(userId: string, projectId: string, kind: string) {
     assertDirectorProject(userId, projectId);
+    reconcileDirectorProjectFiles(userId, projectId);
     const documentKind = z.enum(["story", "script"]).parse(kind);
     const row = db.prepare("SELECT * FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, documentKind) as DocumentRow;
     return documentResponse(row);
@@ -142,7 +182,33 @@ export function updateDirectorDocument(userId: string, projectId: string, kind: 
     if (!result.changes) conflict(documentKind === "story" ? "故事" : "剧本", documentResponse(current));
     if (value.content !== undefined && value.content !== current.content) markDocumentDependentsStale(userId, projectId, documentKind, current.revision + 1);
     const updated = db.prepare("SELECT * FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, documentKind) as DocumentRow;
+    syncDirectorDocumentFile(userId, projectId, documentKind, updated.content, updated.revision);
     return publish(userId, `document.${documentKind}`, projectId, documentResponse(updated));
+}
+
+export function getDirectorScreenplayBreakdown(userId: string, projectId: string) {
+    assertDirectorProject(userId, projectId);
+    const row = db.prepare("SELECT * FROM director_screenplay_breakdowns WHERE user_id=? AND project_id=?").get(userId, projectId) as ScreenplayBreakdownRow;
+    const script = db.prepare("SELECT revision FROM director_documents WHERE user_id=? AND project_id=? AND kind='script'").get(userId, projectId) as { revision: number };
+    return screenplayBreakdownResponse(row, script.revision);
+}
+
+export function updateDirectorScreenplayBreakdown(userId: string, projectId: string, body: unknown) {
+    assertDirectorProject(userId, projectId);
+    const value = screenplayBreakdownPatch.parse(body);
+    const current = db.prepare("SELECT * FROM director_screenplay_breakdowns WHERE user_id=? AND project_id=?").get(userId, projectId) as ScreenplayBreakdownRow;
+    const script = db.prepare("SELECT revision FROM director_documents WHERE user_id=? AND project_id=? AND kind='script'").get(userId, projectId) as { revision: number };
+    if (value.scriptRevision !== script.revision) throw directorError(409, "DIRECTOR_SCRIPT_REVISION_STALE", "剧本已更新，请重新读取后再拆解", { currentScriptRevision: script.revision });
+    const targetDurationSeconds = Number((db.prepare("SELECT target_duration_seconds value FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as { value: number }).value);
+    const estimatedDurationSeconds = value.scenes.reduce((total, scene) => total + scene.estimatedSeconds, 0);
+    const payload = { scenes: value.scenes, estimatedDurationSeconds, review: { status: value.reviewIssues.length ? "needs_revision" : "passed", targetDurationSeconds, estimatedDurationSeconds, issues: value.reviewIssues } };
+    const now = new Date().toISOString();
+    const result = db.prepare(`UPDATE director_screenplay_breakdowns SET script_revision=?,payload=?,revision=revision+1,updated_at=?
+        WHERE user_id=? AND project_id=? AND revision=?`).run(value.scriptRevision, JSON.stringify(payload), now, userId, projectId, value.revision);
+    if (!result.changes) conflict("剧本制作拆解", screenplayBreakdownResponse(current, script.revision));
+    const updated = db.prepare("SELECT * FROM director_screenplay_breakdowns WHERE user_id=? AND project_id=?").get(userId, projectId) as ScreenplayBreakdownRow;
+    syncDirectorBreakdownFile(userId, projectId, payload, updated.revision);
+    return publish(userId, "screenplay-breakdown", projectId, screenplayBreakdownResponse(updated, script.revision));
 }
 
 export function listDirectorSequences(userId: string, projectId: string) {
@@ -190,6 +256,7 @@ export function createDirectorSequence(userId: string, projectId: string, body: 
     const dependencies = directorDependencies(userId, projectId);
     db.prepare(`INSERT INTO director_sequences(id,user_id,project_id,position,title,summary,status,payload,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?,?)`).run(sequenceId, userId, projectId, position, value.title, value.summary, value.status, JSON.stringify({ ...value.payload, dependencies, needsReview: false, storyboard: normalizeStoryboard(value.payload.storyboard) }), now, now);
+    syncDirectorSequenceFile(userId, projectId, sequenceId);
     return publish(userId, "sequence", projectId, sequenceResponse(db.prepare("SELECT * FROM director_sequences WHERE id=? AND user_id=?").get(sequenceId, userId) as SequenceRow));
 }
 
@@ -204,12 +271,16 @@ export function updateDirectorSequence(userId: string, sequenceId: string, body:
     const result = db.prepare(`UPDATE director_sequences SET position=?,title=?,summary=?,status=?,payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?`)
         .run(value.position ?? current.position, value.title ?? current.title, value.summary ?? current.summary, value.status ?? current.status, JSON.stringify(payload), now, sequenceId, userId, value.revision);
     if (!result.changes) conflict("剧情段落", sequenceResponse(current));
+    syncDirectorSequenceFile(userId, current.project_id, sequenceId);
     return publish(userId, "sequence", current.project_id, sequenceResponse(sequenceRow(userId, sequenceId)));
 }
 
 export function deleteDirectorSequence(userId: string, sequenceId: string, allowLocked = false) {
     const current = sequenceRow(userId, sequenceId);
     if (!allowLocked && current.status === "locked") throw directorError(423, "DIRECTOR_LOCKED", "剧情段落已锁定，需要通过 Agent 审批后删除");
+    const segmentIds = (db.prepare("SELECT id FROM director_shots WHERE user_id=? AND sequence_id=?").all(userId, sequenceId) as Array<{ id: string }>).map((row) => row.id);
+    segmentIds.forEach((id) => trashDirectorVideoSegmentFolder(userId, current.project_id, id));
+    trashDirectorSequenceFolder(userId, current.project_id, sequenceId);
     db.transaction(() => {
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='director_shot' AND owner_id IN (SELECT id FROM director_shots WHERE user_id=? AND sequence_id=?)").run(userId, userId, sequenceId);
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='director_sequence' AND owner_id=?").run(userId, sequenceId);
@@ -229,6 +300,7 @@ export function createDirectorShot(userId: string, projectId: string, body: unkn
     const payload = normalizeShotPayload(value.payload, sequence);
     db.prepare(`INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,status,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`)
         .run(shotId, userId, projectId, value.sequenceId, position, value.title, value.status, JSON.stringify(payload), now, now);
+    syncDirectorVideoSegmentFile(userId, projectId, shotId);
     return publish(userId, "video-segment", projectId, videoSegmentResponse(db.prepare("SELECT * FROM director_shots WHERE id=? AND user_id=?").get(shotId, userId) as ShotRow));
 }
 
@@ -247,12 +319,14 @@ export function updateDirectorShot(userId: string, shotId: string, body: unknown
         .run(sequenceId, value.position ?? current.position, value.title ?? current.title, value.status ?? current.status, JSON.stringify(payload), now, shotId, userId, value.revision);
     if (!result.changes) conflict("视频段", videoSegmentResponse(current));
     if (shotVideoChanged(current.payload, payload)) markContinuationDependentsStale(userId, current.project_id, shotId);
+    syncDirectorVideoSegmentFile(userId, current.project_id, shotId);
     return publish(userId, "video-segment", current.project_id, videoSegmentResponse(shotRow(userId, shotId)));
 }
 
 export function deleteDirectorShot(userId: string, shotId: string, allowLocked = false) {
     const current = shotRow(userId, shotId);
     if (!allowLocked && current.status === "locked") throw directorError(423, "DIRECTOR_LOCKED", "镜头已锁定，需要通过 Agent 审批后删除");
+    trashDirectorVideoSegmentFolder(userId, current.project_id, shotId);
     db.prepare("DELETE FROM director_shots WHERE id=? AND user_id=?").run(shotId, userId);
     return publish(userId, "video-segment.deleted", current.project_id, { id: shotId });
 }
@@ -266,7 +340,9 @@ export function updateDirectorTimeline(userId: string, projectId: string, body: 
     const result = db.prepare("UPDATE director_timelines SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND revision=?")
         .run(JSON.stringify(value.payload), now, userId, projectId, value.revision);
     if (!result.changes) conflict("时间线", timelineResponse(current));
-    return publish(userId, "timeline", projectId, timelineResponse(db.prepare("SELECT * FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow));
+    const updated = db.prepare("SELECT * FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
+    syncDirectorTimelineFile(userId, projectId, value.payload);
+    return publish(userId, "timeline", projectId, timelineResponse(updated));
 }
 
 export function resumeDirectorSourceProcessing() {
@@ -300,6 +376,7 @@ async function processSource(userId: string, sourceId: string) {
                 .run(normalized.reduce((sum, chapter) => sum + chapter.content.length, 0), normalized.length, buildLayeredSummary(summaries), summaries.join("\n").slice(0, 200_000), now, sourceId, userId);
         })();
         const updated = sourceRow(userId, sourceId);
+        syncDirectorSourceFiles(userId, updated.project_id, sourceId);
         publish(userId, "source", updated.project_id, sourceResponse(updated));
     } catch (error) {
         failSource(userId, sourceId, error instanceof Error ? error.message : "源文件解析失败");
@@ -389,6 +466,20 @@ function markDocumentDependentsStale(userId: string, projectId: string, kind: st
     shots.forEach((row) => {
         const payload = parseJson<Record<string, unknown>>(row.payload, {});
         updateShot.run(JSON.stringify({ ...payload, needsReview: true, staleReason: `${kind} revision ${revision}` }), now, row.id, userId);
+    });
+}
+
+function markDirectingRulesDependentsStale(userId: string, projectId: string) {
+    const now = new Date().toISOString();
+    const reason = "导演规则已更新";
+    const sequences = db.prepare("SELECT id,payload FROM director_sequences WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>;
+    const updateSequence = db.prepare("UPDATE director_sequences SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?");
+    sequences.forEach((row) => updateSequence.run(JSON.stringify({ ...parseJson<Record<string, unknown>>(row.payload, {}), needsReview: true, staleReason: reason }), now, row.id, userId));
+    const segments = db.prepare("SELECT id,payload FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>;
+    const updateSegment = db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?");
+    segments.forEach((row) => {
+        const payload = parseJson<Record<string, unknown>>(row.payload, {});
+        updateSegment.run(JSON.stringify({ ...payload, needsReview: true, staleReason: reason, storyboardStale: Boolean((payload.storyboardSheet as { imageFileId?: string } | undefined)?.imageFileId), h3PromptStale: Boolean(payload.h3PromptSnapshot), videoStale: Boolean(payload.videoFileId) }), now, row.id, userId);
     });
 }
 
@@ -508,9 +599,12 @@ function sourceRow(userId: string, sourceId: string) { const row = db.prepare("S
 function sequenceRow(userId: string, sequenceId: string) { const row = db.prepare("SELECT * FROM director_sequences WHERE id=? AND user_id=?").get(sequenceId, userId) as SequenceRow | undefined; if (!row) throw directorError(404, "DIRECTOR_SEQUENCE_NOT_FOUND", "剧情段落不存在"); return row; }
 function shotRow(userId: string, shotId: string) { const row = db.prepare("SELECT * FROM director_shots WHERE id=? AND user_id=?").get(shotId, userId) as ShotRow | undefined; if (!row) throw directorError(404, "DIRECTOR_SHOT_NOT_FOUND", "镜头不存在"); return row; }
 
-function workspaceResponse(row: WorkspaceRow) { return { projectId: row.project_id, targetDurationSeconds: row.target_duration_seconds, aspectRatio: row.aspect_ratio, language: row.language, stage: row.stage, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function emptyDirectingRules(): DirectorDirectingRules { return { photography: "", performance: "", pacing: "", sound: "", prohibitions: "" }; }
+function workspaceResponse(row: WorkspaceRow) { return { projectId: row.project_id, targetDurationSeconds: row.target_duration_seconds, aspectRatio: row.aspect_ratio, language: row.language, stage: row.stage, status: row.status, directingRules: parseJson<DirectorDirectingRules>(row.directing_rules, emptyDirectingRules()), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function sourceResponse(row: SourceRow) { return { id: row.id, projectId: row.project_id, fileId: row.raw_file_id, name: row.name, mimeType: row.mime_type, status: row.status, error: row.error, charCount: row.char_count, chapterCount: row.chapter_count, summary: row.summary, outline: row.outline, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function documentResponse(row: DocumentRow) { return { projectId: row.project_id, kind: row.kind, content: row.content, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function screenplayBreakdownResponse(row: ScreenplayBreakdownRow, currentScriptRevision: number) { const payload = parseJson<{ scenes?: unknown[]; estimatedDurationSeconds?: number; review?: ScreenplayReview }>(row.payload, {}); const targetDurationSeconds = Number((db.prepare("SELECT target_duration_seconds value FROM director_workspaces WHERE user_id=? AND project_id=?").get(row.user_id, row.project_id) as { value: number }).value); const estimatedDurationSeconds = Number(payload.estimatedDurationSeconds || 0); const review: ScreenplayReview = payload.review || { status: "not_run", targetDurationSeconds, estimatedDurationSeconds, issues: [] }; return { projectId: row.project_id, scriptRevision: row.script_revision, stale: row.script_revision !== currentScriptRevision, payload: { scenes: payload.scenes || [], estimatedDurationSeconds, review }, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function screenplayBreakdownSummary(row: ScreenplayBreakdownRow, currentScriptRevision: number) { const payload = screenplayBreakdownResponse(row, currentScriptRevision); return { scriptRevision: row.script_revision, stale: payload.stale, sceneCount: payload.payload.scenes.length, estimatedDurationSeconds: payload.payload.estimatedDurationSeconds, reviewStatus: (payload.payload.review as { status: string }).status, revision: row.revision, updatedAt: row.updated_at }; }
 function sequenceResponse(row: SequenceRow) { return { id: row.id, projectId: row.project_id, position: row.position, title: row.title, summary: row.summary, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function videoSegmentResponse(row: ShotRow) { return { id: row.id, projectId: row.project_id, sequenceId: row.sequence_id, position: row.position, title: row.title, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function videoSegmentPromptResponse(segment: ReturnType<typeof videoSegmentResponse>) {

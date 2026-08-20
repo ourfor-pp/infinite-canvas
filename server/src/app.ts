@@ -30,11 +30,15 @@ import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles,
 import { createVisualStyleAnalysis, createVisualStyleReferences } from "./visual-style-generation.js";
 import {
     createDirectorSequence, createDirectorSource, createDirectorVideoSegment, deleteDirectorSequence, deleteDirectorVideoSegment,
-    getDirectorDocument, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
-    updateDirectorDocument, updateDirectorSequence, updateDirectorTimeline, updateDirectorVideoSegment, updateDirectorWorkspace,
+    getDirectorDocument, getDirectorScreenplayBreakdown, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
+    updateDirectorDocument, updateDirectorScreenplayBreakdown, updateDirectorSequence, updateDirectorTimeline, updateDirectorVideoSegment, updateDirectorWorkspace,
 } from "./director.js";
 import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflight, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
+import {
+    ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorValidation, importDirectorProjectZip,
+    readDirectorTextFile, removeDirectorProjectWorkspace, validateDirectorProject, writeDirectorMarkdown,
+} from "./director-workspace.js";
 
 type ProjectKind = "canvas" | "director";
 type ProjectRow = { id: string; kind: ProjectKind; title: string; payload: string; revision: number; created_at: string; updated_at: string };
@@ -173,10 +177,47 @@ api.delete("/projects/:id", route((req) => {
         return { id: projectId };
     })();
     removeAgentProjectWorkspace(req.user.id, projectId);
+    removeDirectorProjectWorkspace(req.user.id, projectId);
     return result;
 }));
 
-api.get("/director/projects/:id", route((req) => getDirectorState(req.user.id, routeId(req))));
+api.get("/director/projects/:id", route((req) => {
+    ensureDirectorProjectWorkspace(req.user.id, routeId(req));
+    return getDirectorState(req.user.id, routeId(req));
+}));
+api.post("/director/projects/:id/validate", route((req) => validateDirectorProject(req.user.id, routeId(req), typeof req.body?.scope === "string" ? req.body.scope : "")));
+api.get("/director/projects/:id/validation", route((req) => getDirectorValidation(req.user.id, routeId(req))));
+api.get("/director/projects/:id/file", route((req) => readDirectorTextFile(req.user.id, routeId(req), String(req.query.path || ""))));
+api.put("/director/projects/:id/file", route((req) => writeDirectorMarkdown(req.user.id, routeId(req), String(req.body?.path || ""), String(req.body?.content || ""), typeof req.headers["if-match"] === "string" ? req.headers["if-match"].replace(/^\"|\"$/g, "") : undefined)));
+api.get("/director/projects/:id/export", (req, res, next) => {
+    try {
+        const result = exportDirectorProjectZip(req.user.id, routeId(req));
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`);
+        res.send(result.buffer);
+    } catch (error) { next(error); }
+});
+api.post("/director/projects/import", express.raw({ type: ["application/zip", "application/x-zip-compressed"], limit: config.maxUploadBytes }), (req, res, next) => {
+    try {
+        if (!Buffer.isBuffer(req.body)) throw apiError(415, "DIRECTOR_IMPORT_TYPE", "请上传 ZIP 工程包");
+        const projectId = nanoid();
+        const now = new Date().toISOString();
+        let title = "导入的导演项目";
+        try { title = decodeURIComponent(String(req.headers["x-project-name"] || title)).trim().slice(0, 200) || title; } catch { /* keep safe default */ }
+        db.transaction(() => {
+            db.prepare("INSERT INTO projects(id,user_id,kind,title,payload,revision,created_at,updated_at) VALUES(?,?,'director',?,?,1,?,?)").run(projectId, req.user.id, title, JSON.stringify({ id: projectId, kind: "director", title, createdAt: now, updatedAt: now }), now, now);
+            initializeDirectorProject(req.user.id, projectId, now);
+        })();
+        try {
+            const result = importDirectorProjectZip(req.user.id, projectId, req.body);
+            res.status(201).json({ data: result });
+        } catch (error) {
+            db.prepare("DELETE FROM projects WHERE id=? AND user_id=?").run(projectId, req.user.id);
+            removeDirectorProjectWorkspace(req.user.id, projectId);
+            throw error;
+        }
+    } catch (error) { next(error); }
+});
 api.get("/director/projects/:id/cast-review", route((req) => getDirectorCastReview(req.user.id, routeId(req))));
 api.post("/director/projects/:id/cast-review", route((req) => startDirectorCastReview(req.user.id, routeId(req)), 202));
 api.put("/director/projects/:id/workspace", route((req) => updateDirectorWorkspace(req.user.id, routeId(req), req.body)));
@@ -185,6 +226,8 @@ api.post("/director/sources/:id/retry", route((req) => retryDirectorSource(req.u
 api.get("/director/sources/:id/chunks", route((req) => listDirectorSourceChunks(req.user.id, routeId(req), req.query)));
 api.get("/director/projects/:id/documents/:kind", route((req) => getDirectorDocument(req.user.id, routeId(req), routeParam(req, "kind"))));
 api.put("/director/projects/:id/documents/:kind", route((req) => updateDirectorDocument(req.user.id, routeId(req), routeParam(req, "kind"), req.body)));
+api.get("/director/projects/:id/screenplay-breakdown", route((req) => getDirectorScreenplayBreakdown(req.user.id, routeId(req))));
+api.put("/director/projects/:id/screenplay-breakdown", route((req) => updateDirectorScreenplayBreakdown(req.user.id, routeId(req), req.body)));
 api.get("/director/projects/:id/sequences", route((req) => listDirectorSequences(req.user.id, routeId(req))));
 api.post("/director/projects/:id/sequences", route((req) => createDirectorSequence(req.user.id, routeId(req), req.body), 201));
 api.put("/director/sequences/:id", route((req) => updateDirectorSequence(req.user.id, routeId(req), req.body)));
@@ -495,6 +538,7 @@ function initializeDirectorProject(userId: string, projectId: string, now: strin
     const document = db.prepare("INSERT INTO director_documents(project_id, user_id, kind, created_at, updated_at) VALUES(?, ?, ?, ?, ?)");
     document.run(projectId, userId, "story", now, now);
     document.run(projectId, userId, "script", now, now);
+    db.prepare("INSERT INTO director_screenplay_breakdowns(project_id, user_id, created_at, updated_at) VALUES(?, ?, ?, ?)").run(projectId, userId, now, now);
     db.prepare("INSERT INTO director_timelines(project_id, user_id, payload, created_at, updated_at) VALUES(?, ?, ?, ?, ?)").run(projectId, userId, JSON.stringify({ tracks: [], segmentOrder: [] }), now, now);
 }
 

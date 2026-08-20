@@ -1,5 +1,6 @@
 import { serverRequest, uploadServerFile } from "./server";
-import type { DirectorDocument, DirectorProject, DirectorRender, DirectorSequence, DirectorSource, DirectorState, DirectorTimeline, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
+import type { DirectorDocument, DirectorProject, DirectorRender, DirectorScreenplayBreakdown, DirectorSequence, DirectorSource, DirectorState, DirectorTimeline, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
+import { serverApiUrl } from "./server";
 
 const enc = encodeURIComponent;
 export const directorApi = {
@@ -7,6 +8,19 @@ export const directorApi = {
     createProject: (title: string, id: string) => serverRequest<DirectorProject>("/projects", { method: "POST", body: JSON.stringify({ id, kind: "director", title }) }),
     project: (id: string) => serverRequest<DirectorProject>(`/projects/${enc(id)}`),
     state: (id: string) => serverRequest<DirectorState>(`/director/projects/${enc(id)}`),
+    validation: (id: string) => serverRequest<DirectorValidation>(`/director/projects/${enc(id)}/validation`),
+    validate: (id: string, scope = "") => serverRequest<DirectorValidation>(`/director/projects/${enc(id)}/validate`, { method: "POST", body: JSON.stringify({ scope }) }),
+    exportProject: async (id: string) => {
+        const response = await fetch(serverApiUrl(`/director/projects/${enc(id)}/export`));
+        if (!response.ok) throw new Error((await response.json().catch(() => null))?.error?.message || "工程导出失败");
+        return response.blob();
+    },
+    importProject: async (file: File) => {
+        const response = await fetch(serverApiUrl("/director/projects/import"), { method: "POST", headers: { "Content-Type": "application/zip", "X-Project-Name": encodeURIComponent(file.name.replace(/\.zip$/i, "")) }, body: file });
+        const result = await response.json().catch(() => null) as { data?: { projectId: string }; error?: { message?: string } } | null;
+        if (!response.ok) throw new Error(result?.error?.message || "工程导入失败");
+        return result!.data!;
+    },
     updateWorkspace: (id: string, value: Partial<DirectorWorkspace> & { revision: number }) => serverRequest<DirectorWorkspace>(`/director/projects/${enc(id)}/workspace`, { method: "PUT", body: JSON.stringify(value) }),
     addSource: async (projectId: string, file: File) => {
         const uploaded = await uploadServerFile(file, file.name);
@@ -15,6 +29,7 @@ export const directorApi = {
     retrySource: (id: string) => serverRequest<DirectorSource>(`/director/sources/${enc(id)}/retry`, { method: "POST" }),
     chunks: (id: string, q = "", offset = 0, limit = 50) => serverRequest<Array<{ id: string; ordinal: number; heading: string; content: string; summary: string }>>(`/director/sources/${enc(id)}/chunks?q=${enc(q)}&offset=${offset}&limit=${limit}`),
     updateDocument: (projectId: string, kind: "story" | "script", value: Pick<DirectorDocument, "revision"> & Partial<Pick<DirectorDocument, "content">>) => serverRequest<DirectorDocument>(`/director/projects/${enc(projectId)}/documents/${kind}`, { method: "PUT", body: JSON.stringify(value) }),
+    screenplayBreakdown: (projectId: string) => serverRequest<DirectorScreenplayBreakdown>(`/director/projects/${enc(projectId)}/screenplay-breakdown`),
     createSequence: (projectId: string, value: Record<string, unknown>) => serverRequest<DirectorSequence>(`/director/projects/${enc(projectId)}/sequences`, { method: "POST", body: JSON.stringify(value) }),
     updateSequence: (id: string, value: Record<string, unknown>) => serverRequest<DirectorSequence>(`/director/sequences/${enc(id)}`, { method: "PUT", body: JSON.stringify(value) }),
     deleteSequence: (id: string) => serverRequest(`/director/sequences/${enc(id)}`, { method: "DELETE" }),

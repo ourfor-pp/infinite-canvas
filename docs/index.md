@@ -19,6 +19,7 @@
 - [Testing Strategy](/docs/development/testing-strategy)
 - [fnOS Application Deployment and Unified Gateway](/docs/development/fnos-application-deployment)
 - [Canvas Data Structure](/docs/development/canvas-data-structure)
+- [Director File Project Format](/docs/development/director-file-project)
 - [Local ComfyUI Integration Handoff](./COMFYUI_HANDOFF.md)
 
 ## Business

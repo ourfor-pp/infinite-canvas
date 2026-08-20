@@ -14,6 +14,7 @@ import { setVisualStyleEmitter } from "./visual-styles.js";
 import { refreshMediaExecutorCatalog, syncMediaExecutorComfyServer } from "./media-executor-settings.js";
 import { resumeDirectorSourceProcessing, setDirectorEmitter } from "./director.js";
 import { resumeDirectorRenders, setDirectorRenderEmitter } from "./director-render.js";
+import { setDirectorWorkspaceEmitter } from "./director-workspace.js";
 
 syncMediaExecutorComfyServer();
 await refreshMediaExecutorCatalog();
@@ -80,6 +81,12 @@ setDirectorEmitter((userId, entity) => {
 });
 setDirectorRenderEmitter((userId, entity) => {
     const message = JSON.stringify({ type: "director.updated", data: entity });
+    clients.get(userId)?.forEach((client) => {
+        if (client.readyState === WebSocketClient.OPEN) client.send(message);
+    });
+});
+setDirectorWorkspaceEmitter((userId, projectId, diagnostics) => {
+    const message = JSON.stringify({ type: "director.updated", data: { type: "file-workspace", projectId, data: { diagnostics } } });
     clients.get(userId)?.forEach((client) => {
         if (client.readyState === WebSocketClient.OPEN) client.send(message);
     });
