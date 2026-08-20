@@ -15,6 +15,7 @@ export type DirectorDiagnostic = { severity: "error" | "warning" | "info"; code:
 export type DirectorValidation = { projectId: string; valid: boolean; scope?: string; diagnostics: DirectorDiagnostic[] };
 
 export type DirectorDirectingRules = {
+    intent: string;
     photography: string;
     performance: string;
     pacing: string;
@@ -59,6 +60,24 @@ export type DirectorDocument = {
     revision: number;
     createdAt: string;
     updatedAt: string;
+};
+
+export type DirectorLogicalDocumentPart = {
+    path: string;
+    id: string;
+    name: string;
+    order: number;
+    content: string;
+    hash: string;
+    revision: number;
+    index: boolean;
+};
+
+export type DirectorLogicalDocument = {
+    kind: "story" | "script";
+    revision: number;
+    content: string;
+    parts: DirectorLogicalDocumentPart[];
 };
 
 export type DirectorScreenplayBreakdown = {

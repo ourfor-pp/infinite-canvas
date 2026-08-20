@@ -142,7 +142,7 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.deepEqual(initial.body.data.documents.map((item: { kind: string }) => item.kind).sort(), ["script", "story"]);
     assert.equal(initial.body.data.screenplayBreakdown.stale, true);
     assert.equal(initial.body.data.timeline.revision, 1);
-    assert.deepEqual(initial.body.data.workspace.directingRules, { photography: "", performance: "", pacing: "", sound: "", prohibitions: "" });
+    assert.deepEqual(initial.body.data.workspace.directingRules, { intent: "", photography: "", performance: "", pacing: "", sound: "", prohibitions: "" });
     const directingPlan = await api(`/director/projects/${projectId}/workspace`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, directingRules: { photography: "稳定观察人物与空间", performance: "克制生活化", pacing: "完整动作优先", sound: "环境声维持空间连续", prohibitions: "禁止无意义慢动作" } }) });
     assert.equal(directingPlan.response.status, 200);
     assert.equal(directingPlan.body.data.revision, 2);
@@ -300,6 +300,44 @@ test("导演文件工程支持哈希冲突、校验和 ZIP 往返", async () => 
     const conflict = await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", headers: { "If-Match": current.body.data.hash }, body: JSON.stringify({ path: "story/index.md", content: `${content}\n旧页面覆盖` }) });
     assert.equal(conflict.response.status, 409);
     assert.equal(conflict.body.error.code, "DIRECTOR_FILE_CONFLICT");
+
+    const chapterTwo = `---\nid: chapter-workspace-002\nkind: story-chapter\nname: 第二章 雪夜\norder: 2\n---\n# 第二章 雪夜\n\n林夏循着怀表走进雪夜。\n`;
+    const chapterOne = `---\nid: chapter-workspace-001\nkind: story-chapter\nname: 第一章 车站\norder: 1\n---\n# 第一章 车站\n\n林夏在空站台捡到怀表。\n`;
+    assert.equal((await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", body: JSON.stringify({ path: "story/chapters/chapter-002.md", content: chapterTwo }) })).response.status, 200);
+    assert.equal((await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", body: JSON.stringify({ path: "story/chapters/chapter-001.md", content: chapterOne }) })).response.status, 200);
+    const logicalStory = await api(`/director/projects/${projectId}/logical-documents/story`, userOne);
+    assert.equal(logicalStory.response.status, 200);
+    assert.deepEqual(logicalStory.body.data.parts.map((part: { path: string }) => part.path), ["story/index.md", "story/chapters/chapter-001.md", "story/chapters/chapter-002.md"]);
+    assert.match(logicalStory.body.data.content, /## 第一章 车站[\s\S]*## 第二章 雪夜/);
+    const firstChapter = logicalStory.body.data.parts[1];
+    const revisedChapter = await api(`/director/projects/${projectId}/logical-documents/story/part`, userOne, { method: "PUT", headers: { "If-Match": firstChapter.hash }, body: JSON.stringify({ path: firstChapter.path, content: "# 第一章 车站\n\n林夏在末班车离开后捡到怀表。" }) });
+    assert.equal(revisedChapter.response.status, 200, JSON.stringify(revisedChapter.body));
+    assert.match(revisedChapter.body.data.content, /末班车离开后/);
+    const rawChapter = await api(`/director/projects/${projectId}/file?path=${encodeURIComponent(firstChapter.path)}`, userOne);
+    assert.match(rawChapter.body.data.content, /id: chapter-workspace-001/);
+    assert.equal((await api(`/director/projects/${projectId}/logical-documents/story/part`, userOne, { method: "PUT", headers: { "If-Match": firstChapter.hash }, body: JSON.stringify({ path: firstChapter.path, content: "旧章节" }) })).response.status, 409);
+
+    const sceneTwo = `---\nid: scene-workspace-002\nkind: screenplay-scene\nname: 第二场 候车厅\norder: 2\n---\n# 第二场 候车厅\n\n林夏推开旧门。\n`;
+    const sceneOne = `---\nid: scene-workspace-001\nkind: screenplay-scene\nname: 第一场 站台\norder: 1\n---\n# 第一场 站台\n\n雨水沿着站牌落下。\n`;
+    await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", body: JSON.stringify({ path: "screenplay/scenes/scene-002.md", content: sceneTwo }) });
+    await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", body: JSON.stringify({ path: "screenplay/scenes/scene-001.md", content: sceneOne }) });
+    const logicalScript = await api(`/director/projects/${projectId}/logical-documents/script`, userOne);
+    assert.deepEqual(logicalScript.body.data.parts.slice(1).map((part: { name: string }) => part.name), ["第一场 站台", "第二场 候车厅"]);
+    assert.match(logicalScript.body.data.content, /## 第一场 站台[\s\S]*## 第二场 候车厅/);
+
+    const currentStyle = await api(`/director/projects/${projectId}/file?path=${encodeURIComponent("direction/visual-style.md")}`, userOne);
+    assert.equal(currentStyle.response.status, 200);
+    const styleFrontmatter = currentStyle.body.data.content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/)?.[0] || "";
+    const styleContent = `${styleFrontmatter}# 水墨喜剧\n\n## 总体风格\n\n轻盈的水墨喜剧，留白充足。\n\n## 媒介\n\n二维水墨动画\n\n## 通用渲染\n\n宣纸晕染与清晰墨线并存\n\n## 角色呈现\n\n圆润剪影，表情清楚\n\n## 场景呈现\n\n浅景深的水墨山景\n\n## 道具呈现\n\n墨线勾勒结构\n\n## 色彩\n\n纸白、墨黑与少量朱砂\n\n## 光线\n\n柔和散射光\n\n## 反差\n\n中低反差\n\n## 材质与质感\n\n宣纸纤维与水痕\n\n## 镜头与景深\n\n绘本式空间层次\n\n## 构图\n\n大面积留白\n\n## 后期处理\n\n保留纸纹\n\n## 避免元素\n\n- 写实皮肤\n- 三维塑料感\n`;
+    const savedStyle = await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", headers: { "If-Match": currentStyle.body.data.hash }, body: JSON.stringify({ path: "direction/visual-style.md", content: styleContent }) });
+    assert.equal(savedStyle.response.status, 200, JSON.stringify(savedStyle.body));
+    const mirroredStyles = await api(`/projects/${projectId}/visual-styles`, userOne);
+    const mirroredStyle = mirroredStyles.body.data.find((item: { name: string }) => item.name === "水墨喜剧");
+    assert.equal(mirroredStyle.description, "轻盈的水墨喜剧，留白充足。");
+    assert.equal(mirroredStyle.dna.medium, "二维水墨动画");
+    assert.equal(mirroredStyle.dna.characterRendering, "圆润剪影，表情清楚");
+    assert.deepEqual(mirroredStyle.dna.exclusions, ["写实皮肤", "三维塑料感"]);
+
     const validation = await api(`/director/projects/${projectId}/validate`, userOne, { method: "POST", body: JSON.stringify({}) });
     assert.equal(validation.body.data.valid, true);
 
@@ -430,6 +468,30 @@ test("导演风格修改后旧统一风格板会标记过期", async () => {
     const stale = await api(`/visual-styles/${styleId}`, userOne);
     assert.equal(stale.body.data.boardStale, true);
     assert.equal(stale.body.data.referenceFileId, null, "旧风格板不得继续作为当前风格参考");
+});
+
+test("导演风格板迁入工程目录并随 Markdown 风格变化失效", async () => {
+    const projectId = "director-file-style-board";
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "文件风格板" }) });
+    const created = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "水墨模板", mode: "template", templateId: "ink-wash" }) });
+    assert.equal(created.response.status, 201, JSON.stringify(created.body));
+    assert.equal((await api(`/visual-styles/${created.body.data.id}/default`, userOne, { method: "POST" })).response.status, 200);
+
+    const styleFile = await api(`/director/projects/${projectId}/file?path=${encodeURIComponent("direction/visual-style.md")}`, userOne);
+    assert.match(styleFile.body.data.content, /referenceBoard: direction\/references\/style-board\.webp/);
+    const board = await fetch(`${origin}/director/projects/${projectId}/direction/style-board`, { headers: userOne });
+    assert.equal(board.status, 200);
+    assert.equal(board.headers.get("content-type"), "image/webp");
+
+    const archiveResponse = await fetch(`${origin}/director/projects/${projectId}/export`, { headers: userOne });
+    const archive = new AdmZip(Buffer.from(await archiveResponse.arrayBuffer()));
+    assert.ok(archive.getEntry("direction/references/style-board.webp"));
+
+    const revised = styleFile.body.data.content.replace("东方水墨动画", "东方水墨喜剧动画");
+    assert.equal((await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", headers: { "If-Match": styleFile.body.data.hash }, body: JSON.stringify({ path: "direction/visual-style.md", content: revised }) })).response.status, 200);
+    const revisedFile = await api(`/director/projects/${projectId}/file?path=${encodeURIComponent("direction/visual-style.md")}`, userOne);
+    assert.doesNotMatch(revisedFile.body.data.content, /referenceBoard:/);
+    assert.equal((await fetch(`${origin}/director/projects/${projectId}/direction/style-board`, { headers: userOne })).status, 404);
 });
 
 test("Agent 画布操作校验语义端口类型和单连接限制", async () => {

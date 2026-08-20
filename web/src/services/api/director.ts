@@ -1,5 +1,5 @@
 import { serverRequest, uploadServerFile } from "./server";
-import type { DirectorDocument, DirectorProject, DirectorRender, DirectorScreenplayBreakdown, DirectorSequence, DirectorSource, DirectorState, DirectorTimeline, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
+import type { DirectorDocument, DirectorLogicalDocument, DirectorProject, DirectorRender, DirectorScreenplayBreakdown, DirectorSequence, DirectorSource, DirectorState, DirectorTimeline, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
 import { serverApiUrl } from "./server";
 
 const enc = encodeURIComponent;
@@ -10,6 +10,8 @@ export const directorApi = {
     state: (id: string) => serverRequest<DirectorState>(`/director/projects/${enc(id)}`),
     validation: (id: string) => serverRequest<DirectorValidation>(`/director/projects/${enc(id)}/validation`),
     validate: (id: string, scope = "") => serverRequest<DirectorValidation>(`/director/projects/${enc(id)}/validate`, { method: "POST", body: JSON.stringify({ scope }) }),
+    file: (id: string, path: string) => serverRequest<{ path: string; content: string; hash: string }>(`/director/projects/${enc(id)}/file?path=${enc(path)}`),
+    updateMarkdownFile: (id: string, path: string, content: string, hash: string) => serverRequest<{ path: string; hash: string; diagnostics: DirectorValidation["diagnostics"] }>(`/director/projects/${enc(id)}/file`, { method: "PUT", headers: { "If-Match": `\"${hash}\"` }, body: JSON.stringify({ path, content }) }),
     exportProject: async (id: string) => {
         const response = await fetch(serverApiUrl(`/director/projects/${enc(id)}/export`));
         if (!response.ok) throw new Error((await response.json().catch(() => null))?.error?.message || "工程导出失败");
@@ -28,6 +30,8 @@ export const directorApi = {
     },
     retrySource: (id: string) => serverRequest<DirectorSource>(`/director/sources/${enc(id)}/retry`, { method: "POST" }),
     chunks: (id: string, q = "", offset = 0, limit = 50) => serverRequest<Array<{ id: string; ordinal: number; heading: string; content: string; summary: string }>>(`/director/sources/${enc(id)}/chunks?q=${enc(q)}&offset=${offset}&limit=${limit}`),
+    logicalDocument: (projectId: string, kind: "story" | "script") => serverRequest<DirectorLogicalDocument>(`/director/projects/${enc(projectId)}/logical-documents/${kind}`),
+    updateDocumentPart: (projectId: string, kind: "story" | "script", path: string, content: string, hash: string) => serverRequest<DirectorLogicalDocument>(`/director/projects/${enc(projectId)}/logical-documents/${kind}/part`, { method: "PUT", headers: { "If-Match": `\"${hash}\"` }, body: JSON.stringify({ path, content }) }),
     updateDocument: (projectId: string, kind: "story" | "script", value: Pick<DirectorDocument, "revision"> & Partial<Pick<DirectorDocument, "content">>) => serverRequest<DirectorDocument>(`/director/projects/${enc(projectId)}/documents/${kind}`, { method: "PUT", body: JSON.stringify(value) }),
     screenplayBreakdown: (projectId: string) => serverRequest<DirectorScreenplayBreakdown>(`/director/projects/${enc(projectId)}/screenplay-breakdown`),
     createSequence: (projectId: string, value: Record<string, unknown>) => serverRequest<DirectorSequence>(`/director/projects/${enc(projectId)}/sequences`, { method: "POST", body: JSON.stringify(value) }),

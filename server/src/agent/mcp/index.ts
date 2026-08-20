@@ -331,6 +331,7 @@ export function buildAgentMcpServer(
             stage: z.string().optional(),
             status: z.enum(["draft", "confirmed", "locked"]).optional(),
             directingRules: z.object({
+              intent: z.string().max(10_000),
               photography: z.string().max(10_000),
               performance: z.string().max(10_000),
               pacing: z.string().max(10_000),

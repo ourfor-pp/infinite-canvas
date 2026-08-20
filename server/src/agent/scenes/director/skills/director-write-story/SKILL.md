@@ -12,4 +12,4 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__directo
 
 最终 `story` 不得是人物表、大纲、节拍表、制作说明或项目分析，也不要混入场次 ID、镜头术语、素材 ID、时长和模型参数。除非用户明确只要策划，否则不得用“先给方案”代替正文。
 
-短篇可原子写回 `story/index.md`；长篇以 `story/index.md` 保存总览和阅读顺序，各章写入稳定命名的 `story/chapters/chapter-NNN.md`。修改前重新读取目标文件，保留 Frontmatter 的稳定 ID。保留用户已经确定的题材、人物关系、核心事件与结局，修订时只改变用户要求的范围。
+`story/` 在界面中是一份连续文档，但文件工程按章节保存：`story/index.md` 只写作品标题、简短总览和阅读顺序，所有文学正文都写入稳定命名的 `story/chapters/chapter-NNN.md`。短故事可以只有 `chapter-001.md`，也不得把正文重新塞回 `index.md`。修改前重新读取目标文件，保留 Frontmatter 的稳定 ID 和 `order`；章节增删或换序时同步更新总览。保留用户已经确定的题材、人物关系、核心事件与结局，修订时只改变用户要求的范围。

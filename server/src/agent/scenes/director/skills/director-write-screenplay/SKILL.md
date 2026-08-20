@@ -25,4 +25,4 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__directo
 
 任一项不满足时先重写草稿，不得仅在回复中宣称“已经递进”“因果完整”或“符合目标时长”。删除或合并无独立功能的场景；原故事的结果可以保留，但当原叙述的动机不足以支撑影视表演时，应重建可观察的因果过程，而不是逐句搬运。镜头、机位、焦段、剪辑、素材 ID、生成参数和精确时长估算全部留给后续制作拆解与分镜。
 
-总览和阅读顺序写入 `screenplay/index.md`，每个场次写入稳定 ID 的 `screenplay/scenes/scene-NNN.md`；修改前重新读取目标文件并保留 Frontmatter。只完成用户要求的剧本范围，不继续创建制作拆解、素材、视频段或媒体任务。
+`screenplay/` 在界面中是一份连续剧本，但文件工程按场次保存：总览和阅读顺序写入 `screenplay/index.md`，所有剧本正文写入稳定 ID 的 `screenplay/scenes/scene-NNN.md`，不得把场次正文同时复制到总览。修改前重新读取目标文件并保留 Frontmatter 的稳定 ID 和 `order`；场次增删或换序时同步更新总览。只完成用户要求的剧本范围，不继续创建制作拆解、素材、视频段或媒体任务。

@@ -1,4 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from "express";
+import { createReadStream } from "node:fs";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { authenticate, requireAdmin } from "./auth.js";
@@ -37,7 +38,7 @@ import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGen
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
 import {
     ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorValidation, importDirectorProjectZip,
-    readDirectorTextFile, removeDirectorProjectWorkspace, validateDirectorProject, writeDirectorMarkdown,
+    readDirectorLogicalDocument, readDirectorStyleBoard, readDirectorTextFile, removeDirectorProjectWorkspace, validateDirectorProject, writeDirectorDocumentPart, writeDirectorMarkdown,
 } from "./director-workspace.js";
 
 type ProjectKind = "canvas" | "director";
@@ -189,6 +190,18 @@ api.post("/director/projects/:id/validate", route((req) => validateDirectorProje
 api.get("/director/projects/:id/validation", route((req) => getDirectorValidation(req.user.id, routeId(req))));
 api.get("/director/projects/:id/file", route((req) => readDirectorTextFile(req.user.id, routeId(req), String(req.query.path || ""))));
 api.put("/director/projects/:id/file", route((req) => writeDirectorMarkdown(req.user.id, routeId(req), String(req.body?.path || ""), String(req.body?.content || ""), typeof req.headers["if-match"] === "string" ? req.headers["if-match"].replace(/^\"|\"$/g, "") : undefined)));
+api.get("/director/projects/:id/direction/style-board", (req, res, next) => {
+    try {
+        const file = readDirectorStyleBoard(req.user.id, routeId(req));
+        res.setHeader("Content-Type", file.mimeType);
+        res.setHeader("Content-Length", file.bytes);
+        res.setHeader("ETag", `\"${file.hash}\"`);
+        res.setHeader("Cache-Control", "private, max-age=3600");
+        createReadStream(file.path).pipe(res);
+    } catch (error) { next(error); }
+});
+api.get("/director/projects/:id/logical-documents/:kind", route((req) => readDirectorLogicalDocument(req.user.id, routeId(req), routeParam(req, "kind"))));
+api.put("/director/projects/:id/logical-documents/:kind/part", route((req) => writeDirectorDocumentPart(req.user.id, routeId(req), routeParam(req, "kind"), String(req.body?.path || ""), String(req.body?.content || ""), typeof req.headers["if-match"] === "string" ? req.headers["if-match"].replace(/^\"|\"$/g, "") : undefined)));
 api.get("/director/projects/:id/export", (req, res, next) => {
     try {
         const result = exportDirectorProjectZip(req.user.id, routeId(req));
@@ -534,7 +547,7 @@ function projectResponse(row: ProjectRow) {
 }
 
 function initializeDirectorProject(userId: string, projectId: string, now: string) {
-    db.prepare("INSERT INTO director_workspaces(project_id, user_id, created_at, updated_at) VALUES(?, ?, ?, ?)").run(projectId, userId, now, now);
+    db.prepare("INSERT INTO director_workspaces(project_id, user_id, directing_rules, created_at, updated_at) VALUES(?, ?, ?, ?, ?)").run(projectId, userId, JSON.stringify({ intent: "", photography: "", performance: "", pacing: "", sound: "", prohibitions: "" }), now, now);
     const document = db.prepare("INSERT INTO director_documents(project_id, user_id, kind, created_at, updated_at) VALUES(?, ?, ?, ?, ?)");
     document.run(projectId, userId, "story", now, now);
     document.run(projectId, userId, "script", now, now);

@@ -25,7 +25,7 @@ test("故事板只继承视觉风格并明确忽略风格中的快切节奏", ()
     assert.match(prompt, /Visual appearance only/);
     assert.match(prompt, /Ignore any editing-rhythm, rapid-cut, montage or pacing instructions/);
     assert.match(prompt, /Within one Shot, keep the same camera setup/);
-    assert.match(prompt, /Project directing rules: photography — 稳定观察/);
+    assert.match(prompt, /Project directing rules: core intent — not specified; photography — 稳定观察/);
     assert.match(prompt, /prohibitions — 禁止无意义慢动作/);
 });
 

@@ -6,10 +6,8 @@ import {
     Bell,
     Bot,
     Braces,
-    Camera,
     Check,
     ChevronRight,
-    ChevronDown,
     Clock3,
     Clapperboard,
     Copy,
@@ -23,7 +21,6 @@ import {
     Lock,
     Loader2,
     Maximize2,
-    NotebookText,
     Package,
     Palette,
     Pause,
@@ -35,7 +32,6 @@ import {
     Save,
     Scissors,
     ScrollText,
-    SlidersHorizontal,
     Sparkles,
     SkipBack,
     SkipForward,
@@ -59,8 +55,8 @@ import { serverApi, serverApiUrl, uploadServerFile, type ServerGeneration } from
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useDirectorStore } from "@/stores/use-director-store";
 import type { CreativeAsset, CreativeAssetKind } from "@/types/creative-asset";
-import type { DirectorDirectingRules, DirectorDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorState, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
-import type { VisualStyle, VisualStyleDna, VisualStyleTemplate } from "@/types/visual-style";
+import type { DirectorDocument, DirectorLogicalDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorState, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
+import type { VisualStyle, VisualStyleTemplate } from "@/types/visual-style";
 import { DirectorMarkdownEditor } from "./components/director-markdown-editor";
 import { WorkspaceImagePreviewLightbox, type WorkspaceImagePreviewItem } from "@/components/workspace-image-preview-lightbox";
 import { useCopyText } from "@/hooks/use-copy-text";
@@ -199,7 +195,7 @@ export default function DirectorProjectPage() {
                             </Tooltip>
                         </div>
                     </header>
-                    <section className={`min-w-0 flex-1 bg-white ${active === "story" || active === "script" || active === "storyboard" ? "overflow-hidden" : "overflow-auto"}`}>
+                    <section className={`min-w-0 flex-1 bg-white ${active === "story" || active === "script" || active === "style" || active === "storyboard" ? "overflow-hidden" : "overflow-auto"}`}>
                         {active === "overview" ? <Overview state={state} assets={assets} styles={styles} onNavigate={(target) => navigate(`/director/${id}/${target}`)} /> : null}
                         {active === "story" || active === "script" ? <Writing projectId={id} kind={active} state={state} onRefresh={refresh} /> : null}
                         {active === "style" ? <DirectorTreatmentPage projectId={id} workspace={state.workspace} activeStyleId={state.activeStyleId} styles={styles} onRefresh={refresh} /> : null}
@@ -462,26 +458,54 @@ function formatScreenplayPreview(source: string) {
     }).join("\n");
 }
 
+function composeDirectorDocumentParts(document: DirectorLogicalDocument, selectedPath: string | undefined, selectedContent: string) {
+    return document.parts.map((part) => {
+        const content = (part.path === selectedPath ? selectedContent : part.content).trim();
+        return part.index ? content : content.replace(/^#\s+/, "## ");
+    }).filter(Boolean).join("\n\n");
+}
+
 function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kind: "story" | "script"; state: DirectorState; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const fileRef = useRef<HTMLInputElement>(null);
     const source = state.sources[0];
     const document = state.documents.find((item) => item.kind === kind)!;
-    const [content, setContent] = useState(document.content);
+    const [logicalDocument, setLogicalDocument] = useState<DirectorLogicalDocument>();
+    const [selectedPartPath, setSelectedPartPath] = useState("");
+    const selectedPartPathRef = useRef(selectedPartPath);
+    selectedPartPathRef.current = selectedPartPath;
+    const [partContent, setPartContent] = useState("");
+    const [documentLoading, setDocumentLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [editing, setEditing] = useState(false);
     const [activeOutline, setActiveOutline] = useState(0);
     const previewRef = useRef<HTMLElement>(null);
     const outlineRef = useRef<HTMLElement>(null);
+    const selectedPart = logicalDocument?.parts.find((part) => part.path === selectedPartPath) || logicalDocument?.parts[0];
+    const dirty = Boolean(selectedPart && partContent !== selectedPart.content);
+    const dirtyRef = useRef(dirty);
+    dirtyRef.current = dirty;
     useEffect(() => {
-        setContent(document.content);
-        setEditing(false);
-        setActiveOutline(0);
-    }, [document.content, kind]);
+        let active = true;
+        setDocumentLoading(true);
+        void directorApi.logicalDocument(projectId, kind).then((next) => {
+            if (!active || dirtyRef.current) return;
+            const nextPath = next.parts.some((part) => part.path === selectedPartPathRef.current) ? selectedPartPathRef.current : (next.parts.find((part) => !part.index) || next.parts[0])?.path || "";
+            setLogicalDocument(next);
+            setSelectedPartPath(nextPath);
+            setPartContent(next.parts.find((part) => part.path === nextPath)?.content || "");
+            setActiveOutline(0);
+        }).catch((error) => active && message.error(error instanceof Error ? error.message : "文档读取失败")).finally(() => active && setDocumentLoading(false));
+        return () => { active = false; };
+    }, [document.revision, kind, projectId]);
+    useEffect(() => {
+        if (selectedPart) setPartContent(selectedPart.content);
+    }, [selectedPart?.hash, selectedPart?.path]);
     const giveAgent = useAgentStore((store) => store.prepareComposer);
-    const dirty = content !== document.content;
+    const content = useMemo(() => logicalDocument ? composeDirectorDocumentParts(logicalDocument, selectedPart?.path, partContent) : document.content, [document.content, logicalDocument, partContent, selectedPart?.path]);
     const contentLength = content.replace(/\s/g, "").length;
-    const sectionCount = (content.match(/^##\s/gm) || []).length;
+    const physicalParts = logicalDocument?.parts.filter((part) => !part.index) || [];
+    const sectionCount = physicalParts.length || (content.match(/^##\s/gm) || []).length;
     const previewContent = useMemo(() => kind === "script" ? formatScreenplayPreview(content) : content, [content, kind]);
     const screenplayDuration = kind === "script" && !state.screenplayBreakdown.stale && state.screenplayBreakdown.scriptRevision === document.revision
         ? state.screenplayBreakdown.payload.estimatedDurationSeconds : 0;
@@ -490,7 +514,7 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
         .map((line) => line.match(/^(#{1,3})\s+(.+)/))
         .filter((match) => Boolean(match) && (kind !== "script" || match![1].length === 2))
         .map((match, index) => ({ id: index + 1, depth: match![1].length, title: match![2] }));
-    const previewHeadings = () => Array.from(previewRef.current?.querySelectorAll<HTMLElement>("h1, h2, h3") || []);
+    const previewHeadings = () => Array.from(previewRef.current?.querySelectorAll<HTMLElement>(kind === "script" ? "h2" : "h1, h2, h3") || []);
     const navigateOutline = (index: number) => {
         const preview = previewRef.current;
         const heading = previewHeadings()[index];
@@ -518,11 +542,15 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
         else if (itemBottom > container.scrollTop + container.clientHeight) container.scrollTo({ top: itemBottom - container.clientHeight + 8, behavior: "smooth" });
     }, [activeOutline]);
     const save = async () => {
+        if (!selectedPart) return;
         setBusy(true);
         try {
-            await directorApi.updateDocument(projectId, kind, { revision: document.revision, content });
+            const next = await directorApi.updateDocumentPart(projectId, kind, selectedPart.path, partContent, selectedPart.hash);
+            setLogicalDocument(next);
+            const savedPart = next.parts.find((part) => part.path === selectedPart.path);
+            if (savedPart) setPartContent(savedPart.content);
             await onRefresh();
-            message.success("已保存");
+            message.success(`${selectedPart.name}已保存`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "保存失败");
         } finally {
@@ -564,6 +592,7 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
                     ) : null}
                 </div>
                 <div className="flex items-center gap-2">
+                    {editing && (logicalDocument?.parts.length || 0) > 1 ? <Select className="director-document-part-select" size="small" variant="borderless" aria-label={`选择要编辑的${kind === "story" ? "章节" : "场次"}`} value={selectedPart?.path} disabled={dirty || busy} options={logicalDocument!.parts.map((part) => ({ value: part.path, label: part.index ? `${kind === "story" ? "故事" : "剧本"}总览` : part.name }))} onChange={(path) => { setSelectedPartPath(path); setPartContent(logicalDocument!.parts.find((part) => part.path === path)?.content || ""); }} /> : null}
                     {kind === "story" ? (
                         source?.status === "failed" ? (
                             <Button type="text" size="small" className="!text-rose-600" onClick={() => void directorApi.retrySource(source.id).then(onRefresh)}>
@@ -600,7 +629,7 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
                 </div>
             </div>
             {!editing ? (
-                <div data-testid={`director-${kind}-preview`} className={`director-document-preview thin-scrollbar ${kind === "script" ? "director-script-preview" : "director-story-preview"}`}>
+                documentLoading && !logicalDocument ? <div className="grid h-full place-items-center"><Spin size="small" /></div> : <div data-testid={`director-${kind}-preview`} className={`director-document-preview thin-scrollbar ${kind === "script" ? "director-script-preview" : "director-story-preview"}`}>
                     {kind === "script" ? (
                         <aside ref={outlineRef} className="director-script-outline thin-scrollbar" aria-label="剧本场次目录">
                             <div className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 px-5 pb-3 pt-5 text-xs font-semibold text-slate-900">场次目录</div>
@@ -634,13 +663,13 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
                 </div>
             ) : (
                 <DirectorMarkdownEditor
-                    key={`${projectId}:${kind}:${document.revision}`}
-                    content={content}
+                    key={`${projectId}:${kind}:${selectedPart?.path}:${selectedPart?.hash}`}
+                    content={partContent}
                     dirty={dirty}
                     saving={busy}
-                    label={`${kind === "story" ? "故事" : "剧本"} Markdown 编辑器`}
-                    placeholder={kind === "story" ? "在这里创作故事" : "按场次写动作、对白与旁白"}
-                    onChange={setContent}
+                    label={`${selectedPart?.name || (kind === "story" ? "故事" : "剧本")} Markdown 编辑器`}
+                    placeholder={kind === "story" ? "在这里创作当前章节" : "按场次写动作、对白与旁白"}
+                    onChange={setPartContent}
                 />
             )}
         </div>
@@ -742,36 +771,120 @@ function AssetGallery({ projectId, assets, generations, onGeneration, onRefresh 
     );
 }
 
-const emptyStyleDna: VisualStyleDna = { mediumFamily: "live_action", medium: "", rendering: "", characterRendering: "", sceneRendering: "", propRendering: "", palette: "", lighting: "", contrast: "", texture: "", lensAndDepth: "", composition: "", postProcessing: "", exclusions: [] };
-const dnaLabels: Array<[Exclude<keyof VisualStyleDna, "exclusions" | "mediumFamily">, string]> = [["medium", "媒介"], ["rendering", "通用渲染"], ["characterRendering", "角色呈现"], ["sceneRendering", "场景呈现"], ["propRendering", "道具呈现"], ["palette", "色彩"], ["lighting", "光线"], ["contrast", "反差"], ["texture", "质感"], ["lensAndDepth", "镜头与景深"], ["composition", "构图"], ["postProcessing", "后期"]];
-const mediumFamilyOptions: Array<{ value: VisualStyleDna["mediumFamily"]; label: string }> = [{ value: "live_action", label: "真人摄影" }, { value: "animation_2d", label: "二维动画" }, { value: "animation_3d", label: "三维动画" }, { value: "illustration", label: "插画" }, { value: "handmade", label: "手工媒介" }, { value: "graphic", label: "图形风格" }];
-const emptyDirectingRules: DirectorDirectingRules = { photography: "", performance: "", pacing: "", sound: "", prohibitions: "" };
-const directingRuleFields: Array<{ key: keyof DirectorDirectingRules; label: string; hint: string; placeholder: string }> = [
-    { key: "photography", label: "摄影", hint: "镜头怎样观看人物与空间", placeholder: "例如：以稳定观察为主；近景留给关键反应，运动镜头必须有明确叙事动机。" },
-    { key: "performance", label: "表演", hint: "演员的表达尺度与反应方式", placeholder: "例如：克制、生活化；情绪先通过停顿、视线和动作呈现，不用台词解释。" },
-    { key: "pacing", label: "节奏", hint: "停留、切镜、留白与信息释放", placeholder: "例如：完整动作优先；笑点后留反应空间，不为追求热闹频繁切特写。" },
-    { key: "sound", label: "声音", hint: "对白、环境声、动作声与音乐原则", placeholder: "例如：对白清楚自然；环境声维持空间连续，音乐只在段落转折进入。" },
-    { key: "prohibitions", label: "全片禁区", hint: "整部影片统一避免的表达", placeholder: "例如：禁止无意义慢动作、每句对白切特写、滥用升格和用旁白重复画面信息。" },
-];
+const directingRulesPath = "direction/directing-rules.md";
+const visualStylePath = "direction/visual-style.md";
+
+function splitMarkdownFrontmatter(source: string) {
+    const match = source.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+    return { frontmatter: match?.[0] || "", body: source.slice(match?.[0].length || 0).trim() };
+}
+
+function normalizeDirectingRulesMarkdown(source: string) {
+    const legacyHeadings: Record<string, string> = { photography: "摄影与空间", performance: "表演", pacing: "叙事与剪辑节奏", sound: "声音", prohibitions: "全片禁区" };
+    let value = source.replace(/^##\s+(photography|performance|pacing|sound|prohibitions)\s*$/gm, (_, key: string) => `## ${legacyHeadings[key]}`);
+    if (!/^#\s+导演规则\s*$/m.test(value)) value = `# 导演规则\n\n${value}`;
+    if (!/^##\s+核心导演意图\s*$/m.test(value)) value = value.replace(/^#\s+导演规则\s*$/m, "# 导演规则\n\n## 核心导演意图\n\n在这里概括整部影片希望观众获得的核心感受，以及所有部门共同遵循的表达方向。");
+    return value.trim();
+}
+
+function visualStyleMarkdown(style?: VisualStyle) {
+    if (!style) return "# 视觉风格\n\n## 总体风格\n\n在这里描述全片统一的画面表达。";
+    const dna = style.dna;
+    return [
+        `# ${style.name}`,
+        "## 总体风格", style.description,
+        "## 媒介", dna.medium,
+        "## 通用渲染", dna.rendering,
+        "## 角色呈现", dna.characterRendering,
+        "## 场景呈现", dna.sceneRendering,
+        "## 道具呈现", dna.propRendering,
+        "## 色彩", dna.palette,
+        "## 光线", dna.lighting,
+        "## 反差", dna.contrast,
+        "## 材质与质感", dna.texture,
+        "## 镜头与景深", dna.lensAndDepth,
+        "## 构图", dna.composition,
+        "## 后期处理", dna.postProcessing,
+        "## 避免元素", dna.exclusions.map((item) => `- ${item}`).join("\n"),
+    ].join("\n\n").trim();
+}
+
+function normalizeVisualStyleMarkdown(source: string, style?: VisualStyle) {
+    const value = source.trim();
+    return /^##\s+总体风格\s*$/m.test(value) ? value : visualStyleMarkdown(style);
+}
 
 function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, onRefresh }: { projectId: string; workspace: DirectorWorkspace; activeStyleId: string | null; styles: VisualStyle[]; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
     const [templates, setTemplates] = useState<VisualStyleTemplate[]>([]);
     const [selectedId, setSelectedId] = useState("");
-    const [draft, setDraft] = useState<{ name: string; description: string; dna: VisualStyleDna }>({ name: "", description: "", dna: emptyStyleDna });
-    const [rules, setRules] = useState<DirectorDirectingRules>(workspace.directingRules || emptyDirectingRules);
     const [busy, setBusy] = useState("");
-    const [customOpen, setCustomOpen] = useState(false);
-    const [advancedOpen, setAdvancedOpen] = useState(false);
     const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+    const [styleDocument, setStyleDocument] = useState("");
+    const [savedStyleDocument, setSavedStyleDocument] = useState("");
+    const [styleFrontmatter, setStyleFrontmatter] = useState("");
+    const [styleHash, setStyleHash] = useState("");
+    const [styleEditorVersion, setStyleEditorVersion] = useState(0);
+    const [styleSaveBlocked, setStyleSaveBlocked] = useState("");
+    const [styleLoading, setStyleLoading] = useState(true);
+    const [editingStyle, setEditingStyle] = useState(false);
+    const [rules, setRules] = useState("");
+    const [savedRules, setSavedRules] = useState("");
+    const [rulesFrontmatter, setRulesFrontmatter] = useState("");
+    const [rulesHash, setRulesHash] = useState("");
+    const [rulesEditorVersion, setRulesEditorVersion] = useState(0);
+    const [rulesSaveBlocked, setRulesSaveBlocked] = useState("");
+    const [rulesLoading, setRulesLoading] = useState(true);
+    const [editingRules, setEditingRules] = useState(false);
+    const styleDirtyRef = useRef(false);
+    const rulesDirtyRef = useRef(false);
+    const uploadRef = useRef<HTMLInputElement>(null);
     const style = styles.find((item) => item.id === selectedId);
-    const template = templates.find((item) => item.id === style?.templateId);
-    const previewUrl = style?.references.board && !style.boardStale ? serverApiUrl(`/files/${style.references.board}/content`) : template ? `${import.meta.env.BASE_URL}${template.preview}` : "";
+    const previewUrl = style?.references.board && !style.boardStale ? serverApiUrl(`/director/projects/${projectId}/direction/style-board?v=${style.revision}`) : "";
+    const styleDirty = styleDocument !== savedStyleDocument;
+    const rulesDirty = rules !== savedRules;
+    useEffect(() => { styleDirtyRef.current = styleDirty; }, [styleDirty]);
+    useEffect(() => { rulesDirtyRef.current = rulesDirty; }, [rulesDirty]);
     useEffect(() => { void serverApi.visualStyleTemplates().then(setTemplates); }, []);
     useEffect(() => { setSelectedId(activeStyleId || styles[0]?.id || ""); }, [activeStyleId, styles[0]?.id]);
-    useEffect(() => { if (style) setDraft({ name: style.name, description: style.description, dna: structuredClone(style.dna) }); }, [style]);
-    useEffect(() => { setRules(workspace.directingRules || emptyDirectingRules); }, [workspace.revision]);
+    useEffect(() => {
+        let canceled = false;
+        setStyleLoading(true);
+        void directorApi.file(projectId, visualStylePath).then((file) => {
+            if (canceled || styleDirtyRef.current || file.hash === styleHash) return;
+            const document = splitMarkdownFrontmatter(file.content);
+            const normalized = normalizeVisualStyleMarkdown(document.body, style);
+            setStyleFrontmatter(document.frontmatter);
+            setStyleDocument(normalized);
+            setSavedStyleDocument(document.body.trim());
+            setStyleHash(file.hash);
+            setStyleSaveBlocked("");
+            setStyleEditorVersion((value) => value + 1);
+        }).catch((error) => {
+            if (!canceled) message.error(error instanceof Error ? error.message : "视觉风格读取失败");
+        }).finally(() => { if (!canceled) setStyleLoading(false); });
+        return () => { canceled = true; };
+    }, [projectId, workspace.revision, style?.revision, message]);
+    useEffect(() => {
+        let canceled = false;
+        setRulesLoading(true);
+        void directorApi.file(projectId, directingRulesPath).then((file) => {
+            if (canceled || rulesDirtyRef.current) return;
+            if (file.hash === rulesHash) return;
+            const document = splitMarkdownFrontmatter(file.content);
+            const normalized = normalizeDirectingRulesMarkdown(document.body);
+            setRulesFrontmatter(document.frontmatter);
+            setRules(normalized);
+            setSavedRules(normalized);
+            setRulesHash(file.hash);
+            setRulesSaveBlocked("");
+            setRulesEditorVersion((value) => value + 1);
+        }).catch((error) => {
+            if (!canceled) message.error(error instanceof Error ? error.message : "导演规则读取失败");
+        }).finally(() => { if (!canceled) setRulesLoading(false); });
+        return () => { canceled = true; };
+    }, [projectId, workspace.revision, message]);
     const run = async (label: string, action: () => Promise<unknown>) => {
         setBusy(label);
         try { await action(); await onRefresh(); message.success("导演方案已更新"); }
@@ -786,65 +899,83 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
         await serverApi.setDefaultVisualStyle(current.id);
         setTemplatePickerOpen(false);
     });
-    const persist = async () => {
-        let current: VisualStyle;
-        if (style) {
-            const unchanged = draft.name === style.name && draft.description === style.description && JSON.stringify(draft.dna) === JSON.stringify(style.dna);
-            current = unchanged ? style : await serverApi.updateVisualStyle(style.id, { revision: style.revision, name: draft.name, mode: "custom", templateId: null, description: draft.description, dna: draft.dna });
-        } else {
-            current = await serverApi.createVisualStyle(projectId, { ...draft, mode: "custom", references: {} });
-            setSelectedId(current.id);
+    const generateBoard = () => void run("board", async () => { if (!style) throw new Error("请先选择视觉风格"); await serverApi.generateVisualStyleReferences(style.id, style.revision); });
+    const upload = async (file: File) => { await run("upload", async () => { if (!style) throw new Error("请先选择视觉风格"); const uploaded = await uploadServerFile(file, file.name); const updated = await serverApi.updateVisualStyle(style.id, { revision: style.revision, mode: "custom", templateId: null, references: { source: uploaded.fileId } }); await serverApi.analyzeVisualStyle(updated.id, updated.revision); }); };
+    const saveStyleDocument = async () => {
+        setBusy("style-save");
+        try {
+            const source = `${styleFrontmatter}${styleDocument.trim()}\n`;
+            const result = await directorApi.updateMarkdownFile(projectId, visualStylePath, source, styleHash);
+            setStyleHash(result.hash);
+            setSavedStyleDocument(styleDocument);
+            setStyleSaveBlocked("");
+        } catch (error) {
+            setStyleSaveBlocked(styleDocument);
+            message.error(error instanceof Error ? error.message : "视觉风格保存失败");
+        } finally {
+            setBusy("");
         }
-        await serverApi.setDefaultVisualStyle(current.id);
-        return current;
     };
-    const persistRules = async () => {
-        if (JSON.stringify(rules) === JSON.stringify(workspace.directingRules || emptyDirectingRules)) return workspace;
-        return directorApi.updateWorkspace(projectId, { revision: workspace.revision, directingRules: rules });
+    useEffect(() => {
+        if (!styleDirty || styleLoading || busy || styleSaveBlocked === styleDocument) return;
+        const timer = window.setTimeout(() => void saveStyleDocument(), 600);
+        return () => window.clearTimeout(timer);
+    }, [projectId, styleDocument, styleDirty, styleLoading, styleHash, styleFrontmatter, styleSaveBlocked, busy]);
+    const saveRules = async () => {
+        setBusy("save");
+        try {
+            const source = `${rulesFrontmatter}${rules.trim()}\n`;
+            const result = await directorApi.updateMarkdownFile(projectId, directingRulesPath, source, rulesHash);
+            setRulesHash(result.hash);
+            setSavedRules(rules);
+            setRulesSaveBlocked("");
+        } catch (error) {
+            setRulesSaveBlocked(rules);
+            message.error(error instanceof Error ? error.message : "导演规则保存失败");
+        } finally {
+            setBusy("");
+        }
     };
-    const save = () => void run("save", async () => { if (draft.name.trim() && draft.description.trim()) await persist(); await persistRules(); });
-    const generateBoard = () => void run("board", async () => { const current = await persist(); await serverApi.generateVisualStyleReferences(current.id, current.revision); });
-    const upload = async (file: File) => { await run("upload", async () => { const current = await persist(); const uploaded = await uploadServerFile(file, file.name); const updated = await serverApi.updateVisualStyle(current.id, { revision: current.revision, mode: "custom", templateId: null, references: { source: uploaded.fileId } }); await serverApi.analyzeVisualStyle(updated.id, updated.revision); }); };
+    useEffect(() => {
+        if (!rulesDirty || rulesLoading || busy || rulesSaveBlocked === rules) return;
+        const timer = window.setTimeout(() => void saveRules(), 600);
+        return () => window.clearTimeout(timer);
+    }, [projectId, rules, rulesDirty, rulesLoading, rulesHash, rulesFrontmatter, rulesSaveBlocked, busy]);
     return (
-        <div className="mx-auto flex min-h-full max-w-7xl flex-col px-6 pb-4 lg:px-8">
-            <div className="grid items-start py-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-                <div className="min-w-0 space-y-5 lg:pr-6">
-                <div className="flex min-h-[72px] items-start justify-between gap-5 py-1"><div className="flex min-w-0 items-start gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-600"><Camera className="size-[18px]" /></span><div className="min-w-0"><div className="flex items-center gap-2"><h2 className="text-sm font-semibold leading-5 text-slate-900">视觉风格</h2>{style ? <span className="font-mono text-[10px] text-slate-400">REV {style.revision}</span> : null}</div><div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><p className="text-[11px] leading-4 text-slate-400">决定媒介、色彩、光线、材质与画面质感，可跨项目复用</p>{style?.boardStale ? <span className="text-[10px] text-rose-500">风格板已过期</span> : null}</div></div></div><Button className="shrink-0 !border-blue-500 !bg-white !text-blue-600 hover:!border-blue-600 hover:!text-blue-700" size="small" icon={<Palette className="size-3.5" />} onClick={() => setTemplatePickerOpen(true)}>更换风格</Button></div>
-                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                    <div className="relative aspect-[14/5] overflow-hidden bg-slate-100">
-                        {previewUrl ? <AntImage rootClassName="size-full" src={previewUrl} alt={`${style?.name || "当前视觉风格"}三元素风格板`} className="!size-full !object-cover" preview={{ mask: <span className="flex items-center gap-1.5 text-xs"><Maximize2 className="size-3.5" />查看大图</span> }} /> : <div className="grid size-full place-items-center text-center text-slate-500"><div><ImageIcon className="mx-auto size-8 text-slate-400" /><p className="mt-2 text-xs">{style?.boardStale ? "风格设定已更新，旧风格板不再使用" : "当前风格还没有统一风格板"}</p><Button type="link" size="small" className="mt-1" loading={busy === "board"} disabled={!style || !draft.description.trim()} onClick={generateBoard}>生成新风格板</Button></div></div>}
-                        {previewUrl ? <Button size="small" className="!absolute right-3 top-3 z-10 !border-white/80 !bg-white/90 !text-slate-700 shadow-sm backdrop-blur hover:!bg-white" icon={<Sparkles className="size-3.5" />} loading={busy === "board"} disabled={Boolean(busy) || !style || !draft.description.trim()} onClick={generateBoard}>重新生成风格板</Button> : null}
+        <div className="director-treatment-page">
+            <div className="director-treatment-workspace">
+                <section className="director-treatment-style">
+                    <div className="director-treatment-section-title">
+                        <div><h2>视觉风格</h2><p>项目文档 · 参考板与文字共同约束画面</p></div>
+                        <div className="flex items-center gap-2"><div className="director-doc-mode" role="group" aria-label="视觉风格文档模式"><button type="button" data-active={!editingStyle} onClick={() => setEditingStyle(false)}>阅读</button><button type="button" data-active={editingStyle} onClick={() => setEditingStyle(true)}>编辑</button></div><Button type="text" size="small" className="!text-slate-500" icon={<Bot className="size-4" />} onClick={() => style ? prepare(projectId, { kind: "style", projectId, styleId: style.id, title: style.name, subtitle: visualStylePath }) : prepare(projectId, { kind: "director", projectId, entityKind: "directing-plan", entityId: "visual-style", title: "视觉风格", subtitle: visualStylePath })}>交给 Agent</Button></div>
                     </div>
-                    <div className="space-y-4 border-t border-slate-200 p-4">
-                        <label className="block text-xs leading-5 text-slate-500">风格名称<div className="mt-2"><Input value={draft.name} placeholder="例如：克制东方仙侠" onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} /></div></label>
-                        <label className="block text-xs leading-5 text-slate-500">风格描述<div className="mt-2"><Input.TextArea value={draft.description} autoSize={{ minRows: 2, maxRows: 4 }} placeholder="描述整片共同的媒介、色彩、光线、材质与镜头气质。" onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} /></div></label>
+                    <div className="director-treatment-style-body thin-scrollbar">
+                        <div className="director-treatment-style-board">
+                            {previewUrl ? <AntImage rootClassName="size-full" src={previewUrl} alt={`${style?.name || "当前视觉风格"}三元素风格板`} className="!size-full !object-contain" preview={{ mask: <span className="flex items-center gap-1.5 text-xs"><Maximize2 className="size-3.5" />查看大图</span> }} /> : <div className="grid size-full place-items-center text-center text-slate-500"><div><ImageIcon className="mx-auto size-8 text-slate-300" /><p className="mt-2 text-xs">当前风格还没有统一参考板</p><Button type="link" size="small" loading={busy === "board"} disabled={!style} onClick={generateBoard}>生成参考板</Button></div></div>}
+                        </div>
+                        <div className="director-treatment-style-actions">
+                            <Button icon={<Palette className="size-3.5" />} disabled={styleDirty || Boolean(busy)} onClick={() => setTemplatePickerOpen(true)}>更换风格</Button>
+                            <Button icon={<RefreshCw className="size-3.5" />} loading={busy === "board"} disabled={styleDirty || Boolean(busy) || !style} onClick={generateBoard}>{previewUrl ? "重新生成参考板" : "生成参考板"}</Button>
+                            <Button type="text" icon={<Upload className="size-3.5" />} loading={busy === "upload"} disabled={styleDirty || Boolean(busy) || !style} onClick={() => uploadRef.current?.click()}>上传参考图</Button>
+                            {style?.boardStale ? <span className="ml-auto self-center text-[10px] text-rose-500">文字已变化，参考板需更新</span> : null}
+                            <input ref={uploadRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />
+                        </div>
+                        <div className={`director-treatment-style-document ${editingStyle ? "is-editing" : ""}`}>
+                            {styleLoading ? <div className="grid min-h-52 place-items-center"><Spin size="small" /></div> : editingStyle ? <DirectorMarkdownEditor key={`${projectId}:style:${styleEditorVersion}`} content={styleDocument} dirty={styleDirty} saving={busy === "style-save"} label="视觉风格 Markdown 编辑器" placeholder="描述总体风格、媒介、角色、场景、道具、色彩、光线、材质、构图与避免元素" onChange={setStyleDocument} /> : <article className="director-markdown director-treatment-style-markdown"><Streamdown mode="static">{styleDocument}</Streamdown></article>}
+                        </div>
                     </div>
                 </section>
-
-                <section className="rounded-lg border border-slate-200 bg-white">
-                    <button type="button" className="flex w-full items-center justify-between px-3 py-3 text-left text-sm text-slate-600 hover:text-slate-950" onClick={() => setCustomOpen((value) => !value)}><span className="flex min-w-0 items-center gap-2"><ImageIcon className="size-4 shrink-0 text-blue-600" /><span className="min-w-0"><strong className="font-medium">自定义参考图</strong><span className="ml-2 text-xs text-slate-400">可选 · 单张统一风格板</span></span></span><ChevronDown className={`size-4 shrink-0 transition-transform ${customOpen ? "rotate-180" : ""}`} /></button>
-                    {customOpen ? <div className="border-t border-slate-100 px-3 pb-4 pt-3">
-                    <p className="mt-1 text-xs leading-5 text-slate-500">上传一张同时表达角色、场景和道具视觉语言的参考图；系统只维护一张统一风格板。</p>
-                    <label className={`mt-3 flex min-h-20 items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 transition ${busy === "upload" ? "cursor-wait opacity-70" : "cursor-pointer hover:border-blue-300 hover:bg-blue-50/40"}`}>{style?.references.source ? <img src={serverApiUrl(`/files/${style.references.source}/content`)} alt="自定义风格来源" className="size-14 rounded object-cover" /> : <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-white text-slate-400">{busy === "upload" ? <Loader2 className="size-4 animate-spin text-blue-600" /> : <Upload className="size-4" />}</span>}<span className="min-w-0 text-xs text-slate-500"><strong className="block truncate font-medium text-slate-700">{busy === "upload" ? "正在上传并分析…" : style?.references.source ? "替换并重新分析" : "上传并分析参考图"}</strong><span className="mt-1 block">JPG / PNG / WEBP，单张图片</span></span><input type="file" accept="image/*" disabled={Boolean(busy)} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }} /></label>
-                    <Button className="mt-3" loading={busy === "board"} icon={<Sparkles className="size-3.5" />} disabled={Boolean(busy) || !draft.description.trim()} onClick={generateBoard}>生成统一风格板</Button>
-                    </div> : null}
-                </section>
-
-                <section className="rounded-lg border border-slate-200 bg-white">
-                    <button type="button" className="flex w-full items-center justify-between px-3 py-3 text-left text-sm text-slate-600 hover:text-slate-950" onClick={() => setAdvancedOpen((value) => !value)}><span className="flex min-w-0 items-center gap-2"><SlidersHorizontal className="size-4 shrink-0 text-blue-600" /><span className="min-w-0"><strong className="font-medium">高级风格参数</strong><span className="ml-2 text-xs text-slate-400">通常无需修改</span></span></span><ChevronDown className={`size-4 shrink-0 transition-transform ${advancedOpen ? "rotate-180" : ""}`} /></button>
-                    {advancedOpen ? <div className="space-y-4 border-t border-slate-100 px-3 pb-4 pt-3"><p className="text-xs leading-5 text-slate-400">由模板或参考图分析生成，用于跨素材一致性与自动检查。</p><label className="block text-xs leading-5 text-slate-500">媒介分类<div className="mt-2"><Select className="w-full" value={draft.dna.mediumFamily} options={mediumFamilyOptions} onChange={(mediumFamily) => setDraft((value) => ({ ...value, dna: { ...value.dna, mediumFamily } }))} /></div></label><div className="grid gap-4 sm:grid-cols-2">{dnaLabels.map(([key, label]) => <label key={key} className="text-xs leading-5 text-slate-500">{label}<div className="mt-2"><Input value={draft.dna[key]} onChange={(event) => setDraft((value) => ({ ...value, dna: { ...value.dna, [key]: event.target.value } }))} /></div></label>)}</div><label className="block text-xs leading-5 text-slate-500">避免元素<div className="mt-2"><Input value={draft.dna.exclusions.join("、")} onChange={(event) => setDraft((value) => ({ ...value, dna: { ...value.dna, exclusions: event.target.value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean) } }))} /></div></label></div> : null}
-                </section>
-                </div>
-                <aside className="mt-5 min-w-0 border-t border-slate-200 bg-white lg:mt-0 lg:border-l lg:border-t-0 lg:pl-6">
-                    <div className="flex min-h-[72px] items-start gap-3 border-b border-slate-200 pb-5 pt-1"><span className="grid size-8 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-600"><NotebookText className="size-[18px]" /></span><div><h2 className="text-sm font-semibold leading-5 text-slate-900">导演规则</h2><p className="mt-1 text-[11px] leading-4 text-slate-400">属于当前影片；更换视觉风格不会覆盖</p></div></div>
-                    <div className="space-y-5 pt-5">
-                        {directingRuleFields.map((field) => <label key={field.key} className="block"><span className="flex items-baseline justify-between gap-3"><strong className="text-xs font-medium text-slate-800">{field.label}</strong><span className="text-[10px] leading-4 text-slate-400">{field.hint}</span></span><div className="mt-2"><Input.TextArea value={rules[field.key]} className="!resize-none" autoSize={{ minRows: field.key === "prohibitions" ? 3 : 2, maxRows: 5 }} placeholder={field.placeholder} onChange={(event) => setRules((value) => ({ ...value, [field.key]: event.target.value }))} /></div></label>)}
+                <section className="director-treatment-rules">
+                    <div className="director-treatment-rules-toolbar">
+                        <div><h2>导演规则</h2><p>项目文档 · 更换视觉风格不会覆盖</p></div>
+                        <div className="flex items-center gap-2"><div className="director-doc-mode" role="group" aria-label="导演规则文档模式"><button type="button" data-active={!editingRules} onClick={() => setEditingRules(false)}>阅读</button><button type="button" data-active={editingRules} onClick={() => setEditingRules(true)}>编辑</button></div><Button type="text" size="small" className="!text-slate-500" icon={<Bot className="size-4" />} onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "directing-plan", entityId: "directing-plan", title: "导演规则", subtitle: directingRulesPath })}>交给 Agent</Button></div>
                     </div>
-                </aside>
-            </div>
-            <div className="mt-auto flex justify-end gap-2 border-t border-slate-200 pt-4">
-                <Button className="!border-slate-200 !bg-white !text-slate-700" icon={<Bot className="size-4" />} onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "directing-plan", entityId: "directing-plan", title: "导演方案", subtitle: "视觉风格与导演规则" })}>交给 Agent</Button>
-                <Button type="primary" aria-label="保存导演方案" loading={busy === "save"} disabled={Boolean(busy) || (!draft.name.trim() && Object.values(rules).every((value) => !value.trim()))} onClick={save}>保存</Button>
+                    <div className="director-treatment-document">
+                        <div className={`director-treatment-document-body thin-scrollbar ${editingRules ? "is-editing" : ""}`}>
+                            {rulesLoading ? <div className="grid h-full place-items-center"><Spin size="small" /></div> : editingRules ? <DirectorMarkdownEditor key={`${projectId}:${rulesEditorVersion}`} content={rules} dirty={rulesDirty} saving={busy === "save"} label="导演规则 Markdown 编辑器" placeholder="写下整部影片共同遵循的导演意图、摄影、表演、节奏、声音与禁区" onChange={setRules} /> : <article className="director-markdown director-treatment-markdown"><Streamdown mode="static">{rules}</Streamdown></article>}
+                        </div>
+                    </div>
+                </section>
             </div>
             <VisualStyleTemplatePicker open={templatePickerOpen} templates={templates} selectedId={style?.templateId || null} onClose={() => setTemplatePickerOpen(false)} onSelect={(id) => { const template = templates.find((item) => item.id === id); if (template) applyTemplate(template); }} />
         </div>

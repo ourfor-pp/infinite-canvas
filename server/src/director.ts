@@ -13,7 +13,7 @@ import {
 } from "./director-workspace.js";
 
 export type DirectorEntityStatus = "draft" | "confirmed" | "locked";
-type DirectorDirectingRules = { photography: string; performance: string; pacing: string; sound: string; prohibitions: string };
+type DirectorDirectingRules = { intent: string; photography: string; performance: string; pacing: string; sound: string; prohibitions: string };
 type WorkspaceRow = { project_id: string; user_id: string; target_duration_seconds: number; aspect_ratio: string; language: string; stage: string; status: DirectorEntityStatus; directing_rules: string; revision: number; created_at: string; updated_at: string };
 type SourceRow = { id: string; user_id: string; project_id: string; raw_file_id: string; name: string; mime_type: string; status: string; error: string | null; char_count: number; chapter_count: number; summary: string; outline: string; revision: number; created_at: string; updated_at: string };
 type DocumentRow = { project_id: string; user_id: string; kind: "story" | "script"; content: string; status: DirectorEntityStatus; revision: number; created_at: string; updated_at: string };
@@ -34,6 +34,7 @@ const workspacePatch = z.object({
     aspectRatio: z.enum(["16:9", "9:16", "1:1", "2.39:1"]).optional(), language: z.string().trim().min(2).max(20).optional(),
     stage: z.enum(["source", "story", "script", "style", "assets", "storyboard", "shots", "timeline", "render"]).optional(), status: status.optional(),
     directingRules: z.object({
+        intent: z.string().trim().max(10_000),
         photography: z.string().trim().max(10_000), performance: z.string().trim().max(10_000), pacing: z.string().trim().max(10_000),
         sound: z.string().trim().max(10_000), prohibitions: z.string().trim().max(10_000),
     }).partial().optional(),
@@ -599,7 +600,7 @@ function sourceRow(userId: string, sourceId: string) { const row = db.prepare("S
 function sequenceRow(userId: string, sequenceId: string) { const row = db.prepare("SELECT * FROM director_sequences WHERE id=? AND user_id=?").get(sequenceId, userId) as SequenceRow | undefined; if (!row) throw directorError(404, "DIRECTOR_SEQUENCE_NOT_FOUND", "剧情段落不存在"); return row; }
 function shotRow(userId: string, shotId: string) { const row = db.prepare("SELECT * FROM director_shots WHERE id=? AND user_id=?").get(shotId, userId) as ShotRow | undefined; if (!row) throw directorError(404, "DIRECTOR_SHOT_NOT_FOUND", "镜头不存在"); return row; }
 
-function emptyDirectingRules(): DirectorDirectingRules { return { photography: "", performance: "", pacing: "", sound: "", prohibitions: "" }; }
+function emptyDirectingRules(): DirectorDirectingRules { return { intent: "", photography: "", performance: "", pacing: "", sound: "", prohibitions: "" }; }
 function workspaceResponse(row: WorkspaceRow) { return { projectId: row.project_id, targetDurationSeconds: row.target_duration_seconds, aspectRatio: row.aspect_ratio, language: row.language, stage: row.stage, status: row.status, directingRules: parseJson<DirectorDirectingRules>(row.directing_rules, emptyDirectingRules()), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function sourceResponse(row: SourceRow) { return { id: row.id, projectId: row.project_id, fileId: row.raw_file_id, name: row.name, mimeType: row.mime_type, status: row.status, error: row.error, charCount: row.char_count, chapterCount: row.chapter_count, summary: row.summary, outline: row.outline, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function documentResponse(row: DocumentRow) { return { projectId: row.project_id, kind: row.kind, content: row.content, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }

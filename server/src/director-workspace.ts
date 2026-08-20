@@ -9,7 +9,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
 import { config } from "./config.js";
 import { db, parseJson } from "./database.js";
-import { collectFileIds, getStoredFile } from "./file-store.js";
+import { collectFileIds, getStoredFile, syncFileRefs } from "./file-store.js";
 
 export type DirectorDiagnostic = {
     severity: "error" | "warning" | "info";
@@ -20,13 +20,31 @@ export type DirectorDiagnostic = {
     message: string;
 };
 
+export type DirectorLogicalDocumentPart = {
+    path: string;
+    id: string;
+    name: string;
+    order: number;
+    content: string;
+    hash: string;
+    revision: number;
+    index: boolean;
+};
+
+export type DirectorLogicalDocument = {
+    kind: "story" | "script";
+    revision: number;
+    content: string;
+    parts: DirectorLogicalDocumentPart[];
+};
+
 type ProjectRow = { id: string; user_id: string; title: string; payload: string; created_at: string; updated_at: string };
 type WorkspaceRow = { target_duration_seconds: number; aspect_ratio: string; language: string; stage: string; directing_rules: string };
 type DocumentRow = { kind: "story" | "script"; content: string; revision: number; updated_at: string };
 type SequenceRow = { id: string; position: number; title: string; summary: string; payload: string; revision: number; updated_at: string };
 type SegmentRow = { id: string; sequence_id: string; position: number; title: string; payload: string; revision: number; updated_at: string };
 type AssetRow = { id: string; kind: "character" | "scene" | "prop"; name: string; payload: string; revision: number; updated_at: string };
-type StyleRow = { id: string; name: string; description: string; dna: string; reference_files: string; revision: number; updated_at: string };
+type StyleRow = { id: string; name: string; mode: string; template_id: string | null; description: string; dna: string; reference_files: string; revision: number; updated_at: string };
 
 const projectSchema = z.object({ format: z.literal("infinite-canvas-director"), version: z.literal(1), id: z.string().min(1), name: z.string().min(1) }).passthrough();
 const entitySchema = z.object({ id: z.string().min(1), kind: z.string().min(1), name: z.string().optional(), title: z.string().optional() }).passthrough();
@@ -61,6 +79,9 @@ export function ensureDirectorProjectWorkspace(userId: string, projectId: string
     const root = directorProjectRoot(userId, projectId);
     const storage = db.prepare("SELECT 1 FROM director_project_storage WHERE user_id=? AND project_id=?").get(userId, projectId);
     if (!storage || !existsSync(resolve(root, "project.yaml"))) migrateDirectorProject(userId, projectId);
+    backfillDirectionReferenceFiles(userId, projectId, root);
+    const instructions = projectAgents(project.title);
+    if (!existsSync(resolve(root, "AGENTS.md")) || readFileSync(resolve(root, "AGENTS.md"), "utf8") !== instructions) writeFileAtomic(resolve(root, "AGENTS.md"), instructions);
     watchDirectorWorkspace(userId, projectId, root);
     return root;
 }
@@ -196,8 +217,7 @@ export function writeDirectorMarkdown(userId: string, projectId: string, relativ
     const currentHash = existsSync(path) ? hashFile(path) : "";
     if (expectedHash !== undefined && expectedHash !== currentHash) throw workspaceError(409, "DIRECTOR_FILE_CONFLICT", "文件已被其他操作修改", { currentHash });
     writeFileAtomic(path, content);
-    const diagnostics = validateDirectorRoot(root, path);
-    indexDirectorProject(userId, projectId, diagnostics);
+    const diagnostics = reconcileDirectorProjectFiles(userId, projectId);
     return { path: posixRelative(root, path), hash: hashFile(path), diagnostics };
 }
 
@@ -206,6 +226,43 @@ export function readDirectorTextFile(userId: string, projectId: string, relative
     const path = safeWorkspacePath(root, relativePath);
     if (!existsSync(path) || !statSync(path).isFile() || ![".md", ".yaml", ".yml", ".json"].includes(extname(path).toLowerCase())) throw workspaceError(404, "DIRECTOR_FILE_NOT_FOUND", "创作文件不存在");
     return { path: posixRelative(root, path), content: readFileSync(path, "utf8"), hash: hashFile(path) };
+}
+
+export function readDirectorStyleBoard(userId: string, projectId: string) {
+    const root = ensureDirectorProjectWorkspace(userId, projectId);
+    const document = matter(readFileSync(resolve(root, "direction", "visual-style.md"), "utf8"));
+    const relativePath = String(document.data.referenceBoard || "");
+    if (!relativePath.startsWith("direction/references/")) throw workspaceError(404, "DIRECTOR_STYLE_BOARD_NOT_FOUND", "当前视觉风格还没有参考板");
+    const path = safeWorkspacePath(root, relativePath);
+    const mimeType = mediaMimeType(path);
+    if (!existsSync(path) || !statSync(path).isFile() || !mimeType?.startsWith("image/")) throw workspaceError(404, "DIRECTOR_STYLE_BOARD_NOT_FOUND", "当前视觉风格参考板不存在");
+    return { path, mimeType, bytes: statSync(path).size, hash: hashFile(path) };
+}
+
+export function readDirectorLogicalDocument(userId: string, projectId: string, kind: string): DirectorLogicalDocument {
+    const documentKind = z.enum(["story", "script"]).parse(kind);
+    const root = ensureDirectorProjectWorkspace(userId, projectId);
+    reconcileDirectorProjectFiles(userId, projectId);
+    const revision = Number((db.prepare("SELECT revision FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, documentKind) as { revision: number } | undefined)?.revision || 1);
+    const parts = logicalDocumentParts(userId, projectId, root, documentKind);
+    return { kind: documentKind, revision, content: composeLogicalDocument(parts), parts };
+}
+
+export function writeDirectorDocumentPart(userId: string, projectId: string, kind: string, relativePath: string, content: string, expectedHash?: string) {
+    const documentKind = z.enum(["story", "script"]).parse(kind);
+    const root = ensureDirectorProjectWorkspace(userId, projectId);
+    const path = safeWorkspacePath(root, relativePath);
+    const rel = posixRelative(root, path);
+    const indexPath = documentKind === "story" ? "story/index.md" : "screenplay/index.md";
+    const partRoot = documentKind === "story" ? "story/chapters/" : "screenplay/scenes/";
+    if (rel !== indexPath && (!rel.startsWith(partRoot) || extname(rel).toLowerCase() !== ".md")) throw workspaceError(400, "DIRECTOR_DOCUMENT_PART_INVALID", "文件不属于当前逻辑文档");
+    if (!existsSync(path) || !statSync(path).isFile()) throw workspaceError(404, "DIRECTOR_FILE_NOT_FOUND", "文档章节或场次不存在");
+    const currentHash = hashFile(path);
+    if (expectedHash !== undefined && expectedHash !== currentHash) throw workspaceError(409, "DIRECTOR_FILE_CONFLICT", "文件已被其他操作修改", { currentHash });
+    const parsed = matter(readFileSync(path, "utf8"));
+    writeMarkdown(path, parsed.data as Record<string, unknown>, content);
+    reconcileDirectorProjectFiles(userId, projectId);
+    return readDirectorLogicalDocument(userId, projectId, documentKind);
 }
 
 export function resolveDirectorEntityReference(userId: string, projectId: string, relativePath: string, allowedKinds: string[]) {
@@ -381,10 +438,9 @@ export function reconcileDirectorProjectFiles(userId: string, projectId: string)
     db.prepare(`UPDATE director_workspaces SET target_duration_seconds=?,aspect_ratio=?,language=?,stage=?,updated_at=? WHERE user_id=? AND project_id=?`).run(
         Math.max(10, Number(manifestValues.targetDurationSeconds) || 600), String(manifestValues.aspectRatio || "16:9"), String(manifestValues.language || "zh-CN"), String(manifestValues.stage || "source"), now, userId, projectId,
     );
-    for (const [kind, path] of [["story", "story/index.md"], ["script", "screenplay/index.md"]] as const) {
-        const parsed = matter(readFileSync(resolve(root, path), "utf8"));
+    for (const kind of ["story", "script"] as const) {
         const row = db.prepare("SELECT content FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, kind) as { content: string } | undefined;
-        const content = parsed.content.trimEnd();
+        const content = composeLogicalDocument(logicalDocumentParts(userId, projectId, root, kind)).trimEnd();
         if (row && row.content.trimEnd() !== content) db.prepare("UPDATE director_documents SET content=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND kind=?").run(content, now, userId, projectId, kind);
     }
     const timelinePath = resolve(root, "timeline", "timeline.json");
@@ -473,10 +529,34 @@ function exportDirection(userId: string, projectId: string, root: string, worksp
         ? db.prepare("SELECT * FROM visual_styles WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, activeStyleId)
         : db.prepare("SELECT * FROM visual_styles WHERE user_id=? AND project_id=? ORDER BY updated_at DESC LIMIT 1").get(userId, projectId)) as StyleRow | undefined;
     const dna = parseJson<Record<string, unknown>>(style?.dna, {});
-    writeMarkdown(resolve(root, "direction", "visual-style.md"), { id: directorExternalId(projectId, style?.id || `${project?.id || projectId}-visual-style`), kind: "visual-style", name: style?.name || "视觉风格", sourceRevision: style?.revision || 0 }, `${style?.description || ""}\n\n## Style DNA\n\n\`\`\`yaml\n${stringifyYaml(dna)}\`\`\`\n`);
+    const references = syncDirectionReferenceFiles(userId, root, style ? parseJson(style.reference_files, {}) : {});
+    writeMarkdown(resolve(root, "direction", "visual-style.md"), {
+        id: directorExternalId(projectId, style?.id || `${project?.id || projectId}-visual-style`), kind: "visual-style", name: style?.name || "视觉风格", templateId: style?.template_id || null, mediumFamily: dna.mediumFamily || "live_action", sourceRevision: style?.revision || 0,
+        ...(references.board ? { referenceBoard: references.board } : {}),
+        ...(references.source ? { sourceReference: references.source } : {}),
+    }, visualStyleMarkdown(style?.name || "视觉风格", style?.description || "", dna));
     const rules = parseJson<Record<string, string>>(workspace?.directing_rules, {});
-    writeMarkdown(resolve(root, "direction", "directing-rules.md"), { id: "directing-rules", kind: "directing-rules", name: "导演规则" }, Object.entries(rules).map(([key, value]) => `## ${key}\n\n${value || ""}`).join("\n\n"));
-    copyReferencedFiles(userId, style ? parseJson(style.reference_files, {}) : {}, resolve(root, "direction", "references"));
+    const labels: Record<string, string> = { intent: "核心导演意图", photography: "摄影与空间", performance: "表演", pacing: "叙事与剪辑节奏", sound: "声音", prohibitions: "全片禁区" };
+    writeMarkdown(resolve(root, "direction", "directing-rules.md"), { id: "directing-rules", kind: "directing-rules", name: "导演规则" }, `# 导演规则\n\n${Object.entries(labels).map(([key, label]) => `## ${label}\n\n${rules[key] || ""}`).join("\n\n")}`);
+}
+
+function backfillDirectionReferenceFiles(userId: string, projectId: string, root: string) {
+    const stylePath = resolve(root, "direction", "visual-style.md");
+    if (!existsSync(stylePath)) return;
+    const document = matter(readFileSync(stylePath, "utf8"));
+    if (document.data.referenceBoard || document.data.sourceReference) return;
+    const project = db.prepare("SELECT payload FROM projects WHERE user_id=? AND id=?").get(userId, projectId) as { payload: string } | undefined;
+    const activeStyleId = String(parseJson<{ defaultVisualStyleId?: string }>(project?.payload, {}).defaultVisualStyleId || "");
+    const style = (activeStyleId
+        ? db.prepare("SELECT reference_files FROM visual_styles WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, activeStyleId)
+        : db.prepare("SELECT reference_files FROM visual_styles WHERE user_id=? AND project_id=? ORDER BY updated_at DESC LIMIT 1").get(userId, projectId)) as { reference_files: string } | undefined;
+    const references = syncDirectionReferenceFiles(userId, root, parseJson(style?.reference_files, {}));
+    if (!references.board && !references.source) return;
+    writeMarkdown(stylePath, {
+        ...document.data,
+        ...(references.board ? { referenceBoard: references.board } : {}),
+        ...(references.source ? { sourceReference: references.source } : {}),
+    }, document.content);
 }
 
 function exportAssets(userId: string, projectId: string, root: string) {
@@ -529,19 +609,53 @@ function exportStoryboards(userId: string, projectId: string, root: string) {
 }
 
 function reconcileDirection(userId: string, projectId: string, root: string, now: string) {
-    const styleDocument = matter(readFileSync(resolve(root, "direction", "visual-style.md"), "utf8"));
+    const stylePath = resolve(root, "direction", "visual-style.md");
+    const styleDocument = matter(readFileSync(stylePath, "utf8"));
     const styleId = directorMirrorId("visual_styles", userId, projectId, String(styleDocument.data.id || "visual-style"));
-    const styleName = String(styleDocument.data.name || "视觉风格");
-    const dnaBlock = styleDocument.content.match(/```yaml\s*([\s\S]*?)```/i)?.[1] || "{}";
-    const description = styleDocument.content.replace(/## Style DNA[\s\S]*$/i, "").trim();
-    const existingStyle = db.prepare("SELECT description,dna FROM visual_styles WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, styleId) as { description: string; dna: string } | undefined;
-    const dna = stringifyRecord(parseYaml(dnaBlock));
+    const styleName = styleDocument.content.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim() || String(styleDocument.data.name || "视觉风格");
+    const existingStyle = db.prepare("SELECT name,description,dna,reference_files FROM visual_styles WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, styleId) as { name: string; description: string; dna: string; reference_files: string } | undefined;
+    const legacyDnaBlock = styleDocument.content.match(/```yaml\s*([\s\S]*?)```/i)?.[1];
+    const markdownStyle = /^##\s+总体风格\s*$/m.test(styleDocument.content);
+    const description = markdownStyle ? section(styleDocument.content, "总体风格") : styleDocument.content.replace(/## Style DNA[\s\S]*$/i, "").replace(/^#\s+.+$/m, "").trim();
+    const previousDna = parseJson<Record<string, unknown>>(existingStyle?.dna, {});
+    const nextDna = markdownStyle ? {
+        mediumFamily: String(styleDocument.data.mediumFamily || previousDna.mediumFamily || "live_action"),
+        medium: section(styleDocument.content, "媒介"),
+        rendering: section(styleDocument.content, "通用渲染"),
+        characterRendering: section(styleDocument.content, "角色呈现"),
+        sceneRendering: section(styleDocument.content, "场景呈现"),
+        propRendering: section(styleDocument.content, "道具呈现"),
+        palette: section(styleDocument.content, "色彩"),
+        lighting: section(styleDocument.content, "光线"),
+        contrast: section(styleDocument.content, "反差"),
+        texture: section(styleDocument.content, "材质与质感"),
+        lensAndDepth: section(styleDocument.content, "镜头与景深"),
+        composition: section(styleDocument.content, "构图"),
+        postProcessing: section(styleDocument.content, "后期处理"),
+        exclusions: markdownList(section(styleDocument.content, "避免元素")),
+    } : documentRecord(legacyDnaBlock ? parseYaml(legacyDnaBlock) : previousDna);
+    const dna = stringifyRecord(nextDna);
     if (!existingStyle) db.prepare(`INSERT INTO visual_styles(id,user_id,project_id,name,mode,description,status,dna,reference_files,revision,created_at,updated_at) VALUES(?,?,?,?,'custom',?,'draft',?,'{}',1,?,?)`).run(styleId, userId, projectId, styleName, description, dna, now, now);
-    else if (existingStyle.description !== description || existingStyle.dna !== dna) db.prepare("UPDATE visual_styles SET name=?,description=?,dna=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND id=?").run(styleName, description, dna, now, userId, projectId, styleId);
+    else if (existingStyle.name !== styleName || existingStyle.description !== description || existingStyle.dna !== dna) {
+        const references = parseJson<Record<string, unknown>>(existingStyle.reference_files, {});
+        delete references.board;
+        if (styleDocument.data.referenceBoard) {
+            moveManagedDirectionReference(root, "style-board");
+            const nextData = { ...styleDocument.data } as Record<string, unknown>;
+            delete nextData.referenceBoard;
+            writeMarkdown(stylePath, nextData, styleDocument.content);
+        }
+        db.prepare("UPDATE visual_styles SET name=?,mode='custom',template_id=NULL,description=?,dna=?,reference_files=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND id=?").run(styleName, description, dna, JSON.stringify(references), now, userId, projectId, styleId);
+    }
     const payload = parseJson<Record<string, unknown>>((db.prepare("SELECT payload FROM projects WHERE user_id=? AND id=?").get(userId, projectId) as { payload: string }).payload, {});
     if (payload.defaultVisualStyleId !== styleId) db.prepare("UPDATE projects SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND id=?").run(JSON.stringify({ ...payload, defaultVisualStyleId: styleId }), now, userId, projectId);
     const rulesDocument = matter(readFileSync(resolve(root, "direction", "directing-rules.md"), "utf8"));
-    const rules = Object.fromEntries(Array.from(rulesDocument.content.matchAll(/^##\s+(.+?)\s*$\n([\s\S]*?)(?=^##\s+|$)/gm)).map((match) => [match[1]!.trim(), match[2]!.trim()]));
+    const keys: Record<string, string> = { intent: "intent", 核心导演意图: "intent", photography: "photography", 摄影: "photography", 摄影与空间: "photography", performance: "performance", 表演: "performance", pacing: "pacing", 节奏: "pacing", 叙事与剪辑节奏: "pacing", sound: "sound", 声音: "sound", prohibitions: "prohibitions", 全片禁区: "prohibitions" };
+    const rules = { intent: "", photography: "", performance: "", pacing: "", sound: "", prohibitions: "" };
+    for (const match of rulesDocument.content.matchAll(/^##\s+(.+?)\s*$\n([\s\S]*?)(?=^##\s+|(?![\s\S]))/gm)) {
+        const key = keys[match[1]!.trim()] as keyof typeof rules | undefined;
+        if (key) rules[key] = match[2]!.trim();
+    }
     db.prepare("UPDATE director_workspaces SET directing_rules=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND directing_rules<>?").run(JSON.stringify(rules), now, userId, projectId, JSON.stringify(rules));
 }
 
@@ -713,8 +827,16 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
     }
     const sequenceOrders = new Map<number, string>();
     const segmentOrders = new Map<string, Map<number, string>>();
+    const documentPartOrders = new Map<string, Map<number, string>>([["story/chapters/", new Map()], ["screenplay/scenes/", new Map()]]);
     for (const document of documents) {
         const kind = String(document.data.kind || "");
+        for (const [prefix, orders] of documentPartOrders) {
+            if (!document.path.startsWith(prefix)) continue;
+            const order = Number(document.data.order);
+            if (!Number.isInteger(order) || order < 1) diagnostics.push(diag("error", "DOCUMENT_PART_ORDER_INVALID", document.path, "章节或场次必须设置大于 0 的整数 order"));
+            else if (orders.has(order)) diagnostics.push(diag("error", "DUPLICATE_DOCUMENT_PART_ORDER", document.path, `章节或场次顺序与 ${orders.get(order)} 重复`));
+            else orders.set(order, document.path);
+        }
         if (kind === "sequence") {
             const order = Number(document.data.order);
             if (Number.isFinite(order) && sequenceOrders.has(order)) diagnostics.push(diag("error", "DUPLICATE_SEQUENCE_ORDER", document.path, `剧情段落顺序与 ${sequenceOrders.get(order)} 重复`));
@@ -747,12 +869,23 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
     for (const required of ["story/index.md", "screenplay/index.md", "direction/visual-style.md", "direction/directing-rules.md", "timeline/timeline.json"]) {
         if (!existsSync(resolve(root, required))) diagnostics.push(diag("error", "REQUIRED_FILE_MISSING", required, "缺少必要工程文件"));
     }
+    const stylePath = resolve(root, "direction", "visual-style.md");
+    if (existsSync(stylePath)) {
+        const style = matter(readFileSync(stylePath, "utf8"));
+        for (const [field, label] of [["referenceBoard", "风格参考板"], ["sourceReference", "风格来源图"]] as const) {
+            const value = String(style.data[field] || "");
+            if (!value) continue;
+            if (!value.startsWith("direction/references/")) diagnostics.push(diag("error", "DIRECTION_REFERENCE_PATH_INVALID", "direction/visual-style.md", `${label}必须位于 direction/references/`));
+            else if (!existsSync(resolve(root, value))) diagnostics.push(diag("error", "DIRECTION_REFERENCE_MISSING", "direction/visual-style.md", `${label}不存在：${value}`));
+        }
+    }
     return diagnostics;
 }
 
 function indexDirectorProject(userId: string, projectId: string, diagnostics: DirectorDiagnostic[]) {
     const root = directorProjectRoot(userId, projectId);
     registerDirectorProjectMedia(userId, projectId, root);
+    syncDirectionReferenceIndex(userId, projectId, root);
     const now = new Date().toISOString();
     const previous = new Map((db.prepare("SELECT path,sha256,revision FROM director_file_index WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ path: string; sha256: string; revision: number }>).map((row) => [row.path, row]));
     const upsert = db.prepare(`INSERT INTO director_file_index(user_id,project_id,path,entity_id,kind,sha256,revision,bytes,media_type,metadata,diagnostics,updated_at)
@@ -797,6 +930,26 @@ function registerDirectorStoredFile(userId: string, projectId: string, root: str
     const fileId = row?.id || id;
     db.prepare("INSERT OR IGNORE INTO file_refs(file_id,user_id,owner_type,owner_id) VALUES(?,?,?,?)").run(fileId, userId, "director_project", projectId);
     return fileId;
+}
+
+function syncDirectionReferenceIndex(userId: string, projectId: string, root: string) {
+    const stylePath = resolve(root, "direction", "visual-style.md");
+    if (!existsSync(stylePath)) return;
+    const document = matter(readFileSync(stylePath, "utf8"));
+    const styleId = directorMirrorId("visual_styles", userId, projectId, String(document.data.id || "visual-style"));
+    const current = db.prepare("SELECT reference_files FROM visual_styles WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, styleId) as { reference_files: string } | undefined;
+    if (!current) return;
+    if (!document.data.referenceBoard && !document.data.sourceReference) return;
+    const references: Record<string, string> = {};
+    for (const [field, role] of [["referenceBoard", "board"], ["sourceReference", "source"]] as const) {
+        const relativePath = String(document.data[field] || "");
+        if (!relativePath.startsWith("direction/references/")) continue;
+        const path = safeWorkspacePath(root, relativePath);
+        if (existsSync(path) && statSync(path).isFile() && mediaMimeType(path)?.startsWith("image/")) references[role] = registerDirectorMediaFile(userId, projectId, root, path);
+    }
+    if (JSON.stringify(parseJson(current.reference_files, {})) === JSON.stringify(references)) return;
+    db.prepare("UPDATE visual_styles SET reference_files=? WHERE user_id=? AND project_id=? AND id=?").run(JSON.stringify(references), userId, projectId, styleId);
+    syncFileRefs(userId, "visual_style", styleId, references);
 }
 
 function assetMediaVariants(userId: string, projectId: string, root: string, folder: string, kind: AssetRow["kind"]) {
@@ -884,12 +1037,39 @@ function copyAssetMedia(userId: string, payload: Record<string, unknown>, folder
     });
 }
 
-function copyReferencedFiles(userId: string, value: unknown, folder: string) {
+function syncDirectionReferenceFiles(userId: string, root: string, value: unknown) {
+    const folder = resolve(root, "direction", "references");
     mkdirSync(folder, { recursive: true });
-    Array.from(collectFileIds(value)).forEach((fileId, index) => {
-        const file = getStoredFile(userId, fileId);
-        if (file) copyFileSync(file.path, resolve(folder, `style-reference-${pad(index + 1)}${extname(file.original_name) || ".bin"}`));
-    });
+    const references = documentRecord(value);
+    const result = {
+        board: syncDirectionReferenceFile(userId, root, String(references.board || ""), "style-board"),
+        source: syncDirectionReferenceFile(userId, root, String(references.source || ""), "source-reference"),
+    };
+    for (const path of walkFiles(folder).filter((path) => /^style-reference-\d+$/i.test(basename(path, extname(path))))) moveToTrash(root, path);
+    return result;
+}
+
+function syncDirectionReferenceFile(userId: string, root: string, fileId: string, stem: string) {
+    if (!fileId) {
+        moveManagedDirectionReference(root, stem);
+        return "";
+    }
+    const file = getStoredFile(userId, fileId);
+    if (!file || !file.mime_type.startsWith("image/")) return "";
+    const originalExtension = extname(file.original_name).toLowerCase();
+    const pathExtension = extname(file.path).toLowerCase();
+    const extension = [originalExtension, pathExtension].find((value) => [".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(value)) || ".png";
+    const target = resolve(root, "direction", "references", `${stem}${extension}`);
+    for (const path of walkFiles(resolve(root, "direction", "references")).filter((path) => basename(path, extname(path)) === stem && path !== target)) moveToTrash(root, path);
+    if (resolve(file.path) !== target) {
+        mkdirSync(dirname(target), { recursive: true });
+        copyFileSync(file.path, target);
+    }
+    return posixRelative(root, target);
+}
+
+function moveManagedDirectionReference(root: string, stem: string) {
+    for (const path of walkFiles(resolve(root, "direction", "references")).filter((path) => basename(path, extname(path)) === stem)) moveToTrash(root, path);
 }
 
 function copyNamedFile(userId: string, fileId: string, target: string) {
@@ -948,9 +1128,64 @@ function assetBody(payload: Record<string, unknown>) {
     ].join("\n\n");
 }
 
+function logicalDocumentParts(userId: string, projectId: string, root: string, kind: "story" | "script"): DirectorLogicalDocumentPart[] {
+    const indexPath = kind === "story" ? "story/index.md" : "screenplay/index.md";
+    const partsRoot = resolve(root, kind === "story" ? "story/chapters" : "screenplay/scenes");
+    const paths = [resolve(root, indexPath), ...walkFiles(partsRoot).filter((path) => extname(path).toLowerCase() === ".md")];
+    return paths.map((path, fileIndex) => {
+        const document = matter(readFileSync(path, "utf8"));
+        const rel = posixRelative(root, path);
+        const heading = document.content.match(/^#{1,3}\s+(.+?)\s*$/m)?.[1]?.trim();
+        const indexed = db.prepare("SELECT revision FROM director_file_index WHERE user_id=? AND project_id=? AND path=?").get(userId, projectId, rel) as { revision: number } | undefined;
+        return {
+            path: rel,
+            id: String(document.data.id || (fileIndex ? `${kind}-${fileIndex}` : kind)),
+            name: String(document.data.name || document.data.title || heading || (fileIndex ? `${kind === "story" ? "章节" : "场次"} ${fileIndex}` : kind === "story" ? "故事总览" : "剧本总览")),
+            order: fileIndex ? Number(document.data.order) || fileIndex : 0,
+            content: document.content.trimEnd(),
+            hash: hashFile(path),
+            revision: indexed?.revision || 1,
+            index: fileIndex === 0,
+        };
+    }).sort((left, right) => left.order - right.order || left.path.localeCompare(right.path, "zh-CN"));
+}
+
+function composeLogicalDocument(parts: DirectorLogicalDocumentPart[]) {
+    return parts.map((part) => {
+        const content = part.content.trim();
+        return part.index ? content : content.replace(/^#\s+/, "## ");
+    }).filter(Boolean).join("\n\n");
+}
+
 function section(content: string, heading: string) {
     const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return content.match(new RegExp(`^##\\s+${escaped}\\s*$\\n([\\s\\S]*?)(?=^##\\s+|$)`, "m"))?.[1]?.trim() || "";
+    return content.match(new RegExp(`^##\\s+${escaped}\\s*$\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, "m"))?.[1]?.trim() || "";
+}
+
+function visualStyleMarkdown(name: string, description: string, dna: Record<string, unknown>) {
+    const value = (key: string) => String(dna[key] || "");
+    const exclusions = Array.isArray(dna.exclusions) ? dna.exclusions.map((item) => String(item).trim()).filter(Boolean) : [];
+    return [
+        `# ${name}`,
+        "## 总体风格", description,
+        "## 媒介", value("medium"),
+        "## 通用渲染", value("rendering"),
+        "## 角色呈现", value("characterRendering"),
+        "## 场景呈现", value("sceneRendering"),
+        "## 道具呈现", value("propRendering"),
+        "## 色彩", value("palette"),
+        "## 光线", value("lighting"),
+        "## 反差", value("contrast"),
+        "## 材质与质感", value("texture"),
+        "## 镜头与景深", value("lensAndDepth"),
+        "## 构图", value("composition"),
+        "## 后期处理", value("postProcessing"),
+        "## 避免元素", exclusions.map((item) => `- ${item}`).join("\n"),
+    ].join("\n\n");
+}
+
+function markdownList(content: string) {
+    return content.split(/\r?\n|[；;]/).map((item) => item.replace(/^\s*[-*+]\s+/, "").trim()).filter(Boolean);
 }
 
 function writeMarkdown(path: string, data: Record<string, unknown>, body: string) {
@@ -1013,5 +1248,5 @@ function diag(severity: DirectorDiagnostic["severity"], code: string, path: stri
 function workspaceError(status: number, code: string, message: string, details?: unknown) { return Object.assign(new Error(message), { status, code, details }); }
 
 function projectAgents(title: string) {
-    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；时间线使用 JSON，故事板画格使用 YAML。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事写入 \`story/\`，剧本写入 \`screenplay/\`，制作拆解写入 \`screenplay/breakdown/\`。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`。\n- 一个素材文件夹代表一个角色、场景或道具；角色身份图位于 \`identity/\`，声音位于 \`voice/\`，持续造型或状态变化位于 \`variants/\`。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- 一个 4–15 秒视频段对应一个完整多宫格故事板；故事板只生成一张媒体，画格不是独立生成任务。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
+    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；时间线使用 JSON，故事板画格使用 YAML。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；角色身份图位于 \`identity/\`，声音位于 \`voice/\`，持续造型或状态变化位于 \`variants/\`。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- 一个 4–15 秒视频段对应一个完整多宫格故事板；故事板只生成一张媒体，画格不是独立生成任务。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
 }
