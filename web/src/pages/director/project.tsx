@@ -732,8 +732,8 @@ function AssetGallery({ projectId, state, assets, generations, agentCollapsed, o
                     {columns.map((column) => (
                         <section key={column.kind} className="relative flex min-h-0 min-w-0 flex-col pl-3 before:absolute before:bottom-8 before:left-0 before:top-8 before:border-l before:border-solid before:border-slate-200/70 first:before:hidden" aria-labelledby={`asset-column-${column.kind}`}>
                             <div className="flex h-14 shrink-0 items-center justify-between gap-3 bg-slate-50 pr-3">
-                                <div className="flex min-w-0 items-baseline gap-2"><h2 id={`asset-column-${column.kind}`} className="text-[15px] font-semibold text-slate-950">{column.label}</h2><span className="font-mono text-[10px] text-slate-400">{counts[column.kind]}</span>{column.needsReview ? <span className="ml-1 text-[10px] text-slate-400">待检查 {column.needsReview}</span> : null}</div>
-                                <button type="button" className="h-8 shrink-0 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "script", entityId: "script", title: column.agentTitle, subtitle: column.agentSubtitle })}>批量拆解</button>
+                                <div className="flex min-w-0 items-center gap-2 whitespace-nowrap"><h2 id={`asset-column-${column.kind}`} className="text-[15px] font-semibold leading-none text-slate-950">{column.label}</h2><span className="font-mono text-[10px] leading-none text-slate-400">{counts[column.kind]}</span>{column.needsReview ? <span className="ml-1 text-[10px] leading-none text-slate-400">待检查 {column.needsReview}</span> : null}</div>
+                                <button type="button" className="inline-flex h-8 -translate-y-0.5 shrink-0 items-center rounded-md border border-slate-200 bg-white px-3 text-xs font-medium leading-none text-slate-600 shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "script", entityId: "script", title: column.agentTitle, subtitle: column.agentSubtitle })}>批量拆解</button>
                             </div>
                             <ScrollArea className="min-h-0 flex-1">
                                 <div className="space-y-3 pb-4 pr-3">
@@ -1012,7 +1012,7 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onPreview, onDetai
                         <div className="director-asset-actions-wide flex min-w-0 items-center">
                             <AssetAction icon={Bot} label="Agent" onClick={onAgent} />
                             <AssetAction icon={Braces} label="详情" onClick={onDetail} />
-                            <AssetAction icon={RefreshCw} label={generatingImage ? "生成中" : "继续设计"} loading={busy || Boolean(generatingImage)} onClick={() => onAction("regenerate", "image")} />
+                            <AssetAction icon={RefreshCw} label={generatingImage ? "生成中" : "重新生成"} loading={busy || Boolean(generatingImage)} onClick={() => onAction("regenerate", "image")} />
                             <AssetMoreMenu busy={busy || Boolean(generatingImage)} generating={Boolean(generatingImage)} onDetail={onDetail} onAction={onAction} />
                         </div>
                         <div className="director-asset-actions-medium min-w-0 items-center">
@@ -1039,7 +1039,7 @@ function AssetAction({ icon: Icon, label, loading, onClick }: { icon: typeof Fil
 function AssetMoreMenu({ includeDetail = false, includeRegenerate = false, busy, generating, onDetail, onAction }: { includeDetail?: boolean; includeRegenerate?: boolean; busy: boolean; generating: boolean; onDetail: () => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
     const items: NonNullable<ComponentProps<typeof Dropdown>["menu"]>["items"] = [];
     if (includeDetail) items.push({ key: "detail", label: "查看详情", icon: <Braces className="size-3.5" /> });
-    if (includeRegenerate) items.push({ key: "regenerate", label: generating ? "生成中" : "继续设计", icon: <RefreshCw className="size-3.5" />, disabled: busy });
+    if (includeRegenerate) items.push({ key: "regenerate", label: generating ? "生成中" : "重新生成", icon: <RefreshCw className="size-3.5" />, disabled: busy });
     if (includeDetail || includeRegenerate) items.push({ type: "divider" });
     items.push({ key: "copy", label: "复制素材", icon: <Copy className="size-3.5" /> }, { type: "divider" }, { key: "delete", label: <span className="text-rose-600">删除素材</span>, icon: <Trash2 className="size-3.5 text-rose-500" /> });
     return <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => { if (key === "detail") onDetail(); else if (key === "regenerate") onAction("regenerate", "image"); else onAction(key === "copy" ? "copy" : "delete"); } }}><button type="button" aria-label="更多素材操作" className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><MoreHorizontal className="size-4" /></button></Dropdown>;

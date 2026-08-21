@@ -14,6 +14,32 @@
     color: var(--director-text) !important;
 }
 
+body:has(.director-light) :where(
+    button:not(:disabled),
+    a[href],
+    summary,
+    select:not(:disabled),
+    input:not(:disabled):is([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="file"]),
+    [role="button"]:not([aria-disabled="true"]),
+    [role="option"]:not([aria-disabled="true"]),
+    [role="menuitem"]:not([aria-disabled="true"])
+) {
+    cursor: pointer;
+}
+
+body:has(.director-light) :where(
+    button:disabled,
+    select:disabled,
+    input:disabled,
+    [aria-disabled="true"]
+) {
+    cursor: not-allowed;
+}
+
+body:has(.director-light) .cursor-zoom-in {
+    cursor: zoom-in;
+}
+
 .director-light [class*="bg-[#09090a]"],
 .director-light [class*="bg-[#0a0a0b]"],
 .director-light [class*="bg-[#0d0d0f]"],
