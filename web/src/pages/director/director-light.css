@@ -137,6 +137,40 @@
     background: transparent !important;
 }
 
+.director-asset-actions {
+    container-type: inline-size;
+}
+
+.director-asset-horizontal-viewport > div {
+    display: block !important;
+    height: 100%;
+}
+
+.director-asset-actions-medium,
+.director-asset-actions-compact {
+    display: none;
+}
+
+@container (max-width: 215px) {
+    .director-asset-actions-wide {
+        display: none;
+    }
+
+    .director-asset-actions-medium {
+        display: flex;
+    }
+}
+
+@container (max-width: 155px) {
+    .director-asset-actions-medium {
+        display: none;
+    }
+
+    .director-asset-actions-compact {
+        display: flex;
+    }
+}
+
 .director-light .director-storyboard-frame:focus-visible {
     z-index: 1;
     outline: 2px solid #2563eb;
@@ -262,6 +296,38 @@ main.director-light .ant-progress .ant-progress-bg {
     color: #2563eb;
     text-decoration: underline;
     text-underline-offset: 3px;
+}
+
+.director-asset-dossier {
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+.director-asset-dossier [data-streamdown="heading-1"] {
+    margin: 0 0 16px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 18px;
+    font-weight: 650;
+    line-height: 1.3;
+}
+
+.director-asset-dossier [data-streamdown="heading-2"] {
+    margin: 18px 0 7px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.45;
+}
+
+.director-asset-dossier [data-streamdown="unordered-list"],
+.director-asset-dossier [data-streamdown="ordered-list"] {
+    margin: 7px 0;
+    padding-left: 18px;
+}
+
+.director-asset-dossier p + p {
+    margin-top: 7px;
 }
 
 .director-doc-mode {

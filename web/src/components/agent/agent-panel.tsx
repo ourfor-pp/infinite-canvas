@@ -55,7 +55,7 @@ export function AgentPanel({ projectId, themeMode }: { projectId: string; themeM
                 style={{ width, background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             >
                 <button type="button" className="absolute inset-y-0 right-0 z-40 w-4 translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label={t("agent.panel.resize")} />
-                <LocalAgentPanel projectId={projectId} embedded themeMode={themeMode} />
+                <LocalAgentPanel projectId={projectId} themeMode={themeMode} />
             </motion.aside>
         </motion.div>
     );

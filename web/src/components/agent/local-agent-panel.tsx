@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { App, Button, Drawer, Tooltip } from "antd";
-import { History, Plus, X } from "lucide-react";
+import { History, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { canvasThemes, sxhAgentLightTheme } from "@/lib/canvas-theme";
@@ -23,12 +23,11 @@ import { AgentErrorBoundary } from "./agent-error-boundary";
 import { useAgentScroll } from "./use-agent-scroll";
 import { agentDraftStorage } from "./agent-draft-storage";
 
-export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { projectId: string; embedded?: boolean; themeMode?: "light" | "dark" }) {
+export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; themeMode?: "light" | "dark" }) {
     const { message } = App.useApp();
     const navigate = useNavigate();
     const currentTheme = useThemeStore((state) => state.theme);
     const theme = themeMode === "light" ? sxhAgentLightTheme : canvasThemes[themeMode || currentTheme];
-    const closePanel = useAgentStore((state) => state.closePanel);
     const canvasContext = useAgentStore((state) => state.canvasContext);
     const draft = useAgentStore((state) => state.drafts[projectId] || "");
     const savedSessionId = useAgentStore((state) => state.currentSessionIds[projectId]);
@@ -471,16 +470,14 @@ export function LocalAgentPanel({ projectId, embedded = false, themeMode }: { pr
 
     return (
         <AgentErrorBoundary resetKey={`${projectId}:${session?.id || "loading"}:${streamVersion}`} onReload={() => void reloadConversation()}><div className="agent-panel-shell relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: theme.node.panel, color: theme.node.text }}>
-            <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3" style={{ borderColor: theme.node.stroke }}>
+            <header className="flex h-11 shrink-0 items-center gap-2 border-b px-3" style={{ borderColor: theme.node.stroke }}>
                 <div className="min-w-0 flex-1">
-                    <button type="button" className="grid max-w-full gap-0.5 text-left" onClick={() => setHistoryOpen(true)}>
-                        <span className="truncate text-sm font-medium">{session?.title || (capabilities?.sceneId === "director" ? "导演 Agent" : "Canvas Agent")}</span>
-                        <span className={`agent-header-status is-${session?.status || "idle"}`}><i />{statusLabel(session?.status)}</span>
+                    <button type="button" className="block max-w-full text-left" onClick={() => setHistoryOpen(true)}>
+                        <span className="block truncate text-sm font-medium">{session?.title || (capabilities?.sceneId === "director" ? "导演 Agent" : "Canvas Agent")}</span>
                     </button>
                 </div>
                 <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={newSession} disabled={busy} /></Tooltip>
                 <Tooltip title="历史会话"><Button type="text" shape="circle" icon={<History className="size-4" />} onClick={() => setHistoryOpen(true)} /></Tooltip>
-                {embedded ? <Tooltip title="关闭"><Button type="text" shape="circle" icon={<X className="size-4" />} onClick={() => closePanel(projectId)} /></Tooltip> : null}
             </header>
 
             <div

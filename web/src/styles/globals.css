@@ -491,8 +491,6 @@
     background: var(--agent-panel) !important;
     color: var(--agent-text) !important;
 }
-.agent-header-status { display: flex; align-items: center; gap: 5px; color: var(--agent-muted); font-size: 9px; font-weight: 400; }.agent-header-status > i { width: 6px; height: 6px; border-radius: 999px; background: #94a3b8; }.agent-header-status.is-running > i { background: var(--agent-accent); animation: agent-status-pulse 1s ease-in-out infinite; }.agent-header-status.is-waiting_for_user > i { background: #f59e0b; }.agent-header-status.is-failed > i { background: #ef4444; }.agent-header-status.is-completed > i { background: #10b981; }
-
 .dark .agent-panel-shell {
     --agent-panel: #121821;
     --agent-surface: #171f2b;

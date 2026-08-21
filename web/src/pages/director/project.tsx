@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { App, Button, ConfigProvider, Drawer, Image as AntImage, Input, Progress as AntProgress, Select, Spin, Tag, theme as antdTheme, Tooltip } from "antd";
+import { createPortal } from "react-dom";
+import { App, Button, ConfigProvider, Drawer, Dropdown, Image as AntImage, Input, Progress as AntProgress, Select, Spin, Tag, theme as antdTheme, Tooltip } from "antd";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
     Activity,
     AudioLines,
@@ -21,6 +23,7 @@ import {
     Lock,
     Loader2,
     Maximize2,
+    MoreHorizontal,
     Package,
     Palette,
     Pause,
@@ -156,7 +159,7 @@ export default function DirectorProjectPage() {
             <main className="director-light flex h-dvh min-w-0 bg-white text-slate-950">
                 {!agentCollapsed ? <AgentPanel projectId={id} themeMode="light" /> : null}
                 <div className="flex min-w-0 flex-1 flex-col bg-white">
-                    <header className="flex h-16 shrink-0 items-stretch border-b border-black/10 bg-white px-5">
+                    <header className="flex h-11 shrink-0 items-stretch border-b border-black/10 bg-white px-5">
                         <nav className="flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto" aria-label="导演台功能">
                             {sections.map((item) => {
                                 const Icon = item.icon;
@@ -195,11 +198,11 @@ export default function DirectorProjectPage() {
                             </Tooltip>
                         </div>
                     </header>
-                    <section className={`min-w-0 flex-1 bg-white ${active === "story" || active === "script" || active === "style" || active === "storyboard" ? "overflow-hidden" : "overflow-auto"}`}>
+                    <section className={`relative min-w-0 flex-1 bg-white ${active === "story" || active === "script" || active === "style" || active === "assets" || active === "storyboard" ? "overflow-hidden" : "overflow-auto"}`}>
                         {active === "overview" ? <Overview state={state} assets={assets} styles={styles} onNavigate={(target) => navigate(`/director/${id}/${target}`)} /> : null}
                         {active === "story" || active === "script" ? <Writing projectId={id} kind={active} state={state} onRefresh={refresh} /> : null}
                         {active === "style" ? <DirectorTreatmentPage projectId={id} workspace={state.workspace} activeStyleId={state.activeStyleId} styles={styles} onRefresh={refresh} /> : null}
-                        {active === "assets" ? <AssetGallery projectId={id} assets={assets} generations={generations} onGeneration={applyGeneration} onRefresh={refresh} /> : null}
+                        {active === "assets" ? <AssetGallery projectId={id} state={state} assets={assets} generations={generations} agentCollapsed={agentCollapsed} onGeneration={applyGeneration} onRefresh={refresh} /> : null}
                         {active === "storyboard" ? <Storyboard projectId={id} state={state} onRefresh={refresh} /> : null}
                         {active === "studio" ? <Studio projectId={id} state={state} onRefresh={refresh} /> : null}
                     </section>
@@ -685,26 +688,25 @@ function StatusPill({ status }: { status: string }) {
     );
 }
 
-function AssetGallery({ projectId, assets, generations, onGeneration, onRefresh }: { projectId: string; assets: CreativeAsset[]; generations: ServerGeneration[]; onGeneration: (generation: ServerGeneration) => void; onRefresh: () => Promise<void> }) {
+function AssetGallery({ projectId, state, assets, generations, agentCollapsed, onGeneration, onRefresh }: { projectId: string; state: DirectorState; assets: CreativeAsset[]; generations: ServerGeneration[]; agentCollapsed: boolean; onGeneration: (generation: ServerGeneration) => void; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
+    const agentWidth = useAgentStore((store) => store.width);
     const [busyId, setBusyId] = useState("");
-    const [filter, setFilter] = useState<"all" | CreativeAssetKind>("all");
-    const [promptAssetId, setPromptAssetId] = useState("");
-    const [previewAssetId, setPreviewAssetId] = useState("");
-    const visibleAssets = filter === "all" ? assets : assets.filter((item) => item.kind === filter);
-    const previewItems = useMemo(() => visibleAssets.flatMap((asset) => {
-        const image = primaryAssetImage(asset);
-        return image ? [{ id: asset.id, url: serverApiUrl(`/files/${image.fileId}/content`), alt: asset.name }] satisfies WorkspaceImagePreviewItem[] : [];
-    }), [visibleAssets]);
-    const previewIndex = previewAssetId ? previewItems.findIndex((item) => item.id === previewAssetId) : -1;
-    const counts = { all: assets.length, character: assets.filter((item) => item.kind === "character").length, scene: assets.filter((item) => item.kind === "scene").length, prop: assets.filter((item) => item.kind === "prop").length };
+    const [detailAssetId, setDetailAssetId] = useState("");
+    const [previewMediaId, setPreviewMediaId] = useState("");
+    const previewItems = useMemo(() => assets.flatMap((asset) => asset.payload.variants
+        .filter((item) => item.kind === "image")
+        .map((item) => ({ id: `${asset.id}:${item.id}`, url: serverApiUrl(`/files/${item.fileId}/content`), alt: `${asset.name} · ${item.label || "素材图片"}` } satisfies WorkspaceImagePreviewItem))), [assets]);
+    const previewIndex = previewMediaId ? previewItems.findIndex((item) => item.id === previewMediaId) : -1;
+    const counts = { character: assets.filter((item) => item.kind === "character").length, scene: assets.filter((item) => item.kind === "scene").length, prop: assets.filter((item) => item.kind === "prop").length };
     const action = async (asset: CreativeAsset, kind: "regenerate" | "copy" | "delete", mediaKind: "image" | "audio" = "image") => {
         setBusyId(asset.id);
         try {
             if (kind === "regenerate") onGeneration(await serverApi.generateCreativeAsset(asset.id, { kind: mediaKind, revision: asset.revision }));
             if (kind === "copy") await serverApi.createCreativeAsset(projectId, { kind: asset.kind, name: `${asset.name} 副本`, payload: asset.payload });
             if (kind === "delete") await serverApi.deleteCreativeAsset(asset.id);
+            if (kind === "delete") setDetailAssetId("");
             await onRefresh();
             message.success(kind === "regenerate" ? "已开始重新生成，将直接替换主结果" : "操作完成");
         } catch (error) {
@@ -713,62 +715,55 @@ function AssetGallery({ projectId, assets, generations, onGeneration, onRefresh 
             setBusyId("");
         }
     };
+    const openAgent = (asset: CreativeAsset) => prepare(projectId, { kind: "asset", projectId, assetId: asset.id, title: asset.name, subtitle: asset.kind });
+    const columns = (["character", "scene", "prop"] as const).map((kind) => ({
+        kind,
+        label: kind === "character" ? "角色" : kind === "scene" ? "场景" : "道具",
+        agentTitle: kind === "character" ? "批量拆解角色" : kind === "scene" ? "批量拆解场景" : "批量拆解道具",
+        agentSubtitle: kind === "character" ? "从剧本整理角色档案与必要变体" : kind === "scene" ? "从剧本整理场景母版与必要状态" : "从剧本整理道具结构与必要状态",
+        items: assets.filter((item) => item.kind === kind),
+        needsReview: assets.filter((item) => item.kind === kind && item.payload.needsReview).length,
+    }));
+    const detailAsset = assets.find((item) => item.id === detailAssetId);
     return (
-        <div className="mx-auto max-w-7xl px-6 pb-8 lg:px-8">
-            <div className="sticky top-0 z-20 -mx-6 flex min-h-12 items-center justify-between gap-5 overflow-x-auto border-b border-slate-200 bg-slate-50 px-6 lg:-mx-8 lg:px-8">
-                <div className="flex h-12 shrink-0 items-center gap-4" role="tablist" aria-label="素材分类">
-                        {(
-                            [
-                                ["all", "全部"],
-                                ["character", "角色"],
-                                ["scene", "场景"],
-                                ["prop", "道具"],
-                            ] as const
-                        ).map(([kind, label]) => (
-                            <button
-                                key={kind}
-                                type="button"
-                                role="tab"
-                                aria-selected={filter === kind}
-                                className={`flex items-center gap-1.5 whitespace-nowrap text-sm transition-colors ${filter === kind ? "font-medium text-slate-950" : "text-slate-500 hover:text-slate-900"}`}
-                                onClick={() => setFilter(kind)}
-                            >
-                                <span aria-hidden="true" className={`size-1.5 rounded-full ${filter === kind ? "bg-blue-600" : "bg-transparent"}`} />
-                                {label}
-                                <span className="font-mono text-[10px] font-normal text-slate-400">{counts[kind]}</span>
-                            </button>
-                        ))}
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                    <Button type="text" size="small" className="!px-2 !text-slate-600 hover:!bg-blue-50 hover:!text-blue-700" icon={<Bot className="size-3.5" />} onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "script", entityId: "script", title: "拆解创作素材", subtitle: "从剧本整理角色、场景和道具" })}>让 Agent 拆解素材</Button>
-                </div>
-            </div>
-            {visibleAssets.length ? (
-                <div className="mt-6 grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
-                    {visibleAssets.map((asset) => (
-                        <AssetCard
-                            key={asset.id}
-                            asset={asset}
-                            busy={busyId === asset.id}
-                            activeGenerations={generations.filter((generation) => generationAssetId(generation) === asset.id && (generation.status === "queued" || generation.status === "running"))}
-                            onAgent={() => prepare(projectId, { kind: "asset", projectId, assetId: asset.id, title: asset.name, subtitle: asset.kind })}
-                            onPreview={() => setPreviewAssetId(asset.id)}
-                            onPrompt={() => setPromptAssetId(asset.id)}
-                            onAction={(kind, media) => void action(asset, kind, media)}
-                        />
+        <div className="relative flex h-full min-w-0 flex-col bg-white">
+            <ScrollArea orientation="horizontal" className="min-h-0 flex-1" viewportClassName="director-asset-horizontal-viewport">
+                <div className="grid h-full min-w-[900px] grid-cols-3 bg-slate-50 px-1">
+                    {columns.map((column) => (
+                        <section key={column.kind} className="relative flex min-h-0 min-w-0 flex-col pl-3 before:absolute before:bottom-8 before:left-0 before:top-8 before:border-l before:border-solid before:border-slate-200/70 first:before:hidden" aria-labelledby={`asset-column-${column.kind}`}>
+                            <div className="flex h-14 shrink-0 items-center justify-between gap-3 bg-slate-50 pr-3">
+                                <div className="flex min-w-0 items-baseline gap-2"><h2 id={`asset-column-${column.kind}`} className="text-[15px] font-semibold text-slate-950">{column.label}</h2><span className="font-mono text-[10px] text-slate-400">{counts[column.kind]}</span>{column.needsReview ? <span className="ml-1 text-[10px] text-slate-400">待检查 {column.needsReview}</span> : null}</div>
+                                <button type="button" className="h-8 shrink-0 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700" onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "script", entityId: "script", title: column.agentTitle, subtitle: column.agentSubtitle })}>批量拆解</button>
+                            </div>
+                            <ScrollArea className="min-h-0 flex-1">
+                                <div className="space-y-3 pb-4 pr-3">
+                                {column.items.length ? column.items.map((asset) => (
+                                    <AssetCard
+                                        key={asset.id}
+                                        asset={asset}
+                                        busy={busyId === asset.id}
+                                        activeGenerations={generations.filter((generation) => generationAssetId(generation) === asset.id && (generation.status === "queued" || generation.status === "running"))}
+                                        onAgent={() => openAgent(asset)}
+                                        onPreview={() => { const media = primaryAssetImage(asset); if (media) setPreviewMediaId(`${asset.id}:${media.id}`); }}
+                                        onDetail={() => setDetailAssetId(asset.id)}
+                                        onAction={(kind, media) => void action(asset, kind, media)}
+                                    />
+                                )) : <AssetColumnEmpty kind={column.kind} />}
+                                </div>
+                            </ScrollArea>
+                        </section>
                     ))}
                 </div>
-            ) : (
-                <EmptyPanel
-                    icon={filter === "prop" ? Package : Users}
-                    title={filter === "all" ? "还没有素材" : `还没有${filter === "character" ? "角色" : filter === "scene" ? "场景" : "道具"}`}
-                    description="和 Agent 对话，让它从当前剧本中提出候选清单。"
-                />
-            )}
-            <AssetPromptDrawer asset={assets.find((item) => item.id === promptAssetId)} generations={generations} onGeneration={onGeneration} onRefresh={onRefresh} onClose={() => setPromptAssetId("")} onAgent={() => { const asset = assets.find((item) => item.id === promptAssetId); if (asset) prepare(projectId, { kind: "asset", projectId, assetId: asset.id, title: asset.name, subtitle: asset.kind }); }} />
-            <WorkspaceImagePreviewLightbox items={previewItems} activeIndex={previewIndex >= 0 ? previewIndex : null} onClose={() => setPreviewAssetId("")} onChangeIndex={(index) => setPreviewAssetId(previewItems[index]?.id || "")} />
+            </ScrollArea>
+            <AssetDetailDialog asset={detailAsset} state={state} generations={generations} leftInset={agentCollapsed ? 0 : agentWidth + 1} onRefresh={onRefresh} onClose={() => setDetailAssetId("")} onAgent={() => { if (detailAsset) openAgent(detailAsset); }} onPreview={(mediaId) => setPreviewMediaId(`${detailAsset?.id}:${mediaId}`)} onAction={(kind, media) => { if (detailAsset) void action(detailAsset, kind, media); }} />
+            <WorkspaceImagePreviewLightbox items={previewItems} activeIndex={previewIndex >= 0 ? previewIndex : null} onClose={() => setPreviewMediaId("")} onChangeIndex={(index) => setPreviewMediaId(previewItems[index]?.id || "")} />
         </div>
     );
+}
+
+function AssetColumnEmpty({ kind }: { kind: CreativeAssetKind }) {
+    const label = kind === "character" ? "角色" : kind === "scene" ? "场景" : "道具";
+    return <div className="grid min-h-40 place-items-center border border-dashed border-slate-200 bg-white text-center"><div><Package className="mx-auto size-5 text-slate-300" /><p className="mt-2 text-xs text-slate-400">还没有{label}</p></div></div>;
 }
 
 const directingRulesPath = "direction/directing-rules.md";
@@ -988,54 +983,91 @@ function primaryAssetImage(asset: CreativeAsset) {
 
 const isAssetReference = (usage?: string) => ["reference_input", "identity_reference", "wardrobe_reference", "composition_reference"].includes(usage || "");
 
-function AssetCard({ asset, busy, activeGenerations, onAgent, onPreview, onPrompt, onAction }: { asset: CreativeAsset; busy: boolean; activeGenerations: ServerGeneration[]; onAgent: () => void; onPreview: () => void; onPrompt: () => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
+function assetInventory(asset: CreativeAsset) {
+    const images = asset.payload.variants.filter((item) => item.kind === "image").length;
+    const audio = asset.payload.variants.filter((item) => item.kind === "audio").length;
+    const variants = asset.payload.variants.filter((item) => item.usage === "variant_reference").length;
+    const imageLabel = asset.kind === "character" ? "身份板" : asset.kind === "scene" ? "空间母板" : "结构参考";
+    return [`${imageLabel} ${images}`, `声音 ${audio}`, `变体 ${variants}`].join(" · ");
+}
+
+function AssetCard({ asset, busy, activeGenerations, onAgent, onPreview, onDetail, onAction }: { asset: CreativeAsset; busy: boolean; activeGenerations: ServerGeneration[]; onAgent: () => void; onPreview: () => void; onDetail: () => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
     const primaryImage = primaryAssetImage(asset);
-    const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId) || asset.payload.variants.find((item) => item.kind === "audio" && !isAssetReference(item.usage));
     const generatingImage = activeGenerations.find((generation) => generation.kind === "image");
-    const generatingAudio = activeGenerations.find((generation) => generation.kind === "audio");
     return (
-        <article className="group overflow-hidden border border-slate-200 bg-white transition hover:border-slate-300 hover:shadow-[0_12px_30px_rgba(15,23,42,.06)]">
-            <div className="relative aspect-[16/10] bg-slate-50">
-                {primaryImage ? <button type="button" aria-label={`查看${asset.name}大图`} className="group/preview relative block size-full overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500" onClick={onPreview}><img src={serverApiUrl(`/files/${primaryImage.fileId}/content`)} alt={asset.name} className={`size-full transition duration-200 group-hover/preview:scale-[1.01] ${asset.kind === "character" ? "object-contain" : "object-cover"}`} /><span className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-slate-950/70 px-2 py-1 text-[10px] text-white opacity-0 backdrop-blur-sm transition group-hover/preview:opacity-100 group-focus-visible/preview:opacity-100"><Maximize2 className="size-3" />查看大图</span></button> : <MediaPlaceholder />}
-                {generatingImage ? <div className="director-asset-loading pointer-events-none absolute inset-0"><div className="relative z-10 flex h-full flex-col items-center justify-center text-center"><Loader2 className="size-5 animate-spin text-blue-600" /><p className="mt-3 text-xs font-medium text-slate-700">{generatingImage.status === "queued" ? "正在等待生成" : "正在设计素材"}</p><p className="mt-1 font-mono text-[9px] tracking-wider text-slate-400">{Math.round(generatingImage.progress * 100)}%</p></div></div> : null}
-                <div className="absolute left-3 top-3 bg-slate-950/75 px-2 py-1 text-[10px] tracking-widest text-white">{asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}</div>
-                {asset.payload.needsReview ? <div className="absolute bottom-3 left-3 bg-rose-600 px-2 py-1 text-[10px] text-white">风格已变化 · 需要检查</div> : null}
-            </div>
-            <div className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                        <h2 className="truncate font-serif text-xl text-slate-950">{asset.name}</h2>
-                        <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{asset.payload.description || asset.payload.narrativeDescription || "等待设定"}</p>
+        <article className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,.035)] transition hover:border-blue-300 hover:shadow-[0_6px_20px_rgba(37,99,235,.07)]" style={{ contentVisibility: "auto", containIntrinsicSize: "132px" }}>
+            <div className="grid h-[156px] grid-cols-[42%_minmax(0,1fr)]">
+                <div className="relative m-2 mr-0 aspect-video self-start overflow-hidden rounded-lg bg-slate-50">
+                    {primaryImage ? <button type="button" aria-label={`查看${asset.name}大图`} className="group/preview block size-full cursor-zoom-in focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500" onClick={onPreview}><img src={serverApiUrl(`/files/${primaryImage.fileId}/content`)} alt={asset.name} className="size-full object-contain transition duration-200 group-hover/preview:scale-[1.015]" /></button> : <MediaPlaceholder label="等待设计" />}
+                    {generatingImage ? <div className="director-asset-loading pointer-events-none absolute inset-0"><div className="relative z-10 flex h-full flex-col items-center justify-center text-center"><Loader2 className="size-4 animate-spin text-blue-600" /><p className="mt-2 text-[10px] font-medium text-slate-700">{generatingImage.status === "queued" ? "等待生成" : "正在设计"}</p></div></div> : null}
+                </div>
+                <div className="flex min-w-0 flex-col px-3 pb-2 pt-2.5">
+                    <button type="button" className="min-w-0 flex-1 text-left" onClick={onDetail}>
+                        <h2 className="truncate text-sm font-semibold text-slate-950">{asset.name}</h2>
+                        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{asset.payload.description || asset.payload.narrativeDescription || "等待补充素材档案"}</p>
+                        <p className="mt-1.5 truncate text-[10px] text-slate-400">{assetInventory(asset)}</p>
+                    </button>
+                    {primaryImage?.review?.status === "rejected" ? <p className="mt-1 truncate text-[9px] text-rose-500">{primaryImage.review.summary || "视觉结果需要检查"}</p> : null}
+                    <div className="director-asset-actions mt-1.5 min-w-0 border-t border-slate-100 pt-1">
+                        <div className="director-asset-actions-wide flex min-w-0 items-center">
+                            <AssetAction icon={Bot} label="Agent" onClick={onAgent} />
+                            <AssetAction icon={Braces} label="详情" onClick={onDetail} />
+                            <AssetAction icon={RefreshCw} label={generatingImage ? "生成中" : "继续设计"} loading={busy || Boolean(generatingImage)} onClick={() => onAction("regenerate", "image")} />
+                            <AssetMoreMenu busy={busy || Boolean(generatingImage)} generating={Boolean(generatingImage)} onDetail={onDetail} onAction={onAction} />
+                        </div>
+                        <div className="director-asset-actions-medium min-w-0 items-center">
+                            <AssetAction icon={Bot} label="Agent" onClick={onAgent} />
+                            <AssetAction icon={Braces} label="详情" onClick={onDetail} />
+                            <AssetMoreMenu includeRegenerate busy={busy || Boolean(generatingImage)} generating={Boolean(generatingImage)} onDetail={onDetail} onAction={onAction} />
+                        </div>
+                        <div className="director-asset-actions-compact justify-end">
+                            <AssetAction icon={Bot} label="Agent" onClick={onAgent} />
+                            <AssetMoreMenu includeDetail includeRegenerate busy={busy || Boolean(generatingImage)} generating={Boolean(generatingImage)} onDetail={onDetail} onAction={onAction} />
+                        </div>
                     </div>
                 </div>
-                {primaryImage?.review ? <div className={`mt-3 flex items-start gap-2 text-xs ${primaryImage.review.status === "approved" ? "text-emerald-600" : primaryImage.review.status === "rejected" ? "text-rose-600" : "text-slate-500"}`}><span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-current" /><span>{primaryImage.review.summary || (primaryImage.review.status === "pending_review" ? "正在检查视觉质量" : "视觉检查完成")}</span></div> : null}
-                {primaryAudio ? (
-                    <audio className="mt-4 h-8 w-full" controls src={serverApiUrl(`/files/${primaryAudio.fileId}/content`)} />
-                ) : (
-                    <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
-                        <AudioLines className="size-3.5" />
-                        {asset.kind === "character" ? "声线待生成" : asset.kind === "scene" ? "氛围声待生成" : "动作音效待生成"}
-                    </div>
-                )}
-                <div className="mt-5 flex flex-wrap items-center border-t border-slate-200 pt-2">
-                    <FlatAction icon={Bot} label="Agent" onClick={onAgent} />
-                    <FlatAction icon={Braces} label="详情" onClick={onPrompt} />
-                    <FlatAction icon={RefreshCw} label={generatingImage ? "生成中" : "抽图"} loading={busy || Boolean(generatingImage)} onClick={() => onAction("regenerate", "image")} />
-                    <FlatAction icon={AudioLines} label={generatingAudio ? "生成中" : "抽声音"} loading={busy || Boolean(generatingAudio)} onClick={() => onAction("regenerate", "audio")} />
-                    <FlatAction icon={Copy} label="复制" onClick={() => onAction("copy")} />
-                    <FlatAction icon={Trash2} label="删除" danger onClick={() => onAction("delete")} />
-                </div>
-                {activeGenerations.map((generation) => <div key={generation.id} className="mt-2"><div className="flex items-center justify-between text-[10px] text-slate-400"><span>{generation.status === "queued" ? `${generation.kind === "audio" ? "声音" : "设计图"}任务已排队` : `${generation.kind === "audio" ? "声音" : "设计图"}生成中`}</span><span>{Math.round(generation.progress * 100)}%</span></div><div className="mt-1 h-0.5 overflow-hidden bg-slate-100"><div className={`h-full bg-blue-600 ${generation.progress > 0 ? "transition-all" : "director-task-progress"}`} style={generation.progress > 0 ? { width: `${Math.max(4, Math.round(generation.progress * 100))}%` } : undefined} /></div></div>)}
             </div>
+            {activeGenerations.map((generation) => <div key={generation.id} className="border-t border-slate-100 px-3 py-1.5"><div className="flex items-center justify-between text-[9px] text-slate-400"><span>{generation.status === "queued" ? `${generation.kind === "audio" ? "声音" : "设计图"}任务已排队` : `${generation.kind === "audio" ? "声音" : "设计图"}生成中`}</span><span>{Math.round(generation.progress * 100)}%</span></div><div className="mt-1 h-0.5 overflow-hidden bg-slate-100"><div className={`h-full bg-blue-600 ${generation.progress > 0 ? "transition-all" : "director-task-progress"}`} style={generation.progress > 0 ? { width: `${Math.max(4, Math.round(generation.progress * 100))}%` } : undefined} /></div></div>)}
         </article>
     );
 }
 
-function AssetPromptDrawer({ asset, generations, onGeneration, onRefresh, onClose, onAgent }: { asset?: CreativeAsset; generations: ServerGeneration[]; onGeneration: (generation: ServerGeneration) => void; onRefresh: () => Promise<void>; onClose: () => void; onAgent: () => void }) {
+function AssetAction({ icon: Icon, label, loading, onClick }: { icon: typeof Film; label: string; loading?: boolean; onClick: () => void }) {
+    return <button type="button" aria-label={label} disabled={loading} className="flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40" onClick={onClick}>{loading ? <RefreshCw className="size-3 animate-spin" /> : <Icon className="size-3" />}<span className="whitespace-nowrap">{label}</span></button>;
+}
+
+function AssetMoreMenu({ includeDetail = false, includeRegenerate = false, busy, generating, onDetail, onAction }: { includeDetail?: boolean; includeRegenerate?: boolean; busy: boolean; generating: boolean; onDetail: () => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
+    const items: NonNullable<ComponentProps<typeof Dropdown>["menu"]>["items"] = [];
+    if (includeDetail) items.push({ key: "detail", label: "查看详情", icon: <Braces className="size-3.5" /> });
+    if (includeRegenerate) items.push({ key: "regenerate", label: generating ? "生成中" : "继续设计", icon: <RefreshCw className="size-3.5" />, disabled: busy });
+    if (includeDetail || includeRegenerate) items.push({ type: "divider" });
+    items.push({ key: "copy", label: "复制素材", icon: <Copy className="size-3.5" /> }, { type: "divider" }, { key: "delete", label: <span className="text-rose-600">删除素材</span>, icon: <Trash2 className="size-3.5 text-rose-500" /> });
+    return <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => { if (key === "detail") onDetail(); else if (key === "regenerate") onAction("regenerate", "image"); else onAction(key === "copy" ? "copy" : "delete"); } }}><button type="button" aria-label="更多素材操作" className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><MoreHorizontal className="size-4" /></button></Dropdown>;
+}
+
+function assetDossierMarkdown(asset: CreativeAsset) {
+    const profile = asset.payload.designProfile;
+    const sections = [
+        `# ${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}档案`,
+        asset.payload.narrativeDescription ? `## 剧情身份\n\n${asset.payload.narrativeDescription}` : "",
+        asset.payload.visualDescription ? `## 稳定视觉设定\n\n${asset.payload.visualDescription}` : "",
+        profile ? `## 可观察身份锚点\n\n- 年龄与痕迹：${profile.ageBand || "待补充"}；${profile.visibleAgeCues || "待补充"}\n- 体态与姿态：${profile.bodySilhouette || "待补充"}；${profile.posture || "待补充"}\n- 核心识别点：${profile.identityAnchor || "待补充"}\n- 阵容差异：${profile.distinctivenessSummary || "待补充"}` : "",
+        asset.payload.description ? `## 制作说明\n\n${asset.payload.description}` : "",
+    ];
+    return sections.filter(Boolean).join("\n\n") || `# ${asset.name}\n\n等待 Agent 补充素材档案。`;
+}
+
+function assetUsageRows(asset: CreativeAsset, state: DirectorState) {
+    const sequenceTitles = new Map(state.sequences.map((item) => [item.id, item.title]));
+    return state.videoSegments.filter((segment) => {
+        const refs = asset.kind === "character" ? segment.payload.characterRefs : asset.kind === "scene" ? segment.payload.sceneRefs : segment.payload.propRefs;
+        return refs?.some((item) => item.id === asset.id);
+    }).map((segment) => ({ id: segment.id, title: segment.title, sequence: sequenceTitles.get(segment.sequenceId) || "未分组", duration: segment.payload.durationSeconds || 4 }));
+}
+
+function AssetDetailDialog({ asset, state, generations, leftInset, onRefresh, onClose, onAgent, onPreview, onAction }: { asset?: CreativeAsset; state: DirectorState; generations: ServerGeneration[]; leftInset: number; onRefresh: () => Promise<void>; onClose: () => void; onAgent: () => void; onPreview: (mediaId: string) => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
     const { message } = App.useApp();
-    const copyText = useCopyText();
     const [uploading, setUploading] = useState(false);
-    const [generatingRole, setGeneratingRole] = useState("");
     const variant = asset ? primaryAssetImage(asset) : undefined;
     const generation = generations.find((item) => item.id === variant?.generationId);
     const prompt = variant?.prompt || "";
@@ -1054,32 +1086,39 @@ function AssetPromptDrawer({ asset, generations, onGeneration, onRefresh, onClos
         } catch (error) { message.error(error instanceof Error ? error.message : "上传参考图失败"); }
         finally { setUploading(false); }
     };
-    const generateIdentity = async (mediaRole: "face_closeup" | "body_front" | "body_back") => {
+    useEffect(() => {
         if (!asset) return;
-        setGeneratingRole(mediaRole);
-        try {
-            onGeneration(await serverApi.generateCreativeAsset(asset.id, { kind: "image", revision: asset.revision, mediaRole }));
-            message.success("身份媒体已加入生成队列");
-        } catch (error) { message.error(error instanceof Error ? error.message : "生成身份媒体失败"); }
-        finally { setGeneratingRole(""); }
-    };
-    const identityRoles = asset?.kind === "character" ? ([
-        ["face_closeup", "面部特写", "face_closeup_reference"],
-        ["body_front", "正面身体", "body_front_reference"],
-        ["body_back", "背面身体", "body_back_reference"],
-    ] as const) : [];
-    return (
-        <Drawer open={Boolean(asset)} onClose={onClose} size={560} title={asset ? `${asset.name} · 素材详情` : "素材详情"} styles={{ body: { padding: 0, background: "#fff" } }} footer={<div className="flex items-center justify-between"><Button type="text" icon={<Copy className="size-4" />} disabled={!prompt} onClick={() => copyText(prompt, "已复制素材提示词")}>复制提示词</Button><Button type="text" icon={<Bot className="size-4" />} onClick={onAgent}>交给 Agent</Button></div>}>
-            {asset ? <div className="space-y-5 p-5">
-                {identityRoles.length ? <section><div className="mb-3 flex items-baseline justify-between"><p className="text-xs font-medium text-slate-900">身份媒体</p><span className="text-[10px] text-slate-400">同一角色 · 按镜头用途选用</span></div><div className="grid grid-cols-3 gap-2">{identityRoles.map(([role, label, usage]) => { const media = asset.payload.variants.find((item) => item.kind === "image" && item.usage === usage); return <div key={role} className="overflow-hidden border border-slate-200 bg-slate-50"><div className="aspect-[4/5] bg-white">{media ? <AntImage rootClassName="size-full" src={serverApiUrl(`/files/${media.fileId}/content`)} alt={label} className="!size-full !object-contain" /> : <MediaPlaceholder label="尚未生成" />}</div><div className="flex items-center justify-between border-t border-slate-200 bg-white px-2 py-1.5"><span className="text-[11px] text-slate-600">{label}</span><Button type="text" size="small" className="!h-6 !px-1.5 !text-[10px]" loading={generatingRole === role} onClick={() => void generateIdentity(role)}>{media ? "重抽" : "生成"}</Button></div></div>; })}</div></section> : null}
-                <div className="flex items-start justify-between gap-4"><p className="text-xs leading-5 text-slate-500">本次生成 · {generation?.modelId || asset.payload.mediaDrafts.image.model || "未记录模型"}<br />{String(params.size || "未记录尺寸")} · {String(params.quality || "默认质量")} · {promptPackage?.profile || String(params.imagePromptProfile || "generic")} · REV {promptPackage?.asset?.revision || asset.revision}</p>{asset.kind === "character" ? <label className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-2 border border-slate-200 px-3 text-xs text-slate-600 hover:bg-blue-50"><Upload className="size-3.5" />{uploading ? "上传中" : "上传面貌参考"}<input disabled={uploading} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadIdentity(file); }} /></label> : null}</div>
-                {references.length ? <PromptReferences title={`参考图片 ${references.length}`} items={references} /> : null}
-                {currentReferences.length ? <PromptReferences title={`下次生成将采用 ${currentReferences.length} 张参考`} items={currentReferences} /> : null}
-                {promptPackage?.excludedReferences?.length ? <div><p className="text-xs font-medium text-slate-900">已排除的参考</p><div className="mt-3 space-y-2">{promptPackage.excludedReferences.map((item) => <div key={item.fileId} className="flex gap-3 border border-slate-200 bg-slate-50 p-2"><img className="size-14 shrink-0 object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /><div className="min-w-0 text-[11px] leading-5 text-slate-500"><strong className="block truncate font-medium text-slate-700">{item.label}</strong>{item.reason}</div></div>)}</div></div> : null}
-                <div><p className="mb-2 text-xs font-medium text-slate-900">提示词</p><PromptText value={prompt} empty="当前素材还没有已保存的生图提示词，生成设计图后会记录实际请求。" /></div>
-            </div> : null}
-        </Drawer>
-    );
+        const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+        window.addEventListener("keydown", close);
+        return () => window.removeEventListener("keydown", close);
+    }, [asset, onClose]);
+    if (!asset) return null;
+    const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId) || asset.payload.variants.find((item) => item.kind === "audio" && !isAssetReference(item.usage));
+    const productionVariants = asset.payload.variants.filter((item) => item.kind === "image" && item.usage === "variant_reference");
+    const usages = assetUsageRows(asset, state);
+    return createPortal(<div className="fixed inset-y-0 right-0 z-[80] flex items-center justify-center bg-slate-950/25 p-4 backdrop-blur-[1px]" style={{ left: leftInset }} onMouseDown={onClose}>
+        <section role="dialog" aria-modal="true" aria-label={`${asset.name}素材详情`} className="flex h-[min(780px,calc(100%-8px))] w-[94%] max-w-[1080px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,.22)]" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-6">
+                <div className="min-w-0"><div className="flex items-baseline gap-2"><h1 className="truncate text-xl font-semibold text-slate-950">{asset.name}</h1><span className="font-mono text-[11px] text-slate-400">{asset.id}</span></div><p className="mt-1 text-[11px] text-slate-500">{asset.kind === "character" ? "角色档案" : asset.kind === "scene" ? "场景档案" : "道具档案"} · 一个素材，一份权威资料 · REV {asset.revision}</p></div>
+                <div className="flex items-center gap-1"><Button type="text" size="small" icon={<Bot className="size-4" />} onClick={onAgent}>交给 Agent</Button><button type="button" aria-label="关闭素材详情" className="p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950" onClick={onClose}><X className="size-4" /></button></div>
+            </header>
+            <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                <div className="grid grid-cols-1 lg:grid-cols-[5fr_7fr]">
+                    <article className="director-markdown director-asset-dossier max-h-[350px] min-h-0 overflow-y-auto border-b border-slate-200 px-5 py-4 lg:border-b-0 lg:border-r"><Streamdown mode="static">{assetDossierMarkdown(asset)}</Streamdown></article>
+                    <div className="min-h-0 bg-slate-50">
+                        <div className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-4"><div><h2 className="text-xs font-medium text-slate-900">综合身份板</h2><p className="mt-0.5 text-[10px] text-slate-400">故事板默认引用 · 当前主视觉</p></div><div className="flex items-center gap-1">{variant ? <Button type="text" size="small" icon={<Maximize2 className="size-3.5" />} onClick={() => onPreview(variant.id)}>查看大图</Button> : null}<Button type="text" size="small" icon={<RefreshCw className="size-3.5" />} onClick={() => onAction("regenerate", "image")}>{variant ? "重抽" : "生成"}</Button></div></div>
+                        <div className="aspect-[16/7] w-full bg-slate-50 p-3">{variant ? <button type="button" className="size-full cursor-zoom-in" onClick={() => onPreview(variant.id)}><img className="size-full object-contain" src={serverApiUrl(`/files/${variant.fileId}/content`)} alt={`${asset.name}综合身份板`} /></button> : <MediaPlaceholder />}</div>
+                    </div>
+                </div>
+                <section className="border-t border-slate-200 px-4 py-3"><div className="flex items-center gap-4"><div className="w-32 shrink-0"><h2 className="text-sm font-medium text-slate-950">声音与行为</h2><p className="mt-0.5 text-[10px] text-slate-400">{asset.kind === "character" ? "声线与语言" : asset.kind === "scene" ? "环境氛围" : "动作音效"}</p></div><div className="min-w-0 flex-1">{primaryAudio ? <audio className="h-8 w-full" controls src={serverApiUrl(`/files/${primaryAudio.fileId}/content`)} /> : <p className="text-[11px] text-slate-400">还没有声音媒体</p>}</div><Button type="text" size="small" icon={<AudioLines className="size-3.5" />} onClick={() => onAction("regenerate", "audio")}>{primaryAudio ? "重抽" : "生成声音"}</Button></div></section>
+                <section className="border-t border-slate-200 p-4"><div className="flex items-baseline justify-between"><div><h2 className="text-sm font-medium text-slate-950">生产变体（{productionVariants.length}）</h2><p className="mt-1 text-[10px] text-slate-400">只制作会持续影响连续性的换装、伤势或状态</p></div><button type="button" className="text-xs text-blue-600 hover:text-blue-700">＋ 新建所需变体</button></div>{productionVariants.length ? <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">{productionVariants.map((item) => <button key={item.id} type="button" className="flex min-w-0 items-center gap-2 rounded-md border border-slate-200 p-2 text-left hover:border-blue-300" onClick={() => onPreview(item.id)}><img className="size-12 shrink-0 rounded object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /><span className="truncate text-[11px] text-slate-600">{item.label || "状态变体"}</span></button>)}</div> : <p className="mt-3 text-[11px] text-slate-400">当前没有必要的生产变体。</p>}</section>
+                <section className="border-t border-slate-200 p-4"><div className="flex items-baseline gap-2"><h2 className="text-sm font-medium text-slate-950">使用位置</h2><span className="text-[10px] text-slate-400">视频段 {usages.length}</span></div>{usages.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{usages.slice(0, 6).map((item) => <div key={item.id} className="rounded-md border border-slate-200 px-3 py-2"><p className="truncate text-[11px] font-medium text-slate-700">{item.title}</p><p className="mt-0.5 truncate text-[10px] text-slate-400">{item.sequence} · {item.duration} 秒</p></div>)}</div> : <p className="mt-3 text-[11px] text-slate-400">还没有被视频段引用。</p>}</section>
+                <details className="group border-t border-slate-200 p-4"><summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-slate-700"><span>生成提示词与参考</span><ChevronRight className="size-4 text-slate-400 transition group-open:rotate-90" /></summary><div className="mt-4 space-y-5"><p className="text-xs leading-5 text-slate-500">本次生成 · {generation?.modelId || asset.payload.mediaDrafts.image.model || "未记录模型"} · {String(params.size || "未记录尺寸")} · REV {promptPackage?.asset?.revision || asset.revision}</p>{asset.kind === "character" ? <label className="inline-flex h-8 cursor-pointer items-center gap-2 border border-slate-200 px-3 text-xs text-slate-600 hover:bg-blue-50"><Upload className="size-3.5" />{uploading ? "上传中" : "上传身份参考"}<input disabled={uploading} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadIdentity(file); }} /></label> : null}{references.length ? <PromptReferences title={`本次参考 ${references.length}`} items={references} /> : null}{currentReferences.length ? <PromptReferences title={`下次生成参考 ${currentReferences.length}`} items={currentReferences} /> : null}<PromptText value={prompt} empty="当前素材还没有已保存的生图提示词。" /></div></details>
+                </div>
+            </div>
+        </section>
+    </div>, document.body);
 }
 
 function MediaPlaceholder({ label = "等待生成设计图", icon: Icon = ImageIcon }: { label?: string; icon?: typeof ImageIcon }) {
