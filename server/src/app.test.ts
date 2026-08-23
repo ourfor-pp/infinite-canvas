@@ -358,6 +358,67 @@ test("导演文件工程支持哈希冲突、校验和 ZIP 往返", async () => 
     assert.equal(rejected.status, 400);
 });
 
+test("导演素材详情按文件夹聚合主档、基础设计、声音和生产变体", async () => {
+    const projectId = "director-asset-workbench";
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "素材工作台" }) });
+    const created = await api(`/projects/${projectId}/creative-assets`, userOne, { method: "POST", body: JSON.stringify({
+        kind: "character",
+        name: "林夏",
+        payload: {
+            description: "调查记者",
+            visualDescription: "二十八岁短发女性，方脸，深色风衣。",
+            mediaDrafts: { image: { prompt: "白底角色综合身份板" }, audio: { prompt: "冷静、低声线、自然停顿", transcript: "我会把真相查清楚。" } },
+        },
+    }) });
+    assert.equal(created.response.status, 201, JSON.stringify(created.body));
+    const assetId = created.body.data.id;
+    const timestamp = new Date().toISOString();
+    const insertSequence = db.prepare("INSERT INTO director_sequences (id,user_id,project_id,position,title,summary,status,payload,revision,created_at,updated_at) VALUES (?,?,?,?,?,'','draft','{}',1,?,?)");
+    insertSequence.run("asset-a-later-sequence", userOne["X-Trim-Userid"], projectId, 1, "次段", timestamp, timestamp);
+    insertSequence.run("asset-z-first-sequence", userOne["X-Trim-Userid"], projectId, 0, "首段", timestamp, timestamp);
+    const insertSegment = db.prepare("INSERT INTO director_shots (id,user_id,project_id,sequence_id,position,title,status,payload,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,'draft',?,1,?,?)");
+    insertSegment.run("asset-segment-later", userOne["X-Trim-Userid"], projectId, "asset-a-later-sequence", 0, "次段镜头", JSON.stringify({ durationSeconds: 6, characterRefs: [{ id: assetId, revision: 1 }] }), timestamp, timestamp);
+    insertSegment.run("asset-segment-first-b", userOne["X-Trim-Userid"], projectId, "asset-z-first-sequence", 1, "首段第二镜", JSON.stringify({ durationSeconds: 5, characterRefs: [{ id: assetId, revision: 1 }] }), timestamp, timestamp);
+    insertSegment.run("asset-segment-first-a", userOne["X-Trim-Userid"], projectId, "asset-z-first-sequence", 0, "首段第一镜", JSON.stringify({ durationSeconds: 4, characterRefs: [{ id: assetId, revision: 1 }] }), timestamp, timestamp);
+    const detail = await api(`/director/assets/${assetId}/detail`, userOne);
+    assert.equal(detail.response.status, 200, JSON.stringify(detail.body));
+    assert.match(detail.body.data.dossier.path, /assets\/characters\/char-/);
+    assert.match(detail.body.data.primaryVisual.promptPath, /identity\/prompt\.md$/);
+    assert.equal(detail.body.data.primaryVisual.prompt, "白底角色综合身份板");
+    assert.match(detail.body.data.sound.promptPath, /voice\/sound\.md$/);
+    assert.equal(detail.body.data.sound.prompt, "冷静、低声线、自然停顿");
+    assert.equal(detail.body.data.sound.sampleText, "我会把真相查清楚。");
+    assert.deepEqual(detail.body.data.usages.map((item: { title: string }) => item.title), ["首段第一镜", "首段第二镜", "次段镜头"], "使用位置必须按剧情段落位置和视频段位置排序，而不是按随机 ID 排序");
+    assert.deepEqual(detail.body.data.usages.map((item: { sequencePosition: number; segmentPosition: number }) => [item.sequencePosition, item.segmentPosition]), [[0, 0], [0, 1], [1, 0]]);
+    assert.equal((await api(`/director/assets/${assetId}/detail`, userTwo)).response.status, 404);
+
+    const imageForm = new FormData();
+    imageForm.set("file", new Blob(["reference-image"], { type: "image/png" }), "reference.png");
+    const image = await api("/files", userOne, { method: "POST", body: imageForm });
+    const withImage = await api(`/director/assets/${assetId}/media-inputs`, userOne, { method: "POST", body: JSON.stringify({ fileId: image.body.data.fileId, target: "primary-visual" }) });
+    assert.equal(withImage.body.data.primaryVisual.inputs.length, 1);
+
+    for (const name of ["voice-a.wav", "voice-b.wav"]) {
+        const audioForm = new FormData();
+        audioForm.set("file", new Blob([name], { type: "audio/wav" }), name);
+        const audio = await api("/files", userOne, { method: "POST", body: audioForm });
+        const withAudio = await api(`/director/assets/${assetId}/media-inputs`, userOne, { method: "POST", body: JSON.stringify({ fileId: audio.body.data.fileId, target: "sound" }) });
+        assert.equal(withAudio.body.data.sound.input.name, "reference.wav");
+    }
+
+    const folderPath = detail.body.data.folderPath;
+    const variantPath = `${folderPath}/variants/var-001-raincoat`;
+    const variantDocument = `---\nid: var-001-raincoat\nkind: asset-variant\nname: 雨衣造型\n---\n持续雨夜场次使用的防水造型。\n`;
+    assert.equal((await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", body: JSON.stringify({ path: `${variantPath}/variant.md`, content: variantDocument }) })).response.status, 200);
+    assert.equal((await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", body: JSON.stringify({ path: `${variantPath}/prompt.md`, content: "保持同一身份，替换为深色防水雨衣。\n" }) })).response.status, 200);
+    const withVariant = await api(`/director/assets/${assetId}/detail`, userOne);
+    assert.deepEqual(withVariant.body.data.variants.map((item: { variantId: string }) => item.variantId), ["var-001-raincoat"]);
+    assert.equal((await api(`/director/assets/${assetId}/generate`, userOne, { method: "POST", body: JSON.stringify({ target: "variant-visual", variantId: "var-001-raincoat", expectedHash: "stale" }) })).response.status, 409);
+    const deleted = await api(`/director/assets/${assetId}/variants/var-001-raincoat`, userOne, { method: "DELETE" });
+    assert.equal(deleted.response.status, 200);
+    assert.equal(deleted.body.data.variants.length, 0);
+});
+
 test("创作资产按项目隔离、保存自然语言描述并检测 revision", async () => {
     const created = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "character", name: "林夏", payload: { description: "二十八岁的清瘦调查记者，短发，深色风衣。", mediaDrafts: { audio: { prompt: "冷静、低声线", transcript: "这件事，我会亲自查清楚。" } } } }) });
     assert.equal(created.response.status, 201);

@@ -16,6 +16,8 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS]
 - Frontmatter `designProfile.facialIdentity`：结构化保存脸型、骨相、眉眼、鼻唇、肤色、发际线和非对称识别点；未知项留空，不用审美套话补齐。
 - 不同阶段的服装、伤势和状态应作为后续独立造型版本处理，不能用箭头或剧情顺序混入基础身份。
 - 不在角色主档决定真人、动画、水墨、三维等媒介，也不写摄影、线稿、渲染、光线或后期；这些全部由 `direction/visual-style.md` 负责。角色图片提示只使用上述结构化身份字段。
-- 声线与中性试听台词写入 `character.md` 的声音章节；生成结果位于 `voice/`。
+- 声音提示词只写入 `voice/sound.md` 正文，中性试听台词写在该文件 Frontmatter 的 `sampleText`；最多保留一个 `voice/reference.*`，当前结果为 `voice/primary.*`，不要在主档重复声音提示词。
+
+基础图像提示词写入 `identity/prompt.md`，输入参考放 `identity/inputs/`，当前权威结果放在 `identity/` 根目录。持续造型或状态使用 `variants/var-NNN-slug/`，其中 `variant.md` 说明变化及适用场次，`prompt.md` 只写该变体的生图提示，输入放 `inputs/`，当前结果为 `primary.*`。只有剧本使用位置表明变化会跨视频段持续存在或缺图会破坏连续性时才创建变体。
 
 先用 Glob/Read 列出并读取全部角色主档做阵容对照，确保主要角色在脸型骨相、体态比例、发型轮廓、服装剪影、年龄痕迹与自然识别点中至少三组明显不同，再用 Edit 修订对应 `character.md`。人脸与人体差异是所有媒介的通用身份规则；毛孔、真实相机、线稿、色块或三维材质不是角色身份，只能来自风格。完成角色设计不等于生成媒体；除非用户明确要求生成，否则不要调用生成工具。原文在性别、年龄或关键服饰上冲突时列出冲突并询问，不自行选择。

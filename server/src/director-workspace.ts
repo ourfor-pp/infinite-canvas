@@ -43,7 +43,14 @@ type WorkspaceRow = { target_duration_seconds: number; aspect_ratio: string; lan
 type DocumentRow = { kind: "story" | "script"; content: string; revision: number; updated_at: string };
 type SequenceRow = { id: string; position: number; title: string; summary: string; payload: string; revision: number; updated_at: string };
 type SegmentRow = { id: string; sequence_id: string; position: number; title: string; payload: string; revision: number; updated_at: string };
-type AssetRow = { id: string; kind: "character" | "scene" | "prop"; name: string; payload: string; revision: number; updated_at: string };
+type AssetRow = { id: string; project_id: string; kind: "character" | "scene" | "prop"; name: string; payload: string; revision: number; updated_at: string };
+
+export type DirectorAssetMedia = { id: string; fileId: string; path: string; name: string; mediaRole: string; kind: "image" | "audio" };
+export type DirectorAssetVisualWorkspace = { id: string; label: string; kind: "primary" | "variant"; variantId?: string; description: string; prompt: string; promptPath: string; hash: string; inputs: DirectorAssetMedia[]; outputs: DirectorAssetMedia[] };
+export type DirectorAssetSoundWorkspace = { prompt: string; promptPath: string; hash: string; sampleText: string; suggestedDurationSeconds?: number; input?: DirectorAssetMedia; output?: DirectorAssetMedia };
+export type DirectorAssetUsage = { id: string; title: string; sequenceId: string; sequenceTitle: string; sequencePosition: number; segmentPosition: number; durationSeconds: number; variantId?: string; storyboardReady: boolean; videoReady: boolean };
+export type DirectorAssetDetail = { assetId: string; projectId: string; kind: AssetRow["kind"]; name: string; revision: number; folderPath: string; dossier: { path: string; content: string; hash: string }; primaryVisual: DirectorAssetVisualWorkspace; variants: DirectorAssetVisualWorkspace[]; sound: DirectorAssetSoundWorkspace; usages: DirectorAssetUsage[] };
+export type DirectorAssetGenerationTarget = { assetId: string; target: "primary-visual" | "variant-visual" | "sound"; mediaRole?: string; variantId?: string; expectedHash: string };
 type StyleRow = { id: string; name: string; mode: string; template_id: string | null; description: string; dna: string; reference_files: string; revision: number; updated_at: string };
 
 const projectSchema = z.object({ format: z.literal("infinite-canvas-director"), version: z.literal(1), id: z.string().min(1), name: z.string().min(1) }).passthrough();
@@ -354,7 +361,124 @@ export function syncDirectorAssetFile(userId: string, projectId: string, assetId
     if (row.kind === "character") { mkdirSync(resolve(folder, "identity"), { recursive: true }); mkdirSync(resolve(folder, "voice"), { recursive: true }); }
     mkdirSync(resolve(folder, "variants"), { recursive: true });
     copyAssetMedia(userId, payload, folder, row.kind);
+    ensureDirectorAssetProductionFiles(userId, projectId, root, folder, row, payload);
     indexDirectorProject(userId, projectId, validateDirectorRoot(root));
+}
+
+export function getDirectorAssetDetail(userId: string, assetId: string): DirectorAssetDetail {
+    const row = db.prepare("SELECT * FROM creative_assets WHERE user_id=? AND id=?").get(userId, assetId) as AssetRow | undefined;
+    if (!row) throw workspaceError(404, "DIRECTOR_ASSET_NOT_FOUND", "素材不存在或无权访问");
+    const root = ensureDirectorProjectWorkspace(userId, row.project_id);
+    const folder = directorAssetFolder(root, row.project_id, row.id);
+    if (!folder) throw workspaceError(404, "DIRECTOR_ASSET_FOLDER_NOT_FOUND", "素材文件夹不存在");
+    const payload = parseJson<Record<string, unknown>>(row.payload, {});
+    ensureDirectorAssetProductionFiles(userId, row.project_id, root, folder, row, payload);
+    indexDirectorProject(userId, row.project_id, validateDirectorRoot(root));
+    const dossierPath = resolve(folder, row.kind === "character" ? "character.md" : row.kind === "scene" ? "location.md" : "prop.md");
+    const dossier = matter(readFileSync(dossierPath, "utf8"));
+    const visualFolder = resolve(folder, row.kind === "character" ? "identity" : "design");
+    const primaryVisual = readAssetVisualWorkspace(userId, row.project_id, root, visualFolder, "primary", row.kind === "character" ? "主形象" : row.kind === "scene" ? "空间母板" : "结构母板");
+    const variantsFolder = resolve(folder, "variants");
+    const variants = readdirSync(variantsFolder, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
+        const variantFolder = resolve(variantsFolder, entry.name);
+        const documentPath = resolve(variantFolder, "variant.md");
+        if (!existsSync(documentPath)) return null;
+        const document = matter(readFileSync(documentPath, "utf8"));
+        const variantId = String(document.data.id || entry.name);
+        return readAssetVisualWorkspace(userId, row.project_id, root, variantFolder, "variant", String(document.data.name || entry.name), variantId, document.content.trim());
+    }).filter((item): item is DirectorAssetVisualWorkspace => Boolean(item));
+    const soundFolder = resolve(folder, row.kind === "character" ? "voice" : "sound");
+    const soundPath = resolve(soundFolder, "sound.md");
+    const soundDocument = matter(readFileSync(soundPath, "utf8"));
+    const soundMedia = walkFiles(soundFolder).filter((path) => mediaMimeType(path)?.startsWith("audio/"));
+    const inputPath = soundMedia.find((path) => basename(path, extname(path)) === "reference");
+    const outputPath = soundMedia.find((path) => basename(path, extname(path)) === "primary");
+    const usages = (db.prepare(`
+        SELECT shot.id,shot.sequence_id,shot.position AS segment_position,shot.title,shot.payload,
+               sequence.title AS sequence_title,sequence.position AS sequence_position
+        FROM director_shots shot
+        JOIN director_sequences sequence ON sequence.id=shot.sequence_id AND sequence.user_id=shot.user_id AND sequence.project_id=shot.project_id
+        WHERE shot.user_id=? AND shot.project_id=?
+        ORDER BY sequence.position,sequence.created_at,shot.position,shot.created_at
+    `).all(userId, row.project_id) as Array<{ id: string; sequence_id: string; segment_position: number; title: string; payload: string; sequence_title: string; sequence_position: number }>).flatMap((segment) => {
+        const value = parseJson<Record<string, unknown>>(segment.payload, {});
+        const refs = Array.isArray(value[row.kind === "character" ? "characterRefs" : row.kind === "scene" ? "sceneRefs" : "propRefs"]) ? value[row.kind === "character" ? "characterRefs" : row.kind === "scene" ? "sceneRefs" : "propRefs"] as Array<Record<string, unknown>> : [];
+        const reference = refs.find((item) => String(item.id || "") === row.id || String(item.id || "") === directorExternalId(row.project_id, row.id));
+        if (!reference) return [];
+        return [{ id: segment.id, title: segment.title, sequenceId: segment.sequence_id, sequenceTitle: segment.sequence_title || "未分组", sequencePosition: segment.sequence_position, segmentPosition: segment.segment_position, durationSeconds: Number(value.durationSeconds || 4), variantId: String(reference.variantId || "") || undefined, storyboardReady: Boolean((value.storyboardSheet as Record<string, unknown> | undefined)?.imageFileId), videoReady: Boolean(value.videoFileId) }];
+    });
+    const indexed = db.prepare("SELECT revision FROM director_file_index WHERE user_id=? AND project_id=? AND path=?").get(userId, row.project_id, posixRelative(root, dossierPath)) as { revision: number } | undefined;
+    return {
+        assetId: row.id, projectId: row.project_id, kind: row.kind, name: row.name, revision: indexed?.revision || row.revision, folderPath: posixRelative(root, folder),
+        dossier: { path: posixRelative(root, dossierPath), content: dossier.content.trim(), hash: hashFile(dossierPath) }, primaryVisual, variants,
+        sound: { prompt: soundDocument.content.trim(), promptPath: posixRelative(root, soundPath), hash: hashFile(soundPath), sampleText: String(soundDocument.data.sampleText || ""), suggestedDurationSeconds: Number(soundDocument.data.suggestedDurationSeconds || 0) || undefined, input: inputPath ? directorAssetMedia(userId, row.project_id, root, inputPath, "reference") : undefined, output: outputPath ? directorAssetMedia(userId, row.project_id, root, outputPath, "primary") : undefined },
+        usages,
+    };
+}
+
+export function addDirectorAssetMediaInput(userId: string, assetId: string, raw: unknown) {
+    const input = z.object({ fileId: z.string().min(1), target: z.enum(["primary-visual", "variant-visual", "sound"]), variantId: z.string().optional() }).parse(raw);
+    const detail = getDirectorAssetDetail(userId, assetId);
+    const root = ensureDirectorProjectWorkspace(userId, detail.projectId);
+    const folder = safeWorkspacePath(root, detail.folderPath);
+    const targetFolder = input.target === "sound" ? resolve(folder, detail.kind === "character" ? "voice" : "sound") : input.target === "variant-visual" ? directorVariantFolder(folder, input.variantId || "") : resolve(folder, detail.kind === "character" ? "identity" : "design");
+    const file = getStoredFile(userId, input.fileId);
+    if (!file) throw workspaceError(404, "DIRECTOR_MEDIA_INPUT_NOT_FOUND", "输入媒体不存在");
+    const expectedPrefix = input.target === "sound" ? "audio/" : "image/";
+    if (!file.mime_type.startsWith(expectedPrefix)) throw workspaceError(400, "DIRECTOR_MEDIA_INPUT_TYPE", `这里只能添加${input.target === "sound" ? "声音" : "图片"}输入`);
+    const inputs = input.target === "sound" ? targetFolder : resolve(targetFolder, "inputs");
+    mkdirSync(inputs, { recursive: true });
+    if (input.target === "sound") for (const path of walkFiles(inputs).filter((path) => basename(path, extname(path)) === "reference")) moveToTrash(root, path);
+    const stem = input.target === "sound" ? "reference" : `input-${pad(walkFiles(inputs).filter((path) => mediaMimeType(path)?.startsWith("image/")).length + 1)}`;
+    const target = resolve(inputs, `${stem}${extname(file.original_name) || extname(file.path) || (input.target === "sound" ? ".wav" : ".png")}`);
+    copyFileSync(file.path, target);
+    reconcileDirectorProjectFiles(userId, detail.projectId);
+    return getDirectorAssetDetail(userId, assetId);
+}
+
+export function removeDirectorAssetMediaInput(userId: string, assetId: string, inputId: string) {
+    const detail = getDirectorAssetDetail(userId, assetId);
+    const media = [...detail.primaryVisual.inputs, ...detail.variants.flatMap((item) => item.inputs), ...(detail.sound.input ? [detail.sound.input] : [])].find((item) => item.id === inputId);
+    if (!media) throw workspaceError(404, "DIRECTOR_MEDIA_INPUT_NOT_FOUND", "输入媒体不存在");
+    const root = ensureDirectorProjectWorkspace(userId, detail.projectId);
+    moveToTrash(root, safeWorkspacePath(root, media.path));
+    reconcileDirectorProjectFiles(userId, detail.projectId);
+    return getDirectorAssetDetail(userId, assetId);
+}
+
+export function trashDirectorAssetVariant(userId: string, assetId: string, variantId: string) {
+    const detail = getDirectorAssetDetail(userId, assetId);
+    const variant = detail.variants.find((item) => item.variantId === variantId);
+    if (!variant) throw workspaceError(404, "DIRECTOR_VARIANT_NOT_FOUND", "生产变体不存在");
+    const root = ensureDirectorProjectWorkspace(userId, detail.projectId);
+    moveToTrash(root, dirname(safeWorkspacePath(root, variant.promptPath)));
+    reconcileDirectorProjectFiles(userId, detail.projectId);
+    return getDirectorAssetDetail(userId, assetId);
+}
+
+export function resolveDirectorAssetGenerationTarget(userId: string, raw: DirectorAssetGenerationTarget) {
+    const input = z.object({ assetId: z.string().min(1), target: z.enum(["primary-visual", "variant-visual", "sound"]), mediaRole: z.string().max(100).optional(), variantId: z.string().optional(), expectedHash: z.string().min(1) }).parse(raw);
+    const detail = getDirectorAssetDetail(userId, input.assetId);
+    const workspace = input.target === "variant-visual" ? detail.variants.find((item) => item.variantId === input.variantId) : detail.primaryVisual;
+    if (input.target !== "sound" && !workspace) throw workspaceError(404, "DIRECTOR_VARIANT_NOT_FOUND", "生产变体不存在");
+    const hash = input.target === "sound" ? detail.sound.hash : workspace!.hash;
+    if (hash !== input.expectedHash) throw workspaceError(409, "DIRECTOR_ASSET_TARGET_CONFLICT", "提示词已被修改，请刷新后重试", { currentHash: hash });
+    return { detail, input, prompt: input.target === "sound" ? detail.sound.prompt : workspace!.prompt, references: input.target === "sound" ? detail.sound.input ? [detail.sound.input] : [] : workspace!.inputs, hash };
+}
+
+export function applyDirectorAssetGeneration(userId: string, target: DirectorAssetGenerationTarget, fileId: string) {
+    const resolved = resolveDirectorAssetGenerationTarget(userId, target);
+    const file = getStoredFile(userId, fileId);
+    if (!file) return false;
+    const root = ensureDirectorProjectWorkspace(userId, resolved.detail.projectId);
+    const folder = safeWorkspacePath(root, resolved.detail.folderPath);
+    const outputFolder = target.target === "sound" ? resolve(folder, resolved.detail.kind === "character" ? "voice" : "sound") : target.target === "variant-visual" ? directorVariantFolder(folder, target.variantId || "") : resolve(folder, resolved.detail.kind === "character" ? "identity" : "design");
+    const stem = target.target === "sound" ? "primary" : target.mediaRole || "primary";
+    for (const path of walkFiles(outputFolder).filter((path) => dirname(path) === outputFolder && basename(path, extname(path)) === stem)) moveToTrash(root, path);
+    const output = resolve(outputFolder, `${stem}${extname(file.original_name) || extname(file.path) || (target.target === "sound" ? ".wav" : ".png")}`);
+    copyFileSync(file.path, output);
+    reconcileDirectorProjectFiles(userId, resolved.detail.projectId);
+    return true;
 }
 
 export function trashDirectorAssetFolder(userId: string, projectId: string, assetId: string) {
@@ -484,6 +608,7 @@ function watchDirectorWorkspace(userId: string, projectId: string, root: string)
                 try { const diagnostics = reconcileDirectorProjectFiles(userId, projectId); emitWorkspaceUpdate(userId, projectId, diagnostics); } catch { /* diagnostics remain available through explicit validation */ }
             }, 250);
         });
+        state.watcher.unref();
         workspaceWatchers.set(root, state);
     } catch { /* explicit validation remains available on platforms without recursive watch */ }
 }
@@ -577,6 +702,7 @@ function exportAssets(userId: string, projectId: string, root: string) {
         }
         mkdirSync(resolve(folder, "variants"), { recursive: true });
         copyAssetMedia(userId, payload, folder, row.kind);
+        ensureDirectorAssetProductionFiles(userId, projectId, root, folder, row, payload, false);
     }
 }
 
@@ -810,7 +936,7 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
         if (rel.includes("..") || lstatSync(path).isSymbolicLink()) diagnostics.push(diag("error", "ILLEGAL_PATH", rel, "工程包含非法路径或符号链接"));
         if (path.endsWith(".md")) validateParsed(path, () => {
             const parsed = matter(readFileSync(path, "utf8"));
-            if (["AGENTS.md", "storyboard-prompt.md", "video-prompt.md"].includes(basename(path)) || basename(path).startsWith("original.")) return;
+            if (["AGENTS.md", "prompt.md", "storyboard-prompt.md", "video-prompt.md"].includes(basename(path)) || basename(path).startsWith("original.")) return;
             const entity = entitySchema.parse(parsed.data);
             documents.push({ path: rel, data: parsed.data as Record<string, unknown> });
             if (ids.has(entity.id)) diagnostics.push({ ...diag("error", "DUPLICATE_ID", rel, `实体 ID 与 ${ids.get(entity.id)} 重复`), entityId: entity.id });
@@ -828,6 +954,13 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
     const sequenceOrders = new Map<number, string>();
     const segmentOrders = new Map<string, Map<number, string>>();
     const documentPartOrders = new Map<string, Map<number, string>>([["story/chapters/", new Map()], ["screenplay/scenes/", new Map()]]);
+    const variantMediaReady = new Map<string, boolean>();
+    for (const document of documents) {
+        if (String(document.data.kind || "") !== "asset-variant") continue;
+        const id = String(document.data.id || "");
+        const folder = resolve(root, dirname(document.path));
+        variantMediaReady.set(id, walkFiles(folder).some((path) => dirname(path) === folder && basename(path, extname(path)) === "primary" && mediaMimeType(path)?.startsWith("image/")));
+    }
     for (const document of documents) {
         const kind = String(document.data.kind || "");
         for (const [prefix, orders] of documentPartOrders) {
@@ -860,11 +993,37 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
                 if (id && !knownIds.has(id)) diagnostics.push(diag("error", "ASSET_REFERENCE_MISSING", document.path, `${label}引用不存在：${id}`));
                 const variantId = value && typeof value === "object" ? String((value as Record<string, unknown>).variantId || "") : "";
                 if (variantId && !knownIds.has(variantId)) diagnostics.push(diag("error", "VARIANT_REFERENCE_MISSING", document.path, `素材变体不存在：${variantId}`));
+                else if (variantId && !variantMediaReady.get(variantId)) diagnostics.push(diag("error", "VARIANT_PRIMARY_MEDIA_MISSING", document.path, `素材变体缺少主图：${variantId}`));
             }
         }
         const folder = resolve(root, dirname(document.path));
         if (!existsSync(resolve(folder, "storyboard-prompt.md"))) diagnostics.push(diag("warning", "STORYBOARD_PROMPT_MISSING", document.path, "缺少故事板提示词"));
         if (!existsSync(resolve(folder, "storyboard.png"))) diagnostics.push(diag("info", "STORYBOARD_MEDIA_PENDING", document.path, "故事板图片尚未生成"));
+    }
+    for (const dossier of documents.filter((document) => ["character", "scene", "prop"].includes(String(document.data.kind || "")))) {
+        const assetFolder = resolve(root, dirname(dossier.path));
+        const character = String(dossier.data.kind) === "character";
+        const visualFolder = resolve(assetFolder, character ? "identity" : "design");
+        const soundFolder = resolve(assetFolder, character ? "voice" : "sound");
+        const visualPrompt = resolve(visualFolder, "prompt.md");
+        const soundPrompt = resolve(soundFolder, "sound.md");
+        if (!existsSync(visualPrompt)) diagnostics.push(diag("error", "ASSET_VISUAL_PROMPT_MISSING", dossier.path, "素材基础设计缺少 prompt.md"));
+        else if (!readFileSync(visualPrompt, "utf8").trim()) diagnostics.push(diag("warning", "ASSET_VISUAL_PROMPT_EMPTY", posixRelative(root, visualPrompt), "素材基础设计提示词为空"));
+        if (!existsSync(soundPrompt)) diagnostics.push(diag("error", "ASSET_SOUND_PROMPT_MISSING", dossier.path, `素材缺少 ${character ? "voice" : "sound"}/sound.md`));
+        const visualInputs = resolve(visualFolder, "inputs");
+        for (const input of walkFiles(visualInputs)) if (!mediaMimeType(input)?.startsWith("image/")) diagnostics.push(diag("error", "ASSET_IMAGE_INPUT_INVALID", posixRelative(root, input), "视觉输入目录只能包含图片"));
+        const soundReferences = walkFiles(soundFolder).filter((path) => basename(path, extname(path)) === "reference" && mediaMimeType(path)?.startsWith("audio/"));
+        if (soundReferences.length > 1) diagnostics.push(diag("error", "ASSET_SOUND_INPUT_LIMIT", posixRelative(root, soundFolder), "声音最多保留一个参考文件"));
+        const variantsFolder = resolve(assetFolder, "variants");
+        for (const entry of existsSync(variantsFolder) ? readdirSync(variantsFolder, { withFileTypes: true }).filter((item) => item.isDirectory()) : []) {
+            const folder = resolve(variantsFolder, entry.name);
+            const document = resolve(folder, "variant.md");
+            const prompt = resolve(folder, "prompt.md");
+            if (!existsSync(document)) diagnostics.push(diag("error", "ASSET_VARIANT_DOCUMENT_MISSING", posixRelative(root, folder), "生产变体缺少 variant.md"));
+            if (!existsSync(prompt)) diagnostics.push(diag("error", "ASSET_VARIANT_PROMPT_MISSING", posixRelative(root, folder), "生产变体缺少 prompt.md"));
+            else if (!readFileSync(prompt, "utf8").trim()) diagnostics.push(diag("warning", "ASSET_VARIANT_PROMPT_EMPTY", posixRelative(root, prompt), "生产变体提示词为空"));
+            for (const input of walkFiles(resolve(folder, "inputs"))) if (!mediaMimeType(input)?.startsWith("image/")) diagnostics.push(diag("error", "ASSET_VARIANT_INPUT_INVALID", posixRelative(root, input), "生产变体输入目录只能包含图片"));
+        }
     }
     for (const required of ["story/index.md", "screenplay/index.md", "direction/visual-style.md", "direction/directing-rules.md", "timeline/timeline.json"]) {
         if (!existsSync(resolve(root, required))) diagnostics.push(diag("error", "REQUIRED_FILE_MISSING", required, "缺少必要工程文件"));
@@ -954,7 +1113,7 @@ function syncDirectionReferenceIndex(userId: string, projectId: string, root: st
 
 function assetMediaVariants(userId: string, projectId: string, root: string, folder: string, kind: AssetRow["kind"]) {
     const priority = (path: string) => basename(path).startsWith("body-front") ? 0 : basename(path).startsWith("face-closeup") ? 1 : basename(path).startsWith("reference") ? 2 : 3;
-    return walkFiles(folder).filter((path) => mediaMimeType(path)).sort((a, b) => priority(a) - priority(b) || a.localeCompare(b)).map((path) => {
+    return walkFiles(folder).filter((path) => mediaMimeType(path) && !posixRelative(folder, path).split("/").includes("inputs")).sort((a, b) => priority(a) - priority(b) || a.localeCompare(b)).map((path) => {
         const rel = posixRelative(folder, path);
         const mediaKind = mediaMimeType(path)!.startsWith("audio/") ? "audio" as const : "image" as const;
         const usage = rel.startsWith("identity/face-closeup") ? "identity_reference"
@@ -1035,6 +1194,85 @@ function copyAssetMedia(userId: string, payload: Record<string, unknown>, folder
         mkdirSync(dirname(target), { recursive: true });
         copyFileSync(file.path, target);
     });
+}
+
+function directorAssetFolder(root: string, projectId: string, assetId: string) {
+    const externalId = directorExternalId(projectId, assetId);
+    const document = walkFiles(resolve(root, "assets")).find((path) => {
+        if (!["character.md", "location.md", "prop.md"].includes(basename(path))) return false;
+        try { return String(matter(readFileSync(path, "utf8")).data.id || "") === externalId; }
+        catch { return false; }
+    });
+    return document ? dirname(document) : undefined;
+}
+
+function directorVariantFolder(assetFolder: string, variantId: string) {
+    if (!variantId) throw workspaceError(400, "DIRECTOR_VARIANT_REQUIRED", "必须指定生产变体");
+    const folder = readdirSync(resolve(assetFolder, "variants"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => resolve(assetFolder, "variants", entry.name)).find((path) => {
+        const document = resolve(path, "variant.md");
+        if (!existsSync(document)) return false;
+        try { return String(matter(readFileSync(document, "utf8")).data.id || "") === variantId; }
+        catch { return false; }
+    });
+    if (!folder) throw workspaceError(404, "DIRECTOR_VARIANT_NOT_FOUND", "生产变体不存在");
+    return folder;
+}
+
+function ensureDirectorAssetProductionFiles(userId: string, projectId: string, root: string, folder: string, row: AssetRow, payload: Record<string, unknown>, registerMedia = true) {
+    const visualFolder = resolve(folder, row.kind === "character" ? "identity" : "design");
+    const soundFolder = resolve(folder, row.kind === "character" ? "voice" : "sound");
+    mkdirSync(resolve(visualFolder, "inputs"), { recursive: true });
+    mkdirSync(soundFolder, { recursive: true });
+    mkdirSync(resolve(folder, "variants"), { recursive: true });
+    const mediaDrafts = documentRecord(payload.mediaDrafts);
+    const imageDraft = documentRecord(mediaDrafts.image);
+    const audioDraft = documentRecord(mediaDrafts.audio);
+    const promptPath = resolve(visualFolder, "prompt.md");
+    if (!existsSync(promptPath)) writeFileAtomic(promptPath, `${String(imageDraft.prompt || payload.visualDescription || payload.description || "").trim()}\n`);
+    const soundPath = resolve(soundFolder, "sound.md");
+    if (!existsSync(soundPath)) {
+        const suggestedDurationSeconds = Number(audioDraft.durationSeconds || 0) || 0;
+        writeMarkdown(soundPath, {
+            id: `${directorExternalId(projectId, row.id)}-sound`, kind: row.kind === "character" ? "voice" : "sound", name: `${row.name}声音`,
+            sampleText: String(audioDraft.transcript || audioDraft.sampleText || ""),
+            ...(suggestedDurationSeconds ? { suggestedDurationSeconds } : {}),
+        }, String(audioDraft.prompt || audioDraft.instructions || ""));
+    }
+
+    const variants = Array.isArray(payload.variants) ? payload.variants.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && String((item as Record<string, unknown>).usage || "") === "variant_reference")) : [];
+    variants.forEach((variant, index) => {
+        const id = String(variant.variantId || variant.id || `var-${pad(index + 1)}`);
+        const name = String(variant.label || variant.name || `生产变体 ${index + 1}`);
+        const existing = readdirSync(resolve(folder, "variants"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => resolve(folder, "variants", entry.name)).find((path) => {
+            const doc = resolve(path, "variant.md");
+            return existsSync(doc) && String(matter(readFileSync(doc, "utf8")).data.id || "") === id;
+        });
+        const variantFolder = existing || resolve(folder, "variants", `${id.replace(/[^a-zA-Z0-9_-]/g, "-")}-${slug(name) || "variant"}`);
+        mkdirSync(resolve(variantFolder, "inputs"), { recursive: true });
+        if (!existsSync(resolve(variantFolder, "variant.md"))) writeMarkdown(resolve(variantFolder, "variant.md"), { id, kind: "asset-variant", name }, String(variant.description || ""));
+        if (!existsSync(resolve(variantFolder, "prompt.md"))) writeFileAtomic(resolve(variantFolder, "prompt.md"), `${String(variant.prompt || imageDraft.prompt || "").trim()}\n`);
+        const file = getStoredFile(userId, String(variant.fileId || ""));
+        if (file && !walkFiles(variantFolder).some((path) => dirname(path) === variantFolder && basename(path, extname(path)) === "primary")) copyFileSync(file.path, resolve(variantFolder, `primary${extname(file.original_name) || extname(file.path) || ".png"}`));
+    });
+
+    const primaryImages = walkFiles(visualFolder).filter((path) => dirname(path) === visualFolder && mediaMimeType(path)?.startsWith("image/") && basename(path, extname(path)) !== "primary");
+    if (row.kind !== "character") primaryImages.push(...walkFiles(folder).filter((path) => dirname(path) === folder && mediaMimeType(path)?.startsWith("image/")));
+    if (!walkFiles(visualFolder).some((path) => dirname(path) === visualFolder && basename(path, extname(path)) === "primary") && primaryImages[0]) copyFileSync(primaryImages[0], resolve(visualFolder, `primary${extname(primaryImages[0])}`));
+    if (registerMedia) registerDirectorProjectMedia(userId, projectId, root);
+}
+
+function readAssetVisualWorkspace(userId: string, projectId: string, root: string, folder: string, kind: "primary" | "variant", label: string, variantId?: string, description = ""): DirectorAssetVisualWorkspace {
+    mkdirSync(resolve(folder, "inputs"), { recursive: true });
+    const promptPath = resolve(folder, "prompt.md");
+    if (!existsSync(promptPath)) writeFileAtomic(promptPath, "");
+    const inputs = walkFiles(resolve(folder, "inputs")).filter((path) => mediaMimeType(path)?.startsWith("image/")).map((path) => directorAssetMedia(userId, projectId, root, path, "reference"));
+    const outputs = walkFiles(folder).filter((path) => dirname(path) === folder && mediaMimeType(path)?.startsWith("image/")).map((path) => directorAssetMedia(userId, projectId, root, path, basename(path, extname(path))));
+    return { id: variantId || "primary", label, kind, variantId, description, prompt: readFileSync(promptPath, "utf8").trim(), promptPath: posixRelative(root, promptPath), hash: hashFile(promptPath), inputs, outputs };
+}
+
+function directorAssetMedia(userId: string, projectId: string, root: string, path: string, mediaRole: string): DirectorAssetMedia {
+    const rel = posixRelative(root, path);
+    return { id: `input-${createHash("sha256").update(rel).digest("hex").slice(0, 20)}`, fileId: registerDirectorMediaFile(userId, projectId, root, path), path: rel, name: basename(path), mediaRole, kind: mediaMimeType(path).startsWith("audio/") ? "audio" : "image" };
 }
 
 function syncDirectionReferenceFiles(userId: string, root: string, value: unknown) {
@@ -1248,5 +1486,5 @@ function diag(severity: DirectorDiagnostic["severity"], code: string, path: stri
 function workspaceError(status: number, code: string, message: string, details?: unknown) { return Object.assign(new Error(message), { status, code, details }); }
 
 function projectAgents(title: string) {
-    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；时间线使用 JSON，故事板画格使用 YAML。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；角色身份图位于 \`identity/\`，声音位于 \`voice/\`，持续造型或状态变化位于 \`variants/\`。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- 一个 4–15 秒视频段对应一个完整多宫格故事板；故事板只生成一张媒体，画格不是独立生成任务。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
+    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；时间线使用 JSON，故事板画格使用 YAML。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；\`character.md\`、\`location.md\` 或 \`prop.md\` 是权威主档案。\n- 角色基础设计位于 \`identity/\`，场景与道具基础设计位于 \`design/\`；提示词固定写入 \`prompt.md\`，输入图只放 \`inputs/\`，当前主结果以 \`primary.*\` 命名。\n- 角色声音位于 \`voice/\`，场景与道具声音位于 \`sound/\`；\`sound.md\` 正文是唯一声音提示词，试听文本和建议时长只写 Frontmatter，参考声音最多一个并命名为 \`reference.*\`，当前结果命名为 \`primary.*\`。\n- 每个生产变体位于 \`variants/var-NNN-slug/\`，必须包含带稳定 ID 的 \`variant.md\`、独立 \`prompt.md\`、可选 \`inputs/\` 和当前 \`primary.*\`；不得把多个变体压回主档或扁平媒体数组。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- 一个 4–15 秒视频段对应一个完整多宫格故事板；故事板只生成一张媒体，画格不是独立生成任务。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
 }

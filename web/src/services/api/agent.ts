@@ -10,7 +10,7 @@ export type AgentComposerSegment =
     | { type: "text"; text: string }
     | { type: "skill"; mentionId: string; skillId: string; label?: string }
     | { type: "canvas"; mentionId: string; projectId: string; nodeId: string; label?: string }
-    | { type: "asset"; mentionId: string; projectId: string; assetId: string; nodeId?: string; label?: string }
+    | { type: "asset"; mentionId: string; projectId: string; assetId: string; nodeId?: string; path?: string; label?: string }
     | { type: "style"; mentionId: string; projectId: string; styleId: string; nodeId?: string; label?: string }
     | { type: "director"; mentionId: string; projectId: string; entityKind: "story" | "script" | "directing-plan" | "sequence" | "video-segment" | "timeline"; entityId: string; label?: string };
 export type AgentComposerDocument = { version: 1; segments: AgentComposerSegment[] };

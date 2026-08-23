@@ -58,7 +58,7 @@ import { serverApi, serverApiUrl, uploadServerFile, type ServerGeneration } from
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useDirectorStore } from "@/stores/use-director-store";
 import type { CreativeAsset, CreativeAssetKind } from "@/types/creative-asset";
-import type { DirectorDocument, DirectorLogicalDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorState, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
+import type { DirectorAssetDetail, DirectorAssetMedia, DirectorAssetVisualWorkspace, DirectorDocument, DirectorLogicalDocument, DirectorRender, DirectorSection, DirectorSequence, DirectorState, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
 import type { VisualStyle, VisualStyleTemplate } from "@/types/visual-style";
 import { DirectorMarkdownEditor } from "./components/director-markdown-editor";
 import { WorkspaceImagePreviewLightbox, type WorkspaceImagePreviewItem } from "@/components/workspace-image-preview-lightbox";
@@ -200,7 +200,7 @@ export default function DirectorProjectPage() {
                     </header>
                     <section className={`relative min-w-0 flex-1 bg-white ${active === "story" || active === "script" || active === "style" || active === "assets" || active === "storyboard" ? "overflow-hidden" : "overflow-auto"}`}>
                         {active === "overview" ? <Overview state={state} assets={assets} styles={styles} onNavigate={(target) => navigate(`/director/${id}/${target}`)} /> : null}
-                        {active === "story" || active === "script" ? <Writing projectId={id} kind={active} state={state} onRefresh={refresh} /> : null}
+                        {active === "story" || active === "script" ? <Writing key={active} projectId={id} kind={active} state={state} onRefresh={refresh} /> : null}
                         {active === "style" ? <DirectorTreatmentPage projectId={id} workspace={state.workspace} activeStyleId={state.activeStyleId} styles={styles} onRefresh={refresh} /> : null}
                         {active === "assets" ? <AssetGallery projectId={id} state={state} assets={assets} generations={generations} agentCollapsed={agentCollapsed} onGeneration={applyGeneration} onRefresh={refresh} /> : null}
                         {active === "storyboard" ? <Storyboard projectId={id} state={state} onRefresh={refresh} /> : null}
@@ -691,10 +691,12 @@ function StatusPill({ status }: { status: string }) {
 function AssetGallery({ projectId, state, assets, generations, agentCollapsed, onGeneration, onRefresh }: { projectId: string; state: DirectorState; assets: CreativeAsset[]; generations: ServerGeneration[]; agentCollapsed: boolean; onGeneration: (generation: ServerGeneration) => void; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
+    const setAgentDraft = useAgentStore((store) => store.setDraft);
     const agentWidth = useAgentStore((store) => store.width);
     const [busyId, setBusyId] = useState("");
     const [detailAssetId, setDetailAssetId] = useState("");
     const [previewMediaId, setPreviewMediaId] = useState("");
+    const navigate = useNavigate();
     const previewItems = useMemo(() => assets.flatMap((asset) => asset.payload.variants
         .filter((item) => item.kind === "image")
         .map((item) => ({ id: `${asset.id}:${item.id}`, url: serverApiUrl(`/files/${item.fileId}/content`), alt: `${asset.name} · ${item.label || "素材图片"}` } satisfies WorkspaceImagePreviewItem))), [assets]);
@@ -703,7 +705,10 @@ function AssetGallery({ projectId, state, assets, generations, agentCollapsed, o
     const action = async (asset: CreativeAsset, kind: "regenerate" | "copy" | "delete", mediaKind: "image" | "audio" = "image") => {
         setBusyId(asset.id);
         try {
-            if (kind === "regenerate") onGeneration(await serverApi.generateCreativeAsset(asset.id, { kind: mediaKind, revision: asset.revision }));
+            if (kind === "regenerate") {
+                const detail = await directorApi.assetDetail(asset.id);
+                onGeneration(await directorApi.generateAsset(asset.id, { target: mediaKind === "audio" ? "sound" : "primary-visual", expectedHash: mediaKind === "audio" ? detail.sound.hash : detail.primaryVisual.hash }));
+            }
             if (kind === "copy") await serverApi.createCreativeAsset(projectId, { kind: asset.kind, name: `${asset.name} 副本`, payload: asset.payload });
             if (kind === "delete") await serverApi.deleteCreativeAsset(asset.id);
             if (kind === "delete") setDetailAssetId("");
@@ -715,7 +720,14 @@ function AssetGallery({ projectId, state, assets, generations, agentCollapsed, o
             setBusyId("");
         }
     };
-    const openAgent = (asset: CreativeAsset) => prepare(projectId, { kind: "asset", projectId, assetId: asset.id, title: asset.name, subtitle: asset.kind });
+    const openAgent = (asset: CreativeAsset, path?: string) => prepare(projectId, { kind: "asset", projectId, assetId: asset.id, path, title: asset.name, subtitle: path ? `${asset.kind} · ${path}` : asset.kind });
+    const planVariant = (asset: CreativeAsset, folderPath?: string) => {
+        openAgent(asset, folderPath);
+        const current = useAgentStore.getState().drafts[projectId]?.trimEnd() || "";
+        const label = asset.kind === "character" ? "形象" : "状态";
+        const instruction = `请先检查剧本和该素材的全部使用位置；只有跨多个视频段持续存在、且缺少独立参考会破坏连续性时，才在当前素材文件夹中规划并创建一个新的生产${label}档案。先完成文字档案和提示词，不要自动生成媒体。`;
+        setAgentDraft(projectId, [current, instruction].filter(Boolean).join("\n\n"));
+    };
     const columns = (["character", "scene", "prop"] as const).map((kind) => ({
         kind,
         label: kind === "character" ? "角色" : kind === "scene" ? "场景" : "道具",
@@ -755,7 +767,7 @@ function AssetGallery({ projectId, state, assets, generations, agentCollapsed, o
                     ))}
                 </div>
             </ScrollArea>
-            <AssetDetailDialog asset={detailAsset} state={state} generations={generations} leftInset={agentCollapsed ? 0 : agentWidth + 1} onRefresh={onRefresh} onClose={() => setDetailAssetId("")} onAgent={() => { if (detailAsset) openAgent(detailAsset); }} onPreview={(mediaId) => setPreviewMediaId(`${detailAsset?.id}:${mediaId}`)} onAction={(kind, media) => { if (detailAsset) void action(detailAsset, kind, media); }} />
+            <AssetDetailDialog asset={detailAsset} generations={generations} leftInset={agentCollapsed ? 0 : agentWidth + 1} onRefresh={onRefresh} onClose={() => setDetailAssetId("")} onAgent={(path) => { if (detailAsset) openAgent(detailAsset, path); }} onNewVariant={(path) => { if (detailAsset) planVariant(detailAsset, path); }} onLocate={(segmentId) => { window.localStorage.setItem(storyboardUiKey(projectId), JSON.stringify({ selectedId: segmentId, modes: { [segmentId]: "storyboard" } })); navigate(`/director/${projectId}/storyboard?segment=${encodeURIComponent(segmentId)}`); }} />
             <WorkspaceImagePreviewLightbox items={previewItems} activeIndex={previewIndex >= 0 ? previewIndex : null} onClose={() => setPreviewMediaId("")} onChangeIndex={(index) => setPreviewMediaId(previewItems[index]?.id || "")} />
         </div>
     );
@@ -1033,7 +1045,7 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onPreview, onDetai
 }
 
 function AssetAction({ icon: Icon, label, loading, onClick }: { icon: typeof Film; label: string; loading?: boolean; onClick: () => void }) {
-    return <button type="button" aria-label={label} disabled={loading} className="flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40" onClick={onClick}>{loading ? <RefreshCw className="size-3 animate-spin" /> : <Icon className="size-3" />}<span className="whitespace-nowrap">{label}</span></button>;
+    return <button type="button" aria-label={label} disabled={loading} className="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-[11px] text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40" onClick={onClick}>{loading ? <RefreshCw className="size-3 animate-spin" /> : <Icon className="size-3" />}<span className="whitespace-nowrap">{label}</span></button>;
 }
 
 function AssetMoreMenu({ includeDetail = false, includeRegenerate = false, busy, generating, onDetail, onAction }: { includeDetail?: boolean; includeRegenerate?: boolean; busy: boolean; generating: boolean; onDetail: () => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
@@ -1042,50 +1054,29 @@ function AssetMoreMenu({ includeDetail = false, includeRegenerate = false, busy,
     if (includeRegenerate) items.push({ key: "regenerate", label: generating ? "生成中" : "重新生成", icon: <RefreshCw className="size-3.5" />, disabled: busy });
     if (includeDetail || includeRegenerate) items.push({ type: "divider" });
     items.push({ key: "copy", label: "复制素材", icon: <Copy className="size-3.5" /> }, { type: "divider" }, { key: "delete", label: <span className="text-rose-600">删除素材</span>, icon: <Trash2 className="size-3.5 text-rose-500" /> });
-    return <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => { if (key === "detail") onDetail(); else if (key === "regenerate") onAction("regenerate", "image"); else onAction(key === "copy" ? "copy" : "delete"); } }}><button type="button" aria-label="更多素材操作" className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><MoreHorizontal className="size-4" /></button></Dropdown>;
+    return <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => { if (key === "detail") onDetail(); else if (key === "regenerate") onAction("regenerate", "image"); else onAction(key === "copy" ? "copy" : "delete"); } }}><button type="button" aria-label="更多素材操作" className="ml-auto grid size-7 shrink-0 cursor-pointer place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><MoreHorizontal className="size-4" /></button></Dropdown>;
 }
 
-function assetDossierMarkdown(asset: CreativeAsset) {
-    const profile = asset.payload.designProfile;
-    const sections = [
-        `# ${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}档案`,
-        asset.payload.narrativeDescription ? `## 剧情身份\n\n${asset.payload.narrativeDescription}` : "",
-        asset.payload.visualDescription ? `## 稳定视觉设定\n\n${asset.payload.visualDescription}` : "",
-        profile ? `## 可观察身份锚点\n\n- 年龄与痕迹：${profile.ageBand || "待补充"}；${profile.visibleAgeCues || "待补充"}\n- 体态与姿态：${profile.bodySilhouette || "待补充"}；${profile.posture || "待补充"}\n- 核心识别点：${profile.identityAnchor || "待补充"}\n- 阵容差异：${profile.distinctivenessSummary || "待补充"}` : "",
-        asset.payload.description ? `## 制作说明\n\n${asset.payload.description}` : "",
-    ];
-    return sections.filter(Boolean).join("\n\n") || `# ${asset.name}\n\n等待 Agent 补充素材档案。`;
-}
+type AssetDetailTab = "dossier" | "primary" | "sound" | "usages" | `variant:${string}`;
 
-function assetUsageRows(asset: CreativeAsset, state: DirectorState) {
-    const sequenceTitles = new Map(state.sequences.map((item) => [item.id, item.title]));
-    return state.videoSegments.filter((segment) => {
-        const refs = asset.kind === "character" ? segment.payload.characterRefs : asset.kind === "scene" ? segment.payload.sceneRefs : segment.payload.propRefs;
-        return refs?.some((item) => item.id === asset.id);
-    }).map((segment) => ({ id: segment.id, title: segment.title, sequence: sequenceTitles.get(segment.sequenceId) || "未分组", duration: segment.payload.durationSeconds || 4 }));
-}
-
-function AssetDetailDialog({ asset, state, generations, leftInset, onRefresh, onClose, onAgent, onPreview, onAction }: { asset?: CreativeAsset; state: DirectorState; generations: ServerGeneration[]; leftInset: number; onRefresh: () => Promise<void>; onClose: () => void; onAgent: () => void; onPreview: (mediaId: string) => void; onAction: (kind: "regenerate" | "copy" | "delete", media?: "image" | "audio") => void }) {
-    const { message } = App.useApp();
-    const [uploading, setUploading] = useState(false);
-    const variant = asset ? primaryAssetImage(asset) : undefined;
-    const generation = generations.find((item) => item.id === variant?.generationId);
-    const prompt = variant?.prompt || "";
-    const references = generationReferences(generation);
-    const currentReferences = asset?.payload.variants.filter((item) => item.kind === "image" && isAssetReference(item.usage)).map((item) => ({ fileId: item.fileId, label: item.usage === "wardrobe_reference" ? "服装参考" : item.usage === "composition_reference" ? "构图参考" : "身份参考" })) || [];
-    const params = generation?.request.params && typeof generation.request.params === "object" ? generation.request.params as Record<string, unknown> : {};
-    const promptPackage = params.__promptPackage as { asset?: { revision?: number }; profile?: string; excludedReferences?: Array<{ fileId: string; label: string; reason: string }> } | undefined;
-    const uploadIdentity = async (file: File) => {
+function AssetDetailDialog({ asset, generations, leftInset, onRefresh, onClose, onAgent, onNewVariant, onLocate }: { asset?: CreativeAsset; generations: ServerGeneration[]; leftInset: number; onRefresh: () => Promise<void>; onClose: () => void; onAgent: (path?: string) => void; onNewVariant: (path?: string) => void; onLocate: (segmentId: string) => void }) {
+    const { message, modal } = App.useApp();
+    const [detail, setDetail] = useState<DirectorAssetDetail>();
+    const [tab, setTab] = useState<AssetDetailTab>("dossier");
+    const [busy, setBusy] = useState(false);
+    const [preview, setPreview] = useState<{ items: WorkspaceImagePreviewItem[]; activeIndex: number } | null>(null);
+    const assetGenerationVersion = useMemo(() => generations.filter((generation) => {
+        const params = generation.request.params as Record<string, unknown> | undefined;
+        return String(params?.assetId || "") === asset?.id;
+    }).map((generation) => `${generation.id}:${generation.status}:${generation.progress}:${generation.updatedAt}`).join("|"), [asset?.id, generations]);
+    const reload = async () => {
         if (!asset) return;
-        setUploading(true);
-        try {
-            const uploaded = await uploadServerFile(file, file.name);
-            await serverApi.updateCreativeAsset(asset.id, { revision: asset.revision, payload: { variants: [...asset.payload.variants, { id: nanoid(), kind: "image", fileId: uploaded.fileId, label: "授权面貌参考", prompt: "", usage: "identity_reference", createdAt: new Date().toISOString() }] } });
-            await onRefresh();
-            message.success("已添加身份参考，下次抽图时只用于锁定面貌身份");
-        } catch (error) { message.error(error instanceof Error ? error.message : "上传参考图失败"); }
-        finally { setUploading(false); }
+        const value = await directorApi.assetDetail(asset.id);
+        setDetail(value);
+        if (tab.startsWith("variant:") && !value.variants.some((item) => `variant:${item.variantId}` === tab)) setTab("primary");
     };
+    useEffect(() => { if (!asset) { setDetail(undefined); return; } setTab("dossier"); void reload().catch((error) => message.error(error instanceof Error ? error.message : "素材详情加载失败")); }, [asset?.id]);
+    useEffect(() => { if (asset && detail && assetGenerationVersion) void reload(); }, [assetGenerationVersion]);
     useEffect(() => {
         if (!asset) return;
         const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -1093,32 +1084,96 @@ function AssetDetailDialog({ asset, state, generations, leftInset, onRefresh, on
         return () => window.removeEventListener("keydown", close);
     }, [asset, onClose]);
     if (!asset) return null;
-    const primaryAudio = asset.payload.variants.find((item) => item.id === asset.payload.primaryAudioId) || asset.payload.variants.find((item) => item.kind === "audio" && !isAssetReference(item.usage));
-    const productionVariants = asset.payload.variants.filter((item) => item.kind === "image" && item.usage === "variant_reference");
-    const usages = assetUsageRows(asset, state);
-    return createPortal(<div className="fixed inset-y-0 right-0 z-[80] flex items-center justify-center bg-slate-950/25 p-4 backdrop-blur-[1px]" style={{ left: leftInset }} onMouseDown={onClose}>
-        <section role="dialog" aria-modal="true" aria-label={`${asset.name}素材详情`} className="flex h-[min(780px,calc(100%-8px))] w-[94%] max-w-[1080px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,.22)]" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-6">
-                <div className="min-w-0"><div className="flex items-baseline gap-2"><h1 className="truncate text-xl font-semibold text-slate-950">{asset.name}</h1><span className="font-mono text-[11px] text-slate-400">{asset.id}</span></div><p className="mt-1 text-[11px] text-slate-500">{asset.kind === "character" ? "角色档案" : asset.kind === "scene" ? "场景档案" : "道具档案"} · 一个素材，一份权威资料 · REV {asset.revision}</p></div>
-                <div className="flex items-center gap-1"><Button type="text" size="small" icon={<Bot className="size-4" />} onClick={onAgent}>交给 Agent</Button><button type="button" aria-label="关闭素材详情" className="p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950" onClick={onClose}><X className="size-4" /></button></div>
+    const visual = tab === "primary" ? detail?.primaryVisual : tab.startsWith("variant:") ? detail?.variants.find((item) => item.variantId === tab.slice(8)) : undefined;
+    const activePath = tab === "dossier" ? detail?.dossier.path : tab === "sound" ? detail?.sound.promptPath : tab === "usages" ? detail?.folderPath : visual?.promptPath;
+    const generate = async (target: "primary-visual" | "variant-visual" | "sound", mediaRole?: string) => {
+        if (!detail) return;
+        const expectedHash = target === "sound" ? detail.sound.hash : visual?.hash || detail.primaryVisual.hash;
+        setBusy(true);
+        try {
+            await directorApi.generateAsset(asset.id, { target, variantId: visual?.variantId, mediaRole, expectedHash });
+            await onRefresh(); await reload(); message.success("生成任务已提交");
+        } catch (error) { message.error(error instanceof Error ? error.message : "生成失败"); }
+        finally { setBusy(false); }
+    };
+    const addInput = async (file: File, target: "primary-visual" | "variant-visual" | "sound") => {
+        setBusy(true);
+        try { const uploaded = await uploadServerFile(file, file.name); setDetail(await directorApi.addAssetMediaInput(asset.id, { fileId: uploaded.fileId, target, variantId: visual?.variantId })); }
+        catch (error) { message.error(error instanceof Error ? error.message : "上传输入失败"); }
+        finally { setBusy(false); }
+    };
+    const openMedia = (items: DirectorAssetMedia[], media: DirectorAssetMedia) => setPreview({ items: items.map((item) => ({ id: item.id, url: serverApiUrl(`/files/${item.fileId}/content`), alt: `${asset.name} · ${item.name}` })), activeIndex: Math.max(0, items.findIndex((item) => item.id === media.id)) });
+    const tabs: Array<{ id: AssetDetailTab; label: string }> = [
+        { id: "dossier", label: "主档案" },
+        { id: "primary", label: asset.kind === "character" ? "主形象" : asset.kind === "scene" ? "空间母板" : "结构母板" },
+        ...(detail?.variants.map((item) => ({ id: `variant:${item.variantId}` as AssetDetailTab, label: item.label })) || []),
+        { id: "sound", label: "声音" }, { id: "usages", label: "使用位置" },
+    ];
+    return createPortal(<div className="fixed inset-y-0 right-0 z-[100] flex items-center justify-center bg-slate-950/30 p-3 backdrop-blur-[1px]" style={{ left: leftInset }} onMouseDown={onClose}>
+        <section role="dialog" aria-modal="true" aria-label={`${asset.name}素材工作台`} className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,.24)]" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-slate-200 px-5">
+                <div className="min-w-0"><div className="flex items-baseline gap-2"><h1 className="truncate text-xl font-semibold text-slate-950">{asset.name}</h1><span className="font-mono text-[10px] text-slate-400">REV {detail?.revision || asset.revision}</span></div><p className="mt-1 truncate text-[11px] text-slate-500">{asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}文件夹 · {detail?.folderPath || "正在读取…"}</p></div>
+                <div className="flex items-center gap-1"><Button type="text" size="small" icon={<Bot className="size-4" />} onClick={() => onAgent(activePath)}>交给 Agent</Button><button type="button" aria-label="关闭素材详情" className="cursor-pointer p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950" onClick={onClose}><X className="size-4" /></button></div>
             </header>
-            <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
-                <div className="overflow-hidden rounded-lg border border-slate-200">
-                <div className="grid grid-cols-1 lg:grid-cols-[5fr_7fr]">
-                    <article className="director-markdown director-asset-dossier max-h-[350px] min-h-0 overflow-y-auto border-b border-slate-200 px-5 py-4 lg:border-b-0 lg:border-r"><Streamdown mode="static">{assetDossierMarkdown(asset)}</Streamdown></article>
-                    <div className="min-h-0 bg-slate-50">
-                        <div className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-4"><div><h2 className="text-xs font-medium text-slate-900">综合身份板</h2><p className="mt-0.5 text-[10px] text-slate-400">故事板默认引用 · 当前主视觉</p></div><div className="flex items-center gap-1">{variant ? <Button type="text" size="small" icon={<Maximize2 className="size-3.5" />} onClick={() => onPreview(variant.id)}>查看大图</Button> : null}<Button type="text" size="small" icon={<RefreshCw className="size-3.5" />} onClick={() => onAction("regenerate", "image")}>{variant ? "重抽" : "生成"}</Button></div></div>
-                        <div className="aspect-[16/7] w-full bg-slate-50 p-3">{variant ? <button type="button" className="size-full cursor-zoom-in" onClick={() => onPreview(variant.id)}><img className="size-full object-contain" src={serverApiUrl(`/files/${variant.fileId}/content`)} alt={`${asset.name}综合身份板`} /></button> : <MediaPlaceholder />}</div>
-                    </div>
-                </div>
-                <section className="border-t border-slate-200 px-4 py-3"><div className="flex items-center gap-4"><div className="w-32 shrink-0"><h2 className="text-sm font-medium text-slate-950">声音与行为</h2><p className="mt-0.5 text-[10px] text-slate-400">{asset.kind === "character" ? "声线与语言" : asset.kind === "scene" ? "环境氛围" : "动作音效"}</p></div><div className="min-w-0 flex-1">{primaryAudio ? <audio className="h-8 w-full" controls src={serverApiUrl(`/files/${primaryAudio.fileId}/content`)} /> : <p className="text-[11px] text-slate-400">还没有声音媒体</p>}</div><Button type="text" size="small" icon={<AudioLines className="size-3.5" />} onClick={() => onAction("regenerate", "audio")}>{primaryAudio ? "重抽" : "生成声音"}</Button></div></section>
-                <section className="border-t border-slate-200 p-4"><div className="flex items-baseline justify-between"><div><h2 className="text-sm font-medium text-slate-950">生产变体（{productionVariants.length}）</h2><p className="mt-1 text-[10px] text-slate-400">只制作会持续影响连续性的换装、伤势或状态</p></div><button type="button" className="text-xs text-blue-600 hover:text-blue-700">＋ 新建所需变体</button></div>{productionVariants.length ? <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">{productionVariants.map((item) => <button key={item.id} type="button" className="flex min-w-0 items-center gap-2 rounded-md border border-slate-200 p-2 text-left hover:border-blue-300" onClick={() => onPreview(item.id)}><img className="size-12 shrink-0 rounded object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /><span className="truncate text-[11px] text-slate-600">{item.label || "状态变体"}</span></button>)}</div> : <p className="mt-3 text-[11px] text-slate-400">当前没有必要的生产变体。</p>}</section>
-                <section className="border-t border-slate-200 p-4"><div className="flex items-baseline gap-2"><h2 className="text-sm font-medium text-slate-950">使用位置</h2><span className="text-[10px] text-slate-400">视频段 {usages.length}</span></div>{usages.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{usages.slice(0, 6).map((item) => <div key={item.id} className="rounded-md border border-slate-200 px-3 py-2"><p className="truncate text-[11px] font-medium text-slate-700">{item.title}</p><p className="mt-0.5 truncate text-[10px] text-slate-400">{item.sequence} · {item.duration} 秒</p></div>)}</div> : <p className="mt-3 text-[11px] text-slate-400">还没有被视频段引用。</p>}</section>
-                <details className="group border-t border-slate-200 p-4"><summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-slate-700"><span>生成提示词与参考</span><ChevronRight className="size-4 text-slate-400 transition group-open:rotate-90" /></summary><div className="mt-4 space-y-5"><p className="text-xs leading-5 text-slate-500">本次生成 · {generation?.modelId || asset.payload.mediaDrafts.image.model || "未记录模型"} · {String(params.size || "未记录尺寸")} · REV {promptPackage?.asset?.revision || asset.revision}</p>{asset.kind === "character" ? <label className="inline-flex h-8 cursor-pointer items-center gap-2 border border-slate-200 px-3 text-xs text-slate-600 hover:bg-blue-50"><Upload className="size-3.5" />{uploading ? "上传中" : "上传身份参考"}<input disabled={uploading} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadIdentity(file); }} /></label> : null}{references.length ? <PromptReferences title={`本次参考 ${references.length}`} items={references} /> : null}{currentReferences.length ? <PromptReferences title={`下次生成参考 ${currentReferences.length}`} items={currentReferences} /> : null}<PromptText value={prompt} empty="当前素材还没有已保存的生图提示词。" /></div></details>
-                </div>
+            <nav className="thin-scrollbar flex h-12 shrink-0 items-end gap-1 overflow-x-auto border-b border-slate-200 px-5" aria-label="素材详情页面">
+                {tabs.map((item) => <button key={item.id} type="button" className={`h-12 shrink-0 cursor-pointer border-b-2 px-3 text-sm transition ${tab === item.id ? "border-blue-600 font-medium text-slate-950" : "border-transparent text-slate-500 hover:text-slate-900"}`} onClick={() => setTab(item.id)}>{item.label}</button>)}
+                <button type="button" className="h-12 shrink-0 cursor-pointer px-3 text-sm text-blue-600 hover:bg-blue-50" onClick={() => onNewVariant(detail?.folderPath)}>＋ {asset.kind === "character" ? "新增形象" : "新增状态"}</button>
+                {tab.startsWith("variant:") ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "delete", danger: true, icon: <Trash2 className="size-3.5" />, label: "移到回收站" }], onClick: () => modal.confirm({ title: "移除这个生产变体？", content: "文件会移入项目 .trash，可恢复。", okText: "移除", okButtonProps: { danger: true }, cancelText: "取消", onOk: async () => { if (!detail) return; setDetail(await directorApi.deleteAssetVariant(asset.id, tab.slice(8))); setTab("primary"); } }) }}><button type="button" aria-label="变体操作" className="mb-2 ml-auto grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><MoreHorizontal className="size-4" /></button></Dropdown> : null}
+            </nav>
+            <div className="min-h-0 flex-1 bg-white">
+                {!detail ? <div className="grid size-full place-items-center"><Spin /></div> : tab === "dossier" ? <ScrollArea className="h-full"><article className="director-markdown mx-auto max-w-4xl px-10 py-8"><Streamdown mode="static">{detail.dossier.content || `# ${asset.name}\n\n等待 Agent 补充素材档案。`}</Streamdown></article></ScrollArea>
+                    : visual ? <AssetVisualTab asset={asset} workspace={visual} busy={busy} onGenerate={(mediaRole) => void generate(visual.kind === "variant" ? "variant-visual" : "primary-visual", mediaRole)} onAddInput={(file) => void addInput(file, visual.kind === "variant" ? "variant-visual" : "primary-visual")} onRemoveInput={async (inputId) => setDetail(await directorApi.removeAssetMediaInput(asset.id, inputId))} onPreview={openMedia} />
+                    : tab === "sound" ? <AssetSoundTab asset={asset} detail={detail} busy={busy} onGenerate={() => void generate("sound")} onAddInput={(file) => void addInput(file, "sound")} onRemoveInput={async (inputId) => setDetail(await directorApi.removeAssetMediaInput(asset.id, inputId))} />
+                    : <AssetUsagesTab detail={detail} onLocate={onLocate} />}
             </div>
         </section>
+        <WorkspaceImagePreviewLightbox items={preview?.items || []} activeIndex={preview?.activeIndex ?? null} onClose={() => setPreview(null)} onChangeIndex={(activeIndex) => setPreview((current) => current ? { ...current, activeIndex } : null)} />
     </div>, document.body);
+}
+
+function AssetVisualTab({ asset, workspace, busy, onGenerate, onAddInput, onRemoveInput, onPreview }: { asset: CreativeAsset; workspace: DirectorAssetVisualWorkspace; busy: boolean; onGenerate: (mediaRole?: string) => void; onAddInput: (file: File) => void; onRemoveInput: (id: string) => void; onPreview: (items: DirectorAssetMedia[], media: DirectorAssetMedia) => void }) {
+    const [selectedRole, setSelectedRole] = useState("");
+    const output = workspace.outputs.find((item) => item.mediaRole === selectedRole) || workspace.outputs.find((item) => item.mediaRole === "primary") || workspace.outputs[0];
+    useEffect(() => { setSelectedRole(workspace.outputs.find((item) => item.mediaRole === "primary")?.mediaRole || workspace.outputs[0]?.mediaRole || ""); }, [workspace.id]);
+    return <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[58fr_42fr]">
+        <section className="flex min-h-0 flex-col border-b border-slate-200 bg-slate-50 lg:border-b-0 lg:border-r">
+            <div className="flex min-h-20 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-5 py-3"><div className="min-w-0 flex-1"><div className="mb-2 flex items-center justify-between"><h2 className="text-xs font-semibold text-slate-900">输入参考（{workspace.inputs.length}）</h2><label className="inline-flex cursor-pointer items-center gap-1 text-xs text-blue-600 hover:text-blue-700"><Upload className="size-3.5" />添加<input type="file" accept="image/*" disabled={busy} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onAddInput(file); }} /></label></div><div className="flex gap-2 overflow-x-auto">{workspace.inputs.length ? workspace.inputs.map((item) => <div key={item.id} className="group relative shrink-0"><button type="button" className="cursor-zoom-in" onClick={() => onPreview(workspace.inputs, item)}><img className="size-12 rounded border border-slate-200 object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} alt={item.name} /></button><button type="button" aria-label="移除输入" className="absolute -right-1 -top-1 hidden size-4 cursor-pointer place-items-center rounded-full bg-slate-900 text-white group-hover:grid" onClick={() => onRemoveInput(item.id)}><X className="size-2.5" /></button></div>) : <span className="text-[11px] text-slate-400">没有输入图时直接使用档案和视觉风格生成</span>}</div></div><Button type="primary" loading={busy} icon={<RefreshCw className="size-3.5" />} onClick={() => onGenerate(output?.mediaRole)}>{output ? "重新生成" : "生成"}</Button></div>
+            <div className="min-h-0 flex-1 p-5">{output ? <button type="button" className="size-full cursor-zoom-in" onClick={() => onPreview(workspace.outputs, output)}><img className="size-full object-contain" src={serverApiUrl(`/files/${output.fileId}/content`)} alt={`${asset.name} · ${workspace.label}`} /></button> : <MediaPlaceholder label="还没有基础设计媒体" />}</div>
+            {workspace.outputs.length > 1 ? <div className="flex h-16 shrink-0 gap-2 overflow-x-auto border-t border-slate-200 bg-white px-4 py-2">{workspace.outputs.map((item) => <button key={item.id} type="button" className={`h-12 w-20 shrink-0 overflow-hidden rounded border ${item.id === output?.id ? "border-blue-500" : "border-slate-200"}`} onClick={() => setSelectedRole(item.mediaRole)}><img className="size-full object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /></button>)}</div> : null}
+        </section>
+        <section className="flex min-h-0 flex-col"><div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-5"><div><h2 className="text-sm font-semibold text-slate-950">{workspace.label}提示词</h2>{workspace.description ? <p className="mt-0.5 text-[10px] text-slate-400">{workspace.description}</p> : null}</div><CopyPromptButton value={workspace.prompt} /></div><ScrollArea className="min-h-0 flex-1"><pre className="whitespace-pre-wrap break-words px-5 py-4 font-mono text-[12px] leading-6 text-slate-700">{workspace.prompt || "等待 Agent 完成提示词。"}</pre></ScrollArea></section>
+    </div>;
+}
+
+function CopyPromptButton({ value }: { value: string }) { const copy = useCopyText(); return <button type="button" className="inline-flex cursor-pointer items-center gap-1 text-xs text-slate-500 hover:text-blue-700" onClick={() => void copy(value, "已复制提示词")}><Copy className="size-3.5" />复制</button>; }
+
+function AssetSoundTab({ asset, detail, busy, onGenerate, onAddInput, onRemoveInput }: { asset: CreativeAsset; detail: DirectorAssetDetail; busy: boolean; onGenerate: () => void; onAddInput: (file: File) => void; onRemoveInput: (id: string) => void }) {
+    const sound = detail.sound;
+    return <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[58fr_42fr]"><section className="flex min-h-0 flex-col border-b border-slate-200 bg-slate-50 p-6 lg:border-b-0 lg:border-r"><div className="flex items-center justify-between"><div><h2 className="text-base font-semibold text-slate-950">{asset.kind === "character" ? "角色声音" : asset.kind === "scene" ? "环境声" : "道具音效"}</h2><p className="mt-1 text-xs text-slate-500">最多使用一个参考声音</p></div><Button type="primary" loading={busy} icon={<AudioLines className="size-3.5" />} onClick={onGenerate}>{sound.output ? "重新生成" : "生成声音"}</Button></div><div className="mt-10 rounded-lg border border-slate-200 bg-white p-5">{sound.output ? <audio className="w-full" controls src={serverApiUrl(`/files/${sound.output.fileId}/content`)} /> : <MediaPlaceholder icon={AudioLines} label="还没有声音结果" />}</div><div className="mt-5 flex items-center justify-between border-t border-slate-200 pt-5"><div><p className="text-xs font-medium text-slate-700">参考声音</p><p className="mt-1 text-[11px] text-slate-400">{sound.input?.name || "未添加"}</p></div>{sound.input ? <div className="flex items-center gap-2"><audio className="h-8 w-56" controls src={serverApiUrl(`/files/${sound.input.fileId}/content`)} /><button type="button" className="cursor-pointer p-2 text-slate-400 hover:text-rose-600" onClick={() => onRemoveInput(sound.input!.id)}><Trash2 className="size-4" /></button></div> : <label className="inline-flex cursor-pointer items-center gap-1 text-xs text-blue-600"><Upload className="size-3.5" />添加参考<input type="file" accept="audio/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onAddInput(file); }} /></label>}</div>{asset.kind === "character" && sound.sampleText ? <div className="mt-5 border-t border-slate-200 pt-5"><p className="text-xs font-medium text-slate-700">试听文本</p><p className="mt-2 text-sm leading-6 text-slate-600">{sound.sampleText}</p></div> : null}</section><section className="flex min-h-0 flex-col"><div className="flex h-12 items-center justify-between border-b border-slate-200 px-5"><h2 className="text-sm font-semibold text-slate-950">声音提示词</h2><CopyPromptButton value={sound.prompt} /></div><ScrollArea className="min-h-0 flex-1"><pre className="whitespace-pre-wrap break-words px-5 py-4 font-mono text-[12px] leading-6 text-slate-700">{sound.prompt || "等待 Agent 完成声音提示词。"}</pre></ScrollArea></section></div>;
+}
+
+function AssetUsagesTab({ detail, onLocate }: { detail: DirectorAssetDetail; onLocate: (id: string) => void }) {
+    const ordered = useMemo(() => [...detail.usages].sort((a, b) => a.sequencePosition - b.sequencePosition || a.segmentPosition - b.segmentPosition || a.id.localeCompare(b.id)), [detail.usages]);
+    const groups = useMemo(() => {
+        const value = new Map<string, { id: string; title: string; position: number; items: typeof ordered }>();
+        for (const item of ordered) {
+            const group = value.get(item.sequenceId) || { id: item.sequenceId, title: item.sequenceTitle, position: item.sequencePosition, items: [] };
+            group.items.push(item);
+            value.set(item.sequenceId, group);
+        }
+        return [...value.values()];
+    }, [ordered]);
+    return <ScrollArea className="h-full bg-slate-50/50"><div className="mx-auto w-full max-w-7xl px-8 py-7">
+        <div className="flex items-end justify-between border-b border-slate-200 pb-5"><div><h2 className="text-lg font-semibold text-slate-950">使用位置</h2><p className="mt-1 text-xs text-slate-500">按剧情段落与视频段的制作顺序排列</p></div><div className="text-right"><strong className="font-mono text-2xl font-medium text-slate-900">{detail.usages.length}</strong><span className="ml-2 text-xs text-slate-500">个视频段</span></div></div>
+        {groups.length ? <div className="mt-6 space-y-5">{groups.map((group) => <section key={group.id} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <header className="flex h-11 items-center justify-between border-b border-slate-200 bg-slate-50/70 px-4"><div className="flex min-w-0 items-center gap-3"><span className="font-mono text-[10px] tracking-wider text-blue-600">SEQ {String(group.position + 1).padStart(2, "0")}</span><h3 className="truncate text-sm font-semibold text-slate-900">{group.title}</h3></div><span className="text-[11px] text-slate-400">{group.items.length} 个视频段</span></header>
+            <div className="divide-y divide-slate-100">{group.items.map((item) => <button key={item.id} type="button" className="group grid w-full cursor-pointer grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition hover:bg-blue-50/50" onClick={() => onLocate(item.id)}>
+                <span className="font-mono text-[10px] text-slate-400">SEG {String(item.segmentPosition + 1).padStart(2, "0")}</span>
+                <span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-800 group-hover:text-blue-700">{item.title}</span><span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400"><span className="inline-flex items-center gap-1"><Clock3 className="size-3" />{item.durationSeconds} 秒</span><span>·</span><span>{item.variantId ? `变体 ${item.variantId}` : "基础设计"}</span></span></span>
+                <span className="flex shrink-0 items-center gap-2"><span className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] ${item.storyboardReady ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-400"}`}><ImageIcon className="size-3" />故事板{item.storyboardReady ? "已就绪" : "待生成"}</span><span className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] ${item.videoReady ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-400"}`}><Video className="size-3" />视频{item.videoReady ? "已就绪" : "待生成"}</span><ChevronRight className="ml-1 size-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-blue-600" /></span>
+            </button>)}</div>
+        </section>)}</div> : <div className="grid min-h-72 place-items-center text-center"><div><ListVideo className="mx-auto size-8 text-slate-300" /><p className="mt-3 text-sm text-slate-500">还没有被视频段引用</p><p className="mt-1 text-xs text-slate-400">分镜绑定这个素材后会自动出现在这里。</p></div></div>}
+    </div></ScrollArea>;
 }
 
 function MediaPlaceholder({ label = "等待生成设计图", icon: Icon = ImageIcon }: { label?: string; icon?: typeof ImageIcon }) {

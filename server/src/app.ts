@@ -26,7 +26,7 @@ import {
     reviewCreativeAssetVariant,
     updateCreativeAsset,
 } from "./creative-assets.js";
-import { createCreativeAssetGeneration, previewCreativeAssetGeneration } from "./creative-asset-generation.js";
+import { createCreativeAssetGeneration, createDirectorAssetGeneration, previewCreativeAssetGeneration } from "./creative-asset-generation.js";
 import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, placeVisualStyle, setDefaultVisualStyle, updateVisualStyle } from "./visual-styles.js";
 import { createVisualStyleAnalysis, createVisualStyleReferences } from "./visual-style-generation.js";
 import {
@@ -37,8 +37,8 @@ import {
 import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflight, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
 import {
-    ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorValidation, importDirectorProjectZip,
-    readDirectorLogicalDocument, readDirectorStyleBoard, readDirectorTextFile, removeDirectorProjectWorkspace, validateDirectorProject, writeDirectorDocumentPart, writeDirectorMarkdown,
+    addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
+    readDirectorLogicalDocument, readDirectorStyleBoard, readDirectorTextFile, removeDirectorAssetMediaInput, removeDirectorProjectWorkspace, trashDirectorAssetVariant, validateDirectorProject, writeDirectorDocumentPart, writeDirectorMarkdown,
 } from "./director-workspace.js";
 
 type ProjectKind = "canvas" | "director";
@@ -256,6 +256,11 @@ api.get("/director/projects/:id/renders", route((req) => listDirectorRenders(req
 api.post("/director/projects/:id/renders", route((req) => createDirectorRender(req.user.id, routeId(req), req.body), 202));
 api.post("/director/renders/:id/cancel", route((req) => cancelDirectorRender(req.user.id, routeId(req))));
 api.post("/director/renders/:id/retry", route((req) => retryDirectorRender(req.user.id, routeId(req)), 202));
+api.get("/director/assets/:id/detail", route((req) => getDirectorAssetDetail(req.user.id, routeId(req))));
+api.post("/director/assets/:id/media-inputs", route((req) => addDirectorAssetMediaInput(req.user.id, routeId(req), req.body), 201));
+api.delete("/director/assets/:id/media-inputs/:inputId", route((req) => removeDirectorAssetMediaInput(req.user.id, routeId(req), routeParam(req, "inputId"))));
+api.delete("/director/assets/:id/variants/:variantId", route((req) => trashDirectorAssetVariant(req.user.id, routeId(req), routeParam(req, "variantId"))));
+api.post("/director/assets/:id/generate", route((req) => createDirectorAssetGeneration(req.user.id, routeId(req), req.body), 201));
 
 api.get("/projects/:id/creative-assets", route((req) => listCreativeAssets(req.user.id, routeId(req))));
 api.post("/projects/:id/creative-assets", route((req) => createCreativeAsset(req.user.id, routeId(req), req.body), 201));

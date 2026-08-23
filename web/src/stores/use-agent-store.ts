@@ -9,7 +9,7 @@ export type AgentCanvasContext = {
     canUndo: boolean;
 };
 export type AgentEntityReference =
-    | { kind: "asset"; projectId: string; assetId: string; nodeId?: string; title: string; subtitle: string }
+    | { kind: "asset"; projectId: string; assetId: string; nodeId?: string; path?: string; title: string; subtitle: string }
     | { kind: "style"; projectId: string; styleId: string; nodeId?: string; title: string; subtitle: string }
     | { kind: "director"; projectId: string; entityKind: "story" | "script" | "directing-plan" | "sequence" | "video-segment" | "timeline"; entityId: string; title: string; subtitle: string };
 export const EMPTY_AGENT_ENTITY_REFERENCES: AgentEntityReference[] = [];
@@ -103,7 +103,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         const same = (item: AgentEntityReference) => item.kind === reference.kind && identity(item) === identity(reference);
         const panelOpen = { ...state.panelOpen, [projectId]: true };
         persist("agent-panel-open-by-project", panelOpen);
-        return { panelOpen, panelClosing: { ...state.panelClosing, [projectId]: false }, entityReferences: { ...state.entityReferences, [projectId]: current.some(same) ? current : [...current, reference] }, focusRequests: { ...state.focusRequests, [projectId]: (state.focusRequests[projectId] || 0) + 1 } };
+        return { panelOpen, panelClosing: { ...state.panelClosing, [projectId]: false }, entityReferences: { ...state.entityReferences, [projectId]: [...current.filter((item) => !same(item)), reference] }, focusRequests: { ...state.focusRequests, [projectId]: (state.focusRequests[projectId] || 0) + 1 } };
     }),
     removeEntityReference: (projectId, reference) => set((state) => ({ entityReferences: { ...state.entityReferences, [projectId]: (state.entityReferences[projectId] || []).filter((item) => item !== reference) } })),
     clearEntityReferences: (projectId) => set((state) => ({ entityReferences: { ...state.entityReferences, [projectId]: [] } })),

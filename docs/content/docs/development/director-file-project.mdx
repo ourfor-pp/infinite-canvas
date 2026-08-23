@@ -20,6 +20,17 @@ A Director project is stored under its own server-owned directory. Creative file
 
 Markdown frontmatter stores stable IDs, ordering and references. Display revisions come from the rebuildable file index; write conflicts and generation dependencies use SHA-256 content hashes.
 
+## Asset folders
+
+Each material card resolves to one character, location or prop folder. Its `character.md`, `location.md` or `prop.md` file is the authoritative dossier.
+
+- Characters keep the base image prompt, optional inputs and current identity media under `identity/`; locations and props use `design/`.
+- The prompt is always `prompt.md`. Reference images live only in `inputs/`; current generated outputs stay beside the prompt and use stable media-role names such as `primary.*`, `face-closeup.*`, `body-front.*` or `body-back.*`.
+- Character voice uses `voice/`; location ambience and prop effects use `sound/`. The body of `sound.md` is the only sound prompt, optional audition text or suggested duration stays in frontmatter, `reference.*` is the single allowed sound input and `primary.*` is the current output.
+- A persistent costume or state uses `variants/var-NNN-slug/` with `variant.md`, its own `prompt.md`, optional `inputs/` and one current `primary.*`. A variant is created only when it persists across video segments or is necessary for continuity.
+
+Media jobs name a target folder, media role and expected prompt hash. A result replaces only that role when the hash still matches; otherwise it remains in generation history without overwriting current creative files.
+
 ## Editing and validation
 
 Page saves use atomic replacement and `If-Match`. Director Agents may use only project-confined `Read`, `Write`, `Edit`, `Glob`, `Grep` and `LS`; absolute paths, path traversal, symlink escape, Bash and arbitrary binary writes are not available.

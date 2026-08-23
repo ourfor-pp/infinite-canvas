@@ -16,7 +16,7 @@ import { agentScenes, resolveAgentScene, sceneAutoAllowedTools, sceneHasReferenc
 import { creativeAssetInputSchema, getCreativeAsset } from "../creative-assets.js";
 import { getVisualStyle } from "../visual-styles.js";
 import { getDirectorState } from "../director.js";
-import { ensureDirectorProjectWorkspace, reconcileDirectorProjectFiles } from "../director-workspace.js";
+import { ensureDirectorProjectWorkspace, getDirectorAssetDetail, reconcileDirectorProjectFiles } from "../director-workspace.js";
 import type { AgentComposerDocument, AgentEvent, AgentEventKind, AgentMessageInput, AgentPendingDecision, AgentQueuedMessage, AgentSession, AgentSessionStatus, AgentStreamEvent } from "./types.js";
 import { SdkInputChannel } from "./sdk-input-channel.js";
 
@@ -749,7 +749,7 @@ function mergeAllowedTools(...lists: string[][]) {
 
 type ProviderNonNull = NonNullable<ReturnType<typeof getProviderRow>>;
 
-function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
+function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; path?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
     const sections = [context.input || "请处理本次请求。"];
     if (skill) sections.unshift(`使用原生 Skill 工具加载并遵循“${skill.id}”（${skill.name}）完成本次请求。Skill 已同步到当前会话，不要使用 Read 查找服务端 Skill 源文件。`);
     if (context.references?.length) sections.push(`## 本次画布引用\n${JSON.stringify(context.references, null, 2)}`);
@@ -887,7 +887,7 @@ function validateMessageInput(input: AgentMessageInput) {
             z.object({ type: z.literal("text"), text: z.string().max(200_000) }),
             z.object({ type: z.literal("skill"), mentionId: mention.mentionId, skillId: z.string().trim().min(1).max(128) }),
             z.object({ type: z.literal("canvas"), ...mention, nodeId: z.string().trim().min(1).max(128) }),
-            z.object({ type: z.literal("asset"), ...mention, assetId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
+            z.object({ type: z.literal("asset"), ...mention, assetId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional(), path: z.string().trim().max(500).optional() }),
             z.object({ type: z.literal("style"), ...mention, styleId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
             z.object({ type: z.literal("director"), ...mention, entityKind: z.enum(["story", "script", "directing-plan", "sequence", "video-segment", "timeline"]), entityId: z.string().trim().min(1).max(128) }),
         ])).min(1).max(200) }),
@@ -905,7 +905,7 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
         return { fileId: id, name: file.original_name, mimeType: file.mime_type, path: file.path };
     });
     const references: Array<{ projectId: string; nodeId: string; node: unknown }> = [];
-    const assetReferences: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }> = [];
+    const assetReferences: Array<{ projectId: string; assetId: string; nodeId?: string; path?: string; asset: unknown }> = [];
     const styleReferences: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }> = [];
     const directorReferences: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> = [];
     const skills: BuiltInAgentSkill[] = [];
@@ -925,7 +925,12 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
         } else if (segment.type === "asset") {
             const asset = getCreativeAsset(userId, segment.assetId);
             if (asset.projectId !== projectId) throw agentError(404, "AGENT_ASSET_REFERENCE_NOT_FOUND", "创作资产不存在或不属于当前项目");
-            assetReferences.push({ projectId, assetId: segment.assetId, nodeId: segment.nodeId, asset }); displayParts.push(`@${asset.name}`); displaySegments.push({ ...segment, label: asset.name });
+            let path = segment.path;
+            if (path && scene.id === "director") {
+                const detail = getDirectorAssetDetail(userId, segment.assetId);
+                if (path !== detail.folderPath && !path.startsWith(`${detail.folderPath}/`)) throw agentError(400, "AGENT_ASSET_PATH_INVALID", "素材引用路径不属于当前素材文件夹");
+            } else path = undefined;
+            assetReferences.push({ projectId, assetId: segment.assetId, nodeId: segment.nodeId, path, asset }); displayParts.push(`@${asset.name}`); displaySegments.push({ ...segment, path, label: asset.name });
         } else if (segment.type === "style") {
             const style = getVisualStyle(userId, segment.styleId);
             if (style.projectId !== projectId) throw agentError(404, "AGENT_STYLE_REFERENCE_NOT_FOUND", "视觉风格不存在或不属于当前项目");

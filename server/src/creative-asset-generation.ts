@@ -4,6 +4,7 @@ import { buildCreativeAssetPrompt, creativeAssetAudioMode, getCreativeAsset, isC
 import { createGeneration } from "./generation-service.js";
 import { getAiGlobalSettings, listModelDefaults, listPublicModels, type AudioMode } from "./provider-service.js";
 import { resolveCreativeAssetNodeInputs } from "./visual-styles.js";
+import { resolveDirectorAssetGenerationTarget, validateDirectorProject, type DirectorAssetGenerationTarget } from "./director-workspace.js";
 
 const inputSchema = z.object({
     kind: z.enum(["image", "audio"]),
@@ -169,6 +170,39 @@ export function createCreativeAssetGeneration(userId: string, assetId: string, r
         prompt: preview.prompt,
         references: preview.references.map(({ fileId, kind, source, label, ...reference }) => ({ fileId, kind, source, label, ...("purpose" in reference && typeof reference.purpose === "string" ? { purpose: reference.purpose as "reference_input" | "identity_reference" | "wardrobe_reference" | "composition_reference" } : {}), ...("transcript" in reference && typeof reference.transcript === "string" ? { transcript: reference.transcript } : {}) })),
         params: preview.params,
+    });
+}
+
+export function createDirectorAssetGeneration(userId: string, assetId: string, raw: unknown) {
+    const target = z.object({
+        target: z.enum(["primary-visual", "variant-visual", "sound"]),
+        mediaRole: z.string().trim().max(100).optional(),
+        variantId: z.string().trim().max(128).optional(),
+        expectedHash: z.string().min(1),
+    }).parse(raw) as Omit<DirectorAssetGenerationTarget, "assetId">;
+    const resolved = resolveDirectorAssetGenerationTarget(userId, { assetId, ...target });
+    const validation = validateDirectorProject(userId, resolved.detail.projectId, resolved.detail.folderPath);
+    const errors = validation.diagnostics.filter((item) => item.severity === "error");
+    if (errors.length) throw generationError(409, "DIRECTOR_ASSET_INVALID", "素材文件夹存在错误，修正后才能生成", errors);
+    const preview = previewCreativeAssetGeneration(userId, assetId, {
+        kind: target.target === "sound" ? "audio" : "image",
+        revision: resolved.detail.revision,
+        mediaRole: ["face_closeup", "body_front", "body_back"].includes(target.mediaRole || "") ? target.mediaRole : undefined,
+    });
+    const blocking = preview.warnings.find((warning) => warning.blocking);
+    if (blocking) throw generationError(400, blocking.code, blocking.message);
+    const references = resolved.references.map((item) => ({ fileId: item.fileId, kind: item.kind }));
+    const prompt = target.target === "sound" && resolved.detail.kind === "character" ? resolved.detail.sound.sampleText.trim() : resolved.prompt.trim() || preview.prompt;
+    return createGeneration(userId, {
+        kind: preview.kind,
+        model: preview.model.value,
+        prompt,
+        references,
+        params: {
+            ...preview.params,
+            ...(target.target === "sound" && resolved.detail.kind === "character" && resolved.prompt.trim() ? { instructions: resolved.prompt.trim() } : {}),
+            __directorAssetTarget: { assetId, ...target },
+        },
     });
 }
 

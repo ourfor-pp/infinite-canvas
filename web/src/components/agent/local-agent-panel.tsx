@@ -83,7 +83,7 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
         setComposerDocument((current) => ({
             version: 1,
             segments: [...current.segments, ...entityReferences.flatMap((item) => [item.kind === "asset"
-                ? { type: "asset" as const, mentionId: randomId(), projectId, assetId: item.assetId, nodeId: item.nodeId, label: item.title }
+                ? { type: "asset" as const, mentionId: randomId(), projectId, assetId: item.assetId, nodeId: item.nodeId, path: item.path, label: item.title }
                 : item.kind === "style" ? { type: "style" as const, mentionId: randomId(), projectId, styleId: item.styleId, nodeId: item.nodeId, label: item.title }
                 : { type: "director" as const, mentionId: randomId(), projectId, entityKind: item.entityKind, entityId: item.entityId, label: item.title }, { type: "text" as const, text: " " }])],
         }));

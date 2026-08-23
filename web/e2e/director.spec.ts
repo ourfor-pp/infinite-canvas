@@ -34,6 +34,15 @@ const state = {
             updatedAt: now,
         },
     ],
+    screenplayBreakdown: {
+        projectId: "director-e2e",
+        scriptRevision: 2,
+        stale: true,
+        payload: { estimatedDurationSeconds: 0, review: { status: "not_run", targetDurationSeconds: 600, estimatedDurationSeconds: 0, issues: [] }, scenes: [] },
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+    },
     sequences: [
         {
             id: "seq-1",
@@ -97,14 +106,39 @@ const style = {
     createdAt: now,
     updatedAt: now,
 };
+const assetDetail = {
+    assetId: "asset-1",
+    projectId: "director-e2e",
+    kind: "character",
+    name: "林夏",
+    revision: 2,
+    folderPath: "assets/characters/char-001-lin-xia",
+    dossier: { path: "assets/characters/char-001-lin-xia/character.md", content: "# 林夏\n\n## 剧情身份\n\n调查记者。\n\n## 稳定视觉设定\n\n短发，深色风衣。", hash: "dossier-hash" },
+    primaryVisual: { id: "primary", label: "主形象", kind: "primary", prompt: "Character turnaround sheet, four full-body views on pure white.", promptPath: "assets/characters/char-001-lin-xia/identity/prompt.md", hash: "visual-hash", inputs: [{ id: "input-1", fileId: "wardrobe-image", path: "assets/characters/char-001-lin-xia/identity/inputs/input-001.png", name: "风衣参考.png", mediaRole: "reference", kind: "image" }], outputs: [{ id: "output-1", fileId: "character-image", path: "assets/characters/char-001-lin-xia/identity/primary.png", name: "primary.png", mediaRole: "primary", kind: "image" }] },
+    variants: [{ id: "var-rain", variantId: "var-rain", label: "雨夜造型", kind: "variant", description: "持续雨夜场次使用", prompt: "Keep identity, add a dark raincoat.", promptPath: "assets/characters/char-001-lin-xia/variants/var-rain/prompt.md", hash: "variant-hash", inputs: [], outputs: [] }],
+    sound: { prompt: "冷静、低声线、自然停顿", promptPath: "assets/characters/char-001-lin-xia/voice/sound.md", hash: "sound-hash", sampleText: "我会把真相查清楚。" },
+    usages: [{ id: "segment-1", title: "雨夜车站", sequenceId: "seq-1", sequenceTitle: "线索出现", sequencePosition: 0, segmentPosition: 0, durationSeconds: 8, variantId: "var-rain", storyboardReady: true, videoReady: false }],
+};
 
 async function mockApi(page: Page, directorState: typeof state = state) {
     await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
         const request = route.request();
-        const path = new URL(request.url()).pathname.replace(/^\/api/, "");
+        const url = new URL(request.url());
+        const path = url.pathname.replace(/^\/api/, "");
         let data: unknown = [];
         if (path === "/director/projects/director-e2e") data = directorState;
+        else if (path === "/director/projects/director-e2e/validation") data = { valid: true, diagnostics: [], checkedAt: now };
+        else if (path === "/director/projects/director-e2e/logical-documents/story") data = { kind: "story", revision: 2, content: directorState.documents[0].content, parts: [{ path: "story/index.md", id: "story", name: "故事", order: 0, content: directorState.documents[0].content, hash: "story-hash", revision: 2, index: true }] };
+        else if (path === "/director/projects/director-e2e/logical-documents/script") data = { kind: "script", revision: 2, content: directorState.documents[1].content, parts: [{ path: "screenplay/index.md", id: "script", name: "剧本", order: 0, content: directorState.documents[1].content, hash: "script-hash", revision: 2, index: true }] };
+        else if (path === "/director/projects/director-e2e/file" && request.method() === "GET") {
+            const requestedPath = url.searchParams.get("path");
+            data = requestedPath === "direction/visual-style.md"
+                ? { path: requestedPath, hash: "style-file-hash", content: "---\nid: visual-style\nkind: visual-style\n---\n# 冷峻悬疑\n\n## 总体风格\n\n低饱和冷灰。" }
+                : { path: requestedPath, hash: "rules-file-hash", content: "---\nid: directing-rules\nkind: directing-rules\n---\n# 导演规则\n\n## 核心导演意图\n\n克制、冷峻。" };
+        }
         else if (path === "/projects/director-e2e/creative-assets") data = [asset];
+        else if (path === "/director/assets/asset-1/detail") data = assetDetail;
+        else if (path === "/director/assets/asset-1/generate" && request.method() === "POST") data = { id: "generation-1", status: "queued", kind: "image", progress: 0, modelId: "gpt-image-2", request: { params: { __directorAssetTarget: request.postDataJSON() } }, createdAt: now, updatedAt: now };
         else if (path === "/projects/director-e2e/visual-styles") data = [style];
         else if (path === "/agent/config") data = { ready: true, modelName: "Director Agent", providerName: "Test", protocolVersion: 3, storageVersion: 2 };
         else if (path === "/agent/projects/director-e2e/capabilities")
@@ -188,7 +222,7 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await expect(page.getByText("Agent 已绑定当前导演项目，可以改编故事、编写剧本并推进素材、分镜和成片。")).toBeVisible();
     await expect(page.getByRole("textbox")).toHaveAttribute("data-placeholder", "描述导演任务，输入 / 调用 Skill，@ 引用故事、视频段或素材…");
     await expect(page.getByText("和画布一起思考")).toHaveCount(0);
-    for (const section of ["概览", "故事", "剧本", "风格", "素材", "分镜", "视频创作台"]) await expect(page.getByRole("button", { name: section, exact: true })).toBeVisible();
+    for (const section of ["概览", "故事", "剧本", "导演方案", "素材", "分镜", "视频创作台"]) await expect(page.getByRole("button", { name: section, exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "角色与场景", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "道具", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "故事与剧本", exact: true })).toHaveCount(0);
@@ -238,17 +272,29 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await expect(page.getByRole("complementary", { name: "剧本场次目录" }).getByRole("button", { name: "场 1", exact: true })).toHaveAttribute("aria-current", "location");
     await page.getByRole("button", { name: "素材", exact: true }).click();
     await expect(page.getByText("林夏")).toBeVisible();
-    await expect(page.getByRole("tablist", { name: "素材分类" })).toBeVisible();
+    for (const kind of ["角色", "场景", "道具"]) await expect(page.getByRole("region", { name: kind })).toBeVisible();
     await expect(page.getByRole("button", { name: "确认", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "锁定", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "提示词" }).click();
-    await expect(page.getByText("素材提示词")).toBeVisible();
+    await page.getByRole("button", { name: "详情" }).first().click();
+    const workbench = page.getByRole("dialog", { name: "林夏素材工作台" });
+    await expect(workbench).toBeVisible();
+    await expect(workbench.getByRole("button", { name: "主档案" })).toBeVisible();
+    await expect(workbench.getByText("调查记者。")).toBeVisible();
+    await workbench.getByRole("button", { name: "主形象" }).click();
+    await expect(workbench.getByText("输入参考（1）")).toBeVisible();
     await expect(page.getByText("Character turnaround sheet, four full-body views on pure white.")).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByText("素材提示词")).toBeHidden();
-    const generation = page.waitForRequest((request) => request.url().includes("/creative-assets/asset-1/generations"));
-    await page.getByRole("button", { name: "抽图" }).click();
+    await workbench.getByRole("button", { name: "声音" }).click();
+    await expect(workbench.getByText("我会把真相查清楚。")).toBeVisible();
+    await workbench.getByRole("button", { name: "使用位置" }).click();
+    await expect(workbench.getByText("按剧情段落与视频段的制作顺序排列")).toBeVisible();
+    await expect(workbench.getByText("1", { exact: true })).toBeVisible();
+    await expect(workbench.getByText("SEG 01", { exact: true })).toBeVisible();
+    await workbench.getByRole("button", { name: "主形象" }).click();
+    const generation = page.waitForRequest((request) => request.url().includes("/director/assets/asset-1/generate"));
+    await workbench.getByRole("button", { name: "重新生成" }).click();
     await generation;
+    await page.keyboard.press("Escape");
+    await expect(workbench).toBeHidden();
     await page.getByRole("button", { name: "分镜", exact: true }).click();
     await expect(page.getByRole("button", { name: "分镜", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByTestId("director-storyboard-card").getByText("雨夜车站", { exact: false }).first()).toBeVisible();
@@ -329,17 +375,17 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await expect(page.getByText("成片合成")).toBeVisible();
 });
 
-test("导演风格使用独立顶部工作区", async ({ page }) => {
+test("导演方案使用独立顶部工作区", async ({ page }) => {
     await mockApi(page, structuredClone(state));
     await page.goto("/__director-test.html");
-    await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "风格", exact: true }).click();
-    await expect(page.getByRole("button", { name: "风格", exact: true })).toHaveAttribute("aria-current", "page");
+    await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "导演方案", exact: true }).click();
+    await expect(page.getByRole("button", { name: "导演方案", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByText("冷峻悬疑").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "保存", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "保存", exact: true })).toHaveCount(0);
     await expect(page.locator(".ant-drawer-content")).toHaveCount(0);
     await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "素材", exact: true }).click();
     await expect(page.getByRole("button", { name: /风格.*冷峻悬疑/ })).toHaveCount(0);
-    await expect(page.getByRole("tablist", { name: "素材分类" })).toBeVisible();
+    for (const kind of ["角色", "场景", "道具"]) await expect(page.getByRole("region", { name: kind })).toBeVisible();
 });
 
 test("总播放器切换到连续视频段后保持播放", async ({ page }) => {

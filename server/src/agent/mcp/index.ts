@@ -37,6 +37,7 @@ import {
 } from "../../director-render.js";
 import type { AgentSceneDefinition } from "../scenes/index.js";
 import { resolveDirectorEntityReference, trashDirectorProjectPath, validateDirectorProject } from "../../director-workspace.js";
+import { createDirectorAssetGeneration } from "../../creative-asset-generation.js";
 import {
   addAsset,
   applyCanvasOps,
@@ -109,7 +110,7 @@ const askUserShape = {
   })).min(1).max(3),
 };
 
-const directorAssetRefSchema = z.object({ id: z.string().min(1), revision: z.number().int().positive() });
+const directorAssetRefSchema = z.object({ id: z.string().min(1), revision: z.number().int().positive(), variantId: z.string().min(1).optional() });
 const directorVideoSegmentPayloadShape = {
   durationSeconds: z.number().int().min(4).max(15),
   sourceSceneId: z.string().min(1).max(80),
@@ -769,19 +770,19 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_generate_asset",
-          "读取素材工程目录，生成并替换导演素材的当前主设计图或声音。优先传 assetPath。",
-          { assetPath: z.string().min(1).optional(), assetId: z.string().min(1).optional(), kind: z.enum(["image", "audio"]), revision: z.number().int().positive().optional(), nodeId: z.string().optional(), mediaRole: z.enum(["face_closeup", "body_front", "body_back"]).optional() },
+          "按素材工程目录中的提示词、输入媒体与目标哈希生成主形象、指定变体或声音。",
+          {
+            assetPath: z.string().min(1),
+            target: z.enum(["primary-visual", "variant-visual", "sound"]),
+            mediaRole: z.string().min(1).max(100).optional(),
+            variantId: z.string().min(1).max(128).optional(),
+            expectedHash: z.string().min(1),
+          },
           (input) => {
-            const value = input as { assetPath?: string; assetId?: string; kind: "image" | "audio"; revision?: number; nodeId?: string; mediaRole?: "face_closeup" | "body_front" | "body_back" };
-            const assetId = value.assetPath ? resolveDirectorEntityReference(run.userId, projectId, value.assetPath, ["character", "scene", "prop"]).id : value.assetId;
-            if (!assetId) throw mcpError(400, "DIRECTOR_ASSET_REQUIRED", "请提供 assetPath");
-            const asset = getAgentCreativeAsset(run.userId, projectId, assetId);
+            const value = input as { assetPath: string; target: "primary-visual" | "variant-visual" | "sound"; mediaRole?: string; variantId?: string; expectedHash: string };
+            const assetId = resolveDirectorEntityReference(run.userId, projectId, value.assetPath, ["character", "scene", "prop"]).id;
             requireDirectorMediaStage(run.userId, projectId);
-            return generateAgentCreativeAsset(
-              run.userId,
-              projectId,
-              { projectId, assetId, nodeId: value.nodeId, kind: value.kind, revision: value.revision ?? asset.revision, mediaRole: value.mediaRole },
-            );
+            return createDirectorAssetGeneration(run.userId, assetId, value);
           },
         ),
         call(

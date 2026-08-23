@@ -6,7 +6,7 @@ import { syncFileRefs } from "./file-store.js";
 import { publishAgentProject } from "./agent/project-events.js";
 import { getAiGlobalSettings } from "./provider-service.js";
 import { getVisualStyle } from "./visual-styles.js";
-import { syncDirectorAssetFile, trashDirectorAssetFolder } from "./director-workspace.js";
+import { applyDirectorAssetGeneration, syncDirectorAssetFile, trashDirectorAssetFolder, type DirectorAssetGenerationTarget } from "./director-workspace.js";
 
 export type CreativeAssetKind = "character" | "scene" | "prop";
 export type CreativeAssetStatus = "draft" | "confirmed" | "locked";
@@ -370,19 +370,27 @@ export function createCreativeAssetsBatch(userId: string, projectId: string, raw
 
 export function syncCreativeAssetGeneration(row: { id: string; user_id: string; status: string; request: string; result: string | null }) {
     if (row.status !== "succeeded") return;
-    const request = parseJson<{ kind?: "image" | "audio"; prompt?: string; params?: { __creativeAsset?: { assetId?: string; usage?: string; label?: string; transcript?: string }; __creativeAssetReview?: { assetId?: string; sourceGenerationId?: string; fileId?: string }; __visualStyle?: { id?: string; revision?: number } | null } }>(row.request, {});
+    const request = parseJson<{ kind?: "image" | "audio"; prompt?: string; params?: { __creativeAsset?: { assetId?: string; usage?: string; label?: string; transcript?: string }; __creativeAssetReview?: { assetId?: string; sourceGenerationId?: string; fileId?: string }; __directorAssetTarget?: DirectorAssetGenerationTarget; __visualStyle?: { id?: string; revision?: number } | null } }>(row.request, {});
     const reviewTarget = request.params?.__creativeAssetReview;
     if (reviewTarget?.assetId && reviewTarget.sourceGenerationId && reviewTarget.fileId) {
         applyAutomaticReview(row, reviewTarget as { assetId: string; sourceGenerationId: string; fileId: string });
+        return;
+    }
+    const result = parseJson<{ files?: Array<{ fileId?: string; id?: string }> }>(row.result, {});
+    const fileIds = (result.files || []).map((file) => String(file.fileId || file.id || "")).filter(Boolean);
+    if (!fileIds.length) return;
+    const directorTarget = request.params?.__directorAssetTarget;
+    if (directorTarget) {
+        try { applyDirectorAssetGeneration(row.user_id, directorTarget, fileIds[0]); }
+        catch (error) {
+            if ((error as { code?: string }).code !== "DIRECTOR_ASSET_TARGET_CONFLICT") throw error;
+        }
         return;
     }
     const target = request.params?.__creativeAsset;
     if (!target?.assetId) return;
     const asset = creativeAssetRow(row.user_id, target.assetId);
     if (!asset) return;
-    const result = parseJson<{ files?: Array<{ fileId?: string; id?: string }> }>(row.result, {});
-    const fileIds = (result.files || []).map((file) => String(file.fileId || file.id || "")).filter(Boolean);
-    if (!fileIds.length) return;
     const payload = creativeAssetPayloadSchema.parse(parseJson(asset.payload, {}));
     const kind = request.kind === "audio" ? "audio" : "image";
     const additions = fileIds.slice(0, 1).filter((fileId) => !payload.variants.some((item) => item.generationId === row.id && item.fileId === fileId));
