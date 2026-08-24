@@ -26,7 +26,7 @@ import {
     reviewCreativeAssetVariant,
     updateCreativeAsset,
 } from "./creative-assets.js";
-import { createCreativeAssetGeneration, createDirectorAssetGeneration, previewCreativeAssetGeneration } from "./creative-asset-generation.js";
+import { createCreativeAssetGeneration, createDirectorAssetGeneration, previewCreativeAssetGeneration, previewDirectorAssetGeneration } from "./creative-asset-generation.js";
 import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, placeVisualStyle, setDefaultVisualStyle, updateVisualStyle } from "./visual-styles.js";
 import { createVisualStyleAnalysis, createVisualStyleReferences } from "./visual-style-generation.js";
 import {
@@ -257,6 +257,7 @@ api.post("/director/projects/:id/renders", route((req) => createDirectorRender(r
 api.post("/director/renders/:id/cancel", route((req) => cancelDirectorRender(req.user.id, routeId(req))));
 api.post("/director/renders/:id/retry", route((req) => retryDirectorRender(req.user.id, routeId(req)), 202));
 api.get("/director/assets/:id/detail", route((req) => getDirectorAssetDetail(req.user.id, routeId(req))));
+api.post("/director/assets/:id/generation-preview", route((req) => previewDirectorAssetGeneration(req.user.id, routeId(req), req.body)));
 api.post("/director/assets/:id/media-inputs", route((req) => addDirectorAssetMediaInput(req.user.id, routeId(req), req.body), 201));
 api.delete("/director/assets/:id/media-inputs/:inputId", route((req) => removeDirectorAssetMediaInput(req.user.id, routeId(req), routeParam(req, "inputId"))));
 api.delete("/director/assets/:id/variants/:variantId", route((req) => trashDirectorAssetVariant(req.user.id, routeId(req), routeParam(req, "variantId"))));
@@ -552,7 +553,7 @@ function projectResponse(row: ProjectRow) {
 }
 
 function initializeDirectorProject(userId: string, projectId: string, now: string) {
-    db.prepare("INSERT INTO director_workspaces(project_id, user_id, directing_rules, created_at, updated_at) VALUES(?, ?, ?, ?, ?)").run(projectId, userId, JSON.stringify({ intent: "", photography: "", performance: "", pacing: "", sound: "", prohibitions: "" }), now, now);
+    db.prepare("INSERT INTO director_workspaces(project_id, user_id, directing_rules, created_at, updated_at) VALUES(?, ?, ?, ?, ?)").run(projectId, userId, JSON.stringify({ positioning: "", intent: "", photography: "", performance: "", pacing: "", sound: "", prohibitions: "" }), now, now);
     const document = db.prepare("INSERT INTO director_documents(project_id, user_id, kind, created_at, updated_at) VALUES(?, ?, ?, ?, ?)");
     document.run(projectId, userId, "story", now, now);
     document.run(projectId, userId, "script", now, now);

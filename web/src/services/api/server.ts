@@ -70,7 +70,7 @@ export type CreativeAssetGenerationPreview = {
     assetRevision: number;
     kind: "image" | "audio";
     audioMode?: AudioMode;
-    model: { value: string; name: string; providerName: string; inputs: ModelCapability[]; audioModes?: AudioMode[] };
+    model: { value: string; name: string; providerName: string; inputs: ModelCapability[]; imageModes?: Array<"generate" | "edit">; maxReferenceImages?: number; audioModes?: AudioMode[] };
     prompt: string;
     instructions: string;
     references: Array<{ fileId: string; kind: "image" | "audio"; source: "style" | "asset" | "canvas" | "primary"; label: string; purpose?: string; nodeId?: string; title?: string }>;

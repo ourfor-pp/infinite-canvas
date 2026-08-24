@@ -10,13 +10,12 @@ const inputSchema = z.object({
     kind: z.enum(["image", "audio"]),
     revision: z.number().int().positive(),
     nodeId: z.string().trim().min(1).max(128).optional(),
-    mediaRole: z.enum(["face_closeup", "body_front", "body_back"]).optional(),
     allowDraftStyle: z.boolean().default(false),
 });
 
 export type CreativeAssetGenerationPreview = ReturnType<typeof previewCreativeAssetGeneration>;
 
-export function previewCreativeAssetGeneration(userId: string, assetId: string, raw: unknown) {
+export function previewCreativeAssetGeneration(userId: string, assetId: string, raw: unknown, options: { visualDescriptionOverride?: string } = {}) {
     const input = inputSchema.parse(raw);
     const asset = getCreativeAsset(userId, assetId);
     const directorProject = isDirectorProject(asset.projectId);
@@ -76,7 +75,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     if (input.kind === "audio" && asset.kind === "character" && voiceGenderConflict(asset.payload.designProfile?.voiceGender, draft.prompt)) warnings.push({ code: "CREATIVE_ASSET_VOICE_GENDER_CONFLICT", message: "音色描述与角色设计画像中的声音性别冲突，请先修正设定", blocking: true });
 
     const basePrompt = input.kind === "image"
-        ? buildCreativeAssetPrompt(asset, "image", [connected.style ? visualStyleText(connected.style, directorCharacter, asset.kind) : "", ...(directorCharacter ? [] : connected.texts), ...(directorCharacter ? [] : [draft.prompt])].filter(Boolean).join("\n\n"), model.imagePromptProfile || "generic", styleMediumFamily, input.mediaRole)
+        ? buildCreativeAssetPrompt(asset, "image", [connected.style ? visualStyleText(connected.style, asset.kind === "character", asset.kind) : "", ...(directorCharacter ? [] : connected.texts), ...(directorCharacter ? [] : [draft.prompt])].filter(Boolean).join("\n\n"), model.imagePromptProfile || "generic", styleMediumFamily, options.visualDescriptionOverride)
         : audioMode === "speech"
             ? draft.transcript?.trim() || ""
             : [draft.prompt, ...connected.texts].filter(Boolean).join("\n\n");
@@ -84,9 +83,8 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
         ? `${basePrompt}\n\n[图片参考用途]\n${references.map((reference, index) => `图片 ${index + 1}：${referencePurposeInstruction("purpose" in reference ? String(reference.purpose) : "composition_reference")}。不得混合不同参考图片中的人物身份。`).join("\n")}`
         : basePrompt;
     const instructions = input.kind === "audio" && audioMode === "speech" ? draft.prompt.trim() : "";
-    const characterMediaRole = directorCharacter ? input.mediaRole || "body_front" : undefined;
-    const usage = input.kind === "image" ? characterMediaRole ? `${characterMediaRole}_reference` : "design_sheet" : audioMode === "speech" ? "voice_sample" : audioMode === "ambient" ? "environment_sound" : "prop_sound";
-    const label = input.kind === "image" ? characterMediaRole === "face_closeup" ? "面部身份特写" : characterMediaRole === "body_back" ? "背面身体参考" : characterMediaRole === "body_front" ? "正面身体参考" : `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}设计图` : audioMode === "speech" ? "角色声音" : audioMode === "ambient" ? "场景环境声" : "道具音效";
+    const usage = input.kind === "image" ? directorCharacter ? "identity_sheet" : "design_sheet" : audioMode === "speech" ? "voice_sample" : audioMode === "ambient" ? "environment_sound" : "prop_sound";
+    const label = input.kind === "image" ? directorCharacter ? "角色身份板" : `${asset.kind === "scene" ? "场景" : "道具"}设计图` : audioMode === "speech" ? "角色声音" : audioMode === "ambient" ? "场景环境声" : "道具音效";
     const params = {
         ...draft.params,
         count: 1,
@@ -94,7 +92,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
         ...(instructions ? { instructions } : {}),
         ...(input.kind === "audio" ? { audioMode, audioOperation } : {}),
         __creativeAsset: { projectId: asset.projectId, assetId: asset.id, nodeId: input.nodeId, usage, label, transcript: draft.transcript, assetRevision: asset.revision, audioMode: input.kind === "audio" ? audioMode : undefined },
-        __promptPackage: input.kind === "image" ? { profile: model.imagePromptProfile || "generic", asset: { id: asset.id, revision: asset.revision, kind: asset.kind }, style: connected.style ? { id: connected.style.id, revision: connected.style.revision, mediumFamily: styleMediumFamily } : null, purpose: usage, references: references.map((reference) => ({ fileId: reference.fileId, source: reference.source, label: reference.label, purpose: "purpose" in reference ? reference.purpose : "composition_reference" })), excludedReferences, checks: asset.kind === "character" ? [characterMediaRole || "design_sheet", "identity_consistency", "anatomy", "cast_distinctiveness", "style_consistency", "plain_background", "no_text", ...(styleMediumFamily === "live_action" ? ["real_camera", "natural_skin"] : [])] : ["identity_consistency", "style_consistency", "no_text"] } : undefined,
+        __promptPackage: input.kind === "image" ? { profile: model.imagePromptProfile || "generic", asset: { id: asset.id, revision: asset.revision, kind: asset.kind }, style: connected.style ? { id: connected.style.id, revision: connected.style.revision, mediumFamily: styleMediumFamily } : null, purpose: usage, references: references.map((reference) => ({ fileId: reference.fileId, source: reference.source, label: reference.label, purpose: "purpose" in reference ? reference.purpose : "composition_reference" })), excludedReferences, checks: asset.kind === "character" ? ["identity_sheet", "three_panel_layout", "front_full_body", "back_full_body", "face_closeup", "identity_consistency", "anatomy", "cast_distinctiveness", "style_consistency", "plain_background", "no_text", ...(styleMediumFamily === "live_action" ? ["real_camera", "natural_skin"] : [])] : asset.kind === "prop" ? ["identity_consistency", "style_consistency", "plain_background", "no_text"] : ["identity_consistency", "style_consistency", "no_text"] } : undefined,
         __visualStyle: connected.style ? { id: connected.style.id, revision: connected.style.revision, description: connected.style.description, referenceFileId: styleReferenceFileId, styleImageApplied } : null,
         __canvasInputs: { texts: connected.texts, imageFileIds: connected.imageFileIds, audioFileIds: connected.audioFileIds, imageReferences: connected.imageReferences, audioReferences: connected.audioReferences },
     };
@@ -103,7 +101,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
         assetRevision: asset.revision,
         kind: input.kind,
         audioMode: input.kind === "audio" ? audioMode : undefined,
-        model: { value: model.value, name: model.name, providerName: model.providerName, inputs: model.inputs, audioModes: model.audioModes },
+        model: { value: model.value, name: model.name, providerName: model.providerName, inputs: model.inputs, imageModes: model.imageModes, maxReferenceImages: model.maxReferenceImages, audioModes: model.audioModes },
         prompt,
         instructions,
         references,
@@ -173,31 +171,48 @@ export function createCreativeAssetGeneration(userId: string, assetId: string, r
     });
 }
 
-export function createDirectorAssetGeneration(userId: string, assetId: string, raw: unknown) {
-    const target = z.object({
+const directorTargetSchema = z.object({
         target: z.enum(["primary-visual", "variant-visual", "sound"]),
-        mediaRole: z.string().trim().max(100).optional(),
         variantId: z.string().trim().max(128).optional(),
         expectedHash: z.string().min(1),
-    }).parse(raw) as Omit<DirectorAssetGenerationTarget, "assetId">;
+    });
+
+export function previewDirectorAssetGeneration(userId: string, assetId: string, raw: unknown) {
+    const target = directorTargetSchema.parse(raw) as Omit<DirectorAssetGenerationTarget, "assetId">;
+    const resolved = resolveDirectorAssetGenerationTarget(userId, { assetId, ...target });
+    const preview = previewCreativeAssetGeneration(userId, assetId, {
+        kind: target.target === "sound" ? "audio" : "image",
+        revision: resolved.detail.revision,
+    }, { visualDescriptionOverride: target.target === "sound" ? undefined : resolved.prompt });
+    const workspaceReferences = resolved.references.map((item) => ({ fileId: item.fileId, kind: item.kind, source: "asset" as const, label: item.name, purpose: "reference_input" }));
+    if (target.target !== "sound" && workspaceReferences.length && (!preview.model.inputs.includes("image") || !preview.model.imageModes?.includes("edit"))) return {
+        ...preview,
+        warnings: dedupeWarnings([...preview.warnings, { code: "AI_MODEL_REFERENCE_UNSUPPORTED", message: "所选模型不支持图片参考，请移除输入图或改用支持图生图的模型", blocking: true }]),
+    };
+    const references = dedupe([...workspaceReferences, ...preview.references]);
+    const limitedReferences = preview.model.maxReferenceImages == null ? references : references.slice(0, preview.model.maxReferenceImages);
+    return {
+        ...preview,
+        references: limitedReferences,
+        warnings: limitedReferences.length === references.length ? preview.warnings : dedupeWarnings([...preview.warnings, { code: "AI_MODEL_REFERENCE_LIMIT", message: `所选模型最多接收 ${preview.model.maxReferenceImages} 张参考图，已按主体与风格顺序采用`, blocking: false }]),
+    };
+}
+
+export function createDirectorAssetGeneration(userId: string, assetId: string, raw: unknown) {
+    const target = directorTargetSchema.parse(raw) as Omit<DirectorAssetGenerationTarget, "assetId">;
     const resolved = resolveDirectorAssetGenerationTarget(userId, { assetId, ...target });
     const validation = validateDirectorProject(userId, resolved.detail.projectId, resolved.detail.folderPath);
     const errors = validation.diagnostics.filter((item) => item.severity === "error");
     if (errors.length) throw generationError(409, "DIRECTOR_ASSET_INVALID", "素材文件夹存在错误，修正后才能生成", errors);
-    const preview = previewCreativeAssetGeneration(userId, assetId, {
-        kind: target.target === "sound" ? "audio" : "image",
-        revision: resolved.detail.revision,
-        mediaRole: ["face_closeup", "body_front", "body_back"].includes(target.mediaRole || "") ? target.mediaRole : undefined,
-    });
+    const preview = previewDirectorAssetGeneration(userId, assetId, target);
     const blocking = preview.warnings.find((warning) => warning.blocking);
     if (blocking) throw generationError(400, blocking.code, blocking.message);
-    const references = resolved.references.map((item) => ({ fileId: item.fileId, kind: item.kind }));
-    const prompt = target.target === "sound" && resolved.detail.kind === "character" ? resolved.detail.sound.sampleText.trim() : resolved.prompt.trim() || preview.prompt;
+    const prompt = target.target === "sound" && resolved.detail.kind === "character" ? resolved.detail.sound.sampleText.trim() : preview.prompt;
     return createGeneration(userId, {
         kind: preview.kind,
         model: preview.model.value,
         prompt,
-        references,
+        references: preview.references.map(({ fileId, kind, source, label, ...reference }) => ({ fileId, kind, source, label, ...("purpose" in reference && typeof reference.purpose === "string" ? { purpose: reference.purpose as "reference_input" | "identity_reference" | "wardrobe_reference" | "composition_reference" } : {}), ...("transcript" in reference && typeof reference.transcript === "string" ? { transcript: reference.transcript } : {}) })),
         params: {
             ...preview.params,
             ...(target.target === "sound" && resolved.detail.kind === "character" && resolved.prompt.trim() ? { instructions: resolved.prompt.trim() } : {}),
@@ -209,6 +224,11 @@ export function createDirectorAssetGeneration(userId: string, assetId: string, r
 function dedupe<T extends { fileId: string }>(items: T[]) {
     const seen = new Set<string>();
     return items.filter((item) => seen.has(item.fileId) ? false : Boolean(seen.add(item.fileId)));
+}
+
+function dedupeWarnings<T extends { code: string }>(items: T[]) {
+    const seen = new Set<string>();
+    return items.filter((item) => seen.has(item.code) ? false : Boolean(seen.add(item.code)));
 }
 
 function audioModeLabel(mode: AudioMode) {

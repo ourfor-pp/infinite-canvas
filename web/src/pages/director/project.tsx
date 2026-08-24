@@ -54,7 +54,7 @@ import { Streamdown } from "streamdown";
 import { AgentPanel } from "@/components/agent/agent-panel";
 import { VisualStyleTemplatePicker } from "@/components/visual-style-template-picker";
 import { directorApi } from "@/services/api/director";
-import { serverApi, serverApiUrl, uploadServerFile, type ServerGeneration } from "@/services/api/server";
+import { serverApi, serverApiUrl, uploadServerFile, type CreativeAssetGenerationPreview, type ServerGeneration } from "@/services/api/server";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useDirectorStore } from "@/stores/use-director-store";
 import type { CreativeAsset, CreativeAssetKind } from "@/types/creative-asset";
@@ -84,6 +84,8 @@ function formatDirectorDuration(seconds: number) {
     const remaining = seconds % 60;
     return minutes ? `${minutes} 分${remaining ? ` ${remaining} 秒` : ""}` : `${remaining} 秒`;
 }
+
+const assetFileUrl = (fileId: string, revision: number) => serverApiUrl(`/files/${fileId}/content?revision=${revision}`);
 
 export default function DirectorProjectPage() {
     const { id = "", section = "overview" } = useParams();
@@ -699,7 +701,7 @@ function AssetGallery({ projectId, state, assets, generations, agentCollapsed, o
     const navigate = useNavigate();
     const previewItems = useMemo(() => assets.flatMap((asset) => asset.payload.variants
         .filter((item) => item.kind === "image")
-        .map((item) => ({ id: `${asset.id}:${item.id}`, url: serverApiUrl(`/files/${item.fileId}/content`), alt: `${asset.name} · ${item.label || "素材图片"}` } satisfies WorkspaceImagePreviewItem))), [assets]);
+        .map((item) => ({ id: `${asset.id}:${item.id}`, url: assetFileUrl(item.fileId, asset.revision), alt: `${asset.name} · ${item.label || "素材图片"}` } satisfies WorkspaceImagePreviewItem))), [assets]);
     const previewIndex = previewMediaId ? previewItems.findIndex((item) => item.id === previewMediaId) : -1;
     const counts = { character: assets.filter((item) => item.kind === "character").length, scene: assets.filter((item) => item.kind === "scene").length, prop: assets.filter((item) => item.kind === "prop").length };
     const action = async (asset: CreativeAsset, kind: "regenerate" | "copy" | "delete", mediaKind: "image" | "audio" = "image") => {
@@ -787,38 +789,17 @@ function splitMarkdownFrontmatter(source: string) {
 }
 
 function normalizeDirectingRulesMarkdown(source: string) {
-    const legacyHeadings: Record<string, string> = { photography: "摄影与空间", performance: "表演", pacing: "叙事与剪辑节奏", sound: "声音", prohibitions: "全片禁区" };
-    let value = source.replace(/^##\s+(photography|performance|pacing|sound|prohibitions)\s*$/gm, (_, key: string) => `## ${legacyHeadings[key]}`);
+    const legacyHeadings: Record<string, string> = { positioning: "创作定位", intent: "核心导演意图", photography: "摄影与空间", performance: "表演", pacing: "叙事与剪辑节奏", sound: "声音", prohibitions: "全片禁区" };
+    let value = source.replace(/^##\s+(positioning|intent|photography|performance|pacing|sound|prohibitions)\s*$/gm, (_, key: string) => `## ${legacyHeadings[key]}`);
     if (!/^#\s+导演规则\s*$/m.test(value)) value = `# 导演规则\n\n${value}`;
     if (!/^##\s+核心导演意图\s*$/m.test(value)) value = value.replace(/^#\s+导演规则\s*$/m, "# 导演规则\n\n## 核心导演意图\n\n在这里概括整部影片希望观众获得的核心感受，以及所有部门共同遵循的表达方向。");
+    if (!/^##\s+创作定位\s*$/m.test(value)) value = value.replace(/^#\s+导演规则\s*$/m, "# 导演规则\n\n## 创作定位\n\n概括题材、类型、基调、时代地域、目标观众与核心命题。");
     return value.trim();
 }
 
-function visualStyleMarkdown(style?: VisualStyle) {
-    if (!style) return "# 视觉风格\n\n## 总体风格\n\n在这里描述全片统一的画面表达。";
-    const dna = style.dna;
-    return [
-        `# ${style.name}`,
-        "## 总体风格", style.description,
-        "## 媒介", dna.medium,
-        "## 通用渲染", dna.rendering,
-        "## 角色呈现", dna.characterRendering,
-        "## 场景呈现", dna.sceneRendering,
-        "## 道具呈现", dna.propRendering,
-        "## 色彩", dna.palette,
-        "## 光线", dna.lighting,
-        "## 反差", dna.contrast,
-        "## 材质与质感", dna.texture,
-        "## 镜头与景深", dna.lensAndDepth,
-        "## 构图", dna.composition,
-        "## 后期处理", dna.postProcessing,
-        "## 避免元素", dna.exclusions.map((item) => `- ${item}`).join("\n"),
-    ].join("\n\n").trim();
-}
-
-function normalizeVisualStyleMarkdown(source: string, style?: VisualStyle) {
+function normalizeVisualStyleMarkdown(source: string) {
     const value = source.trim();
-    return /^##\s+总体风格\s*$/m.test(value) ? value : visualStyleMarkdown(style);
+    return value || "# 视觉风格\n\n## 总体风格\n\n在这里描述全片统一的画面表达。";
 }
 
 function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, onRefresh }: { projectId: string; workspace: DirectorWorkspace; activeStyleId: string | null; styles: VisualStyle[]; onRefresh: () => Promise<void> }) {
@@ -861,7 +842,7 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
         void directorApi.file(projectId, visualStylePath).then((file) => {
             if (canceled || styleDirtyRef.current || file.hash === styleHash) return;
             const document = splitMarkdownFrontmatter(file.content);
-            const normalized = normalizeVisualStyleMarkdown(document.body, style);
+            const normalized = normalizeVisualStyleMarkdown(document.body);
             setStyleFrontmatter(document.frontmatter);
             setStyleDocument(normalized);
             setSavedStyleDocument(document.body.trim());
@@ -979,7 +960,7 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
                     </div>
                     <div className="director-treatment-document">
                         <div className={`director-treatment-document-body thin-scrollbar ${editingRules ? "is-editing" : ""}`}>
-                            {rulesLoading ? <div className="grid h-full place-items-center"><Spin size="small" /></div> : editingRules ? <DirectorMarkdownEditor key={`${projectId}:${rulesEditorVersion}`} content={rules} dirty={rulesDirty} saving={busy === "save"} label="导演规则 Markdown 编辑器" placeholder="写下整部影片共同遵循的导演意图、摄影、表演、节奏、声音与禁区" onChange={setRules} /> : <article className="director-markdown director-treatment-markdown"><Streamdown mode="static">{rules}</Streamdown></article>}
+                            {rulesLoading ? <div className="grid h-full place-items-center"><Spin size="small" /></div> : editingRules ? <DirectorMarkdownEditor key={`${projectId}:${rulesEditorVersion}`} content={rules} dirty={rulesDirty} saving={busy === "save"} label="导演规则 Markdown 编辑器" placeholder="写下创作定位，以及整部影片共同遵循的导演意图、摄影、表演、节奏、声音与禁区" onChange={setRules} /> : <article className="director-markdown director-treatment-markdown"><Streamdown mode="static">{rules}</Streamdown></article>}
                         </div>
                     </div>
                 </section>
@@ -1010,7 +991,7 @@ function AssetCard({ asset, busy, activeGenerations, onAgent, onPreview, onDetai
         <article className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,.035)] transition hover:border-blue-300 hover:shadow-[0_6px_20px_rgba(37,99,235,.07)]" style={{ contentVisibility: "auto", containIntrinsicSize: "132px" }}>
             <div className="grid h-[156px] grid-cols-[42%_minmax(0,1fr)]">
                 <div className="relative m-2 mr-0 aspect-video self-start overflow-hidden rounded-lg bg-slate-50">
-                    {primaryImage ? <button type="button" aria-label={`查看${asset.name}大图`} className="group/preview block size-full cursor-zoom-in focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500" onClick={onPreview}><img src={serverApiUrl(`/files/${primaryImage.fileId}/content`)} alt={asset.name} className="size-full object-contain transition duration-200 group-hover/preview:scale-[1.015]" /></button> : <MediaPlaceholder label="等待设计" />}
+                    {primaryImage ? <button type="button" aria-label={`查看${asset.name}大图`} className="group/preview block size-full cursor-zoom-in focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500" onClick={onPreview}><img src={assetFileUrl(primaryImage.fileId, asset.revision)} alt={asset.name} className="size-full object-contain transition duration-200 group-hover/preview:scale-[1.015]" /></button> : <MediaPlaceholder label="等待设计" />}
                     {generatingImage ? <div className="director-asset-loading pointer-events-none absolute inset-0"><div className="relative z-10 flex h-full flex-col items-center justify-center text-center"><Loader2 className="size-4 animate-spin text-blue-600" /><p className="mt-2 text-[10px] font-medium text-slate-700">{generatingImage.status === "queued" ? "等待生成" : "正在设计"}</p></div></div> : null}
                 </div>
                 <div className="flex min-w-0 flex-col px-3 pb-2 pt-2.5">
@@ -1066,8 +1047,7 @@ function AssetDetailDialog({ asset, generations, leftInset, onRefresh, onClose, 
     const [busy, setBusy] = useState(false);
     const [preview, setPreview] = useState<{ items: WorkspaceImagePreviewItem[]; activeIndex: number } | null>(null);
     const assetGenerationVersion = useMemo(() => generations.filter((generation) => {
-        const params = generation.request.params as Record<string, unknown> | undefined;
-        return String(params?.assetId || "") === asset?.id;
+        return generationAssetId(generation) === asset?.id;
     }).map((generation) => `${generation.id}:${generation.status}:${generation.progress}:${generation.updatedAt}`).join("|"), [asset?.id, generations]);
     const reload = async () => {
         if (!asset) return;
@@ -1076,7 +1056,7 @@ function AssetDetailDialog({ asset, generations, leftInset, onRefresh, onClose, 
         if (tab.startsWith("variant:") && !value.variants.some((item) => `variant:${item.variantId}` === tab)) setTab("primary");
     };
     useEffect(() => { if (!asset) { setDetail(undefined); return; } setTab("dossier"); void reload().catch((error) => message.error(error instanceof Error ? error.message : "素材详情加载失败")); }, [asset?.id]);
-    useEffect(() => { if (asset && detail && assetGenerationVersion) void reload(); }, [assetGenerationVersion]);
+    useEffect(() => { if (asset && detail && (assetGenerationVersion || asset.revision !== detail.revision)) void reload(); }, [asset?.revision, assetGenerationVersion]);
     useEffect(() => {
         if (!asset) return;
         const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -1086,12 +1066,12 @@ function AssetDetailDialog({ asset, generations, leftInset, onRefresh, onClose, 
     if (!asset) return null;
     const visual = tab === "primary" ? detail?.primaryVisual : tab.startsWith("variant:") ? detail?.variants.find((item) => item.variantId === tab.slice(8)) : undefined;
     const activePath = tab === "dossier" ? detail?.dossier.path : tab === "sound" ? detail?.sound.promptPath : tab === "usages" ? detail?.folderPath : visual?.promptPath;
-    const generate = async (target: "primary-visual" | "variant-visual" | "sound", mediaRole?: string) => {
+    const generate = async (target: "primary-visual" | "variant-visual" | "sound") => {
         if (!detail) return;
         const expectedHash = target === "sound" ? detail.sound.hash : visual?.hash || detail.primaryVisual.hash;
         setBusy(true);
         try {
-            await directorApi.generateAsset(asset.id, { target, variantId: visual?.variantId, mediaRole, expectedHash });
+            await directorApi.generateAsset(asset.id, { target, variantId: visual?.variantId, expectedHash });
             await onRefresh(); await reload(); message.success("生成任务已提交");
         } catch (error) { message.error(error instanceof Error ? error.message : "生成失败"); }
         finally { setBusy(false); }
@@ -1102,7 +1082,7 @@ function AssetDetailDialog({ asset, generations, leftInset, onRefresh, onClose, 
         catch (error) { message.error(error instanceof Error ? error.message : "上传输入失败"); }
         finally { setBusy(false); }
     };
-    const openMedia = (items: DirectorAssetMedia[], media: DirectorAssetMedia) => setPreview({ items: items.map((item) => ({ id: item.id, url: serverApiUrl(`/files/${item.fileId}/content`), alt: `${asset.name} · ${item.name}` })), activeIndex: Math.max(0, items.findIndex((item) => item.id === media.id)) });
+    const openMedia = (items: DirectorAssetMedia[], media: DirectorAssetMedia) => setPreview({ items: items.map((item) => ({ id: item.id, url: assetFileUrl(item.fileId, asset.revision), alt: `${asset.name} · ${item.name}` })), activeIndex: Math.max(0, items.findIndex((item) => item.id === media.id)) });
     const tabs: Array<{ id: AssetDetailTab; label: string }> = [
         { id: "dossier", label: "主档案" },
         { id: "primary", label: asset.kind === "character" ? "主形象" : asset.kind === "scene" ? "空间母板" : "结构母板" },
@@ -1111,18 +1091,18 @@ function AssetDetailDialog({ asset, generations, leftInset, onRefresh, onClose, 
     ];
     return createPortal(<div className="fixed inset-y-0 right-0 z-[100] flex items-center justify-center bg-slate-950/30 p-3 backdrop-blur-[1px]" style={{ left: leftInset }} onMouseDown={onClose}>
         <section role="dialog" aria-modal="true" aria-label={`${asset.name}素材工作台`} className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,.24)]" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-slate-200 px-5">
-                <div className="min-w-0"><div className="flex items-baseline gap-2"><h1 className="truncate text-xl font-semibold text-slate-950">{asset.name}</h1><span className="font-mono text-[10px] text-slate-400">REV {detail?.revision || asset.revision}</span></div><p className="mt-1 truncate text-[11px] text-slate-500">{asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}文件夹 · {detail?.folderPath || "正在读取…"}</p></div>
+            <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-5">
+                <div className="min-w-0"><div className="flex items-baseline gap-2"><h1 className="truncate text-xl font-semibold text-slate-950">{asset.name}</h1><span className="font-mono text-[10px] text-slate-400">REV {detail?.revision || asset.revision}</span></div></div>
                 <div className="flex items-center gap-1"><Button type="text" size="small" icon={<Bot className="size-4" />} onClick={() => onAgent(activePath)}>交给 Agent</Button><button type="button" aria-label="关闭素材详情" className="cursor-pointer p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950" onClick={onClose}><X className="size-4" /></button></div>
             </header>
-            <nav className="thin-scrollbar flex h-12 shrink-0 items-end gap-1 overflow-x-auto border-b border-slate-200 px-5" aria-label="素材详情页面">
+            <nav className="hide-scrollbar flex h-12 shrink-0 items-end gap-1 overflow-x-auto border-b border-slate-200 px-5" aria-label="素材详情页面">
                 {tabs.map((item) => <button key={item.id} type="button" className={`h-12 shrink-0 cursor-pointer border-b-2 px-3 text-sm transition ${tab === item.id ? "border-blue-600 font-medium text-slate-950" : "border-transparent text-slate-500 hover:text-slate-900"}`} onClick={() => setTab(item.id)}>{item.label}</button>)}
                 <button type="button" className="h-12 shrink-0 cursor-pointer px-3 text-sm text-blue-600 hover:bg-blue-50" onClick={() => onNewVariant(detail?.folderPath)}>＋ {asset.kind === "character" ? "新增形象" : "新增状态"}</button>
                 {tab.startsWith("variant:") ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "delete", danger: true, icon: <Trash2 className="size-3.5" />, label: "移到回收站" }], onClick: () => modal.confirm({ title: "移除这个生产变体？", content: "文件会移入项目 .trash，可恢复。", okText: "移除", okButtonProps: { danger: true }, cancelText: "取消", onOk: async () => { if (!detail) return; setDetail(await directorApi.deleteAssetVariant(asset.id, tab.slice(8))); setTab("primary"); } }) }}><button type="button" aria-label="变体操作" className="mb-2 ml-auto grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><MoreHorizontal className="size-4" /></button></Dropdown> : null}
             </nav>
             <div className="min-h-0 flex-1 bg-white">
                 {!detail ? <div className="grid size-full place-items-center"><Spin /></div> : tab === "dossier" ? <ScrollArea className="h-full"><article className="director-markdown mx-auto max-w-4xl px-10 py-8"><Streamdown mode="static">{detail.dossier.content || `# ${asset.name}\n\n等待 Agent 补充素材档案。`}</Streamdown></article></ScrollArea>
-                    : visual ? <AssetVisualTab asset={asset} workspace={visual} busy={busy} onGenerate={(mediaRole) => void generate(visual.kind === "variant" ? "variant-visual" : "primary-visual", mediaRole)} onAddInput={(file) => void addInput(file, visual.kind === "variant" ? "variant-visual" : "primary-visual")} onRemoveInput={async (inputId) => setDetail(await directorApi.removeAssetMediaInput(asset.id, inputId))} onPreview={openMedia} />
+                    : visual ? <AssetVisualTab asset={asset} workspace={visual} busy={busy} onGenerate={() => void generate(visual.kind === "variant" ? "variant-visual" : "primary-visual")} onAddInput={(file) => void addInput(file, visual.kind === "variant" ? "variant-visual" : "primary-visual")} onRemoveInput={async (inputId) => setDetail(await directorApi.removeAssetMediaInput(asset.id, inputId))} onPreview={openMedia} />
                     : tab === "sound" ? <AssetSoundTab asset={asset} detail={detail} busy={busy} onGenerate={() => void generate("sound")} onAddInput={(file) => void addInput(file, "sound")} onRemoveInput={async (inputId) => setDetail(await directorApi.removeAssetMediaInput(asset.id, inputId))} />
                     : <AssetUsagesTab detail={detail} onLocate={onLocate} />}
             </div>
@@ -1131,17 +1111,36 @@ function AssetDetailDialog({ asset, generations, leftInset, onRefresh, onClose, 
     </div>, document.body);
 }
 
-function AssetVisualTab({ asset, workspace, busy, onGenerate, onAddInput, onRemoveInput, onPreview }: { asset: CreativeAsset; workspace: DirectorAssetVisualWorkspace; busy: boolean; onGenerate: (mediaRole?: string) => void; onAddInput: (file: File) => void; onRemoveInput: (id: string) => void; onPreview: (items: DirectorAssetMedia[], media: DirectorAssetMedia) => void }) {
-    const [selectedRole, setSelectedRole] = useState("");
-    const output = workspace.outputs.find((item) => item.mediaRole === selectedRole) || workspace.outputs.find((item) => item.mediaRole === "primary") || workspace.outputs[0];
-    useEffect(() => { setSelectedRole(workspace.outputs.find((item) => item.mediaRole === "primary")?.mediaRole || workspace.outputs[0]?.mediaRole || ""); }, [workspace.id]);
+function AssetVisualTab({ asset, workspace, busy, onGenerate, onAddInput, onRemoveInput, onPreview }: { asset: CreativeAsset; workspace: DirectorAssetVisualWorkspace; busy: boolean; onGenerate: () => void; onAddInput: (file: File) => void; onRemoveInput: (id: string) => void; onPreview: (items: DirectorAssetMedia[], media: DirectorAssetMedia) => void }) {
+    const output = workspace.outputs[0];
+    const [generationPreview, setGenerationPreview] = useState<CreativeAssetGenerationPreview>();
+    const [previewError, setPreviewError] = useState("");
+    useEffect(() => {
+        let canceled = false;
+        setGenerationPreview(undefined);
+        setPreviewError("");
+        void directorApi.previewAssetGeneration(asset.id, { target: workspace.kind === "variant" ? "variant-visual" : "primary-visual", variantId: workspace.variantId, expectedHash: workspace.hash }).then((value) => {
+            if (!canceled) setGenerationPreview(value);
+        }).catch((error) => {
+            if (!canceled) setPreviewError(error instanceof Error ? error.message : "生成预检失败");
+        });
+        return () => { canceled = true; };
+    }, [asset.id, asset.revision, workspace.hash, workspace.kind, workspace.variantId]);
+    const imageReferences = generationPreview?.references.filter((item) => item.kind === "image") || [];
+    const referenceMedia = imageReferences.map((item, index) => ({ id: `generation-input-${index}-${item.fileId}`, fileId: item.fileId, path: "", name: item.label, mediaRole: item.purpose || item.source, kind: "image" as const }));
+    const inputIds = new Map(workspace.inputs.map((item) => [item.fileId, item.id]));
+    const actualPrompt = generationPreview?.prompt || "";
     return <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[58fr_42fr]">
         <section className="flex min-h-0 flex-col border-b border-slate-200 bg-slate-50 lg:border-b-0 lg:border-r">
-            <div className="flex min-h-20 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-5 py-3"><div className="min-w-0 flex-1"><div className="mb-2 flex items-center justify-between"><h2 className="text-xs font-semibold text-slate-900">输入参考（{workspace.inputs.length}）</h2><label className="inline-flex cursor-pointer items-center gap-1 text-xs text-blue-600 hover:text-blue-700"><Upload className="size-3.5" />添加<input type="file" accept="image/*" disabled={busy} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onAddInput(file); }} /></label></div><div className="flex gap-2 overflow-x-auto">{workspace.inputs.length ? workspace.inputs.map((item) => <div key={item.id} className="group relative shrink-0"><button type="button" className="cursor-zoom-in" onClick={() => onPreview(workspace.inputs, item)}><img className="size-12 rounded border border-slate-200 object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} alt={item.name} /></button><button type="button" aria-label="移除输入" className="absolute -right-1 -top-1 hidden size-4 cursor-pointer place-items-center rounded-full bg-slate-900 text-white group-hover:grid" onClick={() => onRemoveInput(item.id)}><X className="size-2.5" /></button></div>) : <span className="text-[11px] text-slate-400">没有输入图时直接使用档案和视觉风格生成</span>}</div></div><Button type="primary" loading={busy} icon={<RefreshCw className="size-3.5" />} onClick={() => onGenerate(output?.mediaRole)}>{output ? "重新生成" : "生成"}</Button></div>
-            <div className="min-h-0 flex-1 p-5">{output ? <button type="button" className="size-full cursor-zoom-in" onClick={() => onPreview(workspace.outputs, output)}><img className="size-full object-contain" src={serverApiUrl(`/files/${output.fileId}/content`)} alt={`${asset.name} · ${workspace.label}`} /></button> : <MediaPlaceholder label="还没有基础设计媒体" />}</div>
-            {workspace.outputs.length > 1 ? <div className="flex h-16 shrink-0 gap-2 overflow-x-auto border-t border-slate-200 bg-white px-4 py-2">{workspace.outputs.map((item) => <button key={item.id} type="button" className={`h-12 w-20 shrink-0 overflow-hidden rounded border ${item.id === output?.id ? "border-blue-500" : "border-slate-200"}`} onClick={() => setSelectedRole(item.mediaRole)}><img className="size-full object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /></button>)}</div> : null}
+            <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-3">
+                <div className="mb-2 flex items-center justify-between gap-3"><h2 className="text-xs font-semibold text-slate-900">生成输入（{imageReferences.length}）</h2><div className="flex items-center gap-2"><label className="inline-flex cursor-pointer items-center gap-1 text-xs text-blue-600 hover:text-blue-700"><Upload className="size-3.5" />添加<input type="file" accept="image/*" disabled={busy} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onAddInput(file); }} /></label><Button type="primary" loading={busy} icon={<RefreshCw className="size-3.5" />} onClick={onGenerate}>{output ? "重新生成" : "生成"}</Button></div></div>
+                <div className="hide-scrollbar flex min-h-14 gap-2 overflow-x-auto overflow-y-hidden">
+                    {generationPreview ? imageReferences.length ? imageReferences.map((item, index) => <div key={`${item.fileId}:${index}`} className="group relative w-20 shrink-0"><button type="button" className="block w-full cursor-zoom-in text-left" onClick={() => onPreview(referenceMedia, referenceMedia[index])}><img className="h-11 w-full rounded border border-slate-200 object-cover" src={assetFileUrl(item.fileId, asset.revision)} alt={item.label} /><span className="mt-1 block truncate text-[10px] text-slate-500">{item.source === "style" ? "视觉风格" : item.label}</span></button>{item.source === "style" ? <span className="absolute left-1 top-1 rounded bg-slate-950/75 px-1 py-0.5 text-[8px] text-white">自动</span> : inputIds.has(item.fileId) ? <button type="button" aria-label="移除输入" className="absolute -right-1 -top-1 hidden size-4 cursor-pointer place-items-center rounded-full bg-slate-900 text-white group-hover:grid" onClick={() => onRemoveInput(inputIds.get(item.fileId)!)}><X className="size-2.5" /></button> : null}</div>) : <span className="self-center text-[11px] text-slate-400">本次不使用图片参考，将根据档案与风格文字生成</span> : previewError ? <span className="self-center text-[11px] text-rose-600">{previewError}</span> : <span className="self-center text-[11px] text-slate-400">正在整理实际生成输入…</span>}
+                </div>
+            </div>
+            <div className="relative min-h-0 flex-1 p-5">{output ? <><button type="button" className="size-full cursor-zoom-in" onClick={() => onPreview(workspace.outputs, output)}><img className="size-full object-contain" src={assetFileUrl(output.fileId, asset.revision)} alt={`${asset.name} · ${workspace.label}`} /></button>{asset.payload.needsReview ? <span className="absolute left-7 top-7 rounded bg-rose-600 px-2 py-1 text-[10px] text-white shadow-sm">当前图已过期 · {asset.payload.staleReason || "提示词或风格已变化"}</span> : null}</> : <MediaPlaceholder label="还没有基础设计媒体" />}</div>
         </section>
-        <section className="flex min-h-0 flex-col"><div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-5"><div><h2 className="text-sm font-semibold text-slate-950">{workspace.label}提示词</h2>{workspace.description ? <p className="mt-0.5 text-[10px] text-slate-400">{workspace.description}</p> : null}</div><CopyPromptButton value={workspace.prompt} /></div><ScrollArea className="min-h-0 flex-1"><pre className="whitespace-pre-wrap break-words px-5 py-4 font-mono text-[12px] leading-6 text-slate-700">{workspace.prompt || "等待 Agent 完成提示词。"}</pre></ScrollArea></section>
+        <section className="flex min-h-0 flex-col"><div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-5"><div><h2 className="text-sm font-semibold text-slate-950">实际生成提示词</h2>{generationPreview ? <p className="mt-0.5 text-[10px] text-slate-400">{generationPreview.model.name} · {String(generationPreview.params.size || "默认尺寸")}</p> : null}</div><CopyPromptButton value={actualPrompt} /></div><ScrollArea className="min-h-0 flex-1"><pre className="whitespace-pre-wrap break-words px-5 py-4 font-mono text-[12px] leading-6 text-slate-700">{actualPrompt || (previewError ? previewError : "正在编译本次实际提示词…")}</pre></ScrollArea></section>
     </div>;
 }
 

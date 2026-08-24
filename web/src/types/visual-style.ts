@@ -20,4 +20,4 @@ export type VisualStyle = {
     createdAt: string;
     updatedAt: string;
 };
-export type VisualStyleTemplate = { id: string; name: string; category: VisualStyleTemplateCategory; tagline: string; colors: readonly [string, string, string]; description: string; preview: string; dna: VisualStyleDna };
+export type VisualStyleTemplate = { id: string; name: string; category: VisualStyleTemplateCategory; tags: string[]; tagline: string; colors: readonly [string, string, string]; description: string; preview: string; dna: VisualStyleDna };

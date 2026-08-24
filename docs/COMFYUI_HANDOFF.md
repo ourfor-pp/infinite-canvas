@@ -5,8 +5,8 @@
 ## 1. 当前结论
 
 - ComfyUI 已部署并运行在同一台机器的 `8189` 端口。
-- 当前图片能力由 Qwen Image 2512、Qwen Image Edit 2511、Z-Image Turbo、RealESRGAN 和 HiDream-O1 组成；MiniMax H3 与 VoxCPM2 继续提供视频和音频能力。
-- H3 和 HiDream 已使用工作流级 SageAttention；VoxCPM2 保持普通推理，未默认启用 `torch.compile`。
+- 当前图片能力由 FLUX.2 Dev、Qwen Image 2512、Qwen Image Edit 2511、Z-Image Turbo、RealESRGAN 和 HiDream-O1 组成；MiniMax H3 与 VoxCPM2 继续提供视频和音频能力。
+- H3 使用工作流级 SageAttention；HiDream 保持原生模型链路，角色与道具的纯白背景由 BiRefNet 后处理确定性保证；VoxCPM2 保持普通推理，未默认启用 `torch.compile`。
 - 所有模型共享一张 RTX 5090 32 GB。Infinite Canvas 对同一 ComfyUI 节点只运行一个任务，批量和四视图任务进入持久队列，避免显存争抢。
 - `./dev.sh` 会把 ComfyUI 仅绑定到 `127.0.0.1`，由 Infinite Canvas 后端调用；浏览器和公网都不应直接访问它。
 
@@ -66,6 +66,15 @@ media-executor/scripts/install-comfyui-h3-dropin.sh
 
 HiDream-O1 和 MiniMax H3 的主体节点来自当前 ComfyUI core；不要只复制 custom nodes 到旧版 ComfyUI。
 
+### BiRefNet
+
+- ComfyUI core 节点：`LoadBackgroundRemovalModel`、`RemoveBackground`、`ImageCompositeMasked`。
+- ModelScope 同仓：`Comfy-Org/BiRefNet`。
+- 固定 revision：`719cf40825b4f71cba85f594a3a1ead7fe818abc`。
+- 权重：`background_removal/birefnet.safetensors`，444473596 bytes。
+- SHA-256：`9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154`。
+- NVMe 实体位于 `/home/cec/.local/share/comfyui-models/Comfy-Org-BiRefNet-719cf40825b4f71cba85f594a3a1ead7fe818abc/`，ComfyUI 模型目录只保留软链接。
+
 可用下面的请求检查节点是否注册：
 
 ```bash
@@ -88,6 +97,7 @@ curl -sS http://127.0.0.1:8189/object_info/RunningHub_VoxCPM_Generate
 | `qwen-image-inpaint-local` | 蒙版局部编辑 | InstantX Inpaint ControlNet；默认扩张 12px、羽化 6px |
 | `realesrgan-x4-local` | 忠实 AI 超分 | RealESRGAN x4 后精确缩放到目标尺寸 |
 | `z-image-upscale-local` | 生成式细节增强 | RealESRGAN 预放大、约 2MP 重绘、默认 denoise 0.20 |
+| `flux2-dev-fp8-local` | 高质量文生图、真正的多参考图联合生成 | FP8 Mixed、Euler 20 步、guidance 4；最多 6 张参考图 |
 
 Inpaint ControlNet 安装位置：
 
@@ -110,7 +120,28 @@ SHA-256 49c01aafe6545c1f6e7627a724c8fb13357fe74efee235622158f0a8f30e5458
 
 - 文生图。
 - 图生图/多参考图生成，最多 10 张参考图。
-- 当前 ArcReel 产品档固定为 2K、`16:9` 或 `9:16`。
+- 按目标比例选择最接近的原生约 4MP 分辨率。
+- 角色与道具资产的纯白背景使用 BiRefNet 前景遮罩合成 `#FFFFFF`；普通图片保留模型原始输出。
+
+### FLUX.2 Dev FP8 Mixed
+
+画布模型名：`flux2-dev-fp8-local`。安装器固定使用 ModelScope 官方 `Comfy-Org/flux2-dev` 同仓 revision `7a0f7814935f81acf49d70a6616c7ed2f18afb8b`：
+
+```bash
+media-executor/scripts/install-flux2-dev.sh
+```
+
+实体权重位于 NVMe 的 `/home/cec/.local/share/comfyui-models/Comfy-Org-flux2-dev-7a0f7814935f81acf49d70a6616c7ed2f18afb8b/`，ComfyUI 通过下列稳定软链接加载：
+
+```text
+/data/sas/ComfyUI/models/diffusion_models/flux2_dev_fp8mixed.safetensors
+/data/sas/ComfyUI/models/text_encoders/mistral_3_small_flux2_fp8.safetensors
+/data/sas/ComfyUI/models/vae/flux2-vae.safetensors
+```
+
+工作流对齐 ComfyUI 官方 FLUX.2 Dev 蓝图：`FluxGuidance(4) -> ReferenceLatent × 0..6 -> BasicGuider`，Euler 采样 20 步。六张参考图按上传顺序串联，提示词可用 `image 1` 至 `image 6` 明确指代。该模型受 FLUX Non-Commercial License v2.1 约束，当前仅用于本地内部测试与评估，不应直接启用为面向终端用户的生产服务。
+
+RTX 5090 实机 smoke test 已通过：768×768 文生图约 24.4 秒，单参考图生图约 21 秒；512×512 六 `ReferenceLatent` 链约 71 秒。文生图采样阶段观测显存约 31.3 GiB，只剩约 0.8 GiB 余量，因此必须继续经过共享 GPU 队列串行执行，不能与其他常驻 GPU 模型并发。六参考 smoke 使用同一张占位图重复验证节点链路，六张不同人物/场景/道具的语义一致性仍需单独做质量基准。
 
 ### MiniMax H3
 
@@ -195,6 +226,20 @@ CheckpointLoaderSimple
 ```
 
 默认参数：40 steps、CFG 5.0、`dpmpp_2m_sde_gpu`。存在参考图时，先通过 `/upload/image` 上传，再把 `LoadImage` 接到 `HiDreamO1ReferenceImages`。
+
+### FLUX.2 Dev 文生图/多参考图生成
+
+主要节点链：
+
+```text
+UNETLoader + CLIPLoader(type=flux2) + VAELoader
+  -> CLIPTextEncode -> FluxGuidance(4)
+  -> ReferenceLatent × 0..6 -> BasicGuider
+EmptyFlux2LatentImage + RandomNoise + Flux2Scheduler(20)
+  -> SamplerCustomAdvanced(Euler) -> VAEDecode -> SaveImage
+```
+
+无参考图时执行文生图；一至六张参考图先上传并分别 `VAEEncode`，再按顺序串接到 conditioning。超过六张会在提交 ComfyUI 前返回明确错误。
 
 ### MiniMax H3 FL2VA
 
@@ -330,5 +375,6 @@ Browser
 - 用 VoxCPM2 生成中文声音设计音频，并把结果作为音频节点插回画布。
 - 连续执行 HiDream -> H3 -> Vox -> H3，检查没有并发任务、误清显存或第二个 ComfyUI 进程。
 - 分别执行 Qwen 2512 与 Z-Image 文生图、Qwen Edit 单图与三参考图编辑、严格/自然局部编辑、两种 AI 超分和一键四视图。
+- 执行 FLUX.2 Dev 文生图，以及一张、三张和六张参考图的联合生成；确认参考顺序、人物身份和场景约束没有串位，并观察 32 GB 显存峰值与跨模型卸载行为。
 - 严格局部编辑需要逐像素检查羽化范围外与原图一致；1K/2K/4K 超分需要检查输出尺寸与界面预览值完全一致。
 - 关闭浏览器等待任务完成后重新打开，确认任务和结果可从后端恢复，且浏览器响应中没有 8189 地址。

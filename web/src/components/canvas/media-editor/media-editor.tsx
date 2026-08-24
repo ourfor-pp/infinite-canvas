@@ -9,7 +9,7 @@ import { CanvasPromptChipInput } from "@/components/canvas/canvas-prompt-chip-in
 import { filterVisualStyleTemplates } from "@/lib/canvas/visual-style-templates";
 import { resolveModelForCapability } from "@/stores/use-config-store";
 import { useVisualStyleStore } from "@/stores/use-visual-style-store";
-import type { VisualStyleTemplateCategory } from "@/types/visual-style";
+import type { VisualStyleMediumFamily } from "@/types/visual-style";
 import type { MediaEditorDraft, MediaEditorReference, MediaEditorTarget } from "./types";
 
 export function MediaEditor({ target }: { target: MediaEditorTarget }) {
@@ -123,14 +123,14 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
     </section>;
 }
 
-const mediaStyleCategories: Array<{ value: "all" | VisualStyleTemplateCategory; label: string }> = [{ value: "all", label: "全部" }, { value: "cinematic", label: "电影" }, { value: "genre", label: "类型" }, { value: "eastern", label: "东方" }, { value: "animation", label: "动画" }, { value: "handmade", label: "手工" }, { value: "graphic", label: "图形" }];
+const mediaStyleCategories: Array<{ value: "all" | VisualStyleMediumFamily; label: string }> = [{ value: "all", label: "全部" }, { value: "live_action", label: "真人电影" }, { value: "animation_2d", label: "二维动画" }, { value: "animation_3d", label: "三维动画" }, { value: "illustration", label: "插画绘本" }, { value: "handmade", label: "手工媒介" }, { value: "graphic", label: "图形风格" }];
 const mediaStyleAssetUrl = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
 
 function VisualStyleControl({ target }: { target: MediaEditorTarget }) {
     const { message } = App.useApp();
     const templates = useVisualStyleStore((state) => state.templates);
     const [open, setOpen] = useState(false);
-    const [category, setCategory] = useState<"all" | VisualStyleTemplateCategory>("all");
+    const [category, setCategory] = useState<"all" | VisualStyleMediumFamily>("all");
     const [query, setQuery] = useState("");
     const [applying, setApplying] = useState(false);
     const visible = filterVisualStyleTemplates(templates, category, query);

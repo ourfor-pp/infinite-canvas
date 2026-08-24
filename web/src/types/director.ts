@@ -15,6 +15,7 @@ export type DirectorDiagnostic = { severity: "error" | "warning" | "info"; code:
 export type DirectorValidation = { projectId: string; valid: boolean; scope?: string; diagnostics: DirectorDiagnostic[] };
 
 export type DirectorDirectingRules = {
+    positioning: string;
     intent: string;
     photography: string;
     performance: string;

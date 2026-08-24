@@ -381,7 +381,12 @@ export function syncCreativeAssetGeneration(row: { id: string; user_id: string; 
     if (!fileIds.length) return;
     const directorTarget = request.params?.__directorAssetTarget;
     if (directorTarget) {
-        try { applyDirectorAssetGeneration(row.user_id, directorTarget, fileIds[0]); }
+        try {
+            if (applyDirectorAssetGeneration(row.user_id, directorTarget, fileIds[0])) {
+                const asset = creativeAssetRow(row.user_id, directorTarget.assetId);
+                if (asset) emitAsset(row.user_id, creativeAssetResponse(asset));
+            }
+        }
         catch (error) {
             if ((error as { code?: string }).code !== "DIRECTOR_ASSET_TARGET_CONFLICT") throw error;
         }
@@ -429,7 +434,7 @@ export function creativeAssetAutomaticReviewRequest(row: { id: string; user_id: 
     const styleReferences = style?.references || {};
     const styleReference = styleReferences.board || styleReferences.source;
     const criteria = asset.kind === "character"
-        ? `${variant.usage === "face_closeup_reference" ? "单人中性面部身份特写，脸部结构、年龄痕迹、发际线和自然识别点清晰" : variant.usage === "body_back_reference" ? "单人完整背面身体参考，发型背面、体型、服装结构和鞋履完整且不裁切" : "单人完整正面身体参考，体型、姿态、服装剪影、材质和鞋履完整且不裁切"}；纯净中性背景；无文字、边框、Logo；符合视觉风格，并与同角色其他身份媒体保持年龄、体型、发型和基础服装一致。${style?.dna.mediumFamily === "live_action" ? "检查塑料皮肤、过度磨皮、偶像脸、图库模特感、商业精修、CGI 或插画感；应具有真实毛孔、符合年龄的纹理和自然轻微不对称。" : `按 ${style?.dna.mediumFamily || "当前"} 媒介检查线条或材质、形状概括、色块与阴影层级的一致性，不得用真人毛孔或摄影感作为验收标准。`}身份锚点：${payload.designProfile?.identityAnchor || payload.designProfile?.distinctivenessSummary || "以角色视觉设定为准"}。`
+        ? `一张横版 16:9 三栏角色身份板，且只包含同一角色：左栏完整正面全身、中栏完整背面全身、右栏放大的正面头肩面部近景；两个全身视图均从头顶到鞋底完整入画，三栏年龄、体型、脸部、发型、基础服装、材质和配色完全一致；纯净中性背景、细分隔线；无额外视角、环境、剧情动作、文字、边框、Logo 或 UI。${style?.dna.mediumFamily === "live_action" ? "检查塑料皮肤、过度磨皮、偶像脸、图库模特感、商业精修、CGI 或插画感；应具有真实毛孔、符合年龄的纹理和自然轻微不对称。" : `按 ${style?.dna.mediumFamily || "当前"} 媒介检查线条或材质、形状概括、色块与阴影层级的一致性，不得用真人毛孔或摄影感作为验收标准。`}身份锚点：${payload.designProfile?.identityAnchor || payload.designProfile?.distinctivenessSummary || "以角色视觉设定为准"}。`
         : asset.kind === "scene"
             ? "空间结构、时代地理、陈设、材质和光线一致；无人、无剧情动作、无意外文字；符合视觉风格。"
             : "轮廓、比例、材质、结构、磨损和关键细节清晰一致；无人物、无环境、无文字；符合视觉风格。";
@@ -459,19 +464,27 @@ export function creativeAssetResponse(row: CreativeAssetRow) {
     return { id: row.id, projectId: row.project_id, kind: row.kind, name: row.name, status: row.status, payload: creativeAssetPayloadSchema.parse(parseJson(row.payload, {})), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
-export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetResponse>, kind: "image" | "audio", extra = "", profile: "generic" | "gpt-image-2" = "generic", styleMediumFamily: "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic" = "live_action", mediaRole?: "face_closeup" | "body_front" | "body_back") {
+export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetResponse>, kind: "image" | "audio", extra = "", profile: "generic" | "gpt-image-2" = "generic", styleMediumFamily: "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic" = "live_action", visualDescriptionOverride?: string) {
     const description = asset.payload.description.trim();
     const requirement = extra.trim();
     if (kind === "audio") return requirement || asset.payload.mediaDrafts.audio.prompt || asset.payload.description;
     const directorCharacter = asset.kind === "character" && isDirectorProject(asset.projectId);
-    const visualDescription = asset.payload.visualDescription.trim();
-    const layout = {
+    const visualDescription = visualDescriptionOverride?.trim() || asset.payload.visualDescription.trim();
+    const instructionLayout = {
         character: directorCharacter
-            ? mediaRole === "face_closeup" ? "单张中性面部身份特写，正面或极轻微三分之四角度，头顶至肩部完整入画；清晰呈现脸型骨相、眉眼鼻唇、肤色、发际线、年龄痕迹与自然识别点。纯净中性背景，中性表情和中性光，不画全身、环境、情节、道具、文字、标注、边框或 UI。" : mediaRole === "body_back" ? "单张完整背面身体参考，角色自然直立，严格从头顶到鞋底完整入画；清晰呈现背面体型、姿态、发型、服装结构、材质、配色和配饰。纯净中性背景，不画正面脸、环境、情节、道具、文字、标注、边框或 UI。" : "单张完整正面身体参考，角色自然直立，严格从头顶到鞋底完整入画；清晰呈现体型、肩颈比例、姿态、基础服装轮廓、材质、配色、鞋履和配饰。纯净中性背景和中性光，不画多视角、环境、情节、道具、文字、标注、边框或 UI。"
+            ? "只生成 ONE 张横版 16:9 角色身份板。画布严格分成三个并排纵向面板：左栏为角色完整正面全身，正对镜头、中性站姿、从头顶到鞋底全部入画；中栏为同一角色完整背面全身，同样从头顶到鞋底全部入画；右栏为同一角色放大的正面头肩面部近景，清楚呈现脸型骨相、眉眼鼻唇、肤色、发际线、年龄痕迹和自然识别点。三栏必须是同一身份、同一年龄、同一体型、同一发型、同一基础服装、同一材质与配色，使用一致的中性光。纯净浅灰或白色背景，仅用细而克制的面板分隔线。不得生成三张独立图片，不得出现额外视角、环境、情节、动作、道具、文字、标注、标题、Logo、UI 或装饰边框。"
             : "横版 16:9 四格角色设定图，严格纯白无影背景：左侧约 40% 为胸像特写，右侧依次为正面、四分之三侧面、背面的 A-Pose 全身视图。四个视图必须是同一角色，面部、性别表达、年龄、发型、服装和配饰完全一致。只画角色，不画环境、情节、文字或标注。",
         scene: "横版 16:9 场景设定图，严格无人、无文字、无标注：主画面占四分之三区域，完整展示空间结构、固定陈设、光线和氛围；右下角嵌入标志性局部细节图。",
         prop: "横版 16:9 道具设定图，严格纯白无影背景：正面全视图、45 度侧视图、关键细节特写水平排列，各视图必须是同一件道具，结构、材质和比例保持一致。只画道具，不画人物、环境、文字或标注。",
     }[asset.kind];
+    const positiveLayout = {
+        character: directorCharacter
+            ? "一张横版 16:9 三栏角色身份板：左栏完整正面全身，中栏完整背面全身，右栏放大的正面头肩面部近景。两个全身视图均从头顶到鞋底完整入画；三栏保持同一身份、年龄、体型、脸部、发型、基础服装、材质与配色，使用纯净浅灰或白色背景和一致中性光。只输出这一张完整身份板，不输出三张独立图片、额外视角、环境、剧情动作、文字、标注、标题、Logo、UI 或装饰边框。"
+            : "横版 16:9 四视图角色设定图，均匀纯白背景：左侧约 40% 为胸像特写，右侧依次为正面、四分之三侧面、背面的 A-Pose 全身视图。四个视图呈现同一角色，保持面部、年龄、发型、服装和配饰一致。",
+        scene: "横版 16:9 场景设定图：主画面占四分之三区域，完整展示空间结构、固定陈设、光线和氛围；右下角呈现标志性局部细节。",
+        prop: "横版 16:9 道具设定图，均匀纯白背景：正面全视图、45 度侧视图、关键细节特写水平排列，各视图呈现同一件道具并保持结构、材质和比例一致。",
+    }[asset.kind];
+    const layout = profile === "gpt-image-2" ? instructionLayout : positiveLayout;
     const facialIdentity = directorCharacter && asset.payload.designProfile?.facialIdentity
         ? Object.entries(asset.payload.designProfile.facialIdentity).map(([key, value]) => value.trim() ? `${facialIdentityLabels[key] || key}：${value.trim()}` : "").filter(Boolean).join("；")
         : "";
@@ -483,21 +496,20 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
             visualDescription,
             design?.visibleAgeCues ? `可见年龄痕迹：${design.visibleAgeCues}` : "",
             design?.bodySilhouette ? `全身剪影：${design.bodySilhouette}` : "",
-            design?.posture ? `自然站姿：${design.posture}` : "",
             facialIdentity ? `稳定面部身份锚点：${facialIdentity}` : "",
             !facialIdentity && visualDescription && design?.identityAnchor ? `稳定身份锚点：${design.identityAnchor}` : "",
             design?.distinctivenessSummary ? `与其他角色的差异锚点：${design.distinctivenessSummary}` : "",
         ].filter(Boolean).join("\n");
         const supplement = requirement ? `[当前风格]\n${requirement}` : "";
-        const renderingQuality = characterRenderingQuality(styleMediumFamily);
+        const renderingQuality = characterRenderingQuality(styleMediumFamily, profile === "gpt-image-2");
         const forbidden = "禁止项：背景场景、剧情动作、叙事事件、夸张情绪、换装、伤势、水印、文字、字母、数字、Logo、UI、边框和标题。";
         return profile === "gpt-image-2"
             ? [`[角色身份]\n${subject}`, supplement, `[目标媒体规格]\n${layout}`, `[媒介质量要求]\n${renderingQuality}`, `[通用禁止项]\n${forbidden}`].filter(Boolean).join("\n\n")
-            : [subject, requirement, renderingQuality, layout, forbidden].filter(Boolean).join("\n\n");
+            : [subject, requirement, renderingQuality, layout].filter(Boolean).join("\n\n");
     }
     const sections = [
         `${asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具"}「${asset.name}」的视觉设计参考。`,
-        description,
+        asset.kind === "character" ? visualDescription || description : description,
         requirement,
         layout,
         asset.kind === "character" && asset.payload.designProfile && !directorCharacter ? `身份锚点：${asset.payload.designProfile.identityAnchor}\n年龄段：${asset.payload.designProfile.ageBand}\n外观性别：${asset.payload.designProfile.apparentGender}` : "",
@@ -505,16 +517,24 @@ export function buildCreativeAssetPrompt(asset: ReturnType<typeof creativeAssetR
     ].filter(Boolean);
     return profile === "gpt-image-2"
         ? [`[主体视觉设定]\n${sections[0]}\n${sections[1] || ""}`, `[风格与补充要求]\n${sections.slice(2, -2).join("\n")}`, `[输出规格]\n${layout}`, `[禁止项与验收]\n${sections.at(-1)}`].join("\n\n")
-        : sections.join("\n\n");
+        : sections.slice(0, -1).join("\n\n");
 }
 
-function characterRenderingQuality(family: "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic") {
-    if (family === "live_action") return "真实摄影要求：真实相机拍摄的人类演员，保持自然毛孔、轻微肤色不均、真实眼下纹理、符合年龄的细纹与自然轻微不对称；中性自然光、中性放松表情、准确的人体比例。不得美颜磨皮，不得塑料皮肤、网红脸、偶像海报、美妆广告、图库模特、商业时装精修、CGI、3D 渲染或插画质感。";
-    if (family === "animation_2d") return "二维动画要求：以清晰稳定的角色轮廓、五官形状、发束、服装色块与阴影层级保持身份；四个视图的线条语言、造型简化程度和上色方式完全一致。不得生成真人照片、皮肤毛孔摄影或三维渲染。";
-    if (family === "animation_3d") return "三维动画要求：保持统一建模比例、拓扑感、材质和灯光响应，四个视图具有同一角色模型的稳定轮廓与身份特征。不得生成真人照片或二维线稿拼贴。";
-    if (family === "illustration") return "插画要求：保持统一笔触、轮廓概括、色彩层次和纸面或数字绘画质感；即使经过风格化，脸型、骨相、发型、体型和识别点仍须清晰可辨。不得生成真人照片或不一致的混合媒介。";
-    if (family === "handmade") return "手工媒介要求：保持材料、边缘、纹理和制作痕迹统一，四个视图像由同一套实体角色工艺制作；身份轮廓和服装结构必须稳定。不得混入真人摄影或无关数字渲染。";
-    return "图形风格要求：保持统一的形状语言、轮廓、有限色彩和图形纹理，四个视图以脸型、发型、体型、服装剪影和识别点维持同一身份。不得混入真人照片或不一致媒介。";
+function characterRenderingQuality(family: "live_action" | "animation_2d" | "animation_3d" | "illustration" | "handmade" | "graphic", includeRestrictions = true) {
+    const positive = family === "live_action"
+        ? "真实摄影要求：真实相机拍摄的人类演员，保持自然毛孔、轻微肤色不均、真实眼下纹理、符合年龄的细纹与自然轻微不对称；中性自然光、中性放松表情、准确的人体比例。"
+        : family === "animation_2d"
+            ? "二维动画要求：以清晰稳定的角色轮廓、五官形状、发束、服装色块与阴影层级保持身份；三个面板的线条语言、造型简化程度和上色方式完全一致。"
+            : family === "animation_3d"
+                ? "三维动画要求：保持统一建模比例、拓扑感、材质和灯光响应，三个面板具有同一角色模型的稳定轮廓与身份特征。"
+                : family === "illustration"
+                    ? "插画要求：保持统一笔触、轮廓概括、色彩层次和纸面或数字绘画质感；风格化脸型、骨相、发型、体型和识别点清晰可辨。"
+                    : family === "handmade"
+                        ? "手工媒介要求：保持材料、边缘、纹理和制作痕迹统一，三个面板像由同一套实体角色工艺制作；身份轮廓和服装结构保持稳定。"
+                        : "图形风格要求：保持统一的形状语言、轮廓、有限色彩和图形纹理，三个面板以脸型、发型、体型、服装剪影和识别点维持同一身份。";
+    if (!includeRestrictions) return positive;
+    const restrictions = family === "live_action" ? "不得美颜磨皮，不得塑料皮肤、网红脸、偶像海报、美妆广告、图库模特、商业时装精修、CGI、3D 渲染或插画质感。" : family === "animation_2d" ? "不得生成真人照片、皮肤毛孔摄影或三维渲染。" : family === "animation_3d" ? "不得生成真人照片或二维线稿拼贴。" : family === "illustration" ? "不得生成真人照片或不一致的混合媒介。" : family === "handmade" ? "不得混入真人摄影或无关数字渲染。" : "不得混入真人照片或不一致媒介。";
+    return `${positive}${restrictions}`;
 }
 
 const facialIdentityLabels: Record<string, string> = {

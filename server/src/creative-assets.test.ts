@@ -87,6 +87,7 @@ test("媒体草稿预览按业务语义组装且生成结果直接替换主版�
     assert.equal(limitedPreview.params.imagePromptProfile, "generic");
     assert.equal(limitedPreview.references.length, 1);
     assert.equal(limitedPreview.warnings.some((warning) => warning.code === "AI_MODEL_REFERENCE_LIMIT" && !warning.blocking), true);
+    assert.doesNotMatch(limitedPreview.prompt, /负面约束/);
 
     const character = createCreativeAsset(userId, projectId, { kind: "character", name: "林夏", payload: { description: "二十多岁的短发女性", designProfile: { apparentGender: "female", voiceGender: "female", ageBand: "20-30", identityAnchor: "短发女性，深色风衣", uncertainties: [] }, mediaDrafts: { image: { model: "provider-1::image-model", prompt: "重点锁定短发轮廓、深色风衣配色和四个视图的面部一致性" }, audio: { model: "provider-1::sound-model", prompt: "低沉男声，语速缓慢", transcript: "你好" } } } });
     assert.equal(character.payload.mediaDrafts.image.prompt, "重点锁定短发轮廓、深色风衣配色和四个视图的面部一致性");
@@ -95,7 +96,7 @@ test("媒体草稿预览按业务语义组装且生成结果直接替换主版�
     assert.equal(voicePreview.warnings.some((warning) => warning.code === "CREATIVE_ASSET_VOICE_GENDER_CONFLICT" && warning.blocking), true);
 });
 
-test("导演角色按用途生成面部与正背面身份媒体", () => {
+test("导演角色一次生成一张含正背面与面部近景的身份板", () => {
     const userId = "user-1";
     const projectId = "director-character-project";
     const now = new Date().toISOString();
@@ -132,7 +133,10 @@ test("导演角色按用途生成面部与正背面身份媒体", () => {
     assert.match(preview.prompt, /稳定面部身份锚点：脸型比例：窄长脸/);
     assert.match(preview.prompt, /脸型比例：窄长脸/);
     assert.match(preview.prompt, /非对称识别点：左眉尾细小断痕/);
-    assert.match(preview.prompt, /单张完整正面身体参考/);
+    assert.match(preview.prompt, /横版 16:9 角色身份板/);
+    assert.match(preview.prompt, /左栏为角色完整正面全身/);
+    assert.match(preview.prompt, /中栏为同一角色完整背面全身/);
+    assert.match(preview.prompt, /右栏为同一角色放大的正面头肩面部近景/);
     assert.match(preview.prompt, /真人电影摄影/);
     assert.match(preview.prompt, /真实相机写实/);
     assert.doesNotMatch(preview.prompt, /林尘/);
@@ -140,17 +144,20 @@ test("导演角色按用途生成面部与正背面身份媒体", () => {
     assert.doesNotMatch(preview.prompt, /雪夜宗门/);
     assert.doesNotMatch(preview.prompt, /月光与火把/);
     assert.doesNotMatch(preview.prompt, /长焦浅景深/);
-    assert.match(preview.prompt, /严格从头顶到鞋底完整入画/);
+    assert.match(preview.prompt, /从头顶到鞋底全部入画/);
     assert.match(preview.prompt, /自然毛孔/);
     assert.match(preview.prompt, /窄肩长肢/);
     assert.equal(preview.references.length, 0, "带人物面貌的角色风格样张不得作为初次角色输入");
     assert.deepEqual(preview.excludedReferences.map((item) => item.fileId), ["director-character-style-reference"]);
-    const facePreview = previewCreativeAssetGeneration(userId, character.id, { kind: "image", revision: character.revision, mediaRole: "face_closeup" });
-    assert.match(facePreview.prompt, /单张中性面部身份特写/);
-    assert.equal(facePreview.params.__creativeAsset.usage, "face_closeup_reference");
-    const backPreview = previewCreativeAssetGeneration(userId, character.id, { kind: "image", revision: character.revision, mediaRole: "body_back" });
-    assert.match(backPreview.prompt, /单张完整背面身体参考/);
-    assert.equal(backPreview.params.__creativeAsset.usage, "body_back_reference");
+    assert.equal(preview.params.__creativeAsset.usage, "identity_sheet");
+    assert.equal(preview.params.__creativeAsset.label, "角色身份板");
+    assert.ok(preview.params.__promptPackage);
+    assert.deepEqual(preview.params.__promptPackage.checks.slice(0, 5), ["identity_sheet", "three_panel_layout", "front_full_body", "back_full_body", "face_closeup"]);
+    const filePromptPreview = previewCreativeAssetGeneration(userId, character.id, { kind: "image", revision: character.revision }, { visualDescriptionOverride: "窄长脸少年，左眉尾断痕，清瘦高腰剪影，灰白粗布交领短衫。" });
+    assert.match(filePromptPreview.prompt, /窄长脸少年，左眉尾断痕/);
+    assert.match(filePromptPreview.prompt, /左栏为角色完整正面全身/);
+    assert.match(filePromptPreview.prompt, /中栏为同一角色完整背面全身/);
+    assert.match(filePromptPreview.prompt, /右栏为同一角色放大的正面头肩面部近景/);
 
     const animatedStyle = createVisualStyle(userId, projectId, { name: "当代赛璐璐动画", mode: "template", templateId: "contemporary-cel", status: "confirmed" });
     setDefaultVisualStyle(userId, animatedStyle.id);
@@ -167,6 +174,7 @@ test("导演角色按用途生成面部与正背面身份媒体", () => {
     assert.match(animatedPreview.prompt, /二维手绘赛璐璐动画/);
     assert.match(animatedPreview.prompt, /二维动画要求/);
     assert.doesNotMatch(animatedPreview.prompt, /Photorealistic|真实相机拍摄|自然毛孔|禁止插画/);
+    assert.doesNotMatch(animatedPreview.prompt, /禁止项|不得生成|不得混入/);
     assert.equal(animatedPreview.references.length, 1);
     const animatedPackage = animatedPreview.params.__promptPackage;
     assert.ok(animatedPackage?.style);

@@ -332,6 +332,7 @@ export function buildAgentMcpServer(
             stage: z.string().optional(),
             status: z.enum(["draft", "confirmed", "locked"]).optional(),
             directingRules: z.object({
+              positioning: z.string().max(10_000),
               intent: z.string().max(10_000),
               photography: z.string().max(10_000),
               performance: z.string().max(10_000),
@@ -774,12 +775,11 @@ export function buildAgentMcpServer(
           {
             assetPath: z.string().min(1),
             target: z.enum(["primary-visual", "variant-visual", "sound"]),
-            mediaRole: z.string().min(1).max(100).optional(),
             variantId: z.string().min(1).max(128).optional(),
             expectedHash: z.string().min(1),
           },
           (input) => {
-            const value = input as { assetPath: string; target: "primary-visual" | "variant-visual" | "sound"; mediaRole?: string; variantId?: string; expectedHash: string };
+            const value = input as { assetPath: string; target: "primary-visual" | "variant-visual" | "sound"; variantId?: string; expectedHash: string };
             const assetId = resolveDirectorEntityReference(run.userId, projectId, value.assetPath, ["character", "scene", "prop"]).id;
             requireDirectorMediaStage(run.userId, projectId);
             return createDirectorAssetGeneration(run.userId, assetId, value);

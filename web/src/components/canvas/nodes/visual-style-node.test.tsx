@@ -12,6 +12,7 @@ const template: VisualStyleTemplate = {
     id: "cinematic",
     name: "克制当代电影",
     category: "cinematic",
+    tags: ["都市", "家庭"],
     tagline: "真实、安静",
     colors: ["#111", "#777", "#eee"],
     description: "克制的当代电影质感",

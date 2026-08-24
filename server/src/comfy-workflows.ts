@@ -18,6 +18,7 @@ export const COMFY_MODELS = [
     "realesrgan-x4-local",
     "z-image-upscale-local",
     "hidream-o1-full-fp8-local",
+    "flux2-dev-fp8-local",
     "minimax-h3-fl2va-local",
     "minimax-h3-ref2va-local",
     "voxcpm2-local",
@@ -45,6 +46,7 @@ export const COMFY_MODEL_DEFINITIONS: Record<ComfyModel, ComfyModelDefinition> =
     "realesrgan-x4-local": { name: "RealESRGAN 忠实超分", output: "image", inputs: ["image"], selectable: false },
     "z-image-upscale-local": { name: "Z-Image 细节增强", output: "image", inputs: ["text", "image"], selectable: false },
     "hidream-o1-full-fp8-local": { name: "HiDream-O1 Full FP8", output: "image", inputs: ["text", "image"], selectable: true, imageModes: ["generate", "edit"], maxReferenceImages: 1 },
+    "flux2-dev-fp8-local": { name: "FLUX.2 Dev FP8 Mixed", output: "image", inputs: ["text", "image"], selectable: true, imageModes: ["generate", "edit"], maxReferenceImages: 6 },
     "minimax-h3-fl2va-local": { name: "MiniMax H3 FL2VA", output: "video", inputs: ["text", "image", "video", "audio"], selectable: true, minDurationSeconds: 4, maxDurationSeconds: 15, maxReferenceImages: 4, maxReferenceVideos: 1, maxReferenceAudios: 1, maxReferenceFiles: 5, videoModes: ["fl2va"], videoReferenceRoles: ["first-frame", "last-frame", "continuation"], videoContinuationMode: "reference", videoFps: 24, videoNativeAudio: true, videoNativeResolution: "768p", qualityPresets: ["preview", "final"], supportsTemporalGuides: true, maxTemporalGuides: 4, frameStride: 17, frameBase: 5, turboPreview: true },
     "minimax-h3-ref2va-local": { name: "MiniMax H3 Ref2VA", output: "video", inputs: ["text", "image", "video", "audio"], selectable: true, minDurationSeconds: 4, maxDurationSeconds: 15, maxReferenceImages: 9, maxReferenceVideos: 3, maxReferenceAudios: 3, maxReferenceFiles: 12, videoModes: ["ref2va"], videoReferenceRoles: ["reference", "continuation"], videoContinuationMode: "reference", videoFps: 24, videoNativeAudio: true, videoNativeResolution: "768p", qualityPresets: ["preview", "final"], supportsTemporalGuides: true, maxTemporalGuides: 4, frameStride: 17, frameBase: 5, turboPreview: false },
     "voxcpm2-local": { name: "VoxCPM2", output: "audio", inputs: ["text", "audio"], selectable: true },
@@ -57,6 +59,8 @@ export const COMFY_REQUIREMENTS: Partial<Record<ComfyModel, { nodes: string[]; m
     "qwen-image-inpaint-local": { nodes: ["ControlNetInpaintingAliMamaApply", "SetLatentNoiseMask", "ImageCompositeMasked", "GrowMask", "ImageBlur"], models: [{ loader: "UNETLoader", name: "qwen_image_fp8_e4m3fn.safetensors" }, { loader: "CLIPLoader", name: "qwen_2.5_vl_7b_fp8_scaled.safetensors" }, { loader: "VAELoader", name: "qwen_image_vae.safetensors" }, { loader: "ControlNetLoader", name: "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors" }] },
     "realesrgan-x4-local": { nodes: ["ImageUpscaleWithModel", "ImageScale"], models: [{ loader: "UpscaleModelLoader", name: "RealESRGAN_x4plus.safetensors" }] },
     "z-image-upscale-local": { nodes: ["ImageUpscaleWithModel", "ImageScaleToTotalPixels", "VAEEncode", "KSampler"], models: [{ loader: "UpscaleModelLoader", name: "RealESRGAN_x4plus.safetensors" }, { loader: "UNETLoader", name: "z_image_turbo_bf16.safetensors" }, { loader: "CLIPLoader", name: "qwen_3_4b.safetensors" }, { loader: "VAELoader", name: "ae.safetensors" }] },
+    "hidream-o1-full-fp8-local": { nodes: ["ModelNoiseScale", "HiDreamO1PatchSeamSmoothing", "EmptyHiDreamO1LatentImage", "HiDreamO1ReferenceImages", "LoadBackgroundRemovalModel", "RemoveBackground", "ImageCompositeMasked"], models: [{ loader: "CheckpointLoaderSimple", name: "hidream_o1_image_fp8_scaled.safetensors" }, { loader: "LoadBackgroundRemovalModel", name: "birefnet.safetensors" }] },
+    "flux2-dev-fp8-local": { nodes: ["UNETLoader", "CLIPLoader", "VAELoader", "EmptyFlux2LatentImage", "Flux2Scheduler", "FluxGuidance", "ReferenceLatent", "VAEEncode", "SamplerCustomAdvanced"], models: [{ loader: "UNETLoader", name: "flux2_dev_fp8mixed.safetensors" }, { loader: "CLIPLoader", name: "mistral_3_small_flux2_fp8.safetensors" }, { loader: "VAELoader", name: "flux2-vae.safetensors" }] },
     "minimax-h3-fl2va-local": { nodes: ["MiniMaxH3ImageToVideo", "PathchSageAttentionKJ"], models: [{ loader: "UNETLoader", name: "minimax_h3_fl2va_pruned_int8_convrot.safetensors" }, { loader: "CLIPLoader", name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" }] },
     "minimax-h3-ref2va-local": { nodes: ["MiniMaxH3ReferenceToVideo", "PathchSageAttentionKJ"], models: [{ loader: "UNETLoader", name: "minimax_h3_ref2va_pruned_int8_convrot.safetensors" }, { loader: "CLIPLoader", name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" }] },
 };
@@ -83,6 +87,7 @@ export function buildComfyWorkflow(input: WorkflowInput): Workflow {
     if (input.model === "realesrgan-x4-local") return realEsrgan(input);
     if (input.model === "z-image-upscale-local") return zImageUpscale(input);
     if (input.model === "hidream-o1-full-fp8-local") return hiDream(input);
+    if (input.model === "flux2-dev-fp8-local") return flux2Dev(input);
     if (input.model === "minimax-h3-fl2va-local" || input.model === "minimax-h3-ref2va-local") return miniMaxH3(input);
     if (input.model === "voxcpm2-local") return voxCpm(input);
     throw Object.assign(new Error("不支持的 ComfyUI 模型"), { code: "COMFY_MODEL_UNSUPPORTED", status: 400 });
@@ -100,6 +105,19 @@ function dimensions(params: Record<string, unknown>, fallback = 1024) {
     const maxArea = 2048 * 2048;
     if (width * height > maxArea) { const scale = Math.sqrt(maxArea / (width * height)); width *= scale; height *= scale; }
     return { width: Math.max(256, Math.round(width / 32) * 32), height: Math.max(256, Math.round(height / 32) * 32) };
+}
+
+const HIDREAM_NATIVE_RESOLUTIONS = [
+    [2048, 2048], [2304, 1728], [1728, 2304], [2560, 1440], [1440, 2560], [2496, 1664], [1664, 2496], [3104, 1312], [1312, 3104], [2304, 1792], [1792, 2304],
+] as const;
+
+function hiDreamDimensions(params: Record<string, unknown>) {
+    const raw = String(params.size || "1:1").replace(/-(?:2k|4k)$/i, "");
+    const pixels = raw.match(/^(\d+)x(\d+)$/i);
+    const ratio = raw.match(/^(\d+):([\d.]+)$/);
+    const target = pixels ? Number(pixels[1]) / Number(pixels[2]) : ratio ? Number(ratio[1]) / Number(ratio[2]) : 1;
+    const [width, height] = HIDREAM_NATIVE_RESOLUTIONS.reduce((best, candidate) => Math.abs(Math.log(candidate[0] / candidate[1] / target)) < Math.abs(Math.log(best[0] / best[1] / target)) ? candidate : best);
+    return { width, height };
 }
 
 function firstImage(input: WorkflowInput) {
@@ -251,7 +269,10 @@ function zImageUpscale(input: WorkflowInput): Workflow {
 }
 
 function hiDream(input: WorkflowInput): Workflow {
-    const { width, height } = dimensions(input.params, 1440);
+    const { width, height } = hiDreamDimensions(input.params);
+    const promptPackage = input.params.__promptPackage && typeof input.params.__promptPackage === "object" ? input.params.__promptPackage as Record<string, unknown> : {};
+    const checks = Array.isArray(promptPackage.checks) ? promptPackage.checks : [];
+    const plainBackground = checks.includes("plain_background");
     const graph: Workflow = {
         "1": node("CheckpointLoaderSimple", { ckpt_name: "hidream_o1_image_fp8_scaled.safetensors" }),
         "2": node("ModelNoiseScale", { model: ["1", 0], noise_scale: 8 }),
@@ -261,11 +282,17 @@ function hiDream(input: WorkflowInput): Workflow {
         "6": node("EmptyHiDreamO1LatentImage", { width, height, batch_size: Math.max(1, Math.min(15, Number(input.params.count) || 1)) }),
         "7": node("BasicScheduler", { model: ["2", 0], scheduler: "normal", steps: String(input.params.quality) === "high" ? 50 : 40, denoise: 1 }),
         "8": node("KSamplerSelect", { sampler_name: "dpmpp_2m_sde_gpu" }),
-        "9": node("SamplerCustom", { model: ["13", 0], add_noise: true, noise_seed: seed(), cfg: 5, positive: ["4", 0], negative: ["5", 0], sampler: ["8", 0], sigmas: ["7", 0], latent_image: ["6", 0] }),
+        "9": node("SamplerCustom", { model: ["3", 0], add_noise: true, noise_seed: seed(), cfg: 5, positive: ["4", 0], negative: ["5", 0], sampler: ["8", 0], sigmas: ["7", 0], latent_image: ["6", 0] }),
         "10": node("VAEDecode", { samples: ["9", 0], vae: ["1", 2] }),
         "11": node("SaveImage", { images: ["10", 0], filename_prefix: "InfiniteCanvas/HiDream-O1" }),
-        "13": node("PathchSageAttentionKJ", { model: ["3", 0], sage_attention: "sageattn_qk_int8_pv_fp16_cuda", allow_compile: false }),
     };
+    if (plainBackground) {
+        graph["16"] = node("LoadBackgroundRemovalModel", { bg_removal_name: "birefnet.safetensors" });
+        graph["17"] = node("RemoveBackground", { bg_removal_model: ["16", 0], image: ["10", 0] });
+        graph["18"] = node("EmptyImage", { width, height, batch_size: Math.max(1, Math.min(15, Number(input.params.count) || 1)), color: 0xFFFFFF });
+        graph["19"] = node("ImageCompositeMasked", { destination: ["18", 0], source: ["10", 0], x: 0, y: 0, resize_source: false, mask: ["17", 0] });
+        graph["11"].inputs.images = ["19", 0];
+    }
     const images = input.files.filter((file) => file.kind === "image");
     if (images.length > 10) throw Object.assign(new Error("HiDream-O1 最多支持 10 张参考图"), { status: 400 });
     if (images.length) {
@@ -274,6 +301,39 @@ function hiDream(input: WorkflowInput): Workflow {
         graph["12"] = node("HiDreamO1ReferenceImages", referenceInputs);
         graph["9"].inputs.positive = ["12", 0]; graph["9"].inputs.negative = ["12", 1];
     }
+    return graph;
+}
+
+function flux2Dev(input: WorkflowInput): Workflow {
+    const { width, height } = dimensions(input.params, String(input.params.quality) === "high" ? 1440 : 1024);
+    const images = input.files.filter((file) => file.kind === "image");
+    if (images.length > 6) throw Object.assign(new Error("FLUX.2 Dev 最多支持 6 张参考图"), { status: 400 });
+    const graph: Workflow = {
+        "1": node("UNETLoader", { unet_name: "flux2_dev_fp8mixed.safetensors", weight_dtype: "default" }),
+        "2": node("CLIPLoader", { clip_name: "mistral_3_small_flux2_fp8.safetensors", type: "flux2", device: "default" }),
+        "3": node("VAELoader", { vae_name: "flux2-vae.safetensors" }),
+        "4": node("CLIPTextEncode", { clip: ["2", 0], text: input.prompt.trim() }),
+        "5": node("FluxGuidance", { conditioning: ["4", 0], guidance: 4 }),
+        "6": node("EmptyFlux2LatentImage", { width, height, batch_size: Math.max(1, Math.min(15, Number(input.params.count) || 1)) }),
+        "7": node("RandomNoise", { noise_seed: seed() }),
+        "8": node("KSamplerSelect", { sampler_name: "euler" }),
+        "9": node("Flux2Scheduler", { steps: 20, width, height }),
+        "10": node("BasicGuider", { model: ["1", 0], conditioning: ["5", 0] }),
+        "11": node("SamplerCustomAdvanced", { noise: ["7", 0], guider: ["10", 0], sampler: ["8", 0], sigmas: ["9", 0], latent_image: ["6", 0] }),
+        "12": node("VAEDecode", { samples: ["11", 0], vae: ["3", 0] }),
+        "13": node("SaveImage", { images: ["12", 0], filename_prefix: "InfiniteCanvas/FLUX.2-Dev" }),
+    };
+    let conditioning: [string, number] = ["5", 0];
+    images.forEach((image, index) => {
+        const loadId = String(20 + index * 3);
+        const encodeId = String(21 + index * 3);
+        const referenceId = String(22 + index * 3);
+        graph[loadId] = node("LoadImage", { image: image.name });
+        graph[encodeId] = node("VAEEncode", { pixels: [loadId, 0], vae: ["3", 0] });
+        graph[referenceId] = node("ReferenceLatent", { conditioning, latent: [encodeId, 0] });
+        conditioning = [referenceId, 0];
+    });
+    graph["10"].inputs.conditioning = conditioning;
     return graph;
 }
 

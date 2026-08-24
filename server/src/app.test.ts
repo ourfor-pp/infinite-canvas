@@ -12,7 +12,7 @@ process.env.DATA_DIR = testData;
 process.env.AUTH_MODE = "fnos";
 process.env.APP_SECRET = "test-secret";
 
-const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { isRetriableAgentDiagnostic, recoverAgentRuns, resolveAgentNativeTools, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }, { updateDirectorStoryboardPrompts }, { listDirectorVideoSegments }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js"), import("./director-render.js"), import("./director.js")]);
+const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { isRetriableAgentDiagnostic, recoverAgentRuns, resolveAgentNativeTools, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }, { updateDirectorStoryboardPrompts }, { listDirectorVideoSegments }, { applyDirectorAssetGeneration }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js"), import("./director-render.js"), import("./director.js"), import("./director-workspace.js")]);
 let origin = "";
 const server = app.listen(0, "127.0.0.1");
 
@@ -142,11 +142,15 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.deepEqual(initial.body.data.documents.map((item: { kind: string }) => item.kind).sort(), ["script", "story"]);
     assert.equal(initial.body.data.screenplayBreakdown.stale, true);
     assert.equal(initial.body.data.timeline.revision, 1);
-    assert.deepEqual(initial.body.data.workspace.directingRules, { intent: "", photography: "", performance: "", pacing: "", sound: "", prohibitions: "" });
-    const directingPlan = await api(`/director/projects/${projectId}/workspace`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, directingRules: { photography: "稳定观察人物与空间", performance: "克制生活化", pacing: "完整动作优先", sound: "环境声维持空间连续", prohibitions: "禁止无意义慢动作" } }) });
+    assert.deepEqual(initial.body.data.workspace.directingRules, { positioning: "", intent: "", photography: "", performance: "", pacing: "", sound: "", prohibitions: "" });
+    const directingPlan = await api(`/director/projects/${projectId}/workspace`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, directingRules: { positioning: "都市悬疑长片；冷峻克制；面向成年观众", photography: "稳定观察人物与空间", performance: "克制生活化", pacing: "完整动作优先", sound: "环境声维持空间连续", prohibitions: "禁止无意义慢动作" } }) });
     assert.equal(directingPlan.response.status, 200);
     assert.equal(directingPlan.body.data.revision, 2);
     assert.equal(directingPlan.body.data.directingRules.performance, "克制生活化");
+    assert.equal(directingPlan.body.data.directingRules.positioning, "都市悬疑长片；冷峻克制；面向成年观众");
+    const directingRulesFile = await api(`/director/projects/${projectId}/file?path=${encodeURIComponent("direction/directing-rules.md")}`, userOne);
+    assert.match(directingRulesFile.body.data.content, /## 创作定位\n\n都市悬疑长片；冷峻克制；面向成年观众/);
+    assert.match(directingRulesFile.body.data.content, /## 核心导演意图/);
 
     const chapter = "林夏走进雨夜车站。她看见旧怀表，决定追查失踪案。".repeat(450);
     const novel = Array.from({ length: 100 }, (_, index) => `第${index + 1}章 雨夜\n${chapter}`).join("\n");
@@ -257,6 +261,7 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     const revisedDirection = await api(`/director/projects/${projectId}/workspace`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, directingRules: { pacing: "关键反应后保留停顿" } }) });
     assert.equal(revisedDirection.response.status, 200);
     assert.equal(revisedDirection.body.data.directingRules.photography, "稳定观察人物与空间", "局部更新导演规则必须保留其他字段");
+    assert.equal(revisedDirection.body.data.directingRules.positioning, "都市悬疑长片；冷峻克制；面向成年观众", "局部更新不得丢失创作定位章节");
     const directionStale = await api(`/director/projects/${projectId}`, userOne);
     assert.equal(directionStale.body.data.videoSegments.every((item: { payload: { needsReview?: boolean } }) => item.payload.needsReview), true, "导演规则更新只标记现有视频段待检查");
     assert.equal(directionStale.body.data.videoSegments.some((item: { payload: { storyboardStale?: boolean } }) => item.payload.storyboardStale), true, "已有故事板应因导演规则变化而过期，但不得自动重生成");
@@ -361,18 +366,20 @@ test("导演文件工程支持哈希冲突、校验和 ZIP 往返", async () => 
 test("导演素材详情按文件夹聚合主档、基础设计、声音和生产变体", async () => {
     const projectId = "director-asset-workbench";
     await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "素材工作台" }) });
+    const timestamp = new Date().toISOString();
+    db.prepare("INSERT INTO ai_providers(id,name,type,base_url,encrypted_credentials,enabled,models,concurrency,created_at,updated_at) VALUES(?,?,?,?,?,1,?,2,?,?)")
+        .run("director-asset-provider", "导演素材测试渠道", "openai-compatible", "http://127.0.0.1:9/v1", "{}", JSON.stringify([{ id: "image-model", name: "导演素材图片模型", endpoint: "openai-images-generations", output: "image", inputs: ["text", "image"], imageModes: ["generate", "edit"], maxReferenceImages: 6, imagePromptProfile: "gpt-image-2", enabled: true }]), timestamp, timestamp);
     const created = await api(`/projects/${projectId}/creative-assets`, userOne, { method: "POST", body: JSON.stringify({
         kind: "character",
         name: "林夏",
         payload: {
             description: "调查记者",
             visualDescription: "二十八岁短发女性，方脸，深色风衣。",
-            mediaDrafts: { image: { prompt: "白底角色综合身份板" }, audio: { prompt: "冷静、低声线、自然停顿", transcript: "我会把真相查清楚。" } },
+            mediaDrafts: { image: { model: "director-asset-provider::image-model", prompt: "白底角色综合身份板" }, audio: { prompt: "冷静、低声线、自然停顿", transcript: "我会把真相查清楚。" } },
         },
     }) });
     assert.equal(created.response.status, 201, JSON.stringify(created.body));
     const assetId = created.body.data.id;
-    const timestamp = new Date().toISOString();
     const insertSequence = db.prepare("INSERT INTO director_sequences (id,user_id,project_id,position,title,summary,status,payload,revision,created_at,updated_at) VALUES (?,?,?,?,?,'','draft','{}',1,?,?)");
     insertSequence.run("asset-a-later-sequence", userOne["X-Trim-Userid"], projectId, 1, "次段", timestamp, timestamp);
     insertSequence.run("asset-z-first-sequence", userOne["X-Trim-Userid"], projectId, 0, "首段", timestamp, timestamp);
@@ -390,6 +397,10 @@ test("导演素材详情按文件夹聚合主档、基础设计、声音和生�
     assert.equal(detail.body.data.sound.sampleText, "我会把真相查清楚。");
     assert.deepEqual(detail.body.data.usages.map((item: { title: string }) => item.title), ["首段第一镜", "首段第二镜", "次段镜头"], "使用位置必须按剧情段落位置和视频段位置排序，而不是按随机 ID 排序");
     assert.deepEqual(detail.body.data.usages.map((item: { sequencePosition: number; segmentPosition: number }) => [item.sequencePosition, item.segmentPosition]), [[0, 0], [0, 1], [1, 0]]);
+    db.prepare("UPDATE creative_assets SET revision=20 WHERE user_id=? AND id=?").run(userOne["X-Trim-Userid"], assetId);
+    const indexed = db.prepare("SELECT revision FROM director_file_index WHERE user_id=? AND project_id=? AND entity_id=?").get(userOne["X-Trim-Userid"], projectId, assetId) as { revision: number };
+    assert.equal(indexed.revision, 1, "文件索引 revision 应保持独立");
+    assert.equal((await api(`/director/assets/${assetId}/detail`, userOne)).body.data.revision, 20, "导演素材必须返回创作资产 revision，不能误用文件索引 revision");
     assert.equal((await api(`/director/assets/${assetId}/detail`, userTwo)).response.status, 404);
 
     const imageForm = new FormData();
@@ -397,6 +408,13 @@ test("导演素材详情按文件夹聚合主档、基础设计、声音和生�
     const image = await api("/files", userOne, { method: "POST", body: imageForm });
     const withImage = await api(`/director/assets/${assetId}/media-inputs`, userOne, { method: "POST", body: JSON.stringify({ fileId: image.body.data.fileId, target: "primary-visual" }) });
     assert.equal(withImage.body.data.primaryVisual.inputs.length, 1);
+    const generationPreview = await api(`/director/assets/${assetId}/generation-preview`, userOne, { method: "POST", body: JSON.stringify({ target: "primary-visual", expectedHash: withImage.body.data.primaryVisual.hash }) });
+    assert.equal(generationPreview.response.status, 200, JSON.stringify(generationPreview.body));
+    assert.match(generationPreview.body.data.prompt, /横版 16:9 角色身份板/);
+    assert.equal(generationPreview.body.data.references.some((item: { fileId: string }) => item.fileId === withImage.body.data.primaryVisual.inputs[0].fileId), true, "详情页预检必须返回实际送模的输入图");
+    assert.equal(applyDirectorAssetGeneration(userOne["X-Trim-Userid"], { assetId, target: "primary-visual", expectedHash: withImage.body.data.primaryVisual.hash }, image.body.data.fileId), true);
+    const generatedAsset = (await api(`/creative-assets/${assetId}`, userOne)).body.data as { payload: { primaryImageId: string; variants: Array<{ id: string; label: string }> } };
+    assert.equal(generatedAsset.payload.variants.find((item) => item.id === generatedAsset.payload.primaryImageId)?.label, "primary", "主形象生成结果必须成为素材卡主图");
 
     for (const name of ["voice-a.wav", "voice-b.wav"]) {
         const audioForm = new FormData();
@@ -417,6 +435,7 @@ test("导演素材详情按文件夹聚合主档、基础设计、声音和生�
     const deleted = await api(`/director/assets/${assetId}/variants/var-001-raincoat`, userOne, { method: "DELETE" });
     assert.equal(deleted.response.status, 200);
     assert.equal(deleted.body.data.variants.length, 0);
+    db.prepare("DELETE FROM ai_providers WHERE id=?").run("director-asset-provider");
 });
 
 test("创作资产按项目隔离、保存自然语言描述并检测 revision", async () => {
@@ -493,11 +512,14 @@ test("视觉风格支持项目默认、画布放置、隔离和删除回收", as
     assert.equal(deleted.body.data.nodes.some((node: { metadata?: { visualStyleId?: string } }) => node.metadata?.visualStyleId === styleId), false);
 });
 
-test("内置视觉风格提供原创预览和完整 DNA，创建时展开为项目快照", async () => {
-    const templates = (await api("/visual-style-templates", userOne)).body.data as Array<{ id: string; category: string; preview: string; tagline: string; description: string; dna: Record<string, string | string[]> }>;
-    assert.equal(templates.length, 25);
+test("内置视觉风格提供原创预览、题材标签和完整 DNA，创建时展开为项目快照", async () => {
+    const templates = (await api("/visual-style-templates", userOne)).body.data as Array<{ id: string; category: string; tags: string[]; preview: string; tagline: string; description: string; dna: Record<string, string | string[]> }>;
+    assert.equal(templates.length, 94);
     assert.deepEqual(new Set(templates.map((item) => item.category)), new Set(["cinematic", "genre", "eastern", "animation", "handmade", "graphic"]));
-    assert.equal(templates.every((item) => item.preview === `visual-styles/${item.id}.webp` && item.tagline && item.description), true);
+    assert.deepEqual(new Set(templates.map((item) => item.dna.mediumFamily)), new Set(["live_action", "animation_2d", "animation_3d", "illustration", "handmade", "graphic"]));
+    assert.equal(new Set(templates.map((item) => item.id)).size, templates.length);
+    assert.equal(["sixteen-mm-indie", "anime-feature-detailed", "photoreal-cg-film", "classical-oil-painting", "puppet-stop-motion", "art-deco-cinema"].every((templateId) => templates.some((item) => item.id === templateId)), true);
+    assert.equal(templates.every((item) => item.preview === `visual-styles/${item.id}.webp` && item.tags.length > 0 && item.tagline && item.description), true);
     assert.equal(templates.every((item) => Object.entries(item.dna).every(([key, value]) => key === "exclusions" ? (value as string[]).length > 0 : String(value).trim().length > 0)), true);
 
     const projectId = "built-in-style-project";
@@ -553,6 +575,9 @@ test("导演风格板迁入工程目录并随 Markdown 风格变化失效", asyn
     const revisedFile = await api(`/director/projects/${projectId}/file?path=${encodeURIComponent("direction/visual-style.md")}`, userOne);
     assert.doesNotMatch(revisedFile.body.data.content, /referenceBoard:/);
     assert.equal((await fetch(`${origin}/director/projects/${projectId}/direction/style-board`, { headers: userOne })).status, 404);
+    const revisedStyle = (await api(`/projects/${projectId}/visual-styles`, userOne)).body.data.find((item: { id: string }) => item.id === created.body.data.id);
+    assert.equal(revisedStyle.mode, "custom");
+    assert.equal(revisedStyle.templateId, "ink-wash", "本地修改不应丢失内置模板来源");
 });
 
 test("Agent 画布操作校验语义端口类型和单连接限制", async () => {
@@ -918,11 +943,13 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
     const address = fakeComfy.address();
     if (!address || typeof address === "string") throw new Error("ComfyUI 模拟服务启动失败");
     try {
-        await api("/admin/comfyui/servers", userOne, { method: "POST", body: JSON.stringify({ name: "测试节点", url: `http://127.0.0.1:${address.port}`, enabled: true, models: ["hidream-o1-full-fp8-local", "qwen-image-edit-2511-local", "realesrgan-x4-local"] }) });
+        await api("/admin/comfyui/servers", userOne, { method: "POST", body: JSON.stringify({ name: "测试节点", url: `http://127.0.0.1:${address.port}`, enabled: true, models: ["hidream-o1-full-fp8-local", "flux2-dev-fp8-local", "qwen-image-edit-2511-local", "realesrgan-x4-local"] }) });
         const ordinaryModels = await api("/ai/models", userTwo);
         assert.equal(JSON.stringify(ordinaryModels.body).includes(String(address.port)), false);
         assert.equal(ordinaryModels.body.data.some((model: { id: string }) => model.id === "hidream-o1-full-fp8-local"), true);
         assert.deepEqual(ordinaryModels.body.data.find((model: { id: string }) => model.id === "qwen-image-edit-2511-local").imageModes, ["edit"]);
+        assert.deepEqual(ordinaryModels.body.data.find((model: { id: string }) => model.id === "flux2-dev-fp8-local").imageModes, ["generate", "edit"]);
+        assert.equal(ordinaryModels.body.data.find((model: { id: string }) => model.id === "flux2-dev-fp8-local").maxReferenceImages, 6);
         assert.equal(ordinaryModels.body.data.some((model: { id: string }) => model.id === "realesrgan-x4-local"), false);
         assert.equal((await api("/admin/comfyui/servers", userTwo)).response.status, 403);
         const directWorkflow = await api("/generations", userOne, { method: "POST", body: JSON.stringify({ kind: "image", model: "comfyui::realesrgan-x4-local", prompt: "不应直接选择" }) });

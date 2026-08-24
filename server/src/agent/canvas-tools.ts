@@ -59,11 +59,16 @@ export const canvasToolSchemas = {
     creative_assets_create_batch: z.object({ projectId: z.string().optional(), sourceNodeId: z.string().optional(), items: z.array(creativeAssetInputSchema).min(1).max(200) }),
     creative_asset_update: z.object({ projectId: z.string().optional(), assetId: z.string(), revision: z.number().int().positive(), patch: creativeAssetInputSchema.partial() }),
     creative_asset_place: z.object({ projectId: z.string().optional(), assetId: z.string(), x: z.number().optional(), y: z.number().optional() }),
-    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), nodeId: z.string().optional(), kind: z.enum(["image", "audio"]), revision: z.number().int().positive(), mediaRole: z.enum(["face_closeup", "body_front", "body_back"]).optional() }),
+    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), nodeId: z.string().optional(), kind: z.enum(["image", "audio"]), revision: z.number().int().positive() }),
     creative_asset_set_primary: z.object({ projectId: z.string().optional(), assetId: z.string(), variantId: z.string(), revision: z.number().int().positive() }),
     creative_asset_delete: z.object({ projectId: z.string().optional(), assetId: z.string() }),
     visual_styles_list: z.object({ projectId: z.string().optional() }),
-    visual_style_templates_list: z.object({ category: z.enum(["cinematic", "genre", "eastern", "animation", "handmade", "graphic"]).optional(), keyword: z.string().trim().max(100).optional() }),
+    visual_style_templates_list: z.object({
+        mediumFamily: z.enum(["live_action", "animation_2d", "animation_3d", "illustration", "handmade", "graphic"]).optional(),
+        category: z.enum(["cinematic", "genre", "eastern", "animation", "handmade", "graphic"]).optional(),
+        tag: z.string().trim().max(30).optional(),
+        keyword: z.string().trim().max(100).optional(),
+    }),
     visual_style_get: z.object({ projectId: z.string().optional(), styleId: z.string() }),
     visual_style_create: z.object({ projectId: z.string().optional(), name: z.string().min(1).max(200), mode: z.enum(["template", "custom"]), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), status: z.enum(["draft", "confirmed"]).optional(), dna: z.record(z.string(), z.unknown()).optional(), references: z.record(z.string(), z.string()).optional() }),
     visual_style_update: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive(), name: z.string().min(1).max(200).optional(), mode: z.enum(["template", "custom"]).optional(), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), status: z.enum(["draft", "confirmed"]).optional(), dna: z.record(z.string(), z.unknown()).optional(), references: z.record(z.string(), z.string()).optional() }),
@@ -228,7 +233,16 @@ function assertAgentStyle(userId: string, projectId: string, styleId: string) {
     return style;
 }
 export function listAgentVisualStyles(userId: string, projectId: string) { return listVisualStyles(userId, projectId); }
-export function listAgentVisualStyleTemplates(input: z.infer<typeof canvasToolSchemas.visual_style_templates_list>) { const keyword = input.keyword?.toLowerCase(); return listVisualStyleTemplates().filter((item) => (!input.category || item.category === input.category) && (!keyword || `${item.name} ${item.tagline} ${item.description}`.toLowerCase().includes(keyword))); }
+export function listAgentVisualStyleTemplates(input: z.infer<typeof canvasToolSchemas.visual_style_templates_list>) {
+    const keyword = input.keyword?.toLowerCase();
+    return listVisualStyleTemplates().filter((item) => {
+        if (input.mediumFamily && item.dna.mediumFamily !== input.mediumFamily) return false;
+        if (input.category && item.category !== input.category) return false;
+        if (input.tag && !item.tags.includes(input.tag)) return false;
+        const dna = Object.values(item.dna).flat().join(" ");
+        return !keyword || `${item.name} ${item.tagline} ${item.description} ${item.tags.join(" ")} ${dna}`.toLowerCase().includes(keyword);
+    });
+}
 export function getAgentVisualStyle(userId: string, projectId: string, styleId: string) { return assertAgentStyle(userId, projectId, styleId); }
 export function createAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_create>) { return createVisualStyle(userId, projectId, input); }
 export function updateAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_update>) { assertAgentStyle(userId, projectId, input.styleId); const { projectId: _projectId, styleId, ...patch } = input; return updateVisualStyle(userId, styleId, patch); }

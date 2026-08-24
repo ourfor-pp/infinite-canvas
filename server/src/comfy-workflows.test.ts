@@ -15,9 +15,41 @@ test("Qwen 2512 按比例生成并根据质量选择步数", () => {
     assert.equal(high["7"], undefined);
 });
 
-test("HiDream 不再把全部横图固定为 16:9", () => {
-    const workflow = buildComfyWorkflow({ model: "hidream-o1-full-fp8-local", prompt: "测试", params: { size: "4:3" }, files: [] });
-    assert.deepEqual(workflow["6"].inputs, { width: 1920, height: 1440, batch_size: 1 });
+test("HiDream 使用最接近画布比例的原生约 4MP 分辨率并保持官方模型链路", () => {
+    const square = buildComfyWorkflow({ model: "hidream-o1-full-fp8-local", prompt: "测试", params: { size: "1:1" }, files: [] });
+    const landscape = buildComfyWorkflow({ model: "hidream-o1-full-fp8-local", prompt: "测试", params: { size: "4:3" }, files: [] });
+    const portrait = buildComfyWorkflow({ model: "hidream-o1-full-fp8-local", prompt: "测试", params: { size: "9:16" }, files: [] });
+    assert.deepEqual(square["6"].inputs, { width: 2048, height: 2048, batch_size: 1 });
+    assert.deepEqual(landscape["6"].inputs, { width: 2304, height: 1728, batch_size: 1 });
+    assert.deepEqual(portrait["6"].inputs, { width: 1440, height: 2560, batch_size: 1 });
+    assert.deepEqual(square["9"].inputs.model, ["3", 0]);
+    assert.equal(square["13"], undefined);
+});
+
+test("HiDream 仅为声明纯净背景的资产确定性合成纯白底", () => {
+    const plain = buildComfyWorkflow({ model: "hidream-o1-full-fp8-local", prompt: "单人全身像", params: { size: "1:1", __promptPackage: { checks: ["plain_background"] } }, files: [] });
+    assert.equal(plain["16"].class_type, "LoadBackgroundRemovalModel");
+    assert.equal(plain["17"].class_type, "RemoveBackground");
+    assert.deepEqual(plain["18"].inputs, { width: 2048, height: 2048, batch_size: 1, color: 0xFFFFFF });
+    assert.deepEqual(plain["19"].inputs.mask, ["17", 0]);
+    assert.deepEqual(plain["11"].inputs.images, ["19", 0]);
+    const raw = buildComfyWorkflow({ model: "hidream-o1-full-fp8-local", prompt: "雪山", params: { size: "1:1" }, files: [] });
+    assert.equal(raw["16"], undefined);
+    assert.deepEqual(raw["11"].inputs.images, ["10", 0]);
+});
+
+test("FLUX.2 Dev 使用官方 20 步链路并串联最多六张参考图", () => {
+    const model = COMFY_MODEL_DEFINITIONS["flux2-dev-fp8-local"];
+    assert.equal(model.maxReferenceImages, 6);
+    const workflow = buildComfyWorkflow({ model: "flux2-dev-fp8-local", prompt: "六人同框", params: { size: "16:9", quality: "high" }, files: Array.from({ length: 6 }, (_, index) => image(`ref-${index + 1}`)) });
+    assert.deepEqual(workflow["6"].inputs, { width: 2560, height: 1440, batch_size: 1 });
+    assert.deepEqual(workflow["9"].inputs, { steps: 20, width: 2560, height: 1440 });
+    assert.equal(workflow["8"].inputs.sampler_name, "euler");
+    assert.equal(workflow["5"].inputs.guidance, 4);
+    assert.equal(workflow["22"].class_type, "ReferenceLatent");
+    assert.deepEqual(workflow["37"].inputs.conditioning, ["34", 0]);
+    assert.deepEqual(workflow["10"].inputs.conditioning, ["37", 0]);
+    assert.throws(() => buildComfyWorkflow({ model: "flux2-dev-fp8-local", prompt: "超限", params: {}, files: Array.from({ length: 7 }, (_, index) => image(`ref-${index + 1}`)) }), /最多支持 6 张/);
 });
 
 test("Qwen Edit 限制三张参考图并装配多参考输入", () => {

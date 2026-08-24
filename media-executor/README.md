@@ -40,6 +40,8 @@ VoxCPM2 所在的 CUDA 13 ComfyUI 正式服务需要额外的 NVRTC 动态库路
 
 H3 生态安装器把固定 ComfyUI、KJNodes 与 Turbo 节点部署到新的 revision 目录，在独立 8190 端口同时探测 AddGuide、Turbo、Sage Attention 和 `SaveVideo` 后才切换 `/home/cec/ComfyUI-H3-current`。旧 checkout 不删除，可用于回滚。Turbo 权重保存在 SSD 并记录 revision、SHA256 与上游许可入口；只有正式的固定样例视频和原声音频基准通过后，才应将 Turbo 作为默认预览配方。
 
+FLUX.2 Dev 使用 `scripts/install-flux2-dev.sh` 通过 ModelScope SDK 从官方 `Comfy-Org/flux2-dev` 同仓的固定 revision 直接下载 FP8 mixed diffusion、FP8 Mistral 3 Small 文本编码器和 VAE，不保留双份 Git LFS 对象缓存。约 53.8 GB 的实体文件保存在 NVMe 的 `/home/cec/.local/share/comfyui-models`，`/data/sas/ComfyUI/models` 仅放三个稳定软链接；安装器会校验 SHA256，并拒绝覆盖已有真实模型文件。该模型受 FLUX Non-Commercial License v2.1 约束，当前只用于本地内部测试与评估。
+
 ACE XL 与 MiniMax H3 推理前必须排空其他常驻 GPU 服务。用 `scripts/configure-gpu-drain.sh` 配置本机 unit 列表；执行器会在 ACE 任务或 H3 ComfyUI 提交前暂停冲突服务，等对应任务及队列完成后恢复原先处于 active 的服务。H3 默认暂停 Qwen TTS、MOSS SoundEffect 和普通 ComfyUI，但不会停止承载 H3 队列的 `comfyui-h3.service`。若包含系统级 unit，按 `systemd/infinite-media-executor-sudoers` 为执行器账号配置最小化 `systemctl` 权限。
 
 安装器只生成和启用 unit，不会在运行时尚未通过 smoke test 时自动启动。执行器监听 `0.0.0.0:8290`，子运行时始终只监听回环地址；正式跨机器使用时还应由防火墙只放行业务服务器 IP。

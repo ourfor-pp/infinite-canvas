@@ -1,4 +1,4 @@
-import { serverRequest, uploadServerFile, type ServerGeneration } from "./server";
+import { serverRequest, uploadServerFile, type CreativeAssetGenerationPreview, type ServerGeneration } from "./server";
 import type { DirectorAssetDetail, DirectorDocument, DirectorLogicalDocument, DirectorProject, DirectorRender, DirectorScreenplayBreakdown, DirectorSequence, DirectorSource, DirectorState, DirectorTimeline, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
 import { serverApiUrl } from "./server";
 
@@ -49,9 +49,10 @@ export const directorApi = {
     cancelRender: (id: string) => serverRequest<DirectorRender>(`/director/renders/${enc(id)}/cancel`, { method: "POST" }),
     retryRender: (id: string) => serverRequest<DirectorRender>(`/director/renders/${enc(id)}/retry`, { method: "POST" }),
     assetDetail: (id: string) => serverRequest<DirectorAssetDetail>(`/director/assets/${enc(id)}/detail`),
+    previewAssetGeneration: (id: string, value: { target: "primary-visual" | "variant-visual" | "sound"; variantId?: string; expectedHash: string }) => serverRequest<CreativeAssetGenerationPreview>(`/director/assets/${enc(id)}/generation-preview`, { method: "POST", body: JSON.stringify(value) }),
     addAssetMediaInput: (id: string, value: { fileId: string; target: "primary-visual" | "variant-visual" | "sound"; variantId?: string }) => serverRequest<DirectorAssetDetail>(`/director/assets/${enc(id)}/media-inputs`, { method: "POST", body: JSON.stringify(value) }),
     removeAssetMediaInput: (id: string, inputId: string) => serverRequest<DirectorAssetDetail>(`/director/assets/${enc(id)}/media-inputs/${enc(inputId)}`, { method: "DELETE" }),
     deleteAssetVariant: (id: string, variantId: string) => serverRequest<DirectorAssetDetail>(`/director/assets/${enc(id)}/variants/${enc(variantId)}`, { method: "DELETE" }),
-    generateAsset: (id: string, value: { target: "primary-visual" | "variant-visual" | "sound"; mediaRole?: string; variantId?: string; expectedHash: string }) => serverRequest<ServerGeneration>(`/director/assets/${enc(id)}/generate`, { method: "POST", body: JSON.stringify(value) }),
+    generateAsset: (id: string, value: { target: "primary-visual" | "variant-visual" | "sound"; variantId?: string; expectedHash: string }) => serverRequest<ServerGeneration>(`/director/assets/${enc(id)}/generate`, { method: "POST", body: JSON.stringify(value) }),
     deleteProject: (id: string) => serverRequest(`/projects/${enc(id)}`, { method: "DELETE" }),
 };
