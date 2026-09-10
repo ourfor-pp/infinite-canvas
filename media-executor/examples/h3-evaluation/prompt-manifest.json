@@ -1,0 +1,15 @@
+{
+  "repository": "MiniMax-AI/MiniMax-H3",
+  "revision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "path": "skills/h3-prompt-writing",
+  "prompts": {
+    "ref2va.txt": "1427be5058e9e9e9dd857f17ec22303a485626769d9ad5d72263b4139978722c",
+    "i2va.txt": "3516106ed32197a9d5ec6694accdeb7ff900b6cdd71ae83f8b57c1b7f1f1a4fc"
+  },
+  "image": {
+    "repository": "alibaba-pai/MiniMax-H3-Acc-LoRAs",
+    "revision": "335001fb9e5455d68a0caa18ec2e319072150328",
+    "path": "asset/ref2va_test_5_1.jpg",
+    "sha256": "df46f5f157b0bcddb603646532e9746f709d663cb4787332603c90373691a8d7"
+  }
+}

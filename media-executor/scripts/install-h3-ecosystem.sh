@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-comfy_commit="${COMFY_H3_COMMIT:-7fe8a6138504f90ff7be82f3babf416da32876b1}"
+comfy_commit="${COMFY_H3_COMMIT:-40c4fcdf513a4523e39d54a9d391908af8df8171}"
 turbo_commit="${H3_TURBO_NODE_COMMIT:-4274783a23afcfdbea3b4876cb79effd6c510785}"
 kj_nodes_commit="${H3_KJ_NODES_COMMIT:-6edfa76599c13905968841b81309784a7dbb7803}"
 turbo_revision="${H3_TURBO_LORA_REVISION:-43a74557ac3f6539db8e0f2a959d03feb7a81480}"
@@ -60,7 +60,7 @@ sha256="$(sha256sum "$turbo_path" | cut -d' ' -f1)"
 printf '{\n  "repository": "larryvrh/MiniMax-H3-Turbo-Lora",\n  "revision": "%s",\n  "file": "%s",\n  "sha256": "%s",\n  "license": "Apache-2.0"\n}\n' "$turbo_revision" "$turbo_name" "$sha256" > "$manifest"
 
 log_file="$(mktemp)"
-"$target/.venv/bin/python" "$target/main.py" --listen 127.0.0.1 --port 8190 --models-directory "$model_entry_root" --disable-auto-launch > "$log_file" 2>&1 &
+"$target/.venv/bin/python" "$target/main.py" --listen 127.0.0.1 --port 8190 --models-directory "$model_entry_root" --disable-auto-launch --disable-comfy-compiler > "$log_file" 2>&1 &
 probe_pid=$!
 cleanup() { kill "$probe_pid" 2>/dev/null || true; wait "$probe_pid" 2>/dev/null || true; }
 trap cleanup EXIT

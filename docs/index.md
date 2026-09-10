@@ -21,6 +21,11 @@
 - [Canvas Data Structure](/docs/development/canvas-data-structure)
 - [Director File Project Format](/docs/development/director-file-project)
 - [Local ComfyUI Integration Handoff](./COMFYUI_HANDOFF.md)
+- [MiniMax H3 Ecosystem and Iteration Research](./research/minimax-h3-ecosystem-iteration.md)
+- [MiniMax H3 First-batch Validation](./research/minimax-h3-first-batch-validation.md)
+- [MiniMax H3 Multi-scenario Validation](./research/minimax-h3-second-batch-validation.md)
+- [MiniMax H3 Ref2V v1.0 and Upgrade Validation](./research/minimax-h3-ref8-upgrade-validation.md)
+- [MiniMax H3 Community Anomaly Research](./research/minimax-h3-community-anomalies.md)
 
 ## Business
 

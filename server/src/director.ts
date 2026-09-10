@@ -1,3 +1,4 @@
+import { h3AudioReferencesInput } from "./h3-prompt.js";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { nanoid } from "nanoid";
@@ -8,7 +9,7 @@ import { z } from "zod";
 import { db, parseJson } from "./database.js";
 import { getStoredFile, syncFileRefs } from "./file-store.js";
 import {
-    reconcileDirectorProjectFiles, syncDirectorBreakdownFile, syncDirectorDirectionFiles, syncDirectorDocumentFile,
+    getDirectorAssetDetail, reconcileDirectorProjectFiles, syncDirectorBreakdownFile, syncDirectorDirectionFiles, syncDirectorDocumentFile,
     syncDirectorSequenceFile, syncDirectorSourceFiles, syncDirectorTimelineFile, syncDirectorVideoSegmentFile, trashDirectorSequenceFolder, trashDirectorVideoSegmentFolder,
 } from "./director-workspace.js";
 
@@ -299,7 +300,7 @@ export function createDirectorShot(userId: string, projectId: string, body: unkn
     const shotId = value.id || nanoid();
     const position = value.position ?? Number((db.prepare("SELECT coalesce(max(position),-1)+1 value FROM director_shots WHERE user_id=? AND sequence_id=?").get(userId, value.sequenceId) as { value: number }).value);
     const now = new Date().toISOString();
-    const payload = normalizeShotPayload(value.payload, sequence);
+    const payload = normalizeShotPayload(value.payload, sequence, userId);
     db.prepare(`INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,status,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`)
         .run(shotId, userId, projectId, value.sequenceId, position, value.title, value.status, JSON.stringify(payload), now, now);
     syncDirectorVideoSegmentFile(userId, projectId, shotId);
@@ -314,8 +315,13 @@ export function updateDirectorShot(userId: string, shotId: string, body: unknown
     const sequence = sequenceRow(userId, sequenceId);
     if (sequence.project_id !== current.project_id) throw directorError(404, "DIRECTOR_SEQUENCE_NOT_FOUND", "剧情段落不存在");
     const currentPayload = parseJson<Record<string, unknown>>(current.payload, {});
-    const payload: Record<string, unknown> = value.payload ? normalizeShotPayload({ ...currentPayload, ...value.payload }, sequence) : currentPayload;
-    if (storyboardPlanChanged(currentPayload, payload) && payload.videoFileId) payload.videoStale = true;
+    const payload: Record<string, unknown> = value.payload ? normalizeShotPayload({ ...currentPayload, ...value.payload }, sequence, userId) : currentPayload;
+    if (["description", "dramaticBeat", "openingState", "endingState"].some((key) => currentPayload[key] !== payload[key])) {
+        payload.storyboardStale = Boolean((payload.storyboardSheet as { imageFileId?: string } | undefined)?.imageFileId);
+        payload.h3PromptStale = Boolean(payload.h3PromptSnapshot);
+        payload.videoStale = Boolean(payload.videoFileId);
+    }
+    if ((storyboardPlanChanged(currentPayload, payload) || JSON.stringify(currentPayload.audioReferences) !== JSON.stringify(payload.audioReferences)) && payload.videoFileId) payload.videoStale = true;
     const now = new Date().toISOString();
     const result = db.prepare(`UPDATE director_shots SET sequence_id=?,position=?,title=?,status=?,payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?`)
         .run(sequenceId, value.position ?? current.position, value.title ?? current.title, value.status ?? current.status, JSON.stringify(payload), now, shotId, userId, value.revision);
@@ -323,6 +329,36 @@ export function updateDirectorShot(userId: string, shotId: string, body: unknown
     if (shotVideoChanged(current.payload, payload)) markContinuationDependentsStale(userId, current.project_id, shotId);
     syncDirectorVideoSegmentFile(userId, current.project_id, shotId);
     return publish(userId, "video-segment", current.project_id, videoSegmentResponse(shotRow(userId, shotId)));
+}
+
+const segmentAssetReferenceInput = z.object({
+    revision: z.number().int().positive(), kind: z.enum(["character", "scene", "prop"]), assetId: id,
+    replaceAssetId: id.optional(), variantId: id.optional(), remove: z.boolean().default(false),
+}).strict();
+
+export function updateDirectorSegmentAssetReference(userId: string, segmentId: string, body: unknown) {
+    const value = segmentAssetReferenceInput.parse(body);
+    const segment = shotRow(userId, segmentId);
+    if (value.revision !== segment.revision) conflict("视频段", videoSegmentResponse(segment));
+    const payload = parseJson<Record<string, unknown>>(segment.payload, {});
+    const key = { character: "characterRefs", scene: "sceneRefs", prop: "propRefs" }[value.kind];
+    const current = (payload[key] || []) as Array<{ id: string; revision: number; variantId?: string }>;
+    if (value.replaceAssetId && !current.some((ref) => ref.id === value.replaceAssetId)) throw directorError(409, "DIRECTOR_REFERENCE_CHANGED", "要替换的素材已不在当前视频段中");
+    let next = current.filter((ref) => ref.id !== value.assetId && ref.id !== value.replaceAssetId);
+    if (!value.remove) {
+        const asset = db.prepare("SELECT id,revision FROM creative_assets WHERE id=? AND user_id=? AND project_id=? AND kind=?").get(value.assetId, userId, segment.project_id, value.kind) as { id: string; revision: number } | undefined;
+        if (!asset) throw directorError(404, "DIRECTOR_ASSET_NOT_FOUND", "素材不存在或不属于当前项目及类型");
+        if (value.variantId && !getDirectorAssetDetail(userId, asset.id).variants.some((variant) => variant.variantId === value.variantId)) throw directorError(400, "DIRECTOR_VARIANT_NOT_FOUND", "所选形象不属于这个素材");
+        const reference = { id: asset.id, revision: asset.revision, ...(value.variantId ? { variantId: value.variantId } : {}) };
+        const index = current.findIndex((ref) => ref.id === (value.replaceAssetId || value.assetId));
+        next.splice(index < 0 ? next.length : index, 0, reference);
+    }
+    if (JSON.stringify(current) === JSON.stringify(next)) return videoSegmentResponse(segment);
+    return updateDirectorShot(userId, segmentId, { revision: value.revision, payload: {
+        [key]: next,
+        storyboardStale: Boolean((payload.storyboardSheet as { imageFileId?: string } | undefined)?.imageFileId),
+        h3PromptStale: Boolean(payload.h3PromptSnapshot), videoStale: Boolean(payload.videoFileId),
+    } });
 }
 
 export function deleteDirectorShot(userId: string, shotId: string, allowLocked = false) {
@@ -511,7 +547,12 @@ function assertStoryboardSize(value: unknown) {
     if (!Array.isArray(value) || value.length < 4 || value.length > 9) throw directorError(400, "DIRECTOR_STORYBOARD_SIZE", "每个剧情段落的故事板必须包含 4–9 格");
 }
 
-function normalizeShotPayload(payload: Record<string, unknown>, sequence: SequenceRow) {
+function normalizeShotPayload(payload: Record<string, unknown>, sequence: SequenceRow, userId: string) {
+    const audioReferences = h3AudioReferencesInput.parse(payload.audioReferences);
+    for (const { fileId } of audioReferences) {
+        const file = getStoredFile(userId, fileId);
+        if (!file || !file.mime_type.startsWith("audio/")) throw directorError(400, "DIRECTOR_AUDIO_REFERENCE_INVALID", "音频参考文件不存在或不是音频");
+    }
     const dependencies = typeof payload.dependencies === "object" && payload.dependencies ? payload.dependencies : parseJson<Record<string, unknown>>(sequence.payload, {}).dependencies;
     const legacy = payload.references && typeof payload.references === "object" ? payload.references as Record<string, unknown> : {};
     const refs = (value: unknown) => Array.isArray(value) ? value : [];
@@ -524,7 +565,7 @@ function normalizeShotPayload(payload: Record<string, unknown>, sequence: Sequen
     const sheetChanged = Boolean(existingSheet && existingFrames.length !== frameCount);
     const storyboardSheet = existingSheet && !sheetChanged ? { ...existingSheet, layout: storyboardLayout(frameCount), frames: normalizeStoryboardFrames(existingFrames, durationSeconds) } : buildStoryboardSheet(durationSeconds, frameCount, payload, existingFrames, Number(existingSheet?.revision || 0) + 1);
     const { references: _references, h3ModeOverride: _h3ModeOverride, firstFrameFileId: _firstFrameFileId, lastFrameFileId: _lastFrameFileId, ...cleanPayload } = payload;
-    return { ...cleanPayload, entityKind: "video-segment", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), storyboardFrameCount: frameCount, storyboardSheet, ...(sheetChanged ? { videoStale: Boolean(payload.videoFileId) } : {}), dependencies, needsReview: false };
+    return { ...cleanPayload, audioReferences, entityKind: "video-segment", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), storyboardFrameCount: frameCount, storyboardSheet, ...(sheetChanged ? { videoStale: Boolean(payload.videoFileId) } : {}), dependencies, needsReview: false };
 }
 
 export function recommendedStoryboardFrameCount(durationSeconds: number) { return durationSeconds <= 6 ? 4 : durationSeconds <= 10 ? 6 : 9; }
@@ -614,7 +655,7 @@ function videoSegmentPromptResponse(segment: ReturnType<typeof videoSegmentRespo
     const sheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : {};
     const frames = Array.isArray(sheet.frames) ? sheet.frames as Array<Record<string, unknown>> : [];
     return { ...segment, payload: {
-        durationSeconds: payload.durationSeconds, sourceSceneId: payload.sourceSceneId, sourceBeatIds: payload.sourceBeatIds, sourceDurationSeconds: payload.sourceDurationSeconds, dramaticBeat: payload.dramaticBeat, openingState: payload.openingState, endingState: payload.endingState, boundary: payload.boundary, continuationFromSegmentId: payload.continuationFromSegmentId, description: payload.description, action: payload.action, dialogue: payload.dialogue, narration: payload.narration, soundDesign: payload.soundDesign, h3VisualDescription: payload.h3VisualDescription, h3Soundscape: payload.h3Soundscape, h3NonDiegeticMusic: payload.h3NonDiegeticMusic,
+        audioReferences: payload.audioReferences, durationSeconds: payload.durationSeconds, sourceSceneId: payload.sourceSceneId, sourceBeatIds: payload.sourceBeatIds, sourceDurationSeconds: payload.sourceDurationSeconds, dramaticBeat: payload.dramaticBeat, openingState: payload.openingState, endingState: payload.endingState, boundary: payload.boundary, continuationFromSegmentId: payload.continuationFromSegmentId, description: payload.description, action: payload.action, dialogue: payload.dialogue, narration: payload.narration, soundDesign: payload.soundDesign, h3VisualDescription: payload.h3VisualDescription, h3Soundscape: payload.h3Soundscape, h3NonDiegeticMusic: payload.h3NonDiegeticMusic,
         characterRefs: payload.characterRefs, sceneRefs: payload.sceneRefs, propRefs: payload.propRefs,
         storyboardStale: Boolean(payload.storyboardStale), videoStale: Boolean(payload.videoStale),
         storyboardSheet: { revision: sheet.revision, layout: sheet.layout, hasImage: Boolean(sheet.imageFileId), hasPrompt: Boolean(sheet.promptSnapshot), frames: frames.map((frame) => ({ id: frame.id, position: frame.position, shotNumber: frame.shotNumber, timeSeconds: frame.timeSeconds, kind: frame.kind, description: frame.description, action: frame.action, cameraAngle: frame.cameraAngle, cameraMove: frame.cameraMove, h3Visual: frame.h3Visual, dialogue: frame.dialogue, sound: frame.sound })) },

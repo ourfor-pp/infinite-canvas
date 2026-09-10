@@ -1,0 +1,95 @@
+{
+  "comfyRevision": "40c4fcdf513a4523e39d54a9d391908af8df8171",
+  "vdnNodeRevision": "7271c648d7c2ff61ae1a7342dd9761e4545a34c3",
+  "files": [
+    {
+      "repository": "lightx2v/Minimax-h3-Turbo",
+      "source": "modelscope",
+      "revision": "94b21758d9f5ff45b2a8e3cfc1875caf8c53cf01",
+      "path": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "sha256": "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c",
+      "bytes": 1956193000
+    },
+    {
+      "repository": "lightx2v/Minimax-h3-Turbo",
+      "source": "modelscope",
+      "revision": "9056a6d9bdb2f0b2de6f03cbf4e3ad399df57343",
+      "path": "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+      "sha256": "6a56f41ab4229c9dd845b9501bbd475ee57e112d846cf2e819d534a1ae928c5a",
+      "bytes": 1956193000
+    },
+    {
+      "repository": "OpenVDN/vdn-minimax-h3",
+      "source": "modelscope",
+      "revision": "fe0f5d1258e3cce0599489deb117b55abec2c4f0",
+      "path": "stage-dmd-step-250/adapters/turbo/adapter_config.json",
+      "sha256": "627968f670747c29cd7a0d3f8c75166e501d70f9e829b5cd3242a8f14cefbc18",
+      "bytes": 22264
+    },
+    {
+      "repository": "OpenVDN/vdn-minimax-h3",
+      "source": "modelscope",
+      "revision": "58919d6cf23f25aad47b8a53b38387b5b880a411",
+      "path": "stage-dmd-step-250/adapters/default/adapter_config.json",
+      "sha256": "89e0ff8920b9629b826eb99ab6150cce6924a53aa445186d1b493225fd091b96",
+      "bytes": 415
+    },
+    {
+      "repository": "OpenVDN/vdn-minimax-h3",
+      "source": "modelscope",
+      "revision": "fe0f5d1258e3cce0599489deb117b55abec2c4f0",
+      "path": "stage-dmd-step-250/adapters/turbo/adapter_model.safetensors",
+      "sha256": "24fc93c82fe84dc45d0627f4e72c637bc387d282ba18f60ed3b7f8c81089392c",
+      "bytes": 851452696
+    },
+    {
+      "repository": "OpenVDN/vdn-minimax-h3",
+      "source": "modelscope",
+      "revision": "fe0f5d1258e3cce0599489deb117b55abec2c4f0",
+      "path": "stage-dmd-step-250/adapters/default/adapter_model.safetensors",
+      "sha256": "58558fef506f88bb41649242de9b9b3a365da806b51b2e96afbbe1625222058a",
+      "bytes": 334026912
+    },
+    {
+      "repository": "OpenVDN/vdn-minimax-h3",
+      "source": "modelscope",
+      "revision": "fe0f5d1258e3cce0599489deb117b55abec2c4f0",
+      "path": "stage-dmd-step-250/linear_branch/config.json",
+      "sha256": "decb06ac7e664610f677fb445318502b3c51f9c1b8603a2cdd00b16042be5bc8",
+      "bytes": 465
+    },
+    {
+      "repository": "OpenVDN/vdn-minimax-h3",
+      "source": "modelscope",
+      "revision": "3674e3a5183da3782bdd7e57b83adb8b99a759ba",
+      "path": "stage-dmd-step-250/metadata.json",
+      "sha256": "54054ceb1c91b3fdf7fa0278e4a8841c127e8cf666b5e240d69613661f9d3e9e",
+      "bytes": 463
+    },
+    {
+      "repository": "OpenVDN/vdn-minimax-h3",
+      "source": "modelscope",
+      "revision": "3674e3a5183da3782bdd7e57b83adb8b99a759ba",
+      "path": "stage-dmd-step-250/linear_branch/model.safetensors",
+      "sha256": "dec6981c7874f5b3bc92d1a02e256b673a3b3499dc1a124714bb3b19da602855",
+      "bytes": 4279428112
+    },
+    {
+      "repository": "OpenVDN/vdn-minimax-h3",
+      "source": "modelscope",
+      "revision": "3674e3a5183da3782bdd7e57b83adb8b99a759ba",
+      "path": "stage-dmd-step-250/model_spec.json",
+      "sha256": "4171f4384e952f1f73467981a893440c03298af4956b947e2c8a857ba9f5a62b",
+      "bytes": 25705
+    },
+    {
+      "repository": "alibaba-pai/MiniMax-H3-Acc-LoRAs",
+      "source": "huggingface",
+      "revision": "335001fb9e5455d68a0caa18ec2e319072150328",
+      "path": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors",
+      "sha256": "111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c",
+      "bytes": 1372450680
+    }
+  ],
+  "pddNodeRevision": "311a65dd53832d8a5f8177a9d5fb923c09e35a90"
+}

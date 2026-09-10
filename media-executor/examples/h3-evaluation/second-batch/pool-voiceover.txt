@@ -1,0 +1,29 @@
+subject_definitions:
+<Subject 1> is the swimmer partially visible amid splashes in <Picture 1>; retain one swimmer moving within one lane.
+<Subject 2> is the turquoise pool and its blue-and-white lane ropes in <Picture 1>.
+(S1) is an off-screen adult female narrator with a calm, clear Mandarin voice; she has no visible body in the target shot.
+
+summary:
+[reference generation] Create a 5.167-second single shot of the swimmer progressing toward screen-right with one short off-screen narration.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - a single swimmer and continuous swimming motion.
+<Subject 2> (appears in [Shot 1]): fully_preserved - turquoise water, parallel lane ropes and daylight reflections.
+
+detailed_description:
+The target video has a natural live-action sports-observation style with bright daylight, realistic water motion and a fixed elevated camera.
+[Shot 1] A wide view looks down obliquely across <Subject 2>. Parallel blue-and-white lane ropes run diagonally through the image and divide the turquoise water into regular lanes. <Subject 1> occupies the middle lane, partly hidden beneath a low burst of white splashing water. The image contains one swimmer. Keep the lane spacing, alternating rope colors and bright water surface consistent with the reference. Sunlight catches the small wave crests while deeper parts of the water appear slightly darker.
+
+Beginning at the first frame, the swimmer continues forward toward screen-right within the same lane. The body advances gradually with a steady front-crawl rhythm. Alternating arms disturb the surface near the swimmer rather than appearing as disconnected shapes elsewhere in the pool. Small splashes rise and fall around each stroke, and a narrow wake trails behind. The swimmer stays between the same two lane ropes throughout. The adjacent lanes remain empty, and their rope floats bob only gently as the wake reaches them.
+
+From 00:00.500 to 00:03.500, (S1), an off-screen adult female narrator with a clear, medium-pitched voice, says calmly in Mandarin: <d>[Chinese] 慢慢来，保持呼吸。</d> Her voice is close and intelligible, with a short natural pause at the comma. The narration comes from outside the visible scene and is not spoken by the swimmer. No speaking mouth, narrator, caption or title appears in the image. The swimmer maintains the same stroke rhythm throughout the sentence, with the head mostly low in the water.
+
+As the line finishes, the swimmer has progressed a modest visible distance toward screen-right while remaining inside the camera frame. The next arm stroke lifts another brief splash that breaks into small droplets and falls back into the pool. Ripples expand outward and gently rock the nearby rope floats. Preserve physically continuous movement: the body neither jumps to another lane nor reverses direction, and the number of limbs does not change.
+
+The camera holds the same elevated position until the final frame at 00:05.167. Natural water splashes continue after the voice ends. The bright reflections flicker on the moving surface, but the overall exposure, perspective and lane geometry stay stable. There is no cut, zoom, sudden acceleration or additional voice during the closing interval.
+
+overall_soundscape:
+Continuous pool splashes and soft water wash follow the visible strokes. No crowd conversation, whistle or music.
+
+non_diegetic_music:
+N/A

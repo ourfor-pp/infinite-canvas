@@ -1,0 +1,1567 @@
+{
+  "asrModels": {
+    "qwen3AsrRevision": "deba00eb976b8daf9805ffd5d0fdcd7cafbb21b2",
+    "qwen3AlignerRevision": "1c85775dfe71a2a90e6aeea682c6eb9df3d8848b",
+    "independentCachedMetadata": {
+      "SenseVoiceSmall": "Revision:master,CreatedAt:1727321787",
+      "FSMN-VAD": "Revision:master,CreatedAt:1707184291"
+    },
+    "independentWeightsSha256": {
+      "SenseVoiceSmall": "833ca2dcfdf8ec91bd4f31cfac36d6124e0c459074d5e909aec9cabe6204a3ea",
+      "speech_fsmn_vad_zh-cn-16k-common-pytorch": "b3be75be477f0780277f3bae0fe489f48718f585f3a6e45d7dd1fbb1a4255fc5"
+    }
+  },
+  "tailCrosscheck": {
+    "models": {
+      "SenseVoiceSmall": "833ca2dcfdf8ec91bd4f31cfac36d6124e0c459074d5e909aec9cabe6204a3ea",
+      "speech_fsmn_vad_zh-cn-16k-common-pytorch": "b3be75be477f0780277f3bae0fe489f48718f585f3a6e45d7dd1fbb1a4255fc5"
+    },
+    "cropStartSeconds": 3.0,
+    "results": [
+      {
+        "run": "pool-voiceover-base",
+        "sensevoice": [
+          {
+            "key": "tail-3s",
+            "text": "<|en|><|EMO_UNKNOWN|><|Speech|><|withitn|>The."
+          }
+        ],
+        "vad": [
+          {
+            "key": "tail-3s",
+            "value": []
+          }
+        ]
+      },
+      {
+        "run": "pool-voiceover-lightx2v-ref4",
+        "sensevoice": [
+          {
+            "key": "tail-3s",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>保持呼吸。"
+          }
+        ],
+        "vad": [
+          {
+            "key": "tail-3s",
+            "value": [
+              [
+                0,
+                1220
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "run": "pool-voiceover-pdd-ref8",
+        "sensevoice": [
+          {
+            "key": "tail-3s",
+            "text": "<|en|><|EMO_UNKNOWN|><|Speech|><|withitn|>The."
+          }
+        ],
+        "vad": [
+          {
+            "key": "tail-3s",
+            "value": []
+          }
+        ]
+      }
+    ]
+  },
+  "timingToleranceSeconds": 0.25,
+  "results": [
+    {
+      "run": "motorcycle-dialogue-base",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "motorcycle-dialogue"
+      },
+      "seconds": 95.487,
+      "gpuPeakTotalUsedMiB": [
+        31310
+      ],
+      "videoSha256": "5c8cb04c4e05b3c3295a2f9e69e383878da97fccfaa370736d3bed3a855792ed",
+      "submittedPromptSha256": "8b738740d51b5cd63f7c28645bac0d8c3b5b7c206f197251e8dcd5186a231832",
+      "qwenAsr": {
+        "run": "motorcycle-dialogue-base",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "motorcycle-dialogue"
+        },
+        "videoSha256": "5c8cb04c4e05b3c3295a2f9e69e383878da97fccfaa370736d3bed3a855792ed",
+        "expectedText": "准备好了，我们出发吧。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "准备好了，我们出发吧。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "准",
+                "start_time": 0.96,
+                "end_time": 1.12
+              },
+              {
+                "text": "备",
+                "start_time": 1.12,
+                "end_time": 1.28
+              },
+              {
+                "text": "好",
+                "start_time": 1.28,
+                "end_time": 1.44
+              },
+              {
+                "text": "了",
+                "start_time": 1.44,
+                "end_time": 1.68
+              },
+              {
+                "text": "我",
+                "start_time": 2.32,
+                "end_time": 2.32
+              },
+              {
+                "text": "们",
+                "start_time": 2.32,
+                "end_time": 2.48
+              },
+              {
+                "text": "出",
+                "start_time": 2.48,
+                "end_time": 2.64
+              },
+              {
+                "text": "发",
+                "start_time": 2.64,
+                "end_time": 2.8
+              },
+              {
+                "text": "吧",
+                "start_time": 2.8,
+                "end_time": 3.04
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.96,
+          3.04
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.46,
+          -0.46
+        ],
+        "speechWithinWindow": true,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "motorcycle-dialogue-base",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                760,
+                3420
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>准备好了，我们出发吧。"
+          }
+        ],
+        "cleanText": "准备好了，我们出发吧。"
+      },
+      "visualReview": {
+        "run": "motorcycle-dialogue-base",
+        "identity": "Bob haircut, dark makeup, leather jacket and green motorcycle remain recognizable in sampled frames",
+        "action": "Speech-associated mouth movement followed by head and expression changes; detailed nod deadline and unchanged hand pose need full-motion review",
+        "qualityAccepted": false
+      },
+      "assessment": "Needs listening and motion review",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "motorcycle-dialogue-lightx2v-ref4",
+      "recipe": {
+        "id": "lightx2v-ref4",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 4,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "motorcycle-dialogue"
+      },
+      "seconds": 40.505,
+      "gpuPeakTotalUsedMiB": [
+        31310
+      ],
+      "videoSha256": "a7858b89d6293a36025af99b29a3aa9efa91a1b4b86ab9743a39c6bb4e733953",
+      "submittedPromptSha256": "8b738740d51b5cd63f7c28645bac0d8c3b5b7c206f197251e8dcd5186a231832",
+      "qwenAsr": {
+        "run": "motorcycle-dialogue-lightx2v-ref4",
+        "recipe": {
+          "id": "lightx2v-ref4",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 4,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "motorcycle-dialogue"
+        },
+        "videoSha256": "a7858b89d6293a36025af99b29a3aa9efa91a1b4b86ab9743a39c6bb4e733953",
+        "expectedText": "准备好了，我们出发吧。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "准备好了，我们出发吧。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "准",
+                "start_time": 0.96,
+                "end_time": 1.12
+              },
+              {
+                "text": "备",
+                "start_time": 1.12,
+                "end_time": 1.2
+              },
+              {
+                "text": "好",
+                "start_time": 1.2,
+                "end_time": 1.44
+              },
+              {
+                "text": "了",
+                "start_time": 1.44,
+                "end_time": 1.6
+              },
+              {
+                "text": "我",
+                "start_time": 2.32,
+                "end_time": 2.32
+              },
+              {
+                "text": "们",
+                "start_time": 2.32,
+                "end_time": 2.48
+              },
+              {
+                "text": "出",
+                "start_time": 2.48,
+                "end_time": 2.64
+              },
+              {
+                "text": "发",
+                "start_time": 2.64,
+                "end_time": 2.8
+              },
+              {
+                "text": "吧",
+                "start_time": 2.8,
+                "end_time": 3.04
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.96,
+          3.04
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.46,
+          -0.46
+        ],
+        "speechWithinWindow": true,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "motorcycle-dialogue-lightx2v-ref4",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                740,
+                3330
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>准备好了，我们出发吧。"
+          }
+        ],
+        "cleanText": "准备好了，我们出发吧。"
+      },
+      "visualReview": {
+        "run": "motorcycle-dialogue-lightx2v-ref4",
+        "identity": "Bob haircut, dark makeup, leather jacket and green motorcycle remain recognizable in sampled frames",
+        "action": "Speech-associated mouth movement followed by head and expression changes; detailed nod deadline and unchanged hand pose need full-motion review",
+        "qualityAccepted": false
+      },
+      "assessment": "Needs listening and motion review",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "motorcycle-dialogue-pdd-ref8",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "motorcycle-dialogue"
+      },
+      "seconds": 56.724,
+      "gpuPeakTotalUsedMiB": [
+        31822
+      ],
+      "videoSha256": "34b4f5202c014e9e74d16e12f0150147a4722ac7ab4f0fc1f40a3fae24785171",
+      "submittedPromptSha256": "8b738740d51b5cd63f7c28645bac0d8c3b5b7c206f197251e8dcd5186a231832",
+      "qwenAsr": {
+        "run": "motorcycle-dialogue-pdd-ref8",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "motorcycle-dialogue"
+        },
+        "videoSha256": "34b4f5202c014e9e74d16e12f0150147a4722ac7ab4f0fc1f40a3fae24785171",
+        "expectedText": "准备好了，我们出发吧。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "准备好了，我们出发吧。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "准",
+                "start_time": 0.96,
+                "end_time": 1.12
+              },
+              {
+                "text": "备",
+                "start_time": 1.12,
+                "end_time": 1.2
+              },
+              {
+                "text": "好",
+                "start_time": 1.2,
+                "end_time": 1.44
+              },
+              {
+                "text": "了",
+                "start_time": 1.44,
+                "end_time": 1.6
+              },
+              {
+                "text": "我",
+                "start_time": 2.32,
+                "end_time": 2.32
+              },
+              {
+                "text": "们",
+                "start_time": 2.32,
+                "end_time": 2.48
+              },
+              {
+                "text": "出",
+                "start_time": 2.48,
+                "end_time": 2.64
+              },
+              {
+                "text": "发",
+                "start_time": 2.64,
+                "end_time": 2.8
+              },
+              {
+                "text": "吧",
+                "start_time": 2.8,
+                "end_time": 3.04
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.96,
+          3.04
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.46,
+          -0.46
+        ],
+        "speechWithinWindow": true,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "motorcycle-dialogue-pdd-ref8",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                760,
+                3380
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>准备好了，我们出发吧。"
+          }
+        ],
+        "cleanText": "准备好了，我们出发吧。"
+      },
+      "visualReview": {
+        "run": "motorcycle-dialogue-pdd-ref8",
+        "identity": "Bob haircut, dark makeup, leather jacket and green motorcycle remain recognizable in sampled frames",
+        "action": "Speech-associated mouth movement followed by head and expression changes; detailed nod deadline and unchanged hand pose need full-motion review",
+        "qualityAccepted": false
+      },
+      "assessment": "Needs listening and motion review",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "pool-voiceover-base",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 95.426,
+      "gpuPeakTotalUsedMiB": [
+        30822
+      ],
+      "videoSha256": "adbff974f803a03317b881c191c0cbb14a60f1fcf5f2bd8ed924c2a5478d6c8f",
+      "submittedPromptSha256": "cd739d87386193a68e09fdb8286aa5f71226c954bcb2673c507cf806df911785",
+      "qwenAsr": {
+        "run": "pool-voiceover-base",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "adbff974f803a03317b881c191c0cbb14a60f1fcf5f2bd8ed924c2a5478d6c8f",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 0.16,
+                "end_time": 0.32
+              },
+              {
+                "text": "慢",
+                "start_time": 0.32,
+                "end_time": 0.48
+              },
+              {
+                "text": "来",
+                "start_time": 0.48,
+                "end_time": 0.8
+              },
+              {
+                "text": "保",
+                "start_time": 1.68,
+                "end_time": 1.84
+              },
+              {
+                "text": "持",
+                "start_time": 1.84,
+                "end_time": 2.08
+              },
+              {
+                "text": "呼",
+                "start_time": 2.08,
+                "end_time": 2.32
+              },
+              {
+                "text": "吸",
+                "start_time": 2.32,
+                "end_time": 2.72
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.16,
+          2.72
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          -0.34,
+          -0.78
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "pool-voiceover-base",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                0,
+                1210
+              ],
+              [
+                1490,
+                3010
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "visualReview": {
+        "run": "pool-voiceover-base",
+        "identity": "One swimmer remains in the lane; no visible narrator or captions in sampled frames",
+        "action": "Swimmer advances toward screen-right with splashes; fine limb continuity requires motion review",
+        "qualityAccepted": false,
+        "camera": "Fails fixed-camera instruction: a foreground pole enters from the right and shifts left while the swimmer stays near center, indicating tracking pan"
+      },
+      "assessment": "Needs listening and motion review",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "pool-voiceover-lightx2v-ref4",
+      "recipe": {
+        "id": "lightx2v-ref4",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 4,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 40.563,
+      "gpuPeakTotalUsedMiB": [
+        31310
+      ],
+      "videoSha256": "3c57857aa6a234d3aa760f97f5dd35f0ecc3fd74782a48fbdc0fc0069f581b71",
+      "submittedPromptSha256": "cd739d87386193a68e09fdb8286aa5f71226c954bcb2673c507cf806df911785",
+      "qwenAsr": {
+        "run": "pool-voiceover-lightx2v-ref4",
+        "recipe": {
+          "id": "lightx2v-ref4",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 4,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "3c57857aa6a234d3aa760f97f5dd35f0ecc3fd74782a48fbdc0fc0069f581b71",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 0.16,
+                "end_time": 0.32
+              },
+              {
+                "text": "慢",
+                "start_time": 0.32,
+                "end_time": 0.48
+              },
+              {
+                "text": "来",
+                "start_time": 0.48,
+                "end_time": 0.8
+              },
+              {
+                "text": "保",
+                "start_time": 1.76,
+                "end_time": 1.92
+              },
+              {
+                "text": "持",
+                "start_time": 1.92,
+                "end_time": 2.08
+              },
+              {
+                "text": "呼",
+                "start_time": 2.08,
+                "end_time": 2.32
+              },
+              {
+                "text": "吸",
+                "start_time": 2.32,
+                "end_time": 2.56
+              },
+              {
+                "text": "慢",
+                "start_time": 2.56,
+                "end_time": 2.64
+              },
+              {
+                "text": "慢",
+                "start_time": 2.64,
+                "end_time": 2.88
+              },
+              {
+                "text": "来",
+                "start_time": 2.88,
+                "end_time": 2.96
+              },
+              {
+                "text": "保",
+                "start_time": 3.12,
+                "end_time": 3.28
+              },
+              {
+                "text": "持",
+                "start_time": 3.28,
+                "end_time": 3.52
+              },
+              {
+                "text": "呼",
+                "start_time": 3.52,
+                "end_time": 3.68
+              },
+              {
+                "text": "吸",
+                "start_time": 3.68,
+                "end_time": 4.0
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.16,
+          4.0
+        ],
+        "transcriptMatches": false,
+        "speechBoundaryErrorsSeconds": [
+          -0.34,
+          0.5
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "pool-voiceover-lightx2v-ref4",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                0,
+                1220
+              ],
+              [
+                1500,
+                4220
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。慢慢来保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。慢慢来保持呼吸。"
+      },
+      "visualReview": {
+        "run": "pool-voiceover-lightx2v-ref4",
+        "identity": "One swimmer stays in the lane; no visible narrator or captions in sampled frames",
+        "action": "Advances to screen-right with large splash and limb motion; fine anatomy requires motion review",
+        "camera": "Camera stability unresolved from these samples: flags enter at the upper-right and lane framing changes; no persistent rigid pole is visible for the same check used on base",
+        "qualityAccepted": false
+      },
+      "assessment": "Extra repeated dialogue supported by both ASR models and the 3-second tail with VAD; reject as a dialogue default candidate",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "pool-voiceover-pdd-ref8",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 56.742,
+      "gpuPeakTotalUsedMiB": [
+        31886
+      ],
+      "videoSha256": "1e3e1292cfb5b8426405e16fcc6265b8f0fc95ceda2499c5306c1572b1349061",
+      "submittedPromptSha256": "cd739d87386193a68e09fdb8286aa5f71226c954bcb2673c507cf806df911785",
+      "qwenAsr": {
+        "run": "pool-voiceover-pdd-ref8",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "1e3e1292cfb5b8426405e16fcc6265b8f0fc95ceda2499c5306c1572b1349061",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 0.16,
+                "end_time": 0.32
+              },
+              {
+                "text": "慢",
+                "start_time": 0.32,
+                "end_time": 0.56
+              },
+              {
+                "text": "来",
+                "start_time": 0.56,
+                "end_time": 0.8
+              },
+              {
+                "text": "保",
+                "start_time": 1.68,
+                "end_time": 1.84
+              },
+              {
+                "text": "持",
+                "start_time": 1.84,
+                "end_time": 2.08
+              },
+              {
+                "text": "呼",
+                "start_time": 2.08,
+                "end_time": 2.32
+              },
+              {
+                "text": "吸",
+                "start_time": 2.32,
+                "end_time": 2.72
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.16,
+          2.72
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          -0.34,
+          -0.78
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "pool-voiceover-pdd-ref8",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                0,
+                1280
+              ],
+              [
+                1560,
+                3000
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "visualReview": {
+        "run": "pool-voiceover-pdd-ref8",
+        "identity": "One swimmer remains visible; no narrator or subtitles in sampled frames",
+        "action": "Swimmer advances with splashes; detailed limb continuity requires motion review",
+        "camera": "Foreground pool structure changes position; fixed-camera instruction is not established by the sampled review",
+        "qualityAccepted": false
+      },
+      "assessment": "Needs listening and motion review",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "speech-first-base",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 95.381,
+      "gpuPeakTotalUsedMiB": [
+        30790
+      ],
+      "videoSha256": "da263f0e174dbc9b976e3ede444645075bb3cf761973ec14016262943841620f",
+      "submittedPromptSha256": "bc7c01d2d88b4d8e02dd44889baa24b08c84292b33f62e598ac1d411325b5381",
+      "qwenAsr": {
+        "run": "speech-first-base",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "da263f0e174dbc9b976e3ede444645075bb3cf761973ec14016262943841620f",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 1.04,
+                "end_time": 1.2
+              },
+              {
+                "text": "担",
+                "start_time": 1.2,
+                "end_time": 1.36
+              },
+              {
+                "text": "心",
+                "start_time": 1.44,
+                "end_time": 1.84
+              },
+              {
+                "text": "等",
+                "start_time": 2.16,
+                "end_time": 2.4
+              },
+              {
+                "text": "我",
+                "start_time": 2.4,
+                "end_time": 2.4
+              },
+              {
+                "text": "回",
+                "start_time": 2.4,
+                "end_time": 2.64
+              },
+              {
+                "text": "来",
+                "start_time": 2.64,
+                "end_time": 2.96
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          1.04,
+          2.96
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.79,
+          0.71
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "speech-first-base",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                760,
+                3330
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|SAD|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "visualReview": {
+        "run": "speech-first-base",
+        "identity": "No obvious identity collapse in sampled frames",
+        "action": "Speech-associated mouth movement precedes sword movement; sword still visible at 4 seconds, outside at 5 seconds",
+        "timing": "Misses requested sword-out deadline 3.75 seconds",
+        "qualityAccepted": false
+      },
+      "assessment": "Needs listening and motion review",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "speech-first-lightx2v-ref4",
+      "recipe": {
+        "id": "lightx2v-ref4",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 4,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 40.57,
+      "gpuPeakTotalUsedMiB": [
+        31534
+      ],
+      "videoSha256": "acf44da91c6124cb9bfc5c95698ae69b2ab7e15f9f2c19d977633b04729e840f",
+      "submittedPromptSha256": "bc7c01d2d88b4d8e02dd44889baa24b08c84292b33f62e598ac1d411325b5381",
+      "qwenAsr": {
+        "run": "speech-first-lightx2v-ref4",
+        "recipe": {
+          "id": "lightx2v-ref4",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 4,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "acf44da91c6124cb9bfc5c95698ae69b2ab7e15f9f2c19d977633b04729e840f",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 0.56,
+                "end_time": 0.72
+              },
+              {
+                "text": "担",
+                "start_time": 0.72,
+                "end_time": 0.88
+              },
+              {
+                "text": "心",
+                "start_time": 0.88,
+                "end_time": 1.44
+              },
+              {
+                "text": "等",
+                "start_time": 2.08,
+                "end_time": 2.4
+              },
+              {
+                "text": "我",
+                "start_time": 2.4,
+                "end_time": 2.4
+              },
+              {
+                "text": "回",
+                "start_time": 2.4,
+                "end_time": 2.72
+              },
+              {
+                "text": "来",
+                "start_time": 2.72,
+                "end_time": 2.96
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.56,
+          2.96
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.31,
+          0.71
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "speech-first-lightx2v-ref4",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                310,
+                1730
+              ],
+              [
+                2010,
+                3250
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "visualReview": {
+        "run": "speech-first-lightx2v-ref4",
+        "identity": "No obvious identity collapse in sampled frames",
+        "action": "Speech-associated mouth movement precedes sword movement; sword still visible at 4 seconds, outside at 5 seconds",
+        "timing": "Misses requested sword-out deadline 3.75 seconds",
+        "qualityAccepted": false
+      },
+      "assessment": "Needs listening and motion review",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "speech-first-pdd-ref8",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 54.772,
+      "gpuPeakTotalUsedMiB": [
+        31822
+      ],
+      "videoSha256": "f0d25e67877212f43542ede1593c2007ba810fb155dadc907c12844ba0f9f023",
+      "submittedPromptSha256": "bc7c01d2d88b4d8e02dd44889baa24b08c84292b33f62e598ac1d411325b5381",
+      "qwenAsr": {
+        "run": "speech-first-pdd-ref8",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "f0d25e67877212f43542ede1593c2007ba810fb155dadc907c12844ba0f9f023",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 1.04,
+                "end_time": 1.2
+              },
+              {
+                "text": "担",
+                "start_time": 1.2,
+                "end_time": 1.44
+              },
+              {
+                "text": "心",
+                "start_time": 1.44,
+                "end_time": 1.84
+              },
+              {
+                "text": "等",
+                "start_time": 2.16,
+                "end_time": 2.4
+              },
+              {
+                "text": "我",
+                "start_time": 2.4,
+                "end_time": 2.4
+              },
+              {
+                "text": "回",
+                "start_time": 2.4,
+                "end_time": 2.64
+              },
+              {
+                "text": "来",
+                "start_time": 2.64,
+                "end_time": 3.04
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          1.04,
+          3.04
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.79,
+          0.79
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "speech-first-pdd-ref8",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                740,
+                3270
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|SAD|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "visualReview": {
+        "run": "speech-first-pdd-ref8",
+        "identity": "No obvious identity collapse in sampled frames",
+        "action": "Speech-associated mouth movement precedes sword movement; sword still visible at 4 seconds, outside at 5 seconds",
+        "timing": "Misses requested sword-out deadline 3.75 seconds",
+        "qualityAccepted": false
+      },
+      "assessment": "Needs listening and motion review",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "water-no-speech-base",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "water-no-speech"
+      },
+      "seconds": 95.398,
+      "gpuPeakTotalUsedMiB": [
+        31342
+      ],
+      "videoSha256": "db2bfcb91566edd4f409ea5a80a533e5cda5198198ad93b840865cb1bb793b0b",
+      "submittedPromptSha256": "64e379b9530bc948868fed65034e369d72e47f83e68064bdfc56745f2ba26bdf",
+      "qwenAsr": {
+        "run": "water-no-speech-base",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "water-no-speech"
+        },
+        "videoSha256": "db2bfcb91566edd4f409ea5a80a533e5cda5198198ad93b840865cb1bb793b0b",
+        "expectedText": "",
+        "expectedSpeechWindow": null,
+        "transcription": {
+          "language": "Chinese",
+          "text": "嗯。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "嗯",
+                "start_time": 5.12,
+                "end_time": 5.12
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          5.12,
+          5.12
+        ],
+        "transcriptMatches": false,
+        "speechBoundaryErrorsSeconds": null,
+        "speechWithinWindow": null,
+        "speechWindowMatches": null,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "water-no-speech-base",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": []
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|yue|><|NEUTRAL|><|Speech|><|withitn|>我想。"
+          }
+        ],
+        "cleanText": "我想。"
+      },
+      "visualReview": {
+        "run": "water-no-speech-base",
+        "identity": "Blue water, tile grid and dark stripe remain recognizable; no visible text or people",
+        "action": "Water caustics and ripple distortion vary across sampled frames",
+        "camera": "Coarse overhead composition preserved in samples; exact camera rigidity not measured",
+        "qualityAccepted": false
+      },
+      "assessment": "VAD detects no speech; inconsistent raw ASR guesses are inconclusive, not proof of added dialogue",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "water-no-speech-lightx2v-ref4",
+      "recipe": {
+        "id": "lightx2v-ref4",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 4,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "water-no-speech"
+      },
+      "seconds": 40.548,
+      "gpuPeakTotalUsedMiB": [
+        31310
+      ],
+      "videoSha256": "0c220c8b850d153ccc492c622db15f1e05e8efc479c71067287a9f64efc10ca4",
+      "submittedPromptSha256": "64e379b9530bc948868fed65034e369d72e47f83e68064bdfc56745f2ba26bdf",
+      "qwenAsr": {
+        "run": "water-no-speech-lightx2v-ref4",
+        "recipe": {
+          "id": "lightx2v-ref4",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 4,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "water-no-speech"
+        },
+        "videoSha256": "0c220c8b850d153ccc492c622db15f1e05e8efc479c71067287a9f64efc10ca4",
+        "expectedText": "",
+        "expectedSpeechWindow": null,
+        "transcription": {
+          "language": "Chinese",
+          "text": "嗯。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "嗯",
+                "start_time": 0.08,
+                "end_time": 5.12
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.08,
+          5.12
+        ],
+        "transcriptMatches": false,
+        "speechBoundaryErrorsSeconds": null,
+        "speechWithinWindow": null,
+        "speechWindowMatches": null,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "water-no-speech-lightx2v-ref4",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": []
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|yue|><|NEUTRAL|><|Speech|><|withitn|>我想。"
+          }
+        ],
+        "cleanText": "我想。"
+      },
+      "visualReview": {
+        "run": "water-no-speech-lightx2v-ref4",
+        "identity": "Blue water, tile grid and dark stripe remain recognizable; no visible text or people",
+        "action": "Ripple highlights vary while the overall pool-floor layout remains stable",
+        "camera": "Coarse overhead composition preserved in samples; exact camera rigidity not measured",
+        "qualityAccepted": false
+      },
+      "assessment": "VAD detects no speech; inconsistent raw ASR guesses are inconclusive, not proof of added dialogue",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "water-no-speech-pdd-ref8",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "water-no-speech"
+      },
+      "seconds": 56.83,
+      "gpuPeakTotalUsedMiB": [
+        31374
+      ],
+      "videoSha256": "412b340edd264bc73a29a613cc946675d859dc818b7856546ef2c0254df1ed3f",
+      "submittedPromptSha256": "64e379b9530bc948868fed65034e369d72e47f83e68064bdfc56745f2ba26bdf",
+      "qwenAsr": {
+        "run": "water-no-speech-pdd-ref8",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "water-no-speech"
+        },
+        "videoSha256": "412b340edd264bc73a29a613cc946675d859dc818b7856546ef2c0254df1ed3f",
+        "expectedText": "",
+        "expectedSpeechWindow": null,
+        "transcription": {
+          "language": "Chinese",
+          "text": "嗯。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "嗯",
+                "start_time": 0.08,
+                "end_time": 0.08
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.08,
+          0.08
+        ],
+        "transcriptMatches": false,
+        "speechBoundaryErrorsSeconds": null,
+        "speechWithinWindow": null,
+        "speechWindowMatches": null,
+        "audioAccepted": false
+      },
+      "independentCheck": {
+        "run": "water-no-speech-pdd-ref8",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": []
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|en|><|EMO_UNKNOWN|><|Speech|><|withitn|>."
+          }
+        ],
+        "cleanText": "."
+      },
+      "visualReview": {
+        "run": "water-no-speech-pdd-ref8",
+        "identity": "Blue water, tile grid and dark stripe remain recognizable; no visible text or people",
+        "action": "Ripple highlights and mild refraction change without losing the pool-floor layout",
+        "camera": "Coarse overhead composition preserved in samples; exact camera rigidity not measured",
+        "qualityAccepted": false
+      },
+      "assessment": "VAD detects no speech; inconsistent raw ASR guesses are inconclusive, not proof of added dialogue",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    }
+  ]
+}

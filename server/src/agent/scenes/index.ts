@@ -46,7 +46,7 @@ const definitions = {
         skillIds: ["director-write-story", "director-adapt-long-fiction", "director-write-screenplay", "director-breakdown-screenplay", "director-breakdown-assets", "director-design-character", "director-design-scene", "director-design-prop", "director-design-style", "director-generate-assets", "director-plan-storyboards", "director-generate-shots", "director-check-continuity", "director-arrange-timeline", "director-render-film"],
         tools: directorToolIds.map((id) => ({ id, policy: "auto" as const })),
         referenceKinds: ["director", "asset", "style"],
-        composer: { placeholder: "描述导演任务，输入 / 调用 Skill，@ 引用故事、视频段或素材…", referenceLabel: "引用导演台内容", emptyTitle: "和导演台一起创作", emptyDescription: "Agent 已绑定当前导演项目，可以创作或改编章节式故事、编写剧本并推进素材、分镜和成片。", suggestions: ["把创意写成可直接阅读的章节式故事", "从故事改写可拍摄的分场剧本", "规划下一组视频段与故事板"] },
+        composer: { placeholder: "描述导演任务，输入 / 调用 Skill，@ 引用故事、视频段或素材…", referenceLabel: "引用导演台内容", emptyTitle: "和导演台一起创作", emptyDescription: "Agent 已绑定当前导演项目，可以创作或改编章节式故事、编写剧本、规划分镜并按需补充素材和制作成片。", suggestions: ["把创意写成可直接阅读的章节式故事", "从故事改写可拍摄的分场剧本", "规划下一组视频段与故事板"] },
     },
 } satisfies Record<AgentSceneId, AgentSceneDefinition>;
 

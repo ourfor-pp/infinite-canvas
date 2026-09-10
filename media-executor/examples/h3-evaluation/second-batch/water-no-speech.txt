@@ -1,0 +1,26 @@
+subject_definitions:
+<Subject 1> is the blue pool water, pale tile grid and dark lane stripe in <Picture 1>; use these as the water-surface and pool-floor reference.
+
+summary:
+[reference generation] Create a 5.167-second overhead shot of gentle pool ripples and moving light patterns, with natural water sound and no speech.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - blue water, pale tile grid, dark stripe and sunlight-caustic character.
+
+detailed_description:
+The target video has a natural live-action close-observation style with clear blue water, soft sunlight and realistic underwater optical distortion.
+[Shot 1] The camera looks straight downward at <Subject 1>, holding a fixed overhead composition. Blue pool water fills the entire frame. A pale rectangular tile grid is visible on the floor below, and a broad dark blue lane stripe crosses the lower third of the image. Bright, irregular bands of refracted sunlight lie across the tiles. Keep the stripe, grid spacing and overall blue palette consistent with the reference. There are no people, objects or pool edges in this close view.
+
+At the opening, shallow ripples already travel gently across the surface. Their motion makes the pale grid lines appear to bend and straighten gradually while the tiles themselves stay fixed in place. Bright caustic bands slide slowly over the floor, narrowing, widening and breaking into smaller patches as waves overlap. The water remains transparent enough for the dark stripe to be recognizable at every moment. The camera does not rotate, change height or shift sideways.
+
+Between 00:01.000 and 00:03.000, a low wave front moves diagonally from the upper-left region toward the lower-right. It briefly compresses the visible light bands near the center before they spread apart again. Small existing bubbles drift a short distance with the surface motion. They remain sparse and irregular, without forming symbols or a repeating geometric pattern. The dark lane stripe gently wavers through refraction, but its physical width and position on the pool floor do not change.
+
+The surface motion stays calm and continuous. A soft wash of water is synchronized with the moving ripples, and occasional tiny bubble sounds remain quiet. There is no dramatic splash, sudden object entry or change in water level. Keep the highlights below harsh clipping so that both the bright caustics and the underlying tile details remain visible. Blue tones vary naturally with depth and reflection, without cycling through unrelated colors.
+
+From 00:03.000 to the final frame at 00:05.167, the wave front dissipates into several softer ripples. Light patterns continue drifting without stopping abruptly. The image ends on the same overhead view with the stable stripe and grid beneath gently moving water. This entire clip contains only natural water ambience: no dialogue, whispered words, singing, narration, crowd voices or music. No text or subtitles appear, and there is no cut or fade.
+
+overall_soundscape:
+Only gentle water wash, faint ripple sounds and occasional tiny bubbles. No speech, narration, singing or music.
+
+non_diegetic_music:
+N/A

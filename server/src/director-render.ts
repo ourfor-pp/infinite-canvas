@@ -9,10 +9,11 @@ import { getStoredFile, storeLocalFile, syncFileRefs } from "./file-store.js";
 import type { GenerationRow } from "./generation-service.js";
 import { createGeneration } from "./generation-service.js";
 import { getAiGlobalSettings, listModelDefaults, resolveSelectableModel, type AiModelDefinition } from "./provider-service.js";
+import { getMediaExecutorCatalog } from "./media-executor-settings.js";
 import { alignH3Frames, h3Recipe, type H3QualityPreset } from "./comfy-workflows.js";
-import { compileH3Prompt, isH3TurboAudioSafe, validateH3PromptPlan, validateStoryboardNarrativePlan, type H3DialogueCue, type H3ReferenceDefinition } from "./h3-prompt.js";
+import { compileH3Prompt, h3AudioPromptReferences, h3AudioReferencesInput, isH3TurboAudioSafe, validateH3PromptPlan, validateStoryboardNarrativePlan, type H3DialogueCue, type H3ReferenceDefinition } from "./h3-prompt.js";
 import { recommendedStoryboardFrameCount, storyboardLayout, type DirectorStoryboardLayout } from "./director.js";
-import { assertDirectorProjectValid, syncDirectorVideoSegmentFile } from "./director-workspace.js";
+import { assertDirectorProjectValid, getDirectorAssetReferenceImage, syncDirectorVideoSegmentFile } from "./director-workspace.js";
 
 type RenderRow = { id: string; user_id: string; project_id: string; status: "queued" | "running" | "succeeded" | "failed" | "canceled"; payload: string; output_file_id: string | null; error: string | null; progress: number; created_at: string; updated_at: string };
 type ShotRow = { id: string; position: number; payload: string; revision: number };
@@ -63,7 +64,7 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
             if (!priorPayload.videoFileId) throw renderError(409, "DIRECTOR_CONTINUATION_VIDEO_MISSING", "连续视频段需要先生成上一段视频");
             references.push({ fileId: await extractContinuationTail(userId, shotId, String(priorPayload.videoFileId)), kind: "video", role: "continuation" });
         }
-        referenceFileIds(payload.referenceAudioFileIds).slice(0, 3).forEach((fileId) => references.push({ fileId, kind: "audio", role: "reference" }));
+        h3AudioReferencesInput.parse(payload.audioReferences).forEach(({ fileId }) => references.push({ fileId, kind: "audio", role: "reference" }));
     } else {
         const firstFrame = transitionFrame(userId, shot.project_id, String(payload.transitionFromSegmentId || ""), "actualLastFrameFileId");
         const lastFrame = transitionFrame(userId, shot.project_id, String(payload.transitionToSegmentId || ""), "actualFirstFrameFileId");
@@ -77,12 +78,12 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
             const subjectKind = item.purpose === "主角色" || item.purpose === "出镜角色" ? "character" : item.purpose === "场景" ? "scene" : item.purpose === "关键道具" ? "prop" : undefined;
             return { tag: `<Picture ${index + 2}>`, purpose: referencePurpose(item.purpose), assetId: item.assetId, subjectKind, subjectTag: subjectKind ? `<Subject ${++subjectNumber}>` : undefined } satisfies H3ReferenceDefinition;
         }),
-        ...(payload.boundary === "continue" ? [{ tag: "<Video 1>", purpose: "is the previous segment's final 22 frames with original audio; continue its motion and sound from frame zero" }] : []),
-        ...referenceFileIds(payload.referenceAudioFileIds).slice(0, 3).map((_, index) => ({ tag: `<Audio ${index + 1}>`, purpose: "defines the intended voice, dialogue timing or sound identity" })),
+        ...(payload.boundary === "continue" ? [{ tag: "<Video 1>", purpose: "is the previous segment's final 22 frames; continue its motion from frame zero" }] : []),
+        ...h3AudioPromptReferences(payload.audioReferences, payload.boundary === "continue"),
     ] : [];
     const prompt = compileH3Prompt(route.mode, payload, sheet, promptReferences);
     const turboEligible = isH3TurboAudioSafe(payload, sheet);
-    const recipe = h3Recipe(route.mode, value.qualityPreset, preflight.capabilities.turboPreview && turboEligible);
+    const recipe = h3Recipe(route.mode, value.qualityPreset, Boolean(model.turboPreview) && turboEligible);
     const alignment = alignH3Frames(Number(payload.durationSeconds || 4));
     const generation = createGeneration(userId, { kind: "video", model: modelRef, prompt, references, params: { seconds: Number(payload.durationSeconds || 4), ratio: workspace.aspect_ratio, resolution: recipe.resolution, qualityPreset: value.qualityPreset, turboAvailable: recipe.turbo, frameAlignment: alignment, __directorSegment: { projectId: shot.project_id, segmentId: shotId, revision: shot.revision, storyboardRevision: sheet.revision, mode: route.mode, reason: route.reason, qualityPreset: value.qualityPreset, recipe, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", dependencies: payload.dependencies } } });
     const { h3ModeOverride: _h3ModeOverride, firstFrameFileId: _firstFrameFileId, lastFrameFileId: _lastFrameFileId, ...cleanPayload } = payload;
@@ -97,20 +98,25 @@ export function getDirectorVideoSegmentPreflight(userId: string, segmentId: stri
     const segment = segmentRow(userId, segmentId);
     const payload = parseJson<Record<string, unknown>>(segment.payload, {});
     const style = activeStyle(userId, segment.project_id);
-    const candidates = segmentReferenceCandidates(userId, segment.project_id, payload, style);
+    const { candidates, missing } = segmentReferenceCandidates(userId, segment.project_id, payload, style);
     const selected = candidates.slice(0, 6);
     const sheet = asSheet(payload.storyboardSheet);
     const route = resolveH3Route(payload, sheet);
-    const auxiliaryFiles = (payload.boundary === "continue" ? 1 : 0) + Math.min(3, referenceFileIds(payload.referenceAudioFileIds).length);
+    const auxiliaryFiles = (payload.boundary === "continue" ? 1 : 0) + (Array.isArray(payload.audioReferences) ? payload.audioReferences.length : 0);
     const videoBudget = route.mode === "ref2va" ? Math.max(0, Math.min(8, 11 - auxiliaryFiles)) : 0;
     const videoSelected = candidates.slice(0, videoBudget);
-    const hasCharacter = selected.some((item) => item.purpose === "主角色" || item.purpose === "出镜角色");
-    const hasScene = selected.some((item) => item.purpose === "场景");
-    const assetBlockedReasons = route.mode === "fl2va" ? transitionBlockedReasons(userId, segment.project_id, payload) : [!hasCharacter ? "缺少出镜主角色图片" : "", !hasScene ? "缺少场景图片" : ""].filter(Boolean);
+    const assetBlockedReasons = route.mode === "fl2va" ? transitionBlockedReasons(userId, segment.project_id, payload) : missing;
     const promptValidation = route.mode === "ref2va" ? validateH3PromptPlan(payload, sheet, videoSelected.filter((item) => item.purpose === "主角色" || item.purpose === "出镜角色").map((item) => String(item.assetId || "")).filter(Boolean)) : { blockedReasons: [], warnings: [] };
     const turboEligible = isH3TurboAudioSafe(payload, sheet);
+    const audioReferences = h3AudioReferencesInput.safeParse(payload.audioReferences);
+    if (audioReferences.success) audioReferences.data.forEach(({ fileId }) => {
+        const file = getStoredFile(userId, fileId);
+        if (!file || !file.mime_type.startsWith("audio/")) promptValidation.blockedReasons.push("音频参考文件不存在或不是音频");
+    });
+    if (route.mode === "fl2va" && auxiliaryFiles) promptValidation.blockedReasons.push("首尾帧过渡不支持独立音频参考或参考视频");
+    const turboPreview = route.mode === "fl2va" && getMediaExecutorCatalog().comfyFeatures.turboPreview;
     const transitionInputs = route.mode === "fl2va" ? { firstFrameFileId: transitionFrame(userId, segment.project_id, String(payload.transitionFromSegmentId || ""), "actualLastFrameFileId") || undefined, lastFrameFileId: transitionFrame(userId, segment.project_id, String(payload.transitionToSegmentId || ""), "actualFirstFrameFileId") || undefined } : undefined;
-    return { storyboardFileId: sheet?.imageFileId, transitionInputs, selected, omitted: candidates.slice(6), videoSelected, videoOmitted: candidates.slice(videoBudget), assetBlockedReasons, promptValidation, blockedReasons: [...assetBlockedReasons, ...promptValidation.blockedReasons], warnings: promptValidation.warnings, route, capabilities: { turboPreview: route.mode === "fl2va" }, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", recipes: { preview: h3Recipe(route.mode, "preview", route.mode === "fl2va" && turboEligible), final: h3Recipe(route.mode, "final", false) }, frameAlignment: alignH3Frames(Number(payload.durationSeconds || 4)) };
+    return { storyboardFileId: sheet?.imageFileId, transitionInputs, selected, omitted: candidates.slice(6), videoSelected, videoOmitted: candidates.slice(videoBudget), assetBlockedReasons, promptValidation, blockedReasons: [...assetBlockedReasons, ...promptValidation.blockedReasons], warnings: promptValidation.warnings, route, capabilities: { turboPreview }, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", recipes: { preview: h3Recipe(route.mode, "preview", turboPreview && turboEligible), final: h3Recipe(route.mode, "final", false) }, frameAlignment: alignH3Frames(Number(payload.durationSeconds || 4)) };
 }
 
 export function createDirectorStoryboardGeneration(userId: string, segmentId: string, input: unknown) {
@@ -470,13 +476,14 @@ function activeStyle(userId: string, projectId: string) {
     return styleId ? db.prepare("SELECT * FROM visual_styles WHERE id=? AND user_id=? AND project_id=?").get(styleId, userId, projectId) as StyleRow | undefined : undefined;
 }
 function segmentReferenceCandidates(userId: string, projectId: string, payload: Record<string, unknown>, style?: StyleRow) {
-    const refs = (value: unknown) => Array.isArray(value) ? value as Array<{ id?: string }> : [];
+    const refs = (value: unknown) => Array.isArray(value) ? value as Array<{ id?: string; variantId?: string }> : [];
     const candidates: Array<{ fileId: string; name: string; purpose: "主角色" | "出镜角色" | "场景" | "关键道具" | "视觉风格"; assetId?: string }> = [];
-    const append = (reference: { id?: string }, purpose: typeof candidates[number]["purpose"]) => {
-        const row = db.prepare("SELECT id,name,payload FROM creative_assets WHERE id=? AND user_id=? AND project_id=?").get(reference.id, userId, projectId) as { id: string; name: string; payload: string } | undefined;
-        const asset = parseJson<{ primaryImageId?: string; variants?: Array<{ id?: string; fileId?: string; kind?: string }> }>(row?.payload || "{}", {});
-        const fileId = asset.variants?.find((variant) => variant.id === asset.primaryImageId && variant.kind === "image")?.fileId || asset.variants?.find((variant) => variant.kind === "image")?.fileId;
+    const missing: string[] = [];
+    const append = (reference: { id?: string; variantId?: string }, purpose: typeof candidates[number]["purpose"]) => {
+        const row = db.prepare("SELECT id,name FROM creative_assets WHERE id=? AND user_id=? AND project_id=?").get(reference.id, userId, projectId) as { id: string; name: string } | undefined;
+        const fileId = row ? getDirectorAssetReferenceImage(userId, projectId, row.id, reference.variantId) : undefined;
         if (row && fileId) candidates.push({ fileId, name: row.name, purpose, assetId: row.id });
+        else missing.push(row ? `${row.name}缺少${reference.variantId ? "本段形象" : "主图"}，请补充素材` : `${purpose}引用已不存在，请重新选择`);
     };
     refs(payload.characterRefs).forEach((reference, index) => append(reference, index ? "出镜角色" : "主角色"));
     refs(payload.sceneRefs).forEach((reference) => append(reference, "场景"));
@@ -486,10 +493,7 @@ function segmentReferenceCandidates(userId: string, projectId: string, payload: 
         const fileId = files.board || files.source;
         if (fileId) candidates.push({ fileId, name: style.name, purpose: "视觉风格" });
     }
-    return Array.from(new Map(candidates.map((item) => [item.fileId, item])).values());
-}
-function referenceFileIds(value: unknown) {
-    return Array.isArray(value) ? value.map((item) => typeof item === "string" ? item : item && typeof item === "object" && "fileId" in item ? String((item as { fileId: unknown }).fileId) : "").filter(Boolean) : [];
+    return { candidates: Array.from(new Map(candidates.map((item) => [item.fileId, item])).values()), missing };
 }
 function groupStoryboardShots(frames: StoryboardFrame[]) {
     const groups = new Map<number, StoryboardFrame[]>();

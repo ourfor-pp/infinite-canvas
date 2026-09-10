@@ -1,0 +1,30 @@
+subject_definitions:
+<Subject 1> is the adult woman in <Picture 1>, with dark hair in a high bun, dark eyebrows, rosy cheek makeup and a pale robe; this reference supplies her facial identity, hair and clothing.
+<Subject 2> is the sword in <Picture 1>, with its dark wrapped handle and straight blade; this reference supplies its physical appearance.
+<Subject 3> is the softly blurred red backdrop and warm side lighting in <Picture 1>; this reference supplies the environment and lighting.
+
+summary:
+[reference generation] The target is a 5.167-second, single-shot portrait of <Subject 1> moving <Subject 2> out of the foreground, speaking one reassuring sentence and holding a quiet smile in <Subject 3>.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - retain her facial identity, dark hair bun, cheek makeup and pale robe while her gaze and expression change naturally.
+<Subject 2> (appears in [Shot 1]): fully_preserved - retain the sword's handle and blade as the intact object moves beyond the frame edge.
+<Subject 3> (appears in [Shot 1]): fully_preserved - retain the red backdrop, soft depth of field and stable warm side lighting throughout.
+
+detailed_description:
+The target video has a live-action portrait-photography style with natural skin texture, warm side lighting and shallow depth of field.
+[Shot 1] A static close-up frames <Subject 1> slightly left of center, from the shoulders to just above her dark hair bun. Her pale robe enters along the bottom and right edges. The red backdrop of <Subject 3> fills the background, softly out of focus. Warm light from screen-left illuminates her cheek, nose and lips, while the opposite side of her face falls into soft shadow. Preserve her straight dark eyebrows, dark eyes, smooth hairline, rosy cheek makeup and natural skin texture. The camera remains at eye level and holds its position throughout this single uninterrupted shot.
+
+Initially, the raised hand visible near the upper-right edge holds the dark wrapped handle of <Subject 2>. Its blade extends vertically through the foreground, partly obscuring the right side of her face. Her eyes are open, her lips are closed and her expression is composed. Beginning immediately, the same hand carries the sword diagonally toward screen-right and slightly downward in one continuous, deliberate movement. Her fingers maintain their existing grip. The handle and blade travel together as one rigid object, moving laterally away from her face rather than passing across her eyes. A faint sleeve rustle accompanies the moving forearm.
+
+By 00:01.250, the hand and the entire sword have passed beyond the right edge of the frame, leaving her face unobstructed. Her shoulders settle without changing her position relative to the backdrop. She shifts her eyes toward the camera, takes a small natural breath and relaxes the tension in her eyebrows. Her head stays nearly level; the motion remains restrained and physically continuous.
+
+From 00:01.500 to 00:03.500, <Subject 1> (S1), the on-screen adult woman with a soft, low-pitched, lightly breathy voice, says in clear Mandarin at a measured conversational pace, with a brief natural pause at the comma: <d>[Chinese] 别担心，等我回来。</d> Her lips and jaw articulate the spoken syllables naturally. The voice is close and dry, with no pronounced echo. The line is spoken once, without overlapping voices.
+
+After the final syllable, her lips close into a small, restrained smile. She maintains eye contact and breathes gently until the final frame at 00:05.167. Her face remains in focus against the same soft red background. The sword stays outside the frame. The shot holds without a cut, zoom or additional dialogue.
+
+overall_soundscape:
+Quiet indoor room tone continues throughout. A soft sleeve rustle accompanies the arm movement, and gentle breathing is audible around the spoken line.
+
+non_diegetic_music:
+N/A

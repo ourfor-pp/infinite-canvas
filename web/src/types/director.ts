@@ -164,6 +164,7 @@ export type DirectorVideoSegment = {
         action?: string;
         dialogue?: string;
         narration?: string;
+        audioReferences?: Array<{ fileId: string; purpose: "voice" | "dialogue" | "sound" | "music"; speakerAssetId?: string; description: string }>;
         shotSize?: string;
         cameraAngle?: string;
         cameraMove?: string;

@@ -1,3 +1,17 @@
+import { z } from "zod";
+
+export const h3AudioReferenceInput = z.object({
+    fileId: z.string().min(1),
+    purpose: z.enum(["voice", "dialogue", "sound", "music"]),
+    speakerAssetId: z.string().min(1).optional(),
+    description: z.string().trim().min(1).max(1_000).refine((value) => !/[\u3400-\u9fff]/.test(value), "音频参考说明必须使用英文"),
+}).superRefine((value, context) => {
+    if ((value.purpose === "voice" || value.purpose === "dialogue") && !value.speakerAssetId) context.addIssue({ code: "custom", path: ["speakerAssetId"], message: "音色与对白参考必须绑定说话角色" });
+    if ((value.purpose === "sound" || value.purpose === "music") && value.speakerAssetId) context.addIssue({ code: "custom", path: ["speakerAssetId"], message: "环境声与音乐参考不绑定说话角色" });
+});
+export const h3AudioReferencesInput = z.array(h3AudioReferenceInput).max(3).default([]);
+export type H3AudioReference = z.infer<typeof h3AudioReferenceInput>;
+
 export type H3DialogueCue = {
     speakerAssetId: string;
     speakerName: string;
@@ -24,13 +38,21 @@ type StoryboardFrame = {
     sound: string;
 };
 type StoryboardSheet = { frames: StoryboardFrame[] };
+type H3Speaker = { id: number; subjectTag?: string; audioTags: string[] };
 export type H3ReferenceDefinition = {
     tag: string;
     purpose: string;
     assetId?: string;
     subjectTag?: string;
     subjectKind?: "character" | "scene" | "prop";
+    audioPurpose?: H3AudioReference["purpose"];
 };
+export function h3AudioPromptReferences(value: unknown, continuation: boolean): H3ReferenceDefinition[] {
+    return [
+        ...(continuation ? [{ tag: "<Audio 1>", purpose: "the synchronized soundtrack of <Video 1>; continue its audible characteristics", audioPurpose: "sound" as const }] : []),
+        ...h3AudioReferencesInput.parse(value).map((reference, index) => ({ tag: `<Audio ${index + 1 + Number(continuation)}>`, purpose: reference.description, assetId: reference.speakerAssetId, audioPurpose: reference.purpose })),
+    ];
+}
 export type H3PromptValidation = { blockedReasons: string[]; warnings: string[] };
 
 const han = /[\u3400-\u9fff]/;
@@ -40,19 +62,21 @@ export function compileH3Prompt(mode: "fl2va" | "ref2va", payload: Record<string
     const duration = Number(payload.durationSeconds || 4);
     const speakers = buildSpeakers(sheet, references);
     const description = compileDescription(payload, sheet, speakers);
-    const soundscape = compileSoundscape(payload, sheet);
-    const music = promptText(payload.h3NonDiegeticMusic || payload.music) || "N/A";
+    const soundReferences = references.filter((reference) => reference.audioPurpose === "sound").map((reference) => reference.tag);
+    const soundscape = compileSoundscape(payload, sheet) + (soundReferences.length ? ` Use ${soundReferences.join(" and ")} as sound-texture references without copying the original signal.` : "");
+    const musicReferences = references.filter((reference) => reference.audioPurpose === "music").map((reference) => reference.tag);
+    const music = (promptText(payload.h3NonDiegeticMusic || payload.music) || "N/A") + (musicReferences.length ? `. Follow the musical characteristics of ${musicReferences.join(" and ")} without copying the original signal.` : "");
     if (mode === "fl2va") {
         const lastShot = Math.max(1, ...sheet.frames.map((frame) => frame.shotNumber));
         return `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot ${lastShot}) aligns with the ${duration.toFixed(2)}-second mark of the target video.\n\nintegrated_multimodal_description: ${description}\n\noverall_soundscape: ${soundscape}\n\nnon_diegetic_music: ${music}`;
     }
     const definitions = references.length
-        ? references.map(referenceDefinition).join("\n")
+        ? references.map((reference) => referenceDefinition(reference, speakers)).join("\n")
         : "<Picture 1> is the complete storyboard sheet. Read panels from left to right and top to bottom; use it only as a chronological shot-planning reference, never as a collage layout.";
     const retention = references.length
         ? references.map(retentionDefinition).join("\n")
         : "<Picture 1>: fully preserve chronology, shot grouping, composition intent, screen direction, and continuity; never preserve gutters, panel borders, labels, or the collage layout.";
-    return `subject_definitions:\n${definitions}\n\nsummary:\n[storyboard-guided reference generation] Generate one ${duration.toFixed(2)}-second audiovisual sequence. Follow the storyboard's chronological Shot plan while rendering a normal full-frame cinematic video, never a grid or split screen.\n\nretention_analysis:\n${retention}\n\ndetailed_description:\n${description}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
+    return `subject_definitions:\n${definitions}\n\nsummary:\n[${payload.boundary === "continue" ? "video continuation + " : ""}reference generation${references.some((reference) => reference.audioPurpose) ? " + audio reference" : ""}] Generate one ${duration.toFixed(2)}-second audiovisual sequence. Follow the storyboard's chronological Shot plan while rendering a normal full-frame cinematic video, never a grid or split screen.\n\nretention_analysis:\n${retention}\n\ndetailed_description:\n${description}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
 }
 
 export function validateH3PromptPlan(payload: Record<string, unknown>, sheet: StoryboardSheet | undefined, availableCharacterAssetIds: string[] = []): H3PromptValidation {
@@ -62,6 +86,12 @@ export function validateH3PromptPlan(payload: Record<string, unknown>, sheet: St
     const blockedReasons: string[] = [...narrative.blockedReasons];
     const warnings: string[] = [...narrative.warnings];
     const available = new Set(availableCharacterAssetIds);
+    const audioReferences = h3AudioReferencesInput.safeParse(payload.audioReferences);
+    if (!audioReferences.success) blockedReasons.push(...audioReferences.error.issues.map((issue) => issue.message));
+    else audioReferences.data.forEach((reference) => {
+        if (reference.speakerAssetId && (!available.has(reference.speakerAssetId) || !sheet.frames.some((frame) => frame.dialogues?.some((cue) => cue.speakerAssetId === reference.speakerAssetId)))) blockedReasons.push("音频参考必须绑定本段已采用且有结构化对白的角色");
+        if (reference.purpose === "music" && /^(N\/A|none)?$/i.test(promptText(payload.h3NonDiegeticMusic || payload.music))) blockedReasons.push("采用音乐参考时必须明确填写配乐计划，不能同时声明无配乐");
+    });
     const legacyDialogue = sheet.frames.some((frame) => promptText(frame.dialogue)) || Boolean(promptText(payload.dialogue || payload.narration));
     if (legacyDialogue) blockedReasons.push("对白尚未转换为带说话角色和时间范围的结构化对白");
     if (sheet.frames.some((frame) => dialogueLike.test(promptText(frame.sound)))) blockedReasons.push("对白被写入声音字段，请移到结构化对白；声音字段只能写环境声、动作声和非语言人声");
@@ -132,7 +162,7 @@ export function validateStoryboardNarrativePlan(payload: Record<string, unknown>
     return { blockedReasons: unique(blockedReasons), warnings: unique(warnings) };
 }
 
-function compileDescription(payload: Record<string, unknown>, sheet: StoryboardSheet, speakers: Map<string, { id: number; subjectTag?: string }>) {
+function compileDescription(payload: Record<string, unknown>, sheet: StoryboardSheet, speakers: Map<string, H3Speaker>) {
     const groups = new Map<number, StoryboardFrame[]>();
     sheet.frames.forEach((frame) => groups.set(frame.shotNumber, [...(groups.get(frame.shotNumber) || []), frame]));
     const shots = Array.from(groups.entries()).sort(([left], [right]) => left - right).map(([shotNumber, frames], index) => {
@@ -166,6 +196,8 @@ function compileSoundscape(payload: Record<string, unknown>, sheet: StoryboardSh
 }
 
 export function isH3TurboAudioSafe(payload: Record<string, unknown>, sheet: StoryboardSheet | undefined) {
+    if (Array.isArray(payload.audioReferences) && payload.audioReferences.length) return false;
+    if (promptText(payload.h3NonDiegeticMusic || payload.music) && !/^(N\/A|none)$/i.test(promptText(payload.h3NonDiegeticMusic || payload.music))) return false;
     if (String(payload.dialogue || payload.narration || "").trim()) return false;
     if ((sheet?.frames || []).some((frame) => promptText(frame.dialogue) || (frame.dialogues || []).length)) return false;
     const cues = [payload.h3Soundscape, payload.soundDesign, payload.sound, payload.audio, ...(sheet?.frames || []).map((frame) => frame.sound)];
@@ -175,31 +207,39 @@ export function isH3TurboAudioSafe(payload: Record<string, unknown>, sheet: Stor
     });
 }
 
-function referenceDefinition(reference: H3ReferenceDefinition) {
+function referenceDefinition(reference: H3ReferenceDefinition, speakers: Map<string, H3Speaker>) {
+    if (reference.audioPurpose) {
+        const speaker = reference.assetId ? speakers.get(reference.assetId) : undefined;
+        const identity = speaker ? ` for ${speaker.subjectTag || "the speaker"} (S${speaker.id})` : "";
+        const role = { voice: "voice-timbre reference", dialogue: "dialogue-delivery reference", sound: "sound-texture reference", music: "music-style and rhythm reference" }[reference.audioPurpose];
+        return `${reference.tag} is the ${role}${identity}; ${reference.purpose}. Reference its audible characteristics without copying the audio signal. Spoken words come only from the planned <d> blocks.`;
+    }
     if (reference.subjectTag) return `${reference.subjectTag} is the ${reference.subjectKind || "visual subject"} shown in ${reference.tag}; ${reference.purpose}.`;
     return `${reference.tag} ${reference.purpose}.`;
 }
 function retentionDefinition(reference: H3ReferenceDefinition) {
+    if (reference.audioPurpose) return `${reference.tag}: reference for ${reference.purpose}; do not copy the original signal or unplanned words.`;
     if (reference.tag === "<Picture 1>") return `${reference.tag}: fully_preserved for chronology, Shot grouping, composition intent, screen direction, and continuity; do not preserve gutters, panel borders, labels, or collage layout.`;
     if (reference.subjectTag) return `${reference.subjectTag} from ${reference.tag}: fully_preserved for ${reference.purpose}.`;
     return `${reference.tag}: weak_reference for ${reference.purpose}.`;
 }
 function buildSpeakers(sheet: StoryboardSheet, references: H3ReferenceDefinition[]) {
     const subjects = new Map(references.filter((item) => item.assetId && item.subjectTag).map((item) => [item.assetId!, item.subjectTag!]));
-    const speakers = new Map<string, { id: number; subjectTag?: string }>();
+    const speakers = new Map<string, H3Speaker>();
     sheet.frames.flatMap((frame) => frame.dialogues || []).forEach((cue) => {
         const key = cue.speakerAssetId || cue.speakerName;
-        if (!speakers.has(key)) speakers.set(key, { id: speakers.size + 1, subjectTag: subjects.get(cue.speakerAssetId) });
+        if (!speakers.has(key)) speakers.set(key, { id: speakers.size + 1, subjectTag: subjects.get(cue.speakerAssetId), audioTags: references.filter((reference) => reference.assetId === cue.speakerAssetId && (reference.audioPurpose === "voice" || reference.audioPurpose === "dialogue")).map((reference) => reference.tag) });
     });
     return speakers;
 }
-function compileDialogueCue(cue: H3DialogueCue, speakers: Map<string, { id: number; subjectTag?: string }>) {
+function compileDialogueCue(cue: H3DialogueCue, speakers: Map<string, H3Speaker>) {
     const speaker = speakers.get(cue.speakerAssetId || cue.speakerName);
     if (!speaker || !cue.text.trim()) return "";
     const identity = speaker.subjectTag ? `${speaker.subjectTag} (S${speaker.id})` : `the ${cue.offScreen ? "off-screen" : "on-screen"} speaker (S${speaker.id})`;
     const delivery = promptText(cue.delivery) || "in a natural, restrained delivery";
+    const audioReference = speaker.audioTags.length ? `, following the vocal characteristics referenced from ${speaker.audioTags.join(" and ")}` : "";
     const action = cue.offScreen ? "says in an off-screen voiceover while all visible characters keep their lips closed" : "speaks on screen with natural, synchronized lip movement";
-    return `At ${timestamp(cue.startSeconds)}, ${identity} ${action}, ${delivery}: <d>[${cue.language || (han.test(cue.text) ? "Chinese" : "English")}] ${finishDialogue(cue.text)}</d>`;
+    return `From ${timestamp(cue.startSeconds)} to ${timestamp(cue.endSeconds)}, ${identity} ${action}, ${delivery}${audioReference}: <d>[${cue.language || (han.test(cue.text) ? "Chinese" : "English")}] ${cue.text}</d>`;
 }
 
 function soundCue(value: unknown) {

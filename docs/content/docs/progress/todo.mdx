@@ -5,6 +5,8 @@ description: Planned follow-up work
 
 # TODO
 
+- H3 四任务对照与独立语音复核已完成，后续补充多种子、多图/整张故事板、长片段和多角色音色验收。LightX2V Ref2V v0.1 四步出现重复画外音，含对白默认路由暂不提升；作者原生 Ref2V v1.0 八步版已完成四任务对照，单种子泳池重复未复现；继续补充多种子，并检查动作、机位与实际发声时间。社区异常及历史修复适用范围见 `docs/research/minimax-h3-community-anomalies.md`。VDN 先解决剪枝基座跳过 51 项 AdaLN 增量的问题，Ref2VA 保持社区适配实验。
+
 - Run the fixed 10-scene H3 baseline across silent Turbo preview, audio-sensitive base preview, final and Sage modes on the deployed RTX 5090 checkout; record quality/audio gates and exercise rollback before treating Turbo preview as production-approved.
 - Add named/versioned creative-asset snapshots, linked cross-project creative-asset/style libraries, audio-result quality review, and media-version deletion management.
 - Add Skill installation from web search, Skill resource-file management, and controlled local-memory persistence.

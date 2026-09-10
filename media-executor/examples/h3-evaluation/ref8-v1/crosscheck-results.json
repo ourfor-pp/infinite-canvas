@@ -1,0 +1,95 @@
+{
+  "models": {
+    "SenseVoiceSmall": "Revision:master,CreatedAt:1727321787",
+    "FSMN-VAD": "Revision:master,CreatedAt:1707184291"
+  },
+  "results": [
+    {
+      "run": "motorcycle-dialogue-lightx2v-ref8",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": [
+            [
+              750,
+              3370
+            ]
+          ]
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>准备好了，我们出发吧。"
+        }
+      ],
+      "cleanText": "准备好了，我们出发吧。"
+    },
+    {
+      "run": "pool-voiceover-lightx2v-ref8",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": [
+            [
+              0,
+              1280
+            ],
+            [
+              1560,
+              2950
+            ]
+          ]
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+        }
+      ],
+      "cleanText": "慢慢来，保持呼吸。"
+    },
+    {
+      "run": "speech-first-lightx2v-ref8",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": [
+            [
+              310,
+              1670
+            ],
+            [
+              1950,
+              3280
+            ]
+          ]
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>别担心，等我回来。"
+        }
+      ],
+      "cleanText": "别担心，等我回来。"
+    },
+    {
+      "run": "water-no-speech-lightx2v-ref8",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": []
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|yue|><|NEUTRAL|><|Speech|><|withitn|>我。"
+        }
+      ],
+      "cleanText": "我。"
+    }
+  ]
+}

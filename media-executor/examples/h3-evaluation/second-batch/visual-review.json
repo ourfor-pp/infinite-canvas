@@ -1,0 +1,86 @@
+{
+  "method": "Manual inspection of frames 0, 24, 48, 72, 96, 120 at 24 fps; sampled review only",
+  "results": [
+    {
+      "run": "speech-first-base",
+      "identity": "No obvious identity collapse in sampled frames",
+      "action": "Speech-associated mouth movement precedes sword movement; sword still visible at 4 seconds, outside at 5 seconds",
+      "timing": "Misses requested sword-out deadline 3.75 seconds",
+      "qualityAccepted": false
+    },
+    {
+      "run": "speech-first-lightx2v-ref4",
+      "identity": "No obvious identity collapse in sampled frames",
+      "action": "Speech-associated mouth movement precedes sword movement; sword still visible at 4 seconds, outside at 5 seconds",
+      "timing": "Misses requested sword-out deadline 3.75 seconds",
+      "qualityAccepted": false
+    },
+    {
+      "run": "speech-first-pdd-ref8",
+      "identity": "No obvious identity collapse in sampled frames",
+      "action": "Speech-associated mouth movement precedes sword movement; sword still visible at 4 seconds, outside at 5 seconds",
+      "timing": "Misses requested sword-out deadline 3.75 seconds",
+      "qualityAccepted": false
+    },
+    {
+      "run": "motorcycle-dialogue-base",
+      "identity": "Bob haircut, dark makeup, leather jacket and green motorcycle remain recognizable in sampled frames",
+      "action": "Speech-associated mouth movement followed by head and expression changes; detailed nod deadline and unchanged hand pose need full-motion review",
+      "qualityAccepted": false
+    },
+    {
+      "run": "motorcycle-dialogue-lightx2v-ref4",
+      "identity": "Bob haircut, dark makeup, leather jacket and green motorcycle remain recognizable in sampled frames",
+      "action": "Speech-associated mouth movement followed by head and expression changes; detailed nod deadline and unchanged hand pose need full-motion review",
+      "qualityAccepted": false
+    },
+    {
+      "run": "motorcycle-dialogue-pdd-ref8",
+      "identity": "Bob haircut, dark makeup, leather jacket and green motorcycle remain recognizable in sampled frames",
+      "action": "Speech-associated mouth movement followed by head and expression changes; detailed nod deadline and unchanged hand pose need full-motion review",
+      "qualityAccepted": false
+    },
+    {
+      "run": "pool-voiceover-base",
+      "identity": "One swimmer remains in the lane; no visible narrator or captions in sampled frames",
+      "action": "Swimmer advances toward screen-right with splashes; fine limb continuity requires motion review",
+      "qualityAccepted": false,
+      "camera": "Fails fixed-camera instruction: a foreground pole enters from the right and shifts left while the swimmer stays near center, indicating tracking pan"
+    },
+    {
+      "run": "pool-voiceover-lightx2v-ref4",
+      "identity": "One swimmer stays in the lane; no visible narrator or captions in sampled frames",
+      "action": "Advances to screen-right with large splash and limb motion; fine anatomy requires motion review",
+      "camera": "Camera stability unresolved from these samples: flags enter at the upper-right and lane framing changes; no persistent rigid pole is visible for the same check used on base",
+      "qualityAccepted": false
+    },
+    {
+      "run": "pool-voiceover-pdd-ref8",
+      "identity": "One swimmer remains visible; no narrator or subtitles in sampled frames",
+      "action": "Swimmer advances with splashes; detailed limb continuity requires motion review",
+      "camera": "Foreground pool structure changes position; fixed-camera instruction is not established by the sampled review",
+      "qualityAccepted": false
+    },
+    {
+      "run": "water-no-speech-base",
+      "identity": "Blue water, tile grid and dark stripe remain recognizable; no visible text or people",
+      "action": "Water caustics and ripple distortion vary across sampled frames",
+      "camera": "Coarse overhead composition preserved in samples; exact camera rigidity not measured",
+      "qualityAccepted": false
+    },
+    {
+      "run": "water-no-speech-lightx2v-ref4",
+      "identity": "Blue water, tile grid and dark stripe remain recognizable; no visible text or people",
+      "action": "Ripple highlights vary while the overall pool-floor layout remains stable",
+      "camera": "Coarse overhead composition preserved in samples; exact camera rigidity not measured",
+      "qualityAccepted": false
+    },
+    {
+      "run": "water-no-speech-pdd-ref8",
+      "identity": "Blue water, tile grid and dark stripe remain recognizable; no visible text or people",
+      "action": "Ripple highlights and mild refraction change without losing the pool-floor layout",
+      "camera": "Coarse overhead composition preserved in samples; exact camera rigidity not measured",
+      "qualityAccepted": false
+    }
+  ]
+}

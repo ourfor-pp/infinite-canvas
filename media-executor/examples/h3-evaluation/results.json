@@ -1,0 +1,444 @@
+{
+  "expectedText": "别担心，等我回来。",
+  "expectedSpeechSeconds": [
+    1.5,
+    3.5
+  ],
+  "asr": {
+    "model": "Qwen/Qwen3-ASR-0.6B",
+    "revision": "deba00eb976b8daf9805ffd5d0fdcd7cafbb21b2",
+    "aligner": "Qwen/Qwen3-ForcedAligner-0.6B",
+    "alignerRevision": "1c85775dfe71a2a90e6aeea682c6eb9df3d8848b",
+    "device": "cpu"
+  },
+  "results": [
+    {
+      "recipe": {
+        "id": "base",
+        "mode": "fl2va",
+        "seed": 314159,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false
+      },
+      "seconds": 93.489,
+      "gpuInitialTotalUsedMiB": [
+        4654
+      ],
+      "gpuPeakTotalUsedMiB": [
+        30152
+      ],
+      "outputSha256": "02e68c501e57caa17c671859261f5cb038bb32e999ea845fcd2dcb00b4e65cbd",
+      "transcription": {
+        "language": "Chinese",
+        "text": "别担心，等我回来。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "别",
+              "start_time": 2.32,
+              "end_time": 2.48
+            },
+            {
+              "text": "担",
+              "start_time": 2.48,
+              "end_time": 2.64
+            },
+            {
+              "text": "心",
+              "start_time": 2.64,
+              "end_time": 3.2
+            },
+            {
+              "text": "等",
+              "start_time": 3.76,
+              "end_time": 4.0
+            },
+            {
+              "text": "我",
+              "start_time": 4.0,
+              "end_time": 4.0
+            },
+            {
+              "text": "回",
+              "start_time": 4.0,
+              "end_time": 4.24
+            },
+            {
+              "text": "来",
+              "start_time": 4.24,
+              "end_time": 4.48
+            }
+          ]
+        }
+      },
+      "qualityAccepted": false,
+      "audioAccepted": false,
+      "limitations": [
+        "single scene, single seed",
+        "sampled visual review only",
+        "speech timing exceeds requested window"
+      ]
+    },
+    {
+      "recipe": {
+        "id": "vdn8",
+        "mode": "fl2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false
+      },
+      "seconds": 72.893,
+      "gpuInitialTotalUsedMiB": [
+        4654
+      ],
+      "gpuPeakTotalUsedMiB": [
+        29740
+      ],
+      "outputSha256": "85fc5e1f5fb7c9b49c9ec08b5777cfc1ed14be152646b1e21a59f79409add277",
+      "transcription": {
+        "language": "Chinese",
+        "text": "别担心，等我回来。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "别",
+              "start_time": 2.32,
+              "end_time": 2.4
+            },
+            {
+              "text": "担",
+              "start_time": 2.4,
+              "end_time": 2.64
+            },
+            {
+              "text": "心",
+              "start_time": 2.64,
+              "end_time": 3.2
+            },
+            {
+              "text": "等",
+              "start_time": 3.76,
+              "end_time": 4.0
+            },
+            {
+              "text": "我",
+              "start_time": 4.0,
+              "end_time": 4.0
+            },
+            {
+              "text": "回",
+              "start_time": 4.0,
+              "end_time": 4.24
+            },
+            {
+              "text": "来",
+              "start_time": 4.24,
+              "end_time": 4.56
+            }
+          ]
+        }
+      },
+      "qualityAccepted": false,
+      "audioAccepted": false,
+      "limitations": [
+        "single scene, single seed",
+        "sampled visual review only",
+        "speech timing exceeds requested window",
+        "51 AdaLN deltas skipped on pruned base"
+      ]
+    },
+    {
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false
+      },
+      "seconds": 97.365,
+      "gpuInitialTotalUsedMiB": [
+        4654
+      ],
+      "gpuPeakTotalUsedMiB": [
+        31226
+      ],
+      "outputSha256": "ce04f3d12bae8474bd5d7ccd5590328a1452c5c3191a26146c41f571deef7567",
+      "transcription": {
+        "language": "Chinese",
+        "text": "别担心，等我回来。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "别",
+              "start_time": 2.24,
+              "end_time": 2.4
+            },
+            {
+              "text": "担",
+              "start_time": 2.4,
+              "end_time": 2.64
+            },
+            {
+              "text": "心",
+              "start_time": 2.64,
+              "end_time": 3.2
+            },
+            {
+              "text": "等",
+              "start_time": 3.68,
+              "end_time": 3.92
+            },
+            {
+              "text": "我",
+              "start_time": 3.92,
+              "end_time": 3.92
+            },
+            {
+              "text": "回",
+              "start_time": 3.92,
+              "end_time": 4.16
+            },
+            {
+              "text": "来",
+              "start_time": 4.16,
+              "end_time": 4.48
+            }
+          ]
+        }
+      },
+      "qualityAccepted": false,
+      "audioAccepted": false,
+      "limitations": [
+        "single scene, single seed",
+        "sampled visual review only",
+        "speech timing exceeds requested window"
+      ]
+    },
+    {
+      "recipe": {
+        "id": "lightx2v-ref4",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 4,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false
+      },
+      "seconds": 40.57,
+      "gpuInitialTotalUsedMiB": [
+        4654
+      ],
+      "gpuPeakTotalUsedMiB": [
+        31770
+      ],
+      "outputSha256": "fb4ec15569acc6743ba8eecee0da4e6bb3264c570f4c8157305e91a6b481e722",
+      "transcription": {
+        "language": "Chinese",
+        "text": "别担心，等我回来。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "别",
+              "start_time": 2.32,
+              "end_time": 2.48
+            },
+            {
+              "text": "担",
+              "start_time": 2.48,
+              "end_time": 2.64
+            },
+            {
+              "text": "心",
+              "start_time": 2.64,
+              "end_time": 3.28
+            },
+            {
+              "text": "等",
+              "start_time": 3.76,
+              "end_time": 4.0
+            },
+            {
+              "text": "我",
+              "start_time": 4.0,
+              "end_time": 4.0
+            },
+            {
+              "text": "回",
+              "start_time": 4.0,
+              "end_time": 4.24
+            },
+            {
+              "text": "来",
+              "start_time": 4.24,
+              "end_time": 4.56
+            }
+          ]
+        }
+      },
+      "qualityAccepted": false,
+      "audioAccepted": false,
+      "limitations": [
+        "single scene, single seed",
+        "sampled visual review only",
+        "speech timing exceeds requested window"
+      ]
+    },
+    {
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false
+      },
+      "seconds": 56.838,
+      "gpuInitialTotalUsedMiB": [
+        4654
+      ],
+      "gpuPeakTotalUsedMiB": [
+        31290
+      ],
+      "outputSha256": "36cbb21876d16994f2d7f2b125fb68ea16d6baae26ff7fce8f2a37e88f63318b",
+      "transcription": {
+        "language": "Chinese",
+        "text": "别担心，等我回来。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "别",
+              "start_time": 2.56,
+              "end_time": 2.72
+            },
+            {
+              "text": "担",
+              "start_time": 2.72,
+              "end_time": 2.88
+            },
+            {
+              "text": "心",
+              "start_time": 2.88,
+              "end_time": 3.36
+            },
+            {
+              "text": "等",
+              "start_time": 3.76,
+              "end_time": 4.0
+            },
+            {
+              "text": "我",
+              "start_time": 4.0,
+              "end_time": 4.0
+            },
+            {
+              "text": "回",
+              "start_time": 4.0,
+              "end_time": 4.24
+            },
+            {
+              "text": "来",
+              "start_time": 4.24,
+              "end_time": 4.48
+            }
+          ]
+        }
+      },
+      "qualityAccepted": false,
+      "audioAccepted": false,
+      "limitations": [
+        "single scene, single seed",
+        "sampled visual review only",
+        "speech timing exceeds requested window"
+      ]
+    },
+    {
+      "recipe": {
+        "id": "vdn8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false
+      },
+      "seconds": 74.905,
+      "gpuInitialTotalUsedMiB": [
+        4654
+      ],
+      "gpuPeakTotalUsedMiB": [
+        30028
+      ],
+      "outputSha256": "eec6ada8ae6d09bd6cd1400b5cc5283bf55ff27d3f89990b80f35fa6e981f6d7",
+      "transcription": {
+        "language": "Chinese",
+        "text": "别担心，等我回来。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "别",
+              "start_time": 2.32,
+              "end_time": 2.48
+            },
+            {
+              "text": "担",
+              "start_time": 2.48,
+              "end_time": 2.64
+            },
+            {
+              "text": "心",
+              "start_time": 2.64,
+              "end_time": 3.2
+            },
+            {
+              "text": "等",
+              "start_time": 3.68,
+              "end_time": 3.92
+            },
+            {
+              "text": "我",
+              "start_time": 3.92,
+              "end_time": 3.92
+            },
+            {
+              "text": "回",
+              "start_time": 3.92,
+              "end_time": 4.16
+            },
+            {
+              "text": "来",
+              "start_time": 4.16,
+              "end_time": 4.48
+            }
+          ]
+        }
+      },
+      "qualityAccepted": false,
+      "audioAccepted": false,
+      "limitations": [
+        "single scene, single seed",
+        "sampled visual review only",
+        "speech timing exceeds requested window",
+        "51 AdaLN deltas skipped on pruned base"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "comfyRevision": "40c4fcdf513a4523e39d54a9d391908af8df8171",
+  "modelRevision": "9056a6d9bdb2f0b2de6f03cbf4e3ad399df57343",
+  "cases": "../second-batch/cases.json",
+  "runs": [
+    {
+      "run": "motorcycle-dialogue-lightx2v-ref8",
+      "seconds": 56.878,
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "motorcycle-dialogue"
+      },
+      "sha256": "ace6b5c95a2fb823699045a8d4449af805e32bbf1ce9d357e32297ae67c646d1",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "pool-voiceover-lightx2v-ref8",
+      "seconds": 56.762,
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "sha256": "f61ede8717cb7b79e8f53d141bfe2f9cb88a67cf8ecd4739613c27ecad4742c2",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "speech-first-lightx2v-ref8",
+      "seconds": 54.774,
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "sha256": "7dcf6630fa76f2d292eba56c88faec56fb6422bdb4c40b90a381b5b39b6c0810",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "water-no-speech-lightx2v-ref8",
+      "seconds": 56.83,
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "water-no-speech"
+      },
+      "sha256": "cf66a77e5b5f8919ea468d72682f570d016909e8360ce1128621c7b3d5589bad",
+      "qualityAccepted": false,
+      "audioAccepted": false
+    }
+  ]
+}

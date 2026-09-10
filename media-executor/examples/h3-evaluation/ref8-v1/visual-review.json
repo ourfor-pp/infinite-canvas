@@ -1,0 +1,22 @@
+{
+  "method": "Five 1-fps frames per clip; full playback and lip-sync acceptance pending",
+  "results": [
+    {
+      "caseId": "speech-first",
+      "observation": "Face identity retained in sampled frames; sword visible through 3s and absent at 4s."
+    },
+    {
+      "caseId": "motorcycle-dialogue",
+      "observation": "Character, clothing and motorcycle composition retained; sampled mouth shapes change during dialogue."
+    },
+    {
+      "caseId": "pool-voiceover",
+      "observation": "Swimmer stays near frame center while background changes; strict stationary camera not accepted."
+    },
+    {
+      "caseId": "water-no-speech",
+      "observation": "No person in sampled frames; pool tiles and moving caustics remain visible."
+    }
+  ],
+  "qualityAccepted": false
+}

@@ -1,0 +1,30 @@
+subject_definitions:
+<Subject 1> is the adult woman in <Picture 1>, with a short black bob, straight fringe, dark lipstick and black leather jacket.
+<Subject 2> is the parked green motorcycle in <Picture 1>, including its black mirror, handlebar and clear windscreen.
+<Subject 3> is the softly blurred woodland in <Picture 1>.
+
+summary:
+[reference generation] Create a 5.167-second stationary medium close-up of the woman speaking beside the parked motorcycle, followed by a small nod.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - facial identity, haircut, makeup and leather jacket.
+<Subject 2> (appears in [Shot 1]): fully_preserved - motorcycle shape, green paint and stationary position.
+<Subject 3> (appears in [Shot 1]): fully_preserved - woodland daylight and blurred background.
+
+detailed_description:
+The target video has a natural live-action outdoor portrait style with soft daylight, realistic leather texture and shallow depth of field.
+[Shot 1] An eye-level medium close-up frames <Subject 1> behind the foreground handlebar and black mirror of <Subject 2>. Her face is near the center, and the green motorcycle body and clear windscreen occupy the lower part of the frame. The woodland of <Subject 3> remains softly blurred behind her. Keep her short black bob, straight fringe, dark lipstick and small eyebrow piercing consistent with the reference. Her black leather jacket retains its collar, silver fastening details and natural folds. Her face is unobstructed and remains sharply focused.
+
+At the beginning, she is stationary beside the parked motorcycle, with her bent arm and hand resting near the back of her neck as in the reference. Her eyes turn gently toward the camera without a large head movement. The motorcycle stays parked, its handlebar and mirror motionless. Daylight remains soft and even across her face, with mild highlights along the jacket shoulders and windscreen edge. Only a few loose hairs shift in a light breeze.
+
+From 00:00.500 to 00:03.500, <Subject 1> (S1), the visible adult woman with a clear, medium-pitched, slightly husky voice, says in Mandarin in a confident, conversational delivery: <d>[Chinese] 准备好了，我们出发吧。</d> Her mouth and jaw articulate the sentence naturally, with one brief pause at the comma. She says the line once, maintaining a relaxed face and steady gaze. The sound is close enough to hear each word clearly above the quiet outdoor ambience. Her lips are visible throughout the utterance; no object crosses in front of her mouth.
+
+After the last syllable, her lips close and she makes one small downward nod, returning to the original head level by 00:04.500. Her expression becomes a subtle closed-mouth smile. The hand near her neck stays in place, and her shoulders remain relaxed. The nod is restrained and continuous, without an abrupt pose change or exaggerated turn.
+
+The shot then holds until 00:05.167 with quiet breathing and slight hair movement. The green paint, mirror silhouette and windscreen geometry remain stable in the foreground. The woodland stays out of focus; no new person enters the frame. The camera does not pan, zoom or cut. The motorcycle engine remains off, and there is no departure during this short portrait.
+
+overall_soundscape:
+Gentle wind in distant leaves, very soft leather creaks and quiet breathing. The parked motorcycle engine is off. No music.
+
+non_diegetic_music:
+N/A

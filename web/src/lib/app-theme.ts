@@ -1,6 +1,19 @@
 import type { ThemeConfig } from "antd";
 import { theme as antdTheme } from "antd";
 
+export const directorAntTheme: ThemeConfig = {
+    inherit: false,
+    algorithm: antdTheme.defaultAlgorithm,
+    token: {
+        colorPrimary: "#2563eb", colorInfo: "#2563eb", colorLink: "#2563eb",
+        colorBgBase: "#ffffff", colorBgContainer: "#ffffff", colorBgElevated: "#ffffff",
+        colorTextBase: "#0f172a", colorTextSecondary: "#64748b", colorBorder: "#e2e8f0",
+        controlItemBgHover: "#f8fafc", controlItemBgActive: "#eff6ff", controlItemBgActiveHover: "#dbeafe",
+        borderRadius: 4,
+    },
+    components: { Button: { primaryShadow: "none", defaultShadow: "none" } },
+};
+
 const neutral = {
     light: {
         primary: "#171717",

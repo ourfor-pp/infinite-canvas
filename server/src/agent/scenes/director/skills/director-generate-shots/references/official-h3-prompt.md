@@ -2,6 +2,8 @@
 
 权威来源：
 
+本次核对版本：`MiniMax-AI/MiniMax-H3@d21241f0a4b3acbb34c97dae47fa417b7065e438`。
+
 - https://github.com/MiniMax-AI/MiniMax-H3/tree/main/skills/h3-prompt-writing
 - https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/base-en.txt
 - https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/ref-en.txt
@@ -38,6 +40,8 @@
 5. `overall_soundscape`
 6. `non_diegetic_music`
 
+`detailed_description` 先用一句英文声明整体视觉风格，再开始 `[Shot 1]`。按照官方指南，通常展开为约 350–500 个英文词；只细化已规划的可观察内容，包括开场位置、连续动作路径、时间点、动作结果和结束状态，不靠增加剧情或切镜凑字数。
+
 用 `<Subject N>` 表示可复用主体；普通导演视频段把 `<Picture 1>` 固定为从左到右、从上到下读取的完整故事板，其余 `<Picture N>` 才用于角色、场景、道具或风格参考；用 `<Video N>` 表示上一段运动与原声续接来源，用 `<Audio N>` 表示复制或参考的音频。标签在六段中保持同一含义。不得把整张故事板裁成普通视频的硬时间锚点，也不得让输出保留宫格或分屏版式。
 
 角色参考不能只声明为普通图片。应先定义 `<Subject 1> is the character shown in <Picture 2>`，再在 `detailed_description` 中用 `<Subject 1> (S1)` 指向稳定身份。例如：
@@ -47,3 +51,10 @@ At 00:02.200, <Subject 1> (S1) turns toward the doorway and speaks on screen wit
 ```
 
 `overall_soundscape` 只写 room tone、脚步、衣料、呼吸等非对白内容，不再重复“你是谁”，也不得把视频段标题或故事板说明塞进 `<d>`。
+
+## 音频参考与保留关系
+
+- `audioReferences` 按上传顺序对应 `<Audio N>`；续接视频的原声先占 `<Audio 1>`，独立音频从 `<Audio 2>` 开始。`voice` 只参考音色，`dialogue` 参考发声与节奏，`sound` 参考声音质感，`music` 参考音乐风格；当前生成链路不支持承诺逐样本复制参考原声。
+- `voice` 和 `dialogue` 必须绑定当前视频段已采用且有对白的角色 `speakerAssetId`，音频定义复用该角色的 `<Subject N> (Sx)`，不得独立重排说话人编号。对白内容只使用结构化 `text` 原文，保留标点；起止时间、身份、语气写在 `<d>` 外。
+- 音频的保留标记使用 `reference`，任务类型为 `reference generation + audio reference`；不要把音色参考描述为 `fully_copy`。音乐意图同步明确写入 `h3NonDiegeticMusic`。
+- 图片保留角色身份、场景、道具或风格各自定义的特征；故事板保留时间顺序与镜头意图，禁止保留宫格边框。

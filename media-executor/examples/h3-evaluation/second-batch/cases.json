@@ -1,0 +1,62 @@
+{
+  "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "width": 960,
+  "height": 544,
+  "frames": 124,
+  "fps": 24,
+  "cases": [
+    {
+      "id": "speech-first",
+      "image": "reference.jpg",
+      "prompt": "speech-first.txt",
+      "promptSha256": "625dcc33f580f2d80b7c59d708f2332666b5b4fa082d09561db632d2ed6acc6b",
+      "expectedText": "别担心，等我回来。",
+      "speechWindow": [
+        0.25,
+        2.25
+      ],
+      "seed": 314159,
+      "detailedWords": 376,
+      "submittedPromptSha256": "bc7c01d2d88b4d8e02dd44889baa24b08c84292b33f62e598ac1d411325b5381"
+    },
+    {
+      "id": "motorcycle-dialogue",
+      "image": "ref2va_test_5_2.jpg",
+      "prompt": "motorcycle-dialogue.txt",
+      "promptSha256": "eebd90d2ce6fea058d17c19802eeedc92ef344a12cabfc93edce818294c0217f",
+      "expectedText": "准备好了，我们出发吧。",
+      "speechWindow": [
+        0.5,
+        3.5
+      ],
+      "seed": 314159,
+      "detailedWords": 386,
+      "submittedPromptSha256": "8b738740d51b5cd63f7c28645bac0d8c3b5b7c206f197251e8dcd5186a231832"
+    },
+    {
+      "id": "pool-voiceover",
+      "image": "ref2va_test_5_3.jpg",
+      "prompt": "pool-voiceover.txt",
+      "promptSha256": "e0d28673a2bfa5d9a5d18634566b37aa3be667e3a1f900c8df42ca5ea6ca207d",
+      "expectedText": "慢慢来，保持呼吸。",
+      "speechWindow": [
+        0.5,
+        3.5
+      ],
+      "seed": 314159,
+      "detailedWords": 385,
+      "submittedPromptSha256": "cd739d87386193a68e09fdb8286aa5f71226c954bcb2673c507cf806df911785"
+    },
+    {
+      "id": "water-no-speech",
+      "image": "ref2va_test_5_4.jpg",
+      "prompt": "water-no-speech.txt",
+      "promptSha256": "229600637c7e1177473a20808604793182c33469c204e68fa7f6ef6935660224",
+      "expectedText": "",
+      "speechWindow": null,
+      "seed": 314159,
+      "detailedWords": 395,
+      "submittedPromptSha256": "64e379b9530bc948868fed65034e369d72e47f83e68064bdfc56745f2ba26bdf"
+    }
+  ]
+}

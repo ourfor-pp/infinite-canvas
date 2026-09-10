@@ -1,0 +1,22 @@
+[
+  {
+    "url": "https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/335001fb9e5455d68a0caa18ec2e319072150328/asset/ref2va_test_5_2.jpg",
+    "file": "ref2va_test_5_2.jpg",
+    "sha256": "afda45ed8f06a176c19fa9b224cb6c07467dd0d0ab2564a14c3014cc7ae34ca4"
+  },
+  {
+    "url": "https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/335001fb9e5455d68a0caa18ec2e319072150328/asset/ref2va_test_5_3.jpg",
+    "file": "ref2va_test_5_3.jpg",
+    "sha256": "97e0835a1bf64ee4c4ae0ca0d94e3262bc6bfaff79a77ec2c7155ccb26110b8c"
+  },
+  {
+    "url": "https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/335001fb9e5455d68a0caa18ec2e319072150328/asset/ref2va_test_5_4.jpg",
+    "file": "ref2va_test_5_4.jpg",
+    "sha256": "939856c9964d33c9ddecac30b145b82993c5d6ba9ce6a2afcf169233ecc177e6"
+  },
+  {
+    "file": "reference.jpg",
+    "url": "https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/335001fb9e5455d68a0caa18ec2e319072150328/asset/ref2va_test_5_1.jpg",
+    "sha256": "df46f5f157b0bcddb603646532e9746f709d663cb4787332603c90373691a8d7"
+  }
+]

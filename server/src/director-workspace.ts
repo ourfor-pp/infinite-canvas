@@ -10,6 +10,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { db, parseJson } from "./database.js";
 import { collectFileIds, getStoredFile, syncFileRefs } from "./file-store.js";
+import { h3AudioReferencesInput } from "./h3-prompt.js";
 import { inferVisualStyleMediumFamily, serializeVisualStyleMarkdown } from "./visual-style-contract.js";
 
 export type DirectorDiagnostic = {
@@ -372,6 +373,22 @@ export function syncDirectorAssetFile(userId: string, projectId: string, assetId
     indexDirectorProject(userId, projectId, validateDirectorRoot(root));
 }
 
+export function getDirectorAssetReferenceImage(userId: string, projectId: string, assetId: string, variantId?: string) {
+    const row = db.prepare("SELECT kind FROM creative_assets WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, assetId) as { kind: AssetRow["kind"] } | undefined;
+    if (!row) return undefined;
+    const root = ensureDirectorProjectWorkspace(userId, projectId);
+    const folder = directorAssetFolder(root, projectId, assetId);
+    if (!folder) return undefined;
+    let visualFolder = resolve(folder, row.kind === "character" ? "identity" : "design");
+    if (variantId) {
+        if (!existsSync(resolve(folder, "variants"))) return undefined;
+        try { visualFolder = directorVariantFolder(folder, variantId); }
+        catch (error) { if ((error as { code?: string }).code === "DIRECTOR_VARIANT_NOT_FOUND") return undefined; throw error; }
+    }
+    const path = walkFiles(visualFolder).find((file) => dirname(file) === visualFolder && basename(file, extname(file)) === "primary" && mediaMimeType(file).startsWith("image/"));
+    return path ? registerDirectorMediaFile(userId, projectId, root, path) : undefined;
+}
+
 export function getDirectorAssetDetail(userId: string, assetId: string): DirectorAssetDetail {
     const row = db.prepare("SELECT * FROM creative_assets WHERE user_id=? AND id=?").get(userId, assetId) as AssetRow | undefined;
     if (!row) throw workspaceError(404, "DIRECTOR_ASSET_NOT_FOUND", "素材不存在或无权访问");
@@ -529,7 +546,14 @@ export function syncDirectorVideoSegmentFile(userId: string, projectId: string, 
         locations: externalizeReferences(projectId, payload.sceneRefs),
         props: externalizeReferences(projectId, payload.propRefs),
     };
-    writeMarkdown(resolve(folder, "segment.md"), { id: externalSegmentId, kind: "video-segment", name: segment.title, sequenceId: externalSequenceId, order: segment.position + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references, sourceRevision: segment.revision }, String(payload.description || payload.action || ""));
+    const audioReferences = h3AudioReferencesInput.parse(payload.audioReferences).map(({ fileId, speakerAssetId, ...reference }, index) => {
+        const file = getStoredFile(userId, fileId);
+        const target = resolve(folder, "audio-references", `reference-${index + 1}${extname(file?.path || ".wav") || ".wav"}`);
+        if (file && resolve(file.path) !== target) copyNamedFile(userId, fileId, target);
+        return { ...reference, path: posixRelative(root, target), ...(speakerAssetId ? { speakerAssetId: directorExternalId(projectId, speakerAssetId) } : {}) };
+    });
+    syncFileRefs(userId, "director_shot", segmentId, payload);
+    writeMarkdown(resolve(folder, "segment.md"), { ...(existing ? matter(readFileSync(existing, "utf8")).data : {}), id: externalSegmentId, kind: "video-segment", name: segment.title, sequenceId: externalSequenceId, order: segment.position + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references, audioReferences, ...segmentNarrativeMetadata(payload), sourceRevision: segment.revision }, String(payload.description ?? payload.action ?? ""));
     writeYaml(resolve(folder, "storyboard.yaml"), { version: 1, segmentId: externalSegmentId, layout: sheet.layout || "2x2", frames: Array.isArray(sheet.frames) ? sheet.frames : [] });
     writeFileAtomic(resolve(folder, "storyboard-prompt.md"), String(sheet.promptSnapshot || sheet.prompt || payload.storyboardPrompt || ""));
     const storyboardFileId = String(sheet.fileId || sheet.imageFileId || "");
@@ -733,7 +757,7 @@ function exportStoryboards(userId: string, projectId: string, root: string) {
             const payload = parseJson<Record<string, unknown>>(segment.payload, {});
             const folder = resolve(root, "storyboards", seqName, `seg-${pad(segmentIndex + 1)}-${slug(segment.title) || "segment"}`);
             const refs = { characters: payload.characterRefs || [], locations: payload.sceneRefs || [], props: payload.propRefs || [] };
-            writeMarkdown(resolve(folder, "segment.md"), { id: segment.id, kind: "video-segment", name: segment.title, sequenceId: sequence.id, order: segmentIndex + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references: refs, sourceRevision: segment.revision }, String(payload.description || payload.action || ""));
+            writeMarkdown(resolve(folder, "segment.md"), { id: segment.id, kind: "video-segment", name: segment.title, sequenceId: sequence.id, order: segmentIndex + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references: refs, ...segmentNarrativeMetadata(payload), sourceRevision: segment.revision }, String(payload.description ?? payload.action ?? ""));
             const board = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown>
                 : payload.storyboard && typeof payload.storyboard === "object" ? payload.storyboard as Record<string, unknown> : {};
             writeYaml(resolve(folder, "storyboard.yaml"), { version: 1, segmentId: segment.id, layout: board.layout || "2x2", frames: Array.isArray(board.frames) ? board.frames : [] });
@@ -908,10 +932,16 @@ function reconcileStoryboards(userId: string, projectId: string, root: string, n
             if (prompt || "promptSnapshot" in currentSheet) nextSheet.promptSnapshot = prompt;
             const payload: Record<string, unknown> = {
                 ...currentPayload,
+                ...segmentNarrativeMetadata(segmentDocument.data),
                 durationSeconds: Number(segmentDocument.data.durationSeconds) || 4,
                 characterRefs: remapReferences("creative_assets", userId, projectId, references.characters),
                 sceneRefs: remapReferences("creative_assets", userId, projectId, references.locations),
                 propRefs: remapReferences("creative_assets", userId, projectId, references.props),
+                audioReferences: h3AudioReferencesInput.parse((Array.isArray(segmentDocument.data.audioReferences) ? segmentDocument.data.audioReferences : []).map((value: unknown) => {
+                    const reference = documentRecord(value);
+                    const path = safeWorkspacePath(root, String(reference.path || ""));
+                    return { purpose: reference.purpose, description: reference.description, fileId: registerDirectorMediaFile(userId, projectId, root, path), ...(reference.speakerAssetId ? { speakerAssetId: directorMirrorId("creative_assets", userId, projectId, String(reference.speakerAssetId)) } : {}) };
+                })),
                 storyboardSheet: nextSheet,
             };
             const videoFolder = resolve(root, "videos", `seg-${segmentEntity.id}`);
@@ -930,6 +960,10 @@ function reconcileStoryboards(userId: string, projectId: string, root: string, n
     }
     for (const row of db.prepare("SELECT id FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>) if (!seenSegments.has(row.id)) db.prepare("DELETE FROM director_shots WHERE id=? AND user_id=?").run(row.id, userId);
     for (const row of db.prepare("SELECT id FROM director_sequences WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>) if (!seenSequences.has(row.id)) db.prepare("DELETE FROM director_sequences WHERE id=? AND user_id=?").run(row.id, userId);
+}
+
+function segmentNarrativeMetadata(value: Record<string, unknown>) {
+    return Object.fromEntries(["dramaticBeat", "openingState", "endingState"].filter((key) => typeof value[key] === "string").map((key) => [key, value[key]]));
 }
 
 function exportTimeline(userId: string, projectId: string, root: string) {
@@ -1011,7 +1045,7 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
                 if (id && !knownIds.has(id)) diagnostics.push(diag("error", "ASSET_REFERENCE_MISSING", document.path, `${label}引用不存在：${id}`));
                 const variantId = value && typeof value === "object" ? String((value as Record<string, unknown>).variantId || "") : "";
                 if (variantId && !knownIds.has(variantId)) diagnostics.push(diag("error", "VARIANT_REFERENCE_MISSING", document.path, `素材变体不存在：${variantId}`));
-                else if (variantId && !variantMediaReady.get(variantId)) diagnostics.push(diag("error", "VARIANT_PRIMARY_MEDIA_MISSING", document.path, `素材变体缺少主图：${variantId}`));
+                else if (variantId && !variantMediaReady.get(variantId)) diagnostics.push(diag("warning", "VARIANT_PRIMARY_MEDIA_MISSING", document.path, `素材变体缺少主图，生成当前视频段前需补齐：${variantId}`));
             }
         }
         const folder = resolve(root, dirname(document.path));
@@ -1268,6 +1302,8 @@ function ensureDirectorAssetProductionFiles(userId: string, projectId: string, r
 
     const variants = Array.isArray(payload.variants) ? payload.variants.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && String((item as Record<string, unknown>).usage || "") === "variant_reference")) : [];
     variants.forEach((variant, index) => {
+        const source = getStoredFile(userId, String(variant.fileId || ""));
+        if (source && posixRelative(folder, source.path).startsWith("variants/")) return;
         const id = String(variant.variantId || variant.id || `var-${pad(index + 1)}`);
         const name = String(variant.label || variant.name || `生产变体 ${index + 1}`);
         const existing = readdirSync(resolve(folder, "variants"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => resolve(folder, "variants", entry.name)).find((path) => {

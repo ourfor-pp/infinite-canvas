@@ -39,6 +39,7 @@ export const directorApi = {
     deleteSequence: (id: string) => serverRequest(`/director/sequences/${enc(id)}`, { method: "DELETE" }),
     createVideoSegment: (projectId: string, value: Record<string, unknown>) => serverRequest<DirectorVideoSegment>(`/director/projects/${enc(projectId)}/video-segments`, { method: "POST", body: JSON.stringify(value) }),
     updateVideoSegment: (id: string, value: Record<string, unknown>) => serverRequest<DirectorVideoSegment>(`/director/video-segments/${enc(id)}`, { method: "PUT", body: JSON.stringify(value) }),
+    updateSegmentAssetReference: (id: string, value: { revision: number; kind: "character" | "scene" | "prop"; assetId: string; replaceAssetId?: string; variantId?: string; remove?: boolean }) => serverRequest<DirectorVideoSegment>(`/director/video-segments/${enc(id)}/asset-reference`, { method: "PUT", body: JSON.stringify(value) }),
     videoSegmentPreflight: (id: string) => serverRequest<DirectorVideoSegmentPreflight>(`/director/video-segments/${enc(id)}/preflight`),
     generateStoryboard: (id: string, revision: number) => serverRequest<Record<string, unknown>>(`/director/video-segments/${enc(id)}/storyboard/generate`, { method: "POST", body: JSON.stringify({ revision }) }),
     generateVideoSegment: (id: string, revision: number, qualityPreset: H3QualityPreset) => serverRequest<Record<string, unknown>>(`/director/video-segments/${enc(id)}/generate`, { method: "POST", body: JSON.stringify({ revision, qualityPreset }) }),

@@ -1,0 +1,287 @@
+{
+  "model": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-0.6B/snapshots/deba00eb976b8daf9805ffd5d0fdcd7cafbb21b2",
+  "aligner": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ForcedAligner-0.6B/snapshots/1c85775dfe71a2a90e6aeea682c6eb9df3d8848b",
+  "device": "cpu",
+  "timingToleranceSeconds": 0.25,
+  "note": "ASR and forced alignment are auxiliary evidence, not listening or lip-sync acceptance.",
+  "results": [
+    {
+      "run": "motorcycle-dialogue-lightx2v-ref8",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "motorcycle-dialogue"
+      },
+      "videoSha256": "ace6b5c95a2fb823699045a8d4449af805e32bbf1ce9d357e32297ae67c646d1",
+      "expectedText": "准备好了，我们出发吧。",
+      "expectedSpeechWindow": [
+        0.5,
+        3.5
+      ],
+      "transcription": {
+        "language": "Chinese",
+        "text": "准备好了，我们出发吧。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "准",
+              "start_time": 0.96,
+              "end_time": 1.12
+            },
+            {
+              "text": "备",
+              "start_time": 1.12,
+              "end_time": 1.2
+            },
+            {
+              "text": "好",
+              "start_time": 1.2,
+              "end_time": 1.44
+            },
+            {
+              "text": "了",
+              "start_time": 1.44,
+              "end_time": 1.68
+            },
+            {
+              "text": "我",
+              "start_time": 2.32,
+              "end_time": 2.32
+            },
+            {
+              "text": "们",
+              "start_time": 2.32,
+              "end_time": 2.48
+            },
+            {
+              "text": "出",
+              "start_time": 2.48,
+              "end_time": 2.64
+            },
+            {
+              "text": "发",
+              "start_time": 2.64,
+              "end_time": 2.8
+            },
+            {
+              "text": "吧",
+              "start_time": 2.8,
+              "end_time": 3.04
+            }
+          ]
+        }
+      },
+      "actualSpeechWindow": [
+        0.96,
+        3.04
+      ],
+      "transcriptMatches": true,
+      "speechBoundaryErrorsSeconds": [
+        0.46,
+        -0.46
+      ],
+      "speechWithinWindow": true,
+      "speechWindowMatches": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "pool-voiceover-lightx2v-ref8",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "videoSha256": "f61ede8717cb7b79e8f53d141bfe2f9cb88a67cf8ecd4739613c27ecad4742c2",
+      "expectedText": "慢慢来，保持呼吸。",
+      "expectedSpeechWindow": [
+        0.5,
+        3.5
+      ],
+      "transcription": {
+        "language": "Chinese",
+        "text": "慢慢来，保持呼吸。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "慢",
+              "start_time": 0.16,
+              "end_time": 0.32
+            },
+            {
+              "text": "慢",
+              "start_time": 0.32,
+              "end_time": 0.48
+            },
+            {
+              "text": "来",
+              "start_time": 0.48,
+              "end_time": 0.88
+            },
+            {
+              "text": "保",
+              "start_time": 1.76,
+              "end_time": 1.92
+            },
+            {
+              "text": "持",
+              "start_time": 1.92,
+              "end_time": 2.08
+            },
+            {
+              "text": "呼",
+              "start_time": 2.08,
+              "end_time": 2.32
+            },
+            {
+              "text": "吸",
+              "start_time": 2.32,
+              "end_time": 2.72
+            }
+          ]
+        }
+      },
+      "actualSpeechWindow": [
+        0.16,
+        2.72
+      ],
+      "transcriptMatches": true,
+      "speechBoundaryErrorsSeconds": [
+        -0.34,
+        -0.78
+      ],
+      "speechWithinWindow": false,
+      "speechWindowMatches": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "speech-first-lightx2v-ref8",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "videoSha256": "7dcf6630fa76f2d292eba56c88faec56fb6422bdb4c40b90a381b5b39b6c0810",
+      "expectedText": "别担心，等我回来。",
+      "expectedSpeechWindow": [
+        0.25,
+        2.25
+      ],
+      "transcription": {
+        "language": "Chinese",
+        "text": "别担心，等我回来。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "别",
+              "start_time": 0.56,
+              "end_time": 0.72
+            },
+            {
+              "text": "担",
+              "start_time": 0.72,
+              "end_time": 0.88
+            },
+            {
+              "text": "心",
+              "start_time": 0.88,
+              "end_time": 1.28
+            },
+            {
+              "text": "等",
+              "start_time": 2.16,
+              "end_time": 2.4
+            },
+            {
+              "text": "我",
+              "start_time": 2.4,
+              "end_time": 2.4
+            },
+            {
+              "text": "回",
+              "start_time": 2.4,
+              "end_time": 2.72
+            },
+            {
+              "text": "来",
+              "start_time": 2.72,
+              "end_time": 2.96
+            }
+          ]
+        }
+      },
+      "actualSpeechWindow": [
+        0.56,
+        2.96
+      ],
+      "transcriptMatches": true,
+      "speechBoundaryErrorsSeconds": [
+        0.31,
+        0.71
+      ],
+      "speechWithinWindow": false,
+      "speechWindowMatches": false,
+      "audioAccepted": false
+    },
+    {
+      "run": "water-no-speech-lightx2v-ref8",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "water-no-speech"
+      },
+      "videoSha256": "cf66a77e5b5f8919ea468d72682f570d016909e8360ce1128621c7b3d5589bad",
+      "expectedText": "",
+      "expectedSpeechWindow": null,
+      "transcription": {
+        "language": "Chinese",
+        "text": "嗯。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "嗯",
+              "start_time": 5.12,
+              "end_time": 5.12
+            }
+          ]
+        }
+      },
+      "actualSpeechWindow": [
+        5.12,
+        5.12
+      ],
+      "transcriptMatches": false,
+      "speechBoundaryErrorsSeconds": null,
+      "speechWithinWindow": null,
+      "speechWindowMatches": null,
+      "audioAccepted": false
+    }
+  ]
+}

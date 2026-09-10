@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compileH3Prompt, isH3TurboAudioSafe, validateH3PromptPlan, validateStoryboardNarrativePlan } from "./h3-prompt.js";
+import { compileH3Prompt, h3AudioPromptReferences, h3AudioReferencesInput, isH3TurboAudioSafe, validateH3PromptPlan, validateStoryboardNarrativePlan } from "./h3-prompt.js";
 
 const planned = { durationSeconds: 4, sourceSceneId: "S001", sourceBeatIds: ["S001-B01"], sourceDurationSeconds: 4, dramaticBeat: "人物从犹豫变为阻止对方", openingState: "人物站在桌边观察", endingState: "人物开口制止并向前一步" };
 
@@ -116,6 +116,11 @@ test("H3 合法结构化对白通过生成前校验", () => {
         { shotNumber: 1, timeSeconds: 4, kind: "shot-end" as const, description: "", action: "", cameraAngle: "medium shot", cameraMove: "locked camera", h3Visual: "The subject stops while the camera remains locked.", dialogues: [], sound: "soft fabric movement" },
     ] };
     assert.deepEqual(validateH3PromptPlan(planned, valid, ["character-a"]), { blockedReasons: [], warnings: [] });
+    const voice = { fileId: "voice", purpose: "voice", speakerAssetId: "character-a", description: "a calm low voice" };
+    assert.deepEqual(validateH3PromptPlan({ ...planned, audioReferences: [voice] }, valid, ["character-a"]).blockedReasons, []);
+    assert.ok(validateH3PromptPlan({ ...planned, audioReferences: [{ ...voice, speakerAssetId: "missing" }] }, valid, ["character-a"]).blockedReasons.length);
+    assert.ok(validateH3PromptPlan({ ...planned, audioReferences: [{ fileId: "music", purpose: "music", description: "soft piano" }] }, valid, ["character-a"]).blockedReasons.some((reason) => reason.includes("配乐")));
+
 });
 
 test("故事板生成前阻止压缩来源节拍和同一 Shot 内的固定机位跳变", () => {
@@ -137,4 +142,30 @@ test("故事板 Shot 停留过短时阻止继续生成", () => {
     ] };
     const result = validateStoryboardNarrativePlan({ ...planned, durationSeconds: 6, sourceDurationSeconds: 6 }, invalid);
     assert.ok(result.blockedReasons.some((item) => item.includes("只有 0.80 秒")));
+});
+
+
+test("音频参考绑定全局说话人，保留原文和完整发声窗口", () => {
+    const cue = { speakerAssetId: "b", speakerName: "乙", text: "等一下……", language: "Chinese", delivery: "a quiet whisper", startSeconds: 1, endSeconds: 3 };
+    const prompt = compileH3Prompt("ref2va", { durationSeconds: 4 }, { frames: [{ ...sheet.frames[0]!, dialogues: [cue] }] }, [
+        { tag: "<Picture 1>", purpose: "storyboard" },
+        { tag: "<Picture 2>", purpose: "identity", assetId: "b", subjectTag: "<Subject 2>", subjectKind: "character" },
+        { tag: "<Audio 1>", purpose: "a low breathy voice", assetId: "b", audioPurpose: "voice" },
+    ]);
+    assert.match(prompt, /voice-timbre reference for <Subject 2> \(S1\)/);
+    assert.match(prompt, /<Audio 1>: reference/);
+    assert.match(prompt, /following the vocal characteristics referenced from <Audio 1>/);
+    assert.match(prompt, /From 00:01.000 to 00:03.000/);
+    assert.match(prompt, /<d>\[Chinese\] 等一下……<\/d>/);
+    assert.doesNotMatch(prompt, /等一下……。/);
+    assert.equal(h3AudioReferencesInput.safeParse([{ fileId: "a", purpose: "voice", description: "deep voice" }]).success, false);
+    assert.equal(h3AudioReferencesInput.safeParse([{ fileId: "a", purpose: "sound", description: "wind" }]).success, true);
+    assert.equal(isH3TurboAudioSafe({ audioReferences: [{ fileId: "a" }] }, undefined), false);
+    assert.equal(isH3TurboAudioSafe({ h3NonDiegeticMusic: "soft piano" }, undefined), false);
+});
+
+test("续接视频原声先占 Audio 编号，独立参考与实际上传顺序一致", () => {
+    const references = [{ fileId: "a", purpose: "voice", speakerAssetId: "b", description: "a low voice" }];
+    assert.deepEqual(h3AudioPromptReferences(references, false).map((item) => item.tag), ["<Audio 1>"]);
+    assert.deepEqual(h3AudioPromptReferences(references, true).map((item) => item.tag), ["<Audio 1>", "<Audio 2>"]);
 });

@@ -1,3 +1,4 @@
+import { h3AudioReferencesInput } from "../../h3-prompt.js";
 import { basename } from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { nanoid } from "nanoid";
@@ -128,6 +129,7 @@ const directorVideoSegmentPayloadShape = {
   action: z.string().max(8_000).optional(),
   dialogue: z.string().max(8_000).optional(),
   narration: z.string().max(8_000).optional(),
+  audioReferences: h3AudioReferencesInput.optional(),
   soundDesign: z.string().max(4_000).optional(),
   h3VisualDescription: z.string().max(12_000).optional(),
   h3Soundscape: z.string().max(4_000).optional(),

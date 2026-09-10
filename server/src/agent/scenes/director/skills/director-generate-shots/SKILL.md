@@ -17,3 +17,5 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__directo
 不得裁切故事板画格作为普通视频锚点。完整故事板是一个按从左到右、从上到下读取的 Shot 规划参考；H3 只执行已经确认的表演与摄影计划，不得自行压缩剧情、增加切镜或把画格逐一变成镜头。`continue` 额外使用上一段实际成片最后 22 帧及原声续接，不冒充确定性原生延展。`generationIntent: transition` 的独立过渡段例外：它只从 `transitionFromSegmentId` 的实际尾帧过渡到 `transitionToSegmentId` 的实际首帧，不生成或读取故事板。生成后检查视频、实际首尾帧和模型原声；前序变化只标记依赖段过期，不自动重生成。
 
 面向用户只解释“快速预览 / 最终成片、完整故事板、素材参考、连续段”，不得展示底层权重、插件节点、采样器、调度器或注意力实现。
+
+使用音频参考时，通过视频段更新工具写入 `audioReferences`（最多 3 项）：`fileId`、`purpose`（voice / dialogue / sound / music）、英文 `description`，音色与对白参考还必须填写本段说话角色的 `speakerAssetId`。先读取官方规则中的音频参考说明；参考的声音特征与最终对白原文分别维护，不把参考音频里的词自动加入剧本。

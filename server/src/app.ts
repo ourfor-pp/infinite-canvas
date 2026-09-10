@@ -32,7 +32,7 @@ import { createVisualStyleAnalysis, createVisualStyleReferences } from "./visual
 import {
     createDirectorSequence, createDirectorSource, createDirectorVideoSegment, deleteDirectorSequence, deleteDirectorVideoSegment,
     getDirectorDocument, getDirectorScreenplayBreakdown, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
-    updateDirectorDocument, updateDirectorScreenplayBreakdown, updateDirectorSequence, updateDirectorTimeline, updateDirectorVideoSegment, updateDirectorWorkspace,
+    updateDirectorDocument, updateDirectorScreenplayBreakdown, updateDirectorSequence, updateDirectorTimeline, updateDirectorVideoSegment, updateDirectorWorkspace, updateDirectorSegmentAssetReference,
 } from "./director.js";
 import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflight, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
@@ -247,6 +247,7 @@ api.put("/director/sequences/:id", route((req) => updateDirectorSequence(req.use
 api.delete("/director/sequences/:id", route((req) => deleteDirectorSequence(req.user.id, routeId(req))));
 api.post("/director/projects/:id/video-segments", route((req) => createDirectorVideoSegment(req.user.id, routeId(req), req.body), 201));
 api.put("/director/video-segments/:id", route((req) => updateDirectorVideoSegment(req.user.id, routeId(req), req.body)));
+api.put("/director/video-segments/:id/asset-reference", route((req) => updateDirectorSegmentAssetReference(req.user.id, routeId(req), req.body)));
 api.delete("/director/video-segments/:id", route((req) => deleteDirectorVideoSegment(req.user.id, routeId(req))));
 api.get("/director/video-segments/:id/preflight", route((req) => getDirectorVideoSegmentPreflight(req.user.id, routeId(req))));
 api.post("/director/video-segments/:id/storyboard/generate", route((req) => createDirectorStoryboardGeneration(req.user.id, routeId(req), req.body), 202));

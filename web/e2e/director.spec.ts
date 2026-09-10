@@ -65,7 +65,7 @@ const state = {
             position: 0,
             title: "车站全景",
             status: "confirmed",
-            payload: { description: "林夏走入车站", durationSeconds: 8, boundary: "cut", h3Mode: "ref2va", h3ModeReason: "完整故事板作为视频段构图与动作参考", nativeAudioStatus: "ready", videoFileId: "video-1", storyboardFrameCount: 6, h3PromptSnapshot: { mode: "ref2va", qualityPreset: "preview", prompt: "subject_definitions: <Picture 1> is the complete storyboard sheet.\n\nsummary: A rainy station scene.\n\nretention_analysis: Preserve identity and geography.\n\ndetailed_description: [Shot 1] Rain falls over the station.\n\noverall_soundscape: Rain.\n\nnon_diegetic_music: N/A", references: [{ fileId: "storyboard-1", kind: "image", role: "reference" }, { fileId: "character-image", kind: "image", role: "reference" }, { fileId: "scene-image", kind: "image", role: "reference" }], storyboardRevision: 1 }, storyboardSheet: { revision: 1, layout: "3x2", imageFileId: "storyboard-1", promptSnapshot: "Create ONE cinematic storyboard sheet for an 8-second video segment.", referenceSnapshot: { selected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], omitted: [], videoSelected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], videoOmitted: [], blockedReasons: [], route: { mode: "ref2va", reason: "完整故事板作为视频段构图与动作参考" }, capabilities: { turboPreview: false }, recipes: {}, frameAlignment: {} }, frames: Array.from({ length: 6 }, (_, position) => ({ id: `frame-${position}`, position, shotNumber: 1, timeSeconds: position === 5 ? 8 : position * 1.6, kind: position === 0 ? "shot-start" : position === 5 ? "shot-end" : "keyframe", description: "雨夜中的车站", action: "林夏走入车站", cameraAngle: "平视", cameraMove: "缓慢推进", dialogue: "", sound: "雨声" })) } },
+            payload: { characterRefs: [{ id: "asset-1", revision: 1, variantId: undefined as string | undefined }], sceneRefs: [] as Array<{ id: string; revision: number; variantId?: string }>, propRefs: [] as Array<{ id: string; revision: number; variantId?: string }>, dramaticBeat: "从寻找线索转为发现旧怀表", openingState: "林夏独自进入车站", endingState: "林夏发现旧怀表", description: "林夏走入车站", durationSeconds: 8, boundary: "cut", h3Mode: "ref2va", h3ModeReason: "完整故事板作为视频段构图与动作参考", nativeAudioStatus: "ready", videoFileId: "video-1", storyboardFrameCount: 6, h3PromptSnapshot: { mode: "ref2va", qualityPreset: "preview", prompt: "subject_definitions: <Picture 1> is the complete storyboard sheet.\n\nsummary: A rainy station scene.\n\nretention_analysis: Preserve identity and geography.\n\ndetailed_description: [Shot 1] Rain falls over the station.\n\noverall_soundscape: Rain.\n\nnon_diegetic_music: N/A", references: [{ fileId: "storyboard-1", kind: "image", role: "reference" }, { fileId: "character-image", kind: "image", role: "reference" }, { fileId: "scene-image", kind: "image", role: "reference" }], storyboardRevision: 1 }, storyboardSheet: { revision: 1, layout: "3x2", imageFileId: "storyboard-1", promptSnapshot: "Create ONE cinematic storyboard sheet for an 8-second video segment.", referenceSnapshot: { selected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], omitted: [], videoSelected: [{ fileId: "character-image", name: "林夏", purpose: "主角色" }, { fileId: "scene-image", name: "雨夜车站", purpose: "场景" }], videoOmitted: [], blockedReasons: [], route: { mode: "ref2va", reason: "完整故事板作为视频段构图与动作参考" }, capabilities: { turboPreview: false }, recipes: {}, frameAlignment: {} }, frames: Array.from({ length: 6 }, (_, position) => ({ id: `frame-${position}`, position, shotNumber: 1, timeSeconds: position === 5 ? 8 : position * 1.6, kind: position === 0 ? "shot-start" : position === 5 ? "shot-end" : "keyframe", description: "雨夜中的车站", action: "林夏走入车站", cameraAngle: "平视", cameraMove: "缓慢推进", dialogue: "", sound: "雨声" })) } },
             revision: 1,
             createdAt: now,
             updatedAt: now,
@@ -138,6 +138,7 @@ async function mockApi(page: Page, directorState: typeof state = state) {
         }
         else if (path === "/projects/director-e2e/creative-assets") data = [asset];
         else if (path === "/director/assets/asset-1/detail") data = assetDetail;
+        else if (path === "/director/assets/asset-1/generation-preview") data = { prompt: assetDetail.primaryVisual.prompt, references: [{ fileId: "wardrobe-image", kind: "image", label: "风衣参考", purpose: "reference_input", source: "input" }], model: { name: "测试图片模型" }, params: { size: "2560x1440" } };
         else if (path === "/director/assets/asset-1/generate" && request.method() === "POST") data = { id: "generation-1", status: "queued", kind: "image", progress: 0, modelId: "gpt-image-2", request: { params: { __directorAssetTarget: request.postDataJSON() } }, createdAt: now, updatedAt: now };
         else if (path === "/projects/director-e2e/visual-styles") data = [style];
         else if (path === "/agent/config") data = { ready: true, modelName: "Director Agent", providerName: "Test", protocolVersion: 3, storageVersion: 2 };
@@ -222,7 +223,7 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await expect(page.getByText("Agent 已绑定当前导演项目，可以改编故事、编写剧本并推进素材、分镜和成片。")).toBeVisible();
     await expect(page.getByRole("textbox")).toHaveAttribute("data-placeholder", "描述导演任务，输入 / 调用 Skill，@ 引用故事、视频段或素材…");
     await expect(page.getByText("和画布一起思考")).toHaveCount(0);
-    for (const section of ["概览", "故事", "剧本", "导演方案", "素材", "分镜", "视频创作台"]) await expect(page.getByRole("button", { name: section, exact: true })).toBeVisible();
+    for (const section of ["概览", "故事", "剧本", "导演方案", "分镜", "视频创作台", "素材库"]) await expect(page.getByRole("button", { name: section, exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "角色与场景", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "道具", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "故事与剧本", exact: true })).toHaveCount(0);
@@ -270,7 +271,7 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
         .locator("article")
         .evaluate((element) => element.scrollTo({ top: 0 }));
     await expect(page.getByRole("complementary", { name: "剧本场次目录" }).getByRole("button", { name: "场 1", exact: true })).toHaveAttribute("aria-current", "location");
-    await page.getByRole("button", { name: "素材", exact: true }).click();
+    await page.getByRole("button", { name: "素材库", exact: true }).click();
     await expect(page.getByText("林夏")).toBeVisible();
     for (const kind of ["角色", "场景", "道具"]) await expect(page.getByRole("region", { name: kind })).toBeVisible();
     await expect(page.getByRole("button", { name: "确认", exact: true })).toHaveCount(0);
@@ -281,7 +282,7 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await expect(workbench.getByRole("button", { name: "主档案" })).toBeVisible();
     await expect(workbench.getByText("调查记者。")).toBeVisible();
     await workbench.getByRole("button", { name: "主形象" }).click();
-    await expect(workbench.getByText("输入参考（1）")).toBeVisible();
+    await expect(workbench.getByText("生成输入（1）")).toBeVisible();
     await expect(page.getByText("Character turnaround sheet, four full-body views on pure white.")).toBeVisible();
     await workbench.getByRole("button", { name: "声音" }).click();
     await expect(workbench.getByText("我会把真相查清楚。")).toBeVisible();
@@ -332,17 +333,15 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     expect(constrainedInspector!.x + constrainedInspector!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
     await expect(page.getByText(/8 秒 · 6 格/)).toBeVisible();
     await expect(page.getByLabel("故事板格数")).toHaveCount(0);
-    await expect(page.getByTestId("director-storyboard-card").getByText("故事板输入（2）")).toBeVisible();
+    await expect(page.getByRole("region", { name: "本段所需素材" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "剧情与镜头" })).toBeVisible();
     await expect(page.getByTestId("director-storyboard-card").getByText(/已采用/)).toHaveCount(0);
     await expect(page.getByTestId("director-storyboard-inspector").getByText("故事板输入")).toHaveCount(0);
-    await page.getByRole("button", { name: "查看林夏大图" }).click();
+    await page.getByRole("button", { name: "预览林夏" }).click();
     await expect(page.getByRole("dialog", { name: "查看林夏" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "查看上一张图片" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "查看下一张图片" })).toBeVisible();
-    await page.getByRole("button", { name: "查看下一张图片" }).click();
-    await expect(page.getByRole("dialog", { name: "查看雨夜车站" })).toBeVisible();
     await page.getByRole("button", { name: "关闭图片预览" }).click();
     await expect(page.getByRole("button", { name: "重抽整板" })).toBeVisible();
+    await page.getByTestId("director-storyboard-inspector").locator("summary").click();
     await expect(page.getByTestId("director-storyboard-card").getByText("Create ONE cinematic storyboard sheet for an 8-second video segment.")).toBeVisible();
     await expect(page.getByRole("button", { name: "完整查看" })).toHaveCount(0);
     await page.getByRole("tab", { name: "视频" }).click();
@@ -383,7 +382,7 @@ test("导演方案使用独立顶部工作区", async ({ page }) => {
     await expect(page.getByText("冷峻悬疑").first()).toBeVisible();
     await expect(page.getByRole("button", { name: "保存", exact: true })).toHaveCount(0);
     await expect(page.locator(".ant-drawer-content")).toHaveCount(0);
-    await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "素材", exact: true }).click();
+    await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "素材库", exact: true }).click();
     await expect(page.getByRole("button", { name: /风格.*冷峻悬疑/ })).toHaveCount(0);
     for (const kind of ["角色", "场景", "道具"]) await expect(page.getByRole("region", { name: kind })).toBeVisible();
 });
@@ -411,4 +410,133 @@ test("总播放器切换到连续视频段后保持播放", async ({ page }) => 
     await page.getByTestId("director-program-frame").locator("video").dispatchEvent("ended");
     await expect(page.getByText(/当前片段 02\/2 · 站台追逐/)).toBeVisible();
     await expect(page.getByRole("button", { name: "暂停连续预览" })).toBeVisible();
+});
+
+async function mockWorkflow(page: Page) {
+    const directorState = structuredClone(state);
+    const assets = [structuredClone(asset)];
+    const details = new Map([[asset.id, structuredClone(assetDetail)]]);
+    await mockApi(page, directorState);
+    await page.route("**/api/projects/director-e2e/creative-assets", async (route) => {
+        if (route.request().method() === "POST") {
+            const input = route.request().postDataJSON();
+            const created = { ...structuredClone(asset), id: `asset-${assets.length + 1}`, kind: input.kind, name: input.name, payload: { ...structuredClone(asset.payload), ...input.payload, variants: [], primaryImageId: null } };
+            assets.push(created as typeof asset);
+            const detail = { ...structuredClone(assetDetail), assetId: created.id, kind: created.kind, name: created.name, primaryVisual: { ...structuredClone(assetDetail.primaryVisual), prompt: "", inputs: [], outputs: [] }, variants: [] };
+            details.set(created.id, detail);
+            await route.fulfill({ json: { data: created } });
+        } else await route.fulfill({ json: { data: assets } });
+    });
+    await page.route("**/api/director/assets/*/detail", async (route) => {
+        const id = new URL(route.request().url()).pathname.split("/").at(-2)!;
+        const detail = details.get(id)!;
+        await route.fulfill({ json: { data: { ...detail, usages: directorState.videoSegments.filter((segment) => [...segment.payload.characterRefs, ...segment.payload.sceneRefs, ...segment.payload.propRefs].some((ref) => ref.id === id)).map((segment) => ({ ...assetDetail.usages[0], id: segment.id, title: segment.title })) } } });
+    });
+    await page.route("**/api/director/assets/*/generation-preview", async (route) => {
+        const id = new URL(route.request().url()).pathname.split("/").at(-2)!;
+        const detail = details.get(id)!;
+        const value = route.request().postDataJSON();
+        const workspace = value.variantId ? detail.variants.find((item) => item.variantId === value.variantId)! : detail.primaryVisual;
+        if (!workspace.prompt) return route.fulfill({ status: 409, json: { error: { message: "请先完善素材提示词" } } });
+        await route.fulfill({ json: { data: { prompt: workspace.prompt, references: [], model: { name: "测试图片模型" }, params: { size: "2560x1440" } } } });
+    });
+    await page.route("**/api/director/video-segments/*/asset-reference", async (route) => {
+        const value = route.request().postDataJSON();
+        const segment = directorState.videoSegments[0];
+        const key = `${value.kind === "character" ? "character" : value.kind === "scene" ? "scene" : "prop"}Refs` as "characterRefs" | "sceneRefs" | "propRefs";
+        if (value.revision !== segment.revision) return route.fulfill({ status: 409, json: { error: { message: "视频段已在其他页面更新" } } });
+        const references = segment.payload[key].filter((ref) => ref.id !== value.assetId && ref.id !== value.replaceAssetId);
+        if (!value.remove) references.push({ id: value.assetId, revision: 1, variantId: value.variantId });
+        segment.payload[key] = references;
+        segment.revision += 1;
+        await route.fulfill({ json: { data: segment } });
+    });
+    await page.route("**/api/director/video-segments/segment-1", async (route) => {
+        const value = route.request().postDataJSON();
+        const segment = directorState.videoSegments[0];
+        segment.payload = { ...segment.payload, ...value.payload };
+        segment.revision += 1;
+        await route.fulfill({ json: { data: segment } });
+    });
+    return { directorState, assets, details };
+}
+
+test("分镜先编辑剧情，再就地创建缺失素材，刷新后保留引用与视频切换", async ({ page }) => {
+    const { directorState, assets } = await mockWorkflow(page);
+    const generationRequests: string[] = [];
+    page.on("request", (request) => { if (/\/generate$/.test(new URL(request.url()).pathname)) generationRequests.push(request.url()); });
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.goto("/__director-test.html");
+    const navigation = page.getByRole("navigation", { name: "导演台功能" });
+    await expect(navigation.getByRole("button")).toHaveText(["概览", "故事", "剧本", "导演方案", "分镜", "视频创作台", "素材库"]);
+    await navigation.getByRole("button", { name: "分镜", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "故事板", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("heading", { name: "剧情与镜头" })).toBeVisible();
+    await page.getByRole("button", { name: "编辑剧情" }).click();
+    await page.getByRole("textbox", { name: "戏剧变化", exact: true }).fill("从寻找线索转为认出失踪者的怀表");
+    const narrativeRequest = page.waitForRequest((request) => request.method() === "PUT" && new URL(request.url()).pathname.endsWith("/video-segments/segment-1"));
+    await page.getByRole("button", { name: "保存剧情", exact: true }).click();
+    expect((await narrativeRequest).postDataJSON().payload.storyboardSheet).toBeUndefined();
+    await expect(page.getByText("从寻找线索转为认出失踪者的怀表", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "添加场景需求" }).click();
+    await page.getByRole("button", { name: "库中没有，创建素材" }).click();
+    await page.getByRole("textbox", { name: "素材名称" }).fill("雨夜站台");
+    await page.getByRole("textbox", { name: "本段需求", exact: true }).fill("湿润地面，保留出口与长椅的空间关系");
+    await page.getByRole("button", { name: "创建并引用" }).click();
+    const workbench = page.getByRole("dialog", { name: "雨夜站台素材工作台" });
+    await expect(workbench).toBeVisible();
+    await expect(workbench.getByRole("button", { name: "返回分镜 · SEG 01" })).toBeVisible();
+    await expect(workbench.getByRole("button", { name: "使用此素材并返回" })).toBeDisabled();
+    await workbench.getByRole("button", { name: "返回分镜 · SEG 01" }).click();
+    const materials = page.getByRole("region", { name: "本段所需素材" });
+    await expect(materials.getByRole("heading", { name: "雨夜站台" })).toBeVisible();
+    await expect(materials.getByText("场景 · 待补充主图")).toBeVisible();
+    expect(directorState.videoSegments[0].payload.sceneRefs[0].id).toBe(assets[1].id);
+    expect(generationRequests).toEqual([]);
+    await page.getByRole("tab", { name: "视频", exact: true }).click();
+    await expect(page.getByRole("button", { name: "快速预览", exact: true })).toBeVisible();
+    await page.reload();
+    await navigation.getByRole("button", { name: "分镜", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "视频", exact: true })).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("tab", { name: "故事板", exact: true }).click();
+    await expect(materials.getByRole("heading", { name: "雨夜站台" })).toBeVisible();
+    await expect(page.getByText("从寻找线索转为认出失踪者的怀表", { exact: true })).toBeVisible();
+    await page.screenshot({ path: "../.tmp/director-workflow-storyboard.png" });
+    await navigation.getByRole("button", { name: "素材库", exact: true }).click();
+    await page.getByRole("textbox", { name: "搜索素材", exact: true }).fill("雨夜站台");
+    await expect(page.getByRole("heading", { name: "雨夜站台", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "林夏", exact: true })).toHaveCount(0);
+    await expect(page.getByText("已用于 1 个视频段")).toBeVisible();
+    await page.getByRole("textbox", { name: "搜索素材", exact: true }).clear();
+    await page.screenshot({ path: "../.tmp/director-workflow-library.png" });
+});
+
+test("视频段选用素材变体并返回，需求交给 Agent 时保留草稿且不自动发送", async ({ page }) => {
+    const { directorState, details } = await mockWorkflow(page);
+    const detail = details.get("asset-1")!;
+    detail.variants[0].outputs = [{ ...detail.primaryVisual.outputs[0], fileId: "rain-character-image" }] as never[];
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.goto("/__director-test.html");
+    await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "分镜", exact: true }).click();
+    await page.getByRole("button", { name: "编辑林夏素材" }).click();
+    const workbench = page.getByRole("dialog", { name: "林夏素材工作台" });
+    await workbench.getByRole("button", { name: "雨夜造型", exact: true }).click();
+    await expect(workbench.getByRole("button", { name: "使用此形象并返回" })).toBeEnabled();
+    await page.screenshot({ path: "../.tmp/director-workflow-material-editor.png" });
+    const binding = page.waitForRequest((request) => new URL(request.url()).pathname.endsWith("/asset-reference"));
+    await workbench.getByRole("button", { name: "使用此形象并返回" }).click();
+    expect((await binding).postDataJSON()).toMatchObject({ assetId: "asset-1", kind: "character", variantId: "var-rain" });
+    await expect(workbench).toBeHidden();
+    expect(directorState.videoSegments[0].payload.characterRefs[0].variantId).toBe("var-rain");
+    await page.getByRole("button", { name: "编辑林夏素材" }).click();
+    await expect(workbench.getByRole("button", { name: "雨夜造型", exact: true })).toHaveClass(/border-blue-600/);
+    await workbench.getByRole("button", { name: "返回分镜 · SEG 01" }).click();
+    const composer = page.locator('[contenteditable="true"]').first();
+    await composer.fill("保留我原来的要求");
+    const messages: string[] = [];
+    page.on("request", (request) => { if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/messages")) messages.push(request.url()); });
+    await page.getByRole("button", { name: "梳理本段需求" }).click();
+    await expect(composer).toContainText("保留我原来的要求");
+    await expect(composer).toContainText("检查素材库并复用已有素材");
+    expect(messages).toEqual([]);
 });

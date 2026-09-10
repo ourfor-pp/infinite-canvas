@@ -1,0 +1,146 @@
+{
+  "before": {
+    "liveRevision": "0764232429b8cfb10b79b6f186c8cb23e0b22897",
+    "liveDirectory": "/home/cec/ComfyUI-H3",
+    "liveUserUnit": "arcreel-comfyui-8189.service",
+    "stableLinkBefore": "/home/cec/.local/share/infinite-media-executor/h3-runtimes/ComfyUI-7fe8a6138504f90ff7be82f3babf416da32876b1",
+    "target": "/home/cec/.local/share/infinite-media-executor/h3-runtimes/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171"
+  },
+  "after": {
+    "runtime": "/home/cec/.local/share/infinite-media-executor/h3-runtimes/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171",
+    "revision": "40c4fcdf513a4523e39d54a9d391908af8df8171",
+    "userUnit": "arcreel-comfyui-8189.service",
+    "startupAccepted": true
+  },
+  "candidate": {
+    "comfyRevision": "40c4fcdf513a4523e39d54a9d391908af8df8171",
+    "h3Seconds": 95.344,
+    "voxDuration": "2.560000",
+    "dependenciesCompatible": true
+  },
+  "liveProxy": {
+    "seconds": 95.51289820484817,
+    "promptId": "a554fd27-1dbb-4e34-8301-6e50e9b5a26c",
+    "sha256": "999effbb923e5d6b2add09964557428246aff160c4867828a3b52d29274b14ef",
+    "probe": {
+      "streams": [
+        {
+          "index": 0,
+          "codec_name": "h264",
+          "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+          "profile": "High",
+          "codec_type": "video",
+          "codec_tag_string": "avc1",
+          "codec_tag": "0x31637661",
+          "width": 960,
+          "height": 544,
+          "coded_width": 960,
+          "coded_height": 544,
+          "closed_captions": 0,
+          "has_b_frames": 2,
+          "pix_fmt": "yuv420p",
+          "level": 31,
+          "color_range": "tv",
+          "color_space": "bt709",
+          "color_transfer": "iec61966-2-1",
+          "color_primaries": "bt709",
+          "chroma_location": "left",
+          "refs": 1,
+          "is_avc": "true",
+          "nal_length_size": "4",
+          "r_frame_rate": "24/1",
+          "avg_frame_rate": "24/1",
+          "time_base": "1/12288",
+          "start_pts": 0,
+          "start_time": "0.000000",
+          "duration_ts": 63488,
+          "duration": "5.166667",
+          "bit_rate": "382748",
+          "bits_per_raw_sample": "8",
+          "nb_frames": "124",
+          "disposition": {
+            "default": 1,
+            "dub": 0,
+            "original": 0,
+            "comment": 0,
+            "lyrics": 0,
+            "karaoke": 0,
+            "forced": 0,
+            "hearing_impaired": 0,
+            "visual_impaired": 0,
+            "clean_effects": 0,
+            "attached_pic": 0,
+            "timed_thumbnails": 0
+          },
+          "tags": {
+            "language": "und",
+            "handler_name": "VideoHandler",
+            "vendor_id": "[0][0][0][0]"
+          }
+        },
+        {
+          "index": 1,
+          "codec_name": "aac",
+          "codec_long_name": "AAC (Advanced Audio Coding)",
+          "profile": "LC",
+          "codec_type": "audio",
+          "codec_tag_string": "mp4a",
+          "codec_tag": "0x6134706d",
+          "sample_fmt": "fltp",
+          "sample_rate": "32000",
+          "channels": 2,
+          "channel_layout": "stereo",
+          "bits_per_sample": 0,
+          "r_frame_rate": "0/0",
+          "avg_frame_rate": "0/0",
+          "time_base": "1/32000",
+          "start_pts": 0,
+          "start_time": "0.000000",
+          "duration_ts": 165344,
+          "duration": "5.167000",
+          "bit_rate": "128093",
+          "nb_frames": "163",
+          "disposition": {
+            "default": 1,
+            "dub": 0,
+            "original": 0,
+            "comment": 0,
+            "lyrics": 0,
+            "karaoke": 0,
+            "forced": 0,
+            "hearing_impaired": 0,
+            "visual_impaired": 0,
+            "clean_effects": 0,
+            "attached_pic": 0,
+            "timed_thumbnails": 0
+          },
+          "tags": {
+            "language": "und",
+            "handler_name": "SoundHandler",
+            "vendor_id": "[0][0][0][0]"
+          }
+        }
+      ],
+      "format": {
+        "filename": "/home/cec/infinite-canvas/.tmp/h3-community-research/live-proxy/output.mp4",
+        "nb_streams": 2,
+        "nb_programs": 0,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "format_long_name": "QuickTime / MOV",
+        "start_time": "0.000000",
+        "duration": "5.167000",
+        "size": "341388",
+        "bit_rate": "528566",
+        "probe_score": 100,
+        "tags": {
+          "major_brand": "isom",
+          "minor_version": "512",
+          "compatible_brands": "isomiso2avc1mp41",
+          "prompt": "{\"1\": {\"class_type\": \"UNETLoader\", \"inputs\": {\"unet_name\": \"minimax_h3_ref2va_pruned_int8_convrot.safetensors\", \"weight_dtype\": \"default\"}}, \"2\": {\"class_type\": \"CLIPLoader\", \"inputs\": {\"clip_name\": \"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors\", \"type\": \"minimax\", \"device\": \"default\"}}, \"3\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"minimax_h3_video_vae_fp16.safetensors\"}}, \"4\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"minimax_h3_audio_vae_fp32.safetensors\"}}, \"5\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Subject 1> is the adult woman in <Picture 1>; retain her facial identity, dark hair bun, rosy cheek makeup and pale robe.\\n<Subject 2> is the sword in <Picture 1>; retain its dark wrapped handle and straight blade.\\n<Subject 3> is the red backdrop and warm side lighting in <Picture 1>.\\n\\nsummary:\\n[reference generation] Create a 5.167-second single shot of the woman speaking first, then moving the sword outside the frame and smiling.\\n\\nretention_analysis:\\n<Subject 1> (appears in [Shot 1]): fully_preserved - facial identity, hair and clothing.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - intact sword appearance.\\n<Subject 3> (appears in [Shot 1]): fully_preserved - backdrop, lighting and depth of field.\\n\\ndetailed_description:\\nThe target video has a live-action portrait-photography style with warm side lighting, natural skin texture and shallow depth of field.\\n[Shot 1] A static eye-level close-up frames <Subject 1> from her shoulders to just above her dark hair bun. Her face occupies the left-center of the image, and her pale robe enters along the lower and right edges. The softly blurred red backdrop of <Subject 3> fills the background. Warm light from screen-left illuminates her cheek, nose and lips; soft shadow remains on the opposite cheek. Preserve her straight dark eyebrows, dark eyes, smooth hairline and rosy cheek makeup. The composition is stable for this entire uninterrupted shot.\\n\\nAt the opening, her raised hand grips the dark handle of <Subject 2> near the upper-right edge. The straight blade extends vertically through the foreground. She holds this pose while speaking, with her eyes already directed toward the camera. Speech is the first action of the shot. Her head and shoulders stay still, and she begins articulating after a brief quarter-second of room tone, without first lowering the sword or taking a conspicuous preparatory breath.\\n\\nFrom 00:00.250 to 00:02.250, <Subject 1> (S1), the on-screen adult woman with a soft, low-pitched and lightly breathy voice, says in clear Mandarin at an even conversational pace: <d>[Chinese] \\u522b\\u62c5\\u5fc3\\uff0c\\u7b49\\u6211\\u56de\\u6765\\u3002</d> Her lips and jaw visibly articulate the syllables, with a short pause at the comma. The voice is close and dry. This is one complete utterance by one speaker. The sword and gripping hand remain stationary until the line has ended.\\n\\nAt 00:02.500, she closes her lips and begins carrying the sword diagonally toward screen-right and slightly downward. The handle and blade move together as one rigid object, keeping their existing orientation. Her fingers retain their grip, and her sleeve shifts with her forearm. By 00:03.750, the sword and hand have passed beyond the right frame edge and her face is fully unobstructed. A faint cloth rustle follows this movement.\\n\\nAfter the sword leaves, her shoulders settle. Her expression softens into a small closed-mouth smile while she maintains eye contact. She holds that relaxed pose through the final frame at 00:05.167. The camera, focus, lighting and background remain unchanged, and the sword stays outside the image. No further speech follows the completed sentence.\\n\\noverall_soundscape:\\nQuiet indoor room tone throughout, followed by a faint sleeve rustle during the arm movement. Subtle natural breathing after the spoken line.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 960, \"height\": 544, \"length\": 124, \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"match\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"6\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"5\", 0]}}, \"7\": {\"class_type\": \"KSamplerSelect\", \"inputs\": {\"sampler_name\": \"res_multistep\"}}, \"8\": {\"class_type\": \"BasicScheduler\", \"inputs\": {\"model\": [\"15\", 0], \"scheduler\": \"simple\", \"steps\": 20, \"denoise\": 1.0}}, \"9\": {\"class_type\": \"RandomNoise\", \"inputs\": {\"noise_seed\": 314159}}, \"10\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"6\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"8\", 0], \"latent_image\": [\"5\", 1]}}, \"11\": {\"class_type\": \"VAEDecode\", \"inputs\": {\"samples\": [\"10\", 0], \"vae\": [\"3\", 0]}}, \"12\": {\"class_type\": \"VAEDecodeAudio\", \"inputs\": {\"samples\": [\"10\", 0], \"vae\": [\"4\", 0]}}, \"13\": {\"class_type\": \"CreateVideo\", \"inputs\": {\"images\": [\"11\", 0], \"audio\": [\"12\", 0], \"fps\": 24.0, \"bit_depth\": 8}}, \"14\": {\"class_type\": \"SaveVideo\", \"inputs\": {\"video\": [\"13\", 0], \"filename_prefix\": \"H3-Upgrade/live-proxy\", \"format\": \"auto\", \"codec\": \"auto\"}}, \"15\": {\"class_type\": \"PathchSageAttentionKJ\", \"inputs\": {\"model\": [\"1\", 0], \"sage_attention\": \"sageattn_qk_int8_pv_fp16_cuda\", \"allow_compile\": false}}, \"21\": {\"class_type\": \"LoadImage\", \"inputs\": {\"image\": \"h3-upgrade-reference.jpg\"}, \"is_changed\": [\"df46f5f157b0bcddb603646532e9746f709d663cb4787332603c90373691a8d7\"]}}",
+          "encoder": "Lavf62.12.102"
+        }
+      }
+    },
+    "route": "application host -> executor 8290 -> ComfyUI 8189"
+  }
+}
