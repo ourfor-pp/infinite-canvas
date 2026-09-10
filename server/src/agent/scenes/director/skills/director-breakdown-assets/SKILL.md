@@ -16,4 +16,4 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__directo
 - Frontmatter 只保存稳定 ID、显示名称、依赖和 `requiredVariants`；正文摘要保持简短，不把人物小传伪装成视觉描述。
 - 角色名称只作为业务标识，不写进生图提示词。
 
-在 `assets/characters/`、`assets/locations/`、`assets/props/` 下按稳定 ID 建立实体文件夹和主档 Markdown，同时建立基础设计的 `prompt.md`、空的 `inputs/` 以及 `voice/sound.md` 或 `sound/sound.md`。只记录 `requiredVariants` 需求，不创建空白变体目录，也不自动生成媒体。不要用名称相近但身份不同的实体相互覆盖，也不要创建纯气氛词或抽象概念资产。完成后运行工程校验。
+在 `assets/characters/`、`assets/locations/`、`assets/props/` 下按稳定 ID 建立实体文件夹和主档 Markdown，同时建立空白的基础设计 `prompt.md`、空的 `inputs/` 以及 `voice/sound.md` 或 `sound/sound.md`。`prompt.md` 正文是未来原样送模的最终提示词，拆解阶段不得把人物小传、主档摘要或旧 `mediaDrafts` 填进去；必须等对应设计 Skill 完成档案、风格、版式和参考选择后再写。只记录 `requiredVariants` 需求，不创建空白变体目录，也不自动生成媒体。不要用名称相近但身份不同的实体相互覆盖，也不要创建纯气氛词或抽象概念资产。完成后运行工程校验。

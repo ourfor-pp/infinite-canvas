@@ -391,7 +391,7 @@ test("导演素材详情按文件夹聚合主档、基础设计、声音和生�
     assert.equal(detail.response.status, 200, JSON.stringify(detail.body));
     assert.match(detail.body.data.dossier.path, /assets\/characters\/char-/);
     assert.match(detail.body.data.primaryVisual.promptPath, /identity\/prompt\.md$/);
-    assert.equal(detail.body.data.primaryVisual.prompt, "白底角色综合身份板");
+    assert.equal(detail.body.data.primaryVisual.prompt, "", "素材拆解阶段不得把旧 mediaDraft 提示词冒充为最终 prompt.md");
     assert.match(detail.body.data.sound.promptPath, /voice\/sound\.md$/);
     assert.equal(detail.body.data.sound.prompt, "冷静、低声线、自然停顿");
     assert.equal(detail.body.data.sound.sampleText, "我会把真相查清楚。");
@@ -408,11 +408,20 @@ test("导演素材详情按文件夹聚合主档、基础设计、声音和生�
     const image = await api("/files", userOne, { method: "POST", body: imageForm });
     const withImage = await api(`/director/assets/${assetId}/media-inputs`, userOne, { method: "POST", body: JSON.stringify({ fileId: image.body.data.fileId, target: "primary-visual" }) });
     assert.equal(withImage.body.data.primaryVisual.inputs.length, 1);
-    const generationPreview = await api(`/director/assets/${assetId}/generation-preview`, userOne, { method: "POST", body: JSON.stringify({ target: "primary-visual", expectedHash: withImage.body.data.primaryVisual.hash }) });
+    const finalPrompt = "生成一张横版角色身份板：同一角色的正面全身、背面全身和正面头肩特写，纯白背景，无文字。";
+    const promptDocument = `---\nreferences:\n  - path: ${withImage.body.data.primaryVisual.inputs[0].path}\n    purpose: style_reference\n    label: 统一视觉风格\n---\n${finalPrompt}\n`;
+    assert.equal((await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", body: JSON.stringify({ path: withImage.body.data.primaryVisual.promptPath, content: promptDocument, expectedHash: withImage.body.data.primaryVisual.hash }) })).response.status, 200);
+    const authored = await api(`/director/assets/${assetId}/detail`, userOne);
+    assert.equal(authored.body.data.primaryVisual.prompt, finalPrompt);
+    assert.equal(authored.body.data.primaryVisual.inputs[0].mediaRole, "style_reference");
+    assert.equal(authored.body.data.primaryVisual.inputs[0].name, "统一视觉风格");
+    const generationPreview = await api(`/director/assets/${assetId}/generation-preview`, userOne, { method: "POST", body: JSON.stringify({ target: "primary-visual", expectedHash: authored.body.data.primaryVisual.hash }) });
     assert.equal(generationPreview.response.status, 200, JSON.stringify(generationPreview.body));
-    assert.match(generationPreview.body.data.prompt, /横版 16:9 角色身份板/);
-    assert.equal(generationPreview.body.data.references.some((item: { fileId: string }) => item.fileId === withImage.body.data.primaryVisual.inputs[0].fileId), true, "详情页预检必须返回实际送模的输入图");
-    assert.equal(applyDirectorAssetGeneration(userOne["X-Trim-Userid"], { assetId, target: "primary-visual", expectedHash: withImage.body.data.primaryVisual.hash }, image.body.data.fileId), true);
+    assert.equal(generationPreview.body.data.prompt, finalPrompt, "导演素材 prompt.md 正文必须原样成为送模提示词");
+    assert.equal(generationPreview.body.data.references.length, 1);
+    assert.equal(generationPreview.body.data.references[0].source, "style");
+    assert.equal(generationPreview.body.data.references[0].fileId, authored.body.data.primaryVisual.inputs[0].fileId, "详情页预检必须返回 prompt.md 显式声明的输入图");
+    assert.equal(applyDirectorAssetGeneration(userOne["X-Trim-Userid"], { assetId, target: "primary-visual", expectedHash: authored.body.data.primaryVisual.hash }, image.body.data.fileId), true);
     const generatedAsset = (await api(`/creative-assets/${assetId}`, userOne)).body.data as { payload: { primaryImageId: string; variants: Array<{ id: string; label: string }> } };
     assert.equal(generatedAsset.payload.variants.find((item) => item.id === generatedAsset.payload.primaryImageId)?.label, "primary", "主形象生成结果必须成为素材卡主图");
 

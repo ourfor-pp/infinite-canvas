@@ -15,7 +15,9 @@ const inputSchema = z.object({
 
 export type CreativeAssetGenerationPreview = ReturnType<typeof previewCreativeAssetGeneration>;
 
-export function previewCreativeAssetGeneration(userId: string, assetId: string, raw: unknown, options: { visualDescriptionOverride?: string } = {}) {
+type ExplicitImageReference = { fileId: string; kind: "image"; source: "style" | "asset" | "canvas"; label: string; purpose?: string };
+
+export function previewCreativeAssetGeneration(userId: string, assetId: string, raw: unknown, options: { visualDescriptionOverride?: string; verbatimPrompt?: string; imageReferences?: ExplicitImageReference[] } = {}) {
     const input = inputSchema.parse(raw);
     const asset = getCreativeAsset(userId, assetId);
     const directorProject = isDirectorProject(asset.projectId);
@@ -34,9 +36,10 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     const model = models.find((item) => item.value === modelRef && item.output === input.kind);
     if (!model) throw generationError(400, "AI_MODEL_NOT_AVAILABLE", "所选模型不存在、未启用或能力不匹配");
 
+    const verbatimPrompt = options.verbatimPrompt !== undefined;
     const imageReferences = variants.filter((item) => item.kind === "image" && isCreativeAssetReferenceUsage(item.usage));
     const audioReferences = variants.filter((item) => item.kind === "audio" && item.usage === "reference_input");
-    const candidateStyleReferenceFileId = (!connected.style?.boardStale && connected.style?.references?.board) || (directorProject ? null : connected.style?.references?.source) || null;
+    const candidateStyleReferenceFileId = verbatimPrompt ? null : (!connected.style?.boardStale && connected.style?.references?.board) || (directorProject ? null : connected.style?.references?.source) || null;
     const styleMediumFamily = connected.style?.dna.mediumFamily || "live_action";
     const styleReferenceFileId = directorCharacter && styleMediumFamily === "live_action" ? null : candidateStyleReferenceFileId;
     const supportsImageReferences = model.inputs.includes("image") && model.imageModes?.includes("edit") === true;
@@ -44,7 +47,7 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
         .sort((left, right) => referencePriority(left.usage) - referencePriority(right.usage))
         .map((item) => ({ fileId: item.fileId, kind: "image" as const, source: "asset" as const, label: item.label || referenceUsageLabel(item.usage), purpose: item.usage || "reference_input" }));
     const requestedCompositionReferences = connected.imageReferences.map((item) => ({ ...item, kind: "image" as const, source: "canvas" as const }));
-    const requestedImageReferences = dedupe([
+    const requestedImageReferences = verbatimPrompt ? dedupe(options.imageReferences || []) : dedupe([
         ...requestedSubjectReferences,
         ...(styleReferenceFileId ? [{ fileId: styleReferenceFileId, kind: "image" as const, source: "style" as const, label: "视觉风格参考", purpose: "style_reference" }] : []),
         ...requestedCompositionReferences,
@@ -58,28 +61,32 @@ export function previewCreativeAssetGeneration(userId: string, assetId: string, 
     const warnings: Array<{ code: string; message: string; blocking: boolean }> = [];
     const referenceLimit = input.kind === "image" ? model.maxReferenceImages : undefined;
     if (referenceLimit != null && references.length > referenceLimit) {
-        references = references.slice(0, referenceLimit);
-        warnings.push({ code: "AI_MODEL_REFERENCE_LIMIT", message: `所选模型最多接收 ${referenceLimit} 张参考图，已按主体、风格、构图顺序截取`, blocking: false });
+        if (verbatimPrompt) warnings.push({ code: "AI_MODEL_REFERENCE_LIMIT", message: `prompt.md 与 inputs/ 共声明 ${references.length} 张参考图，但所选模型最多接收 ${referenceLimit} 张；请让 Agent 明确删减输入`, blocking: true });
+        else {
+            references = references.slice(0, referenceLimit);
+            warnings.push({ code: "AI_MODEL_REFERENCE_LIMIT", message: `所选模型最多接收 ${referenceLimit} 张参考图，已按主体、风格、构图顺序截取`, blocking: false });
+        }
     }
     const styleImageApplied = input.kind === "image" && references.some((item) => item.source === "style");
-    const excludedReferences = directorCharacter && styleMediumFamily === "live_action" && candidateStyleReferenceFileId ? [{ fileId: candidateStyleReferenceFileId, source: "style" as const, label: "统一风格板", reason: "真人角色只使用风格文字，避免风格板示例面貌污染演员身份" }] : [];
-    const requiredImageReferences = requestedSubjectReferences.length + requestedCompositionReferences.length;
+    const excludedReferences = !verbatimPrompt && directorCharacter && styleMediumFamily === "live_action" && candidateStyleReferenceFileId ? [{ fileId: candidateStyleReferenceFileId, source: "style" as const, label: "统一风格板", reason: "真人角色只使用风格文字，避免风格板示例面貌污染演员身份" }] : [];
+    const requiredImageReferences = verbatimPrompt ? requestedImageReferences.length : requestedSubjectReferences.length + requestedCompositionReferences.length;
     if ((input.kind === "image" ? requiredImageReferences : references.length) && (input.kind === "image" ? !supportsImageReferences : !model.inputs.includes(input.kind))) warnings.push({ code: "AI_MODEL_REFERENCE_UNSUPPORTED", message: `所选模型不支持${input.kind === "image" ? "图片" : "音频"}参考`, blocking: true });
     if (input.kind === "image" && styleReferenceFileId && !styleImageApplied) warnings.push({ code: "STYLE_IMAGE_NOT_APPLIED", message: "所选模型不支持风格参考图，本次只应用风格文字描述", blocking: false });
     if (input.kind === "image" && !directorProject && connected.style?.status === "draft" && !input.allowDraftStyle) warnings.push({ code: "VISUAL_STYLE_NOT_CONFIRMED", message: "当前视觉风格尚未确认；确认继续后仍可生成，但结果的一致性可能变化", blocking: true });
-    if (input.kind === "image" && directorCharacter && !asset.payload.visualDescription.trim()) warnings.push({ code: "DIRECTOR_CHARACTER_VISUAL_DESCRIPTION_REQUIRED", message: "请先让 Agent 完成角色的纯视觉设定，再生成身份媒体", blocking: true });
-    if (input.kind === "image" && directorCharacter && styleMediumFamily !== "live_action" && /(photorealistic|real-camera|真实相机|真人摄影|禁止插画)/i.test(asset.payload.visualDescription)) warnings.push({ code: "DIRECTOR_CHARACTER_STYLE_CONFLICT", message: "角色视觉设定混入了真人摄影媒介要求，请让 Agent 只保留脸型、体型、发型、服装和识别点", blocking: true });
+    if (input.kind === "image" && verbatimPrompt && !options.verbatimPrompt?.trim()) warnings.push({ code: "DIRECTOR_ASSET_PROMPT_REQUIRED", message: "prompt.md 还没有最终提示词，请先交给 Agent 完成", blocking: true });
+    if (input.kind === "image" && !verbatimPrompt && directorCharacter && !asset.payload.visualDescription.trim()) warnings.push({ code: "DIRECTOR_CHARACTER_VISUAL_DESCRIPTION_REQUIRED", message: "请先让 Agent 完成角色的纯视觉设定，再生成身份媒体", blocking: true });
+    if (input.kind === "image" && !verbatimPrompt && directorCharacter && styleMediumFamily !== "live_action" && /(photorealistic|real-camera|真实相机|真人摄影|禁止插画)/i.test(asset.payload.visualDescription)) warnings.push({ code: "DIRECTOR_CHARACTER_STYLE_CONFLICT", message: "角色视觉设定混入了真人摄影媒介要求，请让 Agent 只保留脸型、体型、发型、服装和识别点", blocking: true });
     if (input.kind === "audio" && !(model.audioModes || ["speech"]).includes(audioMode as AudioMode)) warnings.push({ code: "AI_MODEL_AUDIO_MODE_UNSUPPORTED", message: `所选模型不支持${audioModeLabel(audioMode)}`, blocking: true });
     if (input.kind === "audio" && audioMode === "speech" && !draft.transcript?.trim()) warnings.push({ code: "CREATIVE_ASSET_TRANSCRIPT_REQUIRED", message: "请先填写试听台词", blocking: true });
     if (input.kind === "audio" && !references.length && !draft.prompt.trim()) warnings.push({ code: "CREATIVE_ASSET_AUDIO_PROMPT_REQUIRED", message: `没有参考音频时，请先填写${audioModeLabel(audioMode)}描述`, blocking: true });
     if (input.kind === "audio" && asset.kind === "character" && voiceGenderConflict(asset.payload.designProfile?.voiceGender, draft.prompt)) warnings.push({ code: "CREATIVE_ASSET_VOICE_GENDER_CONFLICT", message: "音色描述与角色设计画像中的声音性别冲突，请先修正设定", blocking: true });
 
     const basePrompt = input.kind === "image"
-        ? buildCreativeAssetPrompt(asset, "image", [connected.style ? visualStyleText(connected.style, asset.kind === "character", asset.kind) : "", ...(directorCharacter ? [] : connected.texts), ...(directorCharacter ? [] : [draft.prompt])].filter(Boolean).join("\n\n"), model.imagePromptProfile || "generic", styleMediumFamily, options.visualDescriptionOverride)
+        ? verbatimPrompt ? options.verbatimPrompt!.trim() : buildCreativeAssetPrompt(asset, "image", [connected.style ? visualStyleText(connected.style, asset.kind === "character", asset.kind) : "", ...(directorCharacter ? [] : connected.texts), ...(directorCharacter ? [] : [draft.prompt])].filter(Boolean).join("\n\n"), model.imagePromptProfile || "generic", styleMediumFamily, options.visualDescriptionOverride)
         : audioMode === "speech"
             ? draft.transcript?.trim() || ""
             : [draft.prompt, ...connected.texts].filter(Boolean).join("\n\n");
-    const prompt = input.kind === "image" && directorCharacter && references.length
+    const prompt = input.kind === "image" && !verbatimPrompt && directorCharacter && references.length
         ? `${basePrompt}\n\n[图片参考用途]\n${references.map((reference, index) => `图片 ${index + 1}：${referencePurposeInstruction("purpose" in reference ? String(reference.purpose) : "composition_reference")}。不得混合不同参考图片中的人物身份。`).join("\n")}`
         : basePrompt;
     const instructions = input.kind === "audio" && audioMode === "speech" ? draft.prompt.trim() : "";
@@ -180,22 +187,18 @@ const directorTargetSchema = z.object({
 export function previewDirectorAssetGeneration(userId: string, assetId: string, raw: unknown) {
     const target = directorTargetSchema.parse(raw) as Omit<DirectorAssetGenerationTarget, "assetId">;
     const resolved = resolveDirectorAssetGenerationTarget(userId, { assetId, ...target });
+    const workspaceReferences = resolved.references.map((item) => ({
+        fileId: item.fileId,
+        kind: "image" as const,
+        source: item.mediaRole === "style_reference" ? "style" as const : "asset" as const,
+        label: item.name,
+        purpose: item.mediaRole,
+    }));
     const preview = previewCreativeAssetGeneration(userId, assetId, {
         kind: target.target === "sound" ? "audio" : "image",
         revision: resolved.detail.revision,
-    }, { visualDescriptionOverride: target.target === "sound" ? undefined : resolved.prompt });
-    const workspaceReferences = resolved.references.map((item) => ({ fileId: item.fileId, kind: item.kind, source: "asset" as const, label: item.name, purpose: "reference_input" }));
-    if (target.target !== "sound" && workspaceReferences.length && (!preview.model.inputs.includes("image") || !preview.model.imageModes?.includes("edit"))) return {
-        ...preview,
-        warnings: dedupeWarnings([...preview.warnings, { code: "AI_MODEL_REFERENCE_UNSUPPORTED", message: "所选模型不支持图片参考，请移除输入图或改用支持图生图的模型", blocking: true }]),
-    };
-    const references = dedupe([...workspaceReferences, ...preview.references]);
-    const limitedReferences = preview.model.maxReferenceImages == null ? references : references.slice(0, preview.model.maxReferenceImages);
-    return {
-        ...preview,
-        references: limitedReferences,
-        warnings: limitedReferences.length === references.length ? preview.warnings : dedupeWarnings([...preview.warnings, { code: "AI_MODEL_REFERENCE_LIMIT", message: `所选模型最多接收 ${preview.model.maxReferenceImages} 张参考图，已按主体与风格顺序采用`, blocking: false }]),
-    };
+    }, target.target === "sound" ? {} : { verbatimPrompt: resolved.prompt, imageReferences: workspaceReferences });
+    return preview;
 }
 
 export function createDirectorAssetGeneration(userId: string, assetId: string, raw: unknown) {
@@ -224,11 +227,6 @@ export function createDirectorAssetGeneration(userId: string, assetId: string, r
 function dedupe<T extends { fileId: string }>(items: T[]) {
     const seen = new Set<string>();
     return items.filter((item) => seen.has(item.fileId) ? false : Boolean(seen.add(item.fileId)));
-}
-
-function dedupeWarnings<T extends { code: string }>(items: T[]) {
-    const seen = new Set<string>();
-    return items.filter((item) => seen.has(item.code) ? false : Boolean(seen.add(item.code)));
 }
 
 function audioModeLabel(mode: AudioMode) {

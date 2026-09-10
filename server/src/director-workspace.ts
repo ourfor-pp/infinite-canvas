@@ -57,6 +57,11 @@ type StyleRow = { id: string; name: string; mode: string; template_id: string | 
 const projectSchema = z.object({ format: z.literal("infinite-canvas-director"), version: z.literal(1), id: z.string().min(1), name: z.string().min(1) }).passthrough();
 const entitySchema = z.object({ id: z.string().min(1), kind: z.string().min(1), name: z.string().optional(), title: z.string().optional() }).passthrough();
 const storyboardSchema = z.object({ version: z.literal(1), segmentId: z.string().min(1), layout: z.enum(["2x2", "3x2", "3x3"]), frames: z.array(z.record(z.string(), z.unknown())).max(9) }).passthrough();
+const promptReferenceSchema = z.object({
+    path: z.string().trim().min(1),
+    purpose: z.enum(["style_reference", "identity_reference", "wardrobe_reference", "composition_reference", "reference_input"]).default("reference_input"),
+    label: z.string().trim().min(1).optional(),
+});
 const timelineSchema = z.record(z.string(), z.unknown());
 const ignoredExportRoots = new Set([".trash", ".runtime", ".cache", ".claude"]);
 const maxImportFiles = 20_000;
@@ -1021,7 +1026,7 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
         const visualPrompt = resolve(visualFolder, "prompt.md");
         const soundPrompt = resolve(soundFolder, "sound.md");
         if (!existsSync(visualPrompt)) diagnostics.push(diag("error", "ASSET_VISUAL_PROMPT_MISSING", dossier.path, "素材基础设计缺少 prompt.md"));
-        else if (!readFileSync(visualPrompt, "utf8").trim()) diagnostics.push(diag("warning", "ASSET_VISUAL_PROMPT_EMPTY", posixRelative(root, visualPrompt), "素材基础设计提示词为空"));
+        else validateAssetPrompt(root, visualPrompt, diagnostics);
         if (!existsSync(soundPrompt)) diagnostics.push(diag("error", "ASSET_SOUND_PROMPT_MISSING", dossier.path, `素材缺少 ${character ? "voice" : "sound"}/sound.md`));
         const visualInputs = resolve(visualFolder, "inputs");
         for (const input of walkFiles(visualInputs)) if (!mediaMimeType(input)?.startsWith("image/")) diagnostics.push(diag("error", "ASSET_IMAGE_INPUT_INVALID", posixRelative(root, input), "视觉输入目录只能包含图片"));
@@ -1034,7 +1039,7 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
             const prompt = resolve(folder, "prompt.md");
             if (!existsSync(document)) diagnostics.push(diag("error", "ASSET_VARIANT_DOCUMENT_MISSING", posixRelative(root, folder), "生产变体缺少 variant.md"));
             if (!existsSync(prompt)) diagnostics.push(diag("error", "ASSET_VARIANT_PROMPT_MISSING", posixRelative(root, folder), "生产变体缺少 prompt.md"));
-            else if (!readFileSync(prompt, "utf8").trim()) diagnostics.push(diag("warning", "ASSET_VARIANT_PROMPT_EMPTY", posixRelative(root, prompt), "生产变体提示词为空"));
+            else validateAssetPrompt(root, prompt, diagnostics);
             for (const input of walkFiles(resolve(folder, "inputs"))) if (!mediaMimeType(input)?.startsWith("image/")) diagnostics.push(diag("error", "ASSET_VARIANT_INPUT_INVALID", posixRelative(root, input), "生产变体输入目录只能包含图片"));
         }
     }
@@ -1248,10 +1253,9 @@ function ensureDirectorAssetProductionFiles(userId: string, projectId: string, r
     mkdirSync(soundFolder, { recursive: true });
     mkdirSync(resolve(folder, "variants"), { recursive: true });
     const mediaDrafts = documentRecord(payload.mediaDrafts);
-    const imageDraft = documentRecord(mediaDrafts.image);
     const audioDraft = documentRecord(mediaDrafts.audio);
     const promptPath = resolve(visualFolder, "prompt.md");
-    if (!existsSync(promptPath)) writeFileAtomic(promptPath, `${String(imageDraft.prompt || payload.visualDescription || payload.description || "").trim()}\n`);
+    if (!existsSync(promptPath)) writeFileAtomic(promptPath, "");
     const soundPath = resolve(soundFolder, "sound.md");
     if (!existsSync(soundPath)) {
         const suggestedDurationSeconds = Number(audioDraft.durationSeconds || 0) || 0;
@@ -1273,7 +1277,7 @@ function ensureDirectorAssetProductionFiles(userId: string, projectId: string, r
         const variantFolder = existing || resolve(folder, "variants", `${id.replace(/[^a-zA-Z0-9_-]/g, "-")}-${slug(name) || "variant"}`);
         mkdirSync(resolve(variantFolder, "inputs"), { recursive: true });
         if (!existsSync(resolve(variantFolder, "variant.md"))) writeMarkdown(resolve(variantFolder, "variant.md"), { id, kind: "asset-variant", name }, String(variant.description || ""));
-        if (!existsSync(resolve(variantFolder, "prompt.md"))) writeFileAtomic(resolve(variantFolder, "prompt.md"), `${String(variant.prompt || imageDraft.prompt || "").trim()}\n`);
+        if (!existsSync(resolve(variantFolder, "prompt.md"))) writeFileAtomic(resolve(variantFolder, "prompt.md"), "");
         const file = getStoredFile(userId, String(variant.fileId || ""));
         if (file && !walkFiles(variantFolder).some((path) => dirname(path) === variantFolder && basename(path, extname(path)) === "primary")) copyFileSync(file.path, resolve(variantFolder, `primary${extname(file.original_name) || extname(file.path) || ".png"}`));
     });
@@ -1288,16 +1292,44 @@ function readAssetVisualWorkspace(userId: string, projectId: string, root: strin
     mkdirSync(resolve(folder, "inputs"), { recursive: true });
     const promptPath = resolve(folder, "prompt.md");
     if (!existsSync(promptPath)) writeFileAtomic(promptPath, "");
-    const inputs = walkFiles(resolve(folder, "inputs")).filter((path) => mediaMimeType(path)?.startsWith("image/")).map((path) => directorAssetMedia(userId, projectId, root, path, "reference"));
+    const promptDocument = matter(readFileSync(promptPath, "utf8"));
+    const localInputs = walkFiles(resolve(folder, "inputs")).filter((path) => mediaMimeType(path)?.startsWith("image/")).map((path) => directorAssetMedia(userId, projectId, root, path, "reference_input"));
+    const declaredInputs = promptReferenceSchema.array().safeParse(promptDocument.data.references || []).success
+        ? promptReferenceSchema.array().parse(promptDocument.data.references || []).flatMap((reference) => {
+            try {
+                const path = safeWorkspacePath(root, reference.path);
+                return existsSync(path) && mediaMimeType(path).startsWith("image/") ? [directorAssetMedia(userId, projectId, root, path, reference.purpose, reference.label)] : [];
+            } catch { return []; }
+        })
+        : [];
+    const seenInputs = new Set<string>();
+    const inputs = [...declaredInputs, ...localInputs].filter((item) => seenInputs.has(item.path) ? false : Boolean(seenInputs.add(item.path)));
     const candidates = walkFiles(folder).filter((path) => dirname(path) === folder && mediaMimeType(path)?.startsWith("image/")).map((path) => directorAssetMedia(userId, projectId, root, path, basename(path, extname(path))));
     const primary = candidates.find((item) => item.mediaRole === "primary") || candidates[0];
     const outputs = primary ? [primary] : [];
-    return { id: variantId || "primary", label, kind, variantId, description, prompt: readFileSync(promptPath, "utf8").trim(), promptPath: posixRelative(root, promptPath), hash: hashFile(promptPath), inputs, outputs };
+    return { id: variantId || "primary", label, kind, variantId, description, prompt: promptDocument.content.trim(), promptPath: posixRelative(root, promptPath), hash: hashFile(promptPath), inputs, outputs };
 }
 
-function directorAssetMedia(userId: string, projectId: string, root: string, path: string, mediaRole: string): DirectorAssetMedia {
+function directorAssetMedia(userId: string, projectId: string, root: string, path: string, mediaRole: string, label?: string): DirectorAssetMedia {
     const rel = posixRelative(root, path);
-    return { id: `input-${createHash("sha256").update(rel).digest("hex").slice(0, 20)}`, fileId: registerDirectorMediaFile(userId, projectId, root, path), path: rel, name: basename(path), mediaRole, kind: mediaMimeType(path).startsWith("audio/") ? "audio" : "image" };
+    return { id: `input-${createHash("sha256").update(rel).digest("hex").slice(0, 20)}`, fileId: registerDirectorMediaFile(userId, projectId, root, path), path: rel, name: label || basename(path), mediaRole, kind: mediaMimeType(path).startsWith("audio/") ? "audio" : "image" };
+}
+
+function validateAssetPrompt(root: string, promptPath: string, diagnostics: DirectorDiagnostic[]) {
+    const relativePath = posixRelative(root, promptPath);
+    let document: ReturnType<typeof matter>;
+    try { document = matter(readFileSync(promptPath, "utf8")); }
+    catch (error) { diagnostics.push(diag("error", "ASSET_PROMPT_FRONTMATTER_INVALID", relativePath, error instanceof Error ? error.message : "提示词 Frontmatter 无法解析")); return; }
+    if (!document.content.trim()) diagnostics.push(diag("warning", "ASSET_VISUAL_PROMPT_EMPTY", relativePath, "素材提示词正文为空"));
+    const references = promptReferenceSchema.array().safeParse(document.data.references || []);
+    if (!references.success) { diagnostics.push(diag("error", "ASSET_PROMPT_REFERENCES_INVALID", relativePath, "提示词 references 格式无效")); return; }
+    for (const reference of references.data) {
+        let path: string;
+        try { path = safeWorkspacePath(root, reference.path); }
+        catch (error) { diagnostics.push(diag("error", "ASSET_PROMPT_REFERENCE_PATH_INVALID", relativePath, error instanceof Error ? error.message : `引用路径无效：${reference.path}`)); continue; }
+        if (!existsSync(path)) diagnostics.push(diag("error", "ASSET_PROMPT_REFERENCE_MISSING", relativePath, `引用图片不存在：${reference.path}`));
+        else if (!mediaMimeType(path).startsWith("image/")) diagnostics.push(diag("error", "ASSET_PROMPT_REFERENCE_TYPE", relativePath, `引用不是图片：${reference.path}`));
+    }
 }
 
 function syncDirectionReferenceFiles(userId: string, root: string, value: unknown) {
@@ -1489,5 +1521,5 @@ function diag(severity: DirectorDiagnostic["severity"], code: string, path: stri
 function workspaceError(status: number, code: string, message: string, details?: unknown) { return Object.assign(new Error(message), { status, code, details }); }
 
 function projectAgents(title: string) {
-    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；时间线使用 JSON，故事板画格使用 YAML。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；导演规则首章“创作定位”概括题材、类型、基调、时代地域、目标观众与核心命题，不得另建重复文件；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；\`character.md\`、\`location.md\` 或 \`prop.md\` 是权威主档案。\n- 角色基础设计位于 \`identity/\`，场景与道具基础设计位于 \`design/\`；提示词固定写入 \`prompt.md\`，输入图只放 \`inputs/\`，当前主结果以 \`primary.*\` 命名。\n- 角色声音位于 \`voice/\`，场景与道具声音位于 \`sound/\`；\`sound.md\` 正文是唯一声音提示词，试听文本和建议时长只写 Frontmatter，参考声音最多一个并命名为 \`reference.*\`，当前结果命名为 \`primary.*\`。\n- 每个生产变体位于 \`variants/var-NNN-slug/\`，必须包含带稳定 ID 的 \`variant.md\`、独立 \`prompt.md\`、可选 \`inputs/\` 和当前 \`primary.*\`；不得把多个变体压回主档或扁平媒体数组。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- 一个 4–15 秒视频段对应一个完整多宫格故事板；故事板只生成一张媒体，画格不是独立生成任务。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
+    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；时间线使用 JSON，故事板画格使用 YAML。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；导演规则首章“创作定位”概括题材、类型、基调、时代地域、目标观众与核心命题，不得另建重复文件；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；\`character.md\`、\`location.md\` 或 \`prop.md\` 是权威主档案。\n- 角色基础设计位于 \`identity/\`，场景与道具基础设计位于 \`design/\`；\`prompt.md\` 正文必须是可以原样发送给当前模型的完整最终提示词，程序不会再追加风格、版式、人物或参考用途说明。\n- 提示词采用的项目内参考图在 \`prompt.md\` Frontmatter 的 \`references\` 中逐项声明 \`path\`、\`purpose\` 和可选 \`label\`；用户上传的专属参考仍放在同目录 \`inputs/\`。程序只校验并原样提交这些显式输入，不自动选择风格板。\n- 当前主结果以 \`primary.*\` 命名；切换模型、视觉风格或素材身份后应先按对应 Skill 显式修订 \`prompt.md\`，不得依赖运行时隐藏拼接。\n- 角色声音位于 \`voice/\`，场景与道具声音位于 \`sound/\`；\`sound.md\` 正文是唯一声音提示词，试听文本和建议时长只写 Frontmatter，参考声音最多一个并命名为 \`reference.*\`，当前结果命名为 \`primary.*\`。\n- 每个生产变体位于 \`variants/var-NNN-slug/\`，必须包含带稳定 ID 的 \`variant.md\`、独立 \`prompt.md\`、可选 \`inputs/\` 和当前 \`primary.*\`；不得把多个变体压回主档或扁平媒体数组。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- 一个 4–15 秒视频段对应一个完整多宫格故事板；故事板只生成一张媒体，画格不是独立生成任务。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
 }
