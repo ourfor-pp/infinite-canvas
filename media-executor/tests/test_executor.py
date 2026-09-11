@@ -190,3 +190,14 @@ def test_h3_identity_requires_all_nodes_and_ready_fingerprint(tmp_path, monkeypa
     assert module.health()["h3Runtime"] == identity
     del info["H3NewAVSegment"]
     assert module.health()["h3Runtime"] is None
+    assert module.health()["comfyFeatures"]["pddRef8"] is False
+    info["MiniMaxH3PDDAccApply"] = {"input": {"required": {"pdd_file": [[], {}]}}}
+    assert module.health()["comfyFeatures"]["pddRef8"] is False
+    info["MiniMaxH3PDDAccApply"]["input"]["required"]["pdd_file"][0].append("MiniMax-H3-Ref2VA-Acc-8Step.safetensors")
+    assert module.health()["comfyFeatures"]["pddRef8"] is True
+    info["H3NewAVSegment"] = {}
+    assert module.health()["h3PddRuntime"] is None
+    identity["modelRevision"] = "base:pdd-ref8:digest"
+    assert module.health()["h3PddRuntime"] == identity
+    identity["ready"] = False
+    assert module.health()["h3PddRuntime"] is None

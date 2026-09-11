@@ -323,14 +323,16 @@ def health(_: None = Depends(authorize)):
                     runtimes[name] = client.get(f"{url}/health").is_success
                 except httpx.HTTPError:
                     runtimes[name] = False
-    comfy_features = {"temporalGuides": False, "turboPreview": False}
+    comfy_features = {"temporalGuides": False, "turboPreview": False, "pddRef8": False}
     h3_runtime = None
+    h3_pdd_runtime = None
     try:
         with httpx.Client(timeout=httpx.Timeout(2, connect=.5), trust_env=False) as client:
             info = client.get(f"{COMFY_URL}/object_info").json()
         comfy_features = {
             "temporalGuides": "MiniMaxH3AddGuide" in info,
             "turboPreview": "MiniMaxH3TurboLoRA" in info and "MiniMaxH3TurboSampler" in info,
+            "pddRef8": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors" in info.get("MiniMaxH3PDDAccApply", {}).get("input", {}).get("required", {}).get("pdd_file", [[]])[0],
         }
         required = {"H3SaveContinuationState", "H3LoadContinuationState", "H3NewAVSegment", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "MiniMaxH3AppendContinuation"}
         comfy_features["nativeState"] = required.issubset(info)
@@ -341,9 +343,16 @@ def health(_: None = Depends(authorize)):
             if identity.get("ready") is True:
                 h3_runtime = identity
 
+        if comfy_features.get("nativeState") and comfy_features["pddRef8"]:
+            with httpx.Client(timeout=httpx.Timeout(2, connect=.5), trust_env=False) as client:
+                response = client.get(f"{COMFY_URL}/h3/runtime?recipe=pdd-ref8")
+            identity = response.json() if response.status_code == 200 else {}
+            if identity.get("ready") is True and ":pdd-ref8:" in identity.get("modelRevision", ""):
+                h3_pdd_runtime = identity
+
     except (httpx.HTTPError, ValueError):
         pass
-    return {"ok": True, "models": MODELS, "runtimes": runtimes, "comfyUrl": bool(COMFY_URL), "comfyFeatures": comfy_features, "h3Runtime": h3_runtime}
+    return {"ok": True, "models": MODELS, "runtimes": runtimes, "comfyUrl": bool(COMFY_URL), "comfyFeatures": comfy_features, "h3Runtime": h3_runtime, "h3PddRuntime": h3_pdd_runtime}
 
 
 @app.post("/v1/files")

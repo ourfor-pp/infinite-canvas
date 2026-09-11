@@ -4,6 +4,14 @@ export type Workflow = Record<string, { class_type: string; inputs: NodeInput }>
 export type ComfyUploadedInput = { fileId: string; kind: "image" | "video" | "audio"; name: string; role?: "reference" | "first-frame" | "last-frame" | "continuation" };
 type WorkflowInput = { model: string; prompt: string; params: Record<string, unknown>; files: ComfyUploadedInput[] };
 export type H3QualityPreset = "preview" | "final";
+export type H3Acceleration = "base" | "pdd-ref8";
+export function selectH3Acceleration(input: { mode: "fl2va" | "ref2va"; requested?: H3Acceleration; pddReady: boolean; continuing: boolean; previousModelRevision?: string; hasAudioReferences: boolean }): H3Acceleration {
+    const previous = input.previousModelRevision?.includes(":pdd-ref8:") ? "pdd-ref8" : "base";
+    const selected = input.requested ?? (input.continuing ? previous : input.mode === "ref2va" && input.pddReady && !input.hasAudioReferences ? "pdd-ref8" : "base");
+    if (selected === "pdd-ref8" && (input.mode !== "ref2va" || !input.pddReady)) throw Object.assign(new Error("当前生成节点的 Ref2VA 加速配方尚未就绪"), { status: 409 });
+    if (input.continuing && input.previousModelRevision && selected !== previous) throw Object.assign(new Error("续接必须沿用前段配方；切换配方请从连续镜头首段重新生成"), { status: 409 });
+    return selected;
+}
 export type H3TemporalGuide = { fileId: string; frameIndex: number; includeAudio?: boolean };
 export type H3GenerationRecipe = { qualityPreset: H3QualityPreset; resolution: "480p" | "768p"; steps: number; sampler: string; scheduler: string; refImageSize: "match" | "max"; attention: string; turbo: boolean };
 export type H3FrameAlignment = { requestedSeconds: number; requestedFrames: number; modelFrames: number; trimFrames: number; fps: 24; stride: 17; base: 5 };
@@ -74,7 +82,11 @@ export function alignH3Frames(seconds: number): H3FrameAlignment {
     return { requestedSeconds, requestedFrames, modelFrames, trimFrames: requestedFrames, fps: 24, stride: 17, base: 5 };
 }
 
-export function h3Recipe(mode: "fl2va" | "ref2va", qualityPreset: H3QualityPreset, turboAvailable = false): H3GenerationRecipe {
+export function h3Recipe(mode: "fl2va" | "ref2va", qualityPreset: H3QualityPreset, turboAvailable = false, acceleration: "base" | "pdd-ref8" = "base"): H3GenerationRecipe {
+    if (acceleration === "pdd-ref8") {
+        if (mode !== "ref2va") throw new Error("PDD Ref2VA 配方不能用于首尾帧模型");
+        return { qualityPreset, resolution: qualityPreset === "preview" ? "480p" : "768p", steps: 8, sampler: "euler", scheduler: "pdd", refImageSize: "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: false };
+    }
     if (qualityPreset === "preview" && mode === "fl2va" && turboAvailable) return { qualityPreset, resolution: "480p", steps: 8, sampler: "h3-turbo", scheduler: "simple", refImageSize: "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: true };
     if (qualityPreset === "preview") return { qualityPreset, resolution: "480p", steps: 20, sampler: "res_multistep", scheduler: "simple", refImageSize: "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: false };
     return { qualityPreset, resolution: "768p", steps: 20, sampler: "res_multistep", scheduler: mode === "ref2va" ? "beta" : "simple", refImageSize: mode === "ref2va" ? "max" : "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: false };
@@ -352,7 +364,13 @@ function miniMaxH3(input: WorkflowInput): Workflow {
     const referenceMode = input.model === "minimax-h3-ref2va-local";
     if (!referenceMode && input.params.__h3StateContext !== undefined) throw new Error("Native H3 state workflow currently requires Ref2VA");
     const qualityPreset = input.params.qualityPreset === "final" ? "final" : "preview";
-    const recipe = h3Recipe(referenceMode ? "ref2va" : "fl2va", qualityPreset, input.params.turboAvailable === true);
+    const acceleration = input.params.h3Recipe ?? "base";
+    if (acceleration !== "base" && acceleration !== "pdd-ref8") throw new Error("不支持的 H3 生成配方");
+    const recipe = h3Recipe(referenceMode ? "ref2va" : "fl2va", qualityPreset, input.params.turboAvailable === true, acceleration);
+    if (input.params.__h3StateContext !== undefined) {
+        const context = h3StateContextSchema.parse(input.params.__h3StateContext);
+        if (context.modelRevision.includes(":pdd-ref8:") !== (acceleration === "pdd-ref8")) throw new Error("H3 配方与续接状态身份不一致");
+    }
     const alignment = alignH3Frames(duration);
     const graph: Workflow = {
         "1": node("UNETLoader", { unet_name: referenceMode ? "minimax_h3_ref2va_pruned_int8_convrot.safetensors" : "minimax_h3_fl2va_pruned_int8_convrot.safetensors", weight_dtype: "default" }),
@@ -380,9 +398,19 @@ function miniMaxH3(input: WorkflowInput): Workflow {
     audios.forEach((audio, index) => { const id = String(41 + index); graph[id] = node("LoadAudio", { audio }); inputs[`ref_audios.ref_audio_${index}`] = [id, 0]; });
     videos.forEach((video, index) => { const loadId = String(61 + index * 2); const componentsId = String(62 + index * 2); graph[loadId] = node("LoadVideo", { file: video }); graph[componentsId] = node("GetVideoComponents", { video: [loadId, 0] }); inputs[`ref_videos.ref_video_${index}`] = [componentsId, 0]; inputs[`ref_video_audios.ref_video_audio_${index}`] = [componentsId, 1]; });
     graph["5"] = node("MiniMaxH3ReferenceToVideo", inputs);
+    if (acceleration === "pdd-ref8") applyH3PddRef8(graph);
     addH3Guides(graph, input.files, guides);
     addH3NativeState(graph, input, { width, height, frames: alignment.modelFrames });
     return graph;
+}
+
+export function applyH3PddRef8(graph: Workflow) {
+    if (graph["5"]?.class_type !== "MiniMaxH3ReferenceToVideo") throw new Error("PDD Ref2VA 配方需要参考生成工作流");
+    graph["16"] = node("MiniMaxH3PDDAccApply", { model: ["1", 0], pdd_file: "MiniMax-H3-Ref2VA-Acc-8Step.safetensors", nfe: "8", lora_strength: 1, head_strength: 1, on_off_grid: "error", partition_check: "error" });
+    graph["15"].inputs.model = ["16", 0];
+    graph["10"].inputs.sigmas = ["16", 1];
+    graph["7"].inputs.sampler_name = "euler";
+    delete graph["8"];
 }
 
 function addH3Guides(graph: Workflow, files: ComfyUploadedInput[], guides: H3TemporalGuide[]) {

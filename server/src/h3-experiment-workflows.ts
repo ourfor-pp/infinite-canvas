@@ -1,4 +1,4 @@
-import { buildComfyWorkflow, type ComfyUploadedInput } from "./comfy-workflows.js";
+import { applyH3PddRef8, buildComfyWorkflow, type ComfyUploadedInput } from "./comfy-workflows.js";
 
 export type H3Experiment = "base" | "lightx2v-ref4" | "lightx2v-ref8" | "pdd-ref8" | "vdn8";
 
@@ -18,11 +18,7 @@ export function buildH3Experiment(input: { recipe: H3Experiment; mode: "fl2va" |
         graph["15"]!.inputs.model = ["17", 0];
         graph["7"]!.inputs.sampler_name = "euler";
     } else if (input.recipe === "pdd-ref8") {
-        graph["16"] = { class_type: "MiniMaxH3PDDAccApply", inputs: { model: ["1", 0], pdd_file: "MiniMax-H3-Ref2VA-Acc-8Step.safetensors", nfe: "8", lora_strength: 1, head_strength: 1, on_off_grid: "error", partition_check: "error" } };
-        graph["15"]!.inputs.model = ["16", 0];
-        graph["10"]!.inputs.sigmas = ["16", 1];
-        graph["7"]!.inputs.sampler_name = "euler";
-        delete graph["8"];
+        applyH3PddRef8(graph);
     } else if (input.recipe === "vdn8") {
         // VDN replaces attention and supplies both released adapters; do not stack a Turbo LoRA or Sage patch.
         graph["15"] = { class_type: "ApplyVDNH3", inputs: { model: ["1", 0], vdn_checkpoint: "stage-dmd-step-250", apply_turbo_adapter: true, strength: 1, lora_mode: "merge", branch_weights: "auto", retain_buffers: "auto", verbose: false, attention_backend: "grouped" } };

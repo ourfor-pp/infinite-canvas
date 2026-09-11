@@ -84,14 +84,15 @@ from aiohttp import web
 from server import PromptServer
 from . import runtime
 
-_identity_task = None
-_initial_identity = None
+_identity_tasks = {}
+_initial_identities = {}
 _NATIVE_NODES = ('H3SaveContinuationState', 'H3LoadContinuationState', 'H3NewAVSegment',
                  'MiniMaxH3GuidedContinuationWindow', 'MiniMaxH3LatentTailGuide', 'MiniMaxH3AppendContinuation')
 
 
-def _runtime_identity():
-    global _initial_identity
+def _runtime_identity(recipe='base'):
+    if recipe not in ('base', 'pdd-ref8'):
+        raise ValueError('Unsupported H3 recipe')
     import nodes
     if any(name not in nodes.NODE_CLASS_MAPPINGS for name in _NATIVE_NODES):
         raise ValueError('Native H3 node set is incomplete')
@@ -102,31 +103,40 @@ def _runtime_identity():
         folder_paths.get_full_path_or_raise('diffusion_models', 'minimax_h3_ref2va_pruned_int8_convrot.safetensors'),
         folder_paths.get_full_path_or_raise('vae', 'minimax_h3_video_vae_fp16.safetensors'),
         folder_paths.get_full_path_or_raise('vae', 'minimax_h3_audio_vae_fp32.safetensors'), implementations)
-    if _initial_identity is not None and identity != _initial_identity:
+    if recipe == 'pdd-ref8':
+        pdd_class = nodes.NODE_CLASS_MAPPINGS['MiniMaxH3PDDAccApply']
+        pdd_root = Path(inspect.getfile(pdd_class)).parent
+        identity = runtime.identify_pdd_ref8(identity,
+            folder_paths.get_full_path_or_raise('pdd_acc', 'MiniMax-H3-Ref2VA-Acc-8Step.safetensors'),
+            sorted(path for path in pdd_root.rglob('*') if path.is_file() and path.suffix in ('.py', '.json', '.safetensors')))
+    if recipe in _initial_identities and identity != _initial_identities[recipe]:
         raise ValueError('Runtime files changed; restart ComfyUI before generating')
-    _initial_identity = identity
+    _initial_identities[recipe] = identity
     return identity
 
 
 def _verify_runtime(context):
-    identity = _runtime_identity()
+    identity = _runtime_identity('pdd-ref8' if ':pdd-ref8:' in str(context.get('modelRevision', '')) else 'base')
     if any(context.get(key) != identity[key] for key in ('modelRevision', 'videoVaeRevision', 'audioVaeRevision')):
         raise ValueError('H3 state context does not match the active runtime')
 
 
 @PromptServer.instance.routes.get('/h3/runtime')
 async def h3_runtime_identity(request):
-    global _identity_task
-    if _identity_task is None:
-        _identity_task = asyncio.create_task(asyncio.to_thread(_runtime_identity))
+    recipe = request.query.get('recipe', 'base')
+    if recipe not in ('base', 'pdd-ref8'):
+        return web.json_response({'ready': False, 'error': 'Unsupported H3 recipe'}, status=400)
+    task = _identity_tasks.get(recipe)
+    if task is None:
+        _identity_tasks[recipe] = asyncio.create_task(asyncio.to_thread(_runtime_identity, recipe))
         return web.json_response({'ready': False}, status=202)
-    if not _identity_task.done():
+    if not task.done():
         return web.json_response({'ready': False}, status=202)
     try:
-        _identity_task.result()
+        task.result()
         # Check current file identities on every response; unchanged hashes are cached.
-        current = await asyncio.to_thread(_runtime_identity)
+        current = await asyncio.to_thread(_runtime_identity, recipe)
     except Exception:
-        _identity_task = None
+        _identity_tasks.pop(recipe, None)
         return web.json_response({'ready': False, 'error': 'H3 runtime identity unavailable'}, status=503)
     return web.json_response({'ready': True, **current})

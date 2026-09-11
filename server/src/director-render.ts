@@ -11,7 +11,7 @@ import type { GenerationRow } from "./generation-service.js";
 import { createGeneration } from "./generation-service.js";
 import { getAiGlobalSettings, listModelDefaults, resolveSelectableModel, type AiModelDefinition } from "./provider-service.js";
 import { getMediaExecutorCatalog } from "./media-executor-settings.js";
-import { alignH3Frames, h3Recipe, h3ContinuationFrames, h3VideoDimensions, type H3QualityPreset, type H3TemporalGuide } from "./comfy-workflows.js";
+import { alignH3Frames, h3Recipe, h3ContinuationFrames, h3VideoDimensions, selectH3Acceleration, type H3Acceleration, type H3QualityPreset, type H3TemporalGuide } from "./comfy-workflows.js";
 import { compileH3Prompt, compileH3NativeContinuationPrompt, h3AudioPromptReferences, h3AudioReferencesInput, isH3TurboAudioSafe, validateH3PromptPlan, validateStoryboardNarrativePlan, type H3DialogueCue, type H3ReferenceDefinition } from "./h3-prompt.js";
 import { createH3ContinuationBinding, createH3CumulativeBinding, h3StateContextSchema, validateH3NativeVideo, resolveDirectorH3Continuation, resolveDirectorH3Cumulative, verifyRequestedH3Continuation, isSameH3OwnedMedia } from "./h3-continuation.js";
 import { planH3CumulativeSources } from "./h3-media-plan.js";
@@ -26,7 +26,7 @@ type AudioClip = { id: string; segmentId?: string; fileId?: string; start: numbe
 type RenderPayload = { timelineRevision: number; segmentIds: string[]; duration: number; warnings: string[] };
 
 const renderInput = z.object({ timelineRevision: z.number().int().positive() });
-const shotGenerationInput = z.object({ revision: z.number().int().positive(), qualityPreset: z.enum(["preview", "final"]).default("preview"), model: z.string().trim().optional() });
+const shotGenerationInput = z.object({ revision: z.number().int().positive(), qualityPreset: z.enum(["preview", "final"]).default("preview"), recipe: z.enum(["base", "pdd-ref8"]).optional(), model: z.string().trim().optional() });
 const storyboardGenerationInput = z.object({ revision: z.number().int().positive(), model: z.string().trim().optional() });
 const dialogueCueInput = z.object({ speakerAssetId: z.string().min(1), speakerName: z.string().min(1).max(120), text: z.string().min(1).max(2_000), language: z.string().min(1).max(40).default("Chinese"), delivery: z.string().min(1).max(1_000), startSeconds: z.number().min(0).max(15), endSeconds: z.number().positive().max(15), offScreen: z.boolean().optional() });
 const storyboardPromptFrameInput = z.object({ id: z.string().min(1), shotNumber: z.number().int().min(1).max(3), timeSeconds: z.number().min(0).max(15), kind: z.enum(["shot-start", "keyframe", "shot-end"]), description: z.string().max(4_000), action: z.string().max(4_000), cameraAngle: z.string().max(1_000), cameraMove: z.string().max(1_000), h3Visual: z.string().min(1).max(6_000), dialogues: z.array(dialogueCueInput).max(8).default([]), sound: z.string().max(2_000), dialogue: z.never().optional() });
@@ -56,7 +56,8 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     const model = selection.model as AiModelDefinition;
     if (!model.videoModes?.includes(route.mode)) throw renderError(409, "DIRECTOR_H3_MODE_UNSUPPORTED", `所选模型不支持 ${route.mode.toUpperCase()} 模式`);
     const nativeExecutor = route.mode === "ref2va" && modelRef === "comfyui::minimax-h3-ref2va-local" && selection.comfyServerId === "media-executor";
-    const nativeRuntime = nativeExecutor ? getMediaExecutorCatalog().h3Runtime : undefined;
+    const acceleration = directorH3Acceleration(userId, shot.project_id, payload, route.mode, value.recipe, nativeExecutor);
+    const nativeRuntime = nativeExecutor ? (acceleration === "pdd-ref8" ? getMediaExecutorCatalog().h3PddRuntime : getMediaExecutorCatalog().h3Runtime) : undefined;
     if (nativeExecutor && getMediaExecutorCatalog().comfyFeatures.nativeState && !nativeRuntime) throw renderError(409, "DIRECTOR_H3_RUNTIME_NOT_READY", "原生续接运行时指纹尚未就绪，请等待校验完成后重试");
     const nativeContinuation = Boolean(nativeRuntime && payload.boundary === "continue");
     const routeReason = nativeContinuation ? "加载前段原生双流状态，隐藏重叠参与生成，仅输出新增音视频" : route.reason;
@@ -65,7 +66,7 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     const previous = payload.boundary === "continue" && continuationId ? db.prepare("SELECT payload FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(continuationId, userId, shot.project_id) as { payload: string } | undefined : undefined;
     const priorPayload = previous ? parseJson<Record<string, unknown>>(previous.payload, {}) : {};
     if (priorPayload.h3ContinuationState && !nativeRuntime) throw renderError(409, "DIRECTOR_H3_NATIVE_UNAVAILABLE", "前段采用原生续接状态，当前运行时或模型不支持，不能降级为普通视频参考");
-    const preflight = getDirectorVideoSegmentPreflight(userId, shotId, Boolean(model.supportsTemporalGuides), Boolean(nativeRuntime));
+    const preflight = getDirectorVideoSegmentPreflight(userId, shotId, Boolean(model.supportsTemporalGuides), Boolean(nativeRuntime), acceleration);
     if (preflight.blockedReasons.length) throw renderError(409, "DIRECTOR_H3_PROMPT_INVALID", preflight.blockedReasons.join("；"), preflight);
     const temporalGuides: H3TemporalGuide[] = [];
     if (route.mode === "ref2va") {
@@ -100,7 +101,7 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     const extensionFrames = nativeContinuation ? h3ContinuationFrames(Number(payload.durationSeconds || 4)) : 0;
     const prompt = nativeContinuation ? compileH3NativeContinuationPrompt(payload, sheet, promptReferences, extensionFrames) : compileH3Prompt(route.mode, payload, sheet, promptReferences);
     const turboEligible = isH3TurboAudioSafe(payload, sheet);
-    const recipe = h3Recipe(route.mode, value.qualityPreset, Boolean(model.turboPreview) && turboEligible);
+    const recipe = h3Recipe(route.mode, value.qualityPreset, Boolean(model.turboPreview) && turboEligible, acceleration);
     const alignment = alignH3Frames(Number(payload.durationSeconds || 4));
     const dimensions = h3VideoDimensions({ ratio: workspace.aspect_ratio, resolution: recipe.resolution });
     const previousState = nativeContinuation ? await resolveDirectorH3Continuation(userId, shot.project_id, continuationId, { ...nativeRuntime!, ...dimensions, fps: 24 }) : undefined;
@@ -108,7 +109,7 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     const stateParams = stateContext ? { __h3StateContext: stateContext, __h3PreviousFrames: previousState?.context.frames || 0, ...(previousState ? { __h3PreviousState: previousState } : {}) } : {};
 
     if (stateContext && resolveSelectableModel(modelRef, "video").comfyServerId !== selection.comfyServerId) throw renderError(409, "DIRECTOR_H3_RUNTIME_CHANGED", "生成节点已变化，请重新提交");
-    const generation = createGeneration(userId, { kind: "video", model: modelRef, prompt, references, params: { ...stateParams, seconds: Number(payload.durationSeconds || 4), ratio: workspace.aspect_ratio, resolution: recipe.resolution, qualityPreset: value.qualityPreset, turboAvailable: recipe.turbo, frameAlignment: alignment, temporalGuides, __directorSegment: { projectId: shot.project_id, segmentId: shotId, revision: shot.revision, storyboardRevision: sheet.revision, mode: route.mode, reason: routeReason, qualityPreset: value.qualityPreset, recipe, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", dependencies: payload.dependencies } } });
+    const generation = createGeneration(userId, { kind: "video", model: modelRef, prompt, references, params: { ...stateParams, seconds: Number(payload.durationSeconds || 4), ratio: workspace.aspect_ratio, resolution: recipe.resolution, qualityPreset: value.qualityPreset, h3Recipe: acceleration, turboAvailable: recipe.turbo, frameAlignment: alignment, temporalGuides, __directorSegment: { projectId: shot.project_id, segmentId: shotId, revision: shot.revision, storyboardRevision: sheet.revision, mode: route.mode, reason: routeReason, qualityPreset: value.qualityPreset, recipe, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", dependencies: payload.dependencies } } });
     const { h3ModeOverride: _h3ModeOverride, firstFrameFileId: _firstFrameFileId, lastFrameFileId: _lastFrameFileId, ...cleanPayload } = payload;
     const nextPayload = { ...cleanPayload, h3Mode: route.mode, h3ModeReason: routeReason, h3PromptSnapshot: { mode: route.mode, qualityPreset: value.qualityPreset, recipe, alignment, prompt, references, temporalGuides, nativeState: stateParams, storyboardStartGuide: preflight.storyboardStartGuide, storyboardRevision: sheet.revision }, videoGenerationId: generation.id, videoStale: false };
     db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(nextPayload), new Date().toISOString(), shotId, userId);
@@ -117,7 +118,15 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     return generation;
 }
 
-export function getDirectorVideoSegmentPreflight(userId: string, segmentId: string, supportsTemporalGuides = getMediaExecutorCatalog().comfyFeatures.temporalGuides, supportsNativeState = Boolean(getMediaExecutorCatalog().h3Runtime)) {
+function directorH3Acceleration(userId: string, projectId: string, payload: Record<string, unknown>, mode: "fl2va" | "ref2va", requested?: H3Acceleration, executor = true) {
+    const previousId = String(payload.continuationFromSegmentId || payload.continuationFromShotId || "");
+    const previous = payload.boundary === "continue" ? db.prepare("SELECT payload FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(previousId, userId, projectId) as { payload: string } | undefined : undefined;
+    const previousPayload = parseJson<{ h3ContinuationState?: { context?: { modelRevision?: string } } }>(previous?.payload || "{}", {});
+    const catalog = getMediaExecutorCatalog();
+    return selectH3Acceleration({ mode, requested, pddReady: executor && Boolean(catalog.comfyFeatures.pddRef8 && catalog.h3PddRuntime), continuing: payload.boundary === "continue", previousModelRevision: previousPayload.h3ContinuationState?.context?.modelRevision, hasAudioReferences: Array.isArray(payload.audioReferences) && payload.audioReferences.length > 0 });
+}
+
+export function getDirectorVideoSegmentPreflight(userId: string, segmentId: string, supportsTemporalGuides = getMediaExecutorCatalog().comfyFeatures.temporalGuides, supportsNativeState = Boolean(getMediaExecutorCatalog().h3Runtime), requestedRecipe?: H3Acceleration) {
     const segment = segmentRow(userId, segmentId);
     const payload = parseJson<Record<string, unknown>>(segment.payload, {});
     const style = activeStyle(userId, segment.project_id);
@@ -125,6 +134,7 @@ export function getDirectorVideoSegmentPreflight(userId: string, segmentId: stri
     const selected = candidates.slice(0, 6);
     const sheet = asSheet(payload.storyboardSheet);
     const route = resolveH3Route(payload, sheet);
+    const acceleration = directorH3Acceleration(userId, segment.project_id, payload, route.mode, requestedRecipe);
     const auxiliaryFiles = (payload.boundary === "continue" && !supportsNativeState ? 1 : 0) + (Array.isArray(payload.audioReferences) ? payload.audioReferences.length : 0);
     const storyboardStartGuide = route.mode === "ref2va" && payload.boundary !== "continue" && supportsTemporalGuides
         ? { sourceFileId: sheet?.imageFileId, layout: sheet?.layout, frameIndex: 0 } : undefined;
@@ -145,7 +155,7 @@ export function getDirectorVideoSegmentPreflight(userId: string, segmentId: stri
     const transitionInputs = route.mode === "fl2va" ? { firstFrameFileId: transitionFrame(userId, segment.project_id, String(payload.transitionFromSegmentId || ""), "actualLastFrameFileId") || undefined, lastFrameFileId: transitionFrame(userId, segment.project_id, String(payload.transitionToSegmentId || ""), "actualFirstFrameFileId") || undefined } : undefined;
     const nativeOutputFrames = supportsNativeState && route.mode === "ref2va" ? (payload.boundary === "continue" ? h3ContinuationFrames(Number(payload.durationSeconds || 4)) : alignH3Frames(Number(payload.durationSeconds || 4)).modelFrames) : undefined;
     const nativeWindow = nativeOutputFrames ? { outputFrames: nativeOutputFrames, overlapFrames: payload.boundary === "continue" ? 22 : 0, outputSeconds: nativeOutputFrames / 24 } : undefined;
-    return { nativeWindow, storyboardStartGuide, storyboardFileId: sheet?.imageFileId, transitionInputs, selected, omitted: candidates.slice(6), videoSelected, videoOmitted: candidates.slice(videoBudget), assetBlockedReasons, promptValidation, blockedReasons: [...assetBlockedReasons, ...promptValidation.blockedReasons], warnings: promptValidation.warnings, route: supportsNativeState && payload.boundary === "continue" ? { ...route, reason: "加载前段原生双流状态，隐藏重叠参与生成，仅输出新增音视频" } : route, capabilities: { turboPreview, nativeState: supportsNativeState }, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", recipes: { preview: h3Recipe(route.mode, "preview", turboPreview && turboEligible), final: h3Recipe(route.mode, "final", false) }, frameAlignment: alignH3Frames(Number(payload.durationSeconds || 4)) };
+    return { nativeWindow, storyboardStartGuide, storyboardFileId: sheet?.imageFileId, transitionInputs, selected, omitted: candidates.slice(6), videoSelected, videoOmitted: candidates.slice(videoBudget), assetBlockedReasons, promptValidation, blockedReasons: [...assetBlockedReasons, ...promptValidation.blockedReasons], warnings: promptValidation.warnings, route: supportsNativeState && payload.boundary === "continue" ? { ...route, reason: "加载前段原生双流状态，隐藏重叠参与生成，仅输出新增音视频" } : route, acceleration, capabilities: { turboPreview, nativeState: supportsNativeState }, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", recipes: { preview: h3Recipe(route.mode, "preview", turboPreview && turboEligible, acceleration), final: h3Recipe(route.mode, "final", false, acceleration) }, frameAlignment: alignH3Frames(Number(payload.durationSeconds || 4)) };
 }
 
 export function createDirectorStoryboardGeneration(userId: string, segmentId: string, input: unknown) {

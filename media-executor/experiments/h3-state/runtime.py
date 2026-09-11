@@ -1,5 +1,6 @@
 """Fingerprint the exact files resolved by ComfyUI, caching only unchanged files."""
 import hashlib
+import json
 import time
 from pathlib import Path
 
@@ -40,3 +41,12 @@ def identify(model_path, video_vae_path, audio_vae_path, implementation_paths):
             'modelRevision': file_sha256(model_path) + ':pipeline:' + implementation,
             'videoVaeRevision': file_sha256(video_vae_path), 'audioVaeRevision': file_sha256(audio_vae_path),
             'implementationRevision': implementation}
+
+
+def identify_pdd_ref8(base, weights_path, implementation_paths):
+    recipe = {'id': 'pdd-ref8', 'weights': file_sha256(weights_path),
+              'implementation': sorted({file_sha256(path) for path in implementation_paths}),
+              'nfe': 8, 'sampler': 'euler', 'lora_strength': 1, 'head_strength': 1,
+              'on_off_grid': 'error', 'partition_check': 'error', 'sigmas': 'pdd-node-output'}
+    digest = hashlib.sha256(json.dumps(recipe, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return {**base, 'modelRevision': base['modelRevision'] + ':pdd-ref8:' + digest}

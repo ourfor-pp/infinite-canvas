@@ -645,12 +645,13 @@ export function buildAgentToolDefinitions(
         ),
         call(
           "director_generate_video_segment",
-          "读取视频段工程目录并锁定当前故事板快照，默认以完整故事板和素材参考生成带原生声音的视频段；连续段自动继承上一段尾部音视频。优先传 segmentPath。",
+          "读取视频段工程目录并锁定当前故事板快照，以完整故事板和素材参考生成带原生声音的视频段；已就绪的普通 Ref2VA 图片参考默认使用加速配方，recipe=base 显式使用基础版。续接沿用前段配方，切换配方需从连续镜头首段重做。优先传 segmentPath。",
           {
             segmentPath: engine === "codex" ? z.string().min(1) : z.string().min(1).optional(),
             ...(engine === "codex" ? {} : { segmentId: z.string().min(1).optional(), revision: z.number().int().positive().optional() }),
             model: z.string().optional(),
             qualityPreset: z.enum(["preview", "final"]).default("preview"),
+            recipe: z.enum(["base", "pdd-ref8"]).optional(),
           },
           (input) => {
             const value = input as { segmentPath?: string; segmentId?: string; revision?: number } & Record<string, unknown>;

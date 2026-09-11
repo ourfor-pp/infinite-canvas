@@ -10,7 +10,7 @@ export type H3StateContext = z.infer<typeof h3StateContextSchema>;
 
 export const h3RuntimeCatalogSchema = z.object({
     ready: z.literal(true), schemaVersion: z.literal(1), modelId: z.literal("minimax-h3-ref2va-local"),
-    modelRevision: z.string().regex(/^[a-f0-9]{64}:pipeline:[a-f0-9]{64}$/),
+    modelRevision: z.string().regex(/^[a-f0-9]{64}:pipeline:[a-f0-9]{64}(?::pdd-ref8:[a-f0-9]{64})?$/),
     videoVaeRevision: z.string().regex(/^[a-f0-9]{64}$/), audioVaeRevision: z.string().regex(/^[a-f0-9]{64}$/), implementationRevision: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
 export type H3RuntimeCatalog = z.infer<typeof h3RuntimeCatalogSchema>;

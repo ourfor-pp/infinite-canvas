@@ -1388,6 +1388,77 @@ async function uploadDirectorSource(projectId: string, blob: Blob, name: string)
     return source;
 }
 
+test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () => {
+    const settings = await import("./media-executor-settings.js");
+    const { storeLocalFile } = await import("./file-store.js");
+    const { syncDirectorVideoSegmentFile } = await import("./director-workspace.js");
+    const { cancelGeneration } = await import("./generation-service.js");
+    const original = settings.getMediaExecutorSettings();
+    const identity = { ready: true, schemaVersion: 1, modelId: "minimax-h3-ref2va-local", modelRevision: `${"a".repeat(64)}:pipeline:${"b".repeat(64)}`, videoVaeRevision: "c".repeat(64), audioVaeRevision: "d".repeat(64), implementationRevision: "b".repeat(64) };
+    let ready = true;
+    const executor = createServer((request, response) => {
+        if (request.url === "/health") json(response, { models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, nativeState: true, pddRef8: ready }, h3Runtime: identity, h3PddRuntime: ready ? { ...identity, modelRevision: `${identity.modelRevision}:pdd-ref8:${"e".repeat(64)}` } : null });
+        else { response.writeHead(503); response.end("No GPU execution in transport fixture"); }
+    });
+    await new Promise<void>((resolve) => executor.listen(0, "127.0.0.1", resolve));
+    try {
+        settings.saveMediaExecutorSettings({ url: `http://127.0.0.1:${(executor.address() as { port: number }).port}`, token: "test-token" });
+        await settings.refreshMediaExecutorCatalog();
+        const projectId = "pdd-http-project", userId = userOne["X-Trim-Userid"];
+        const project = await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "配方接口测试" }) });
+        assert.equal(project.response.status, 201, JSON.stringify(project.body));
+        const initial = await api(`/director/projects/${projectId}`, userOne);
+        assert.equal(initial.response.status, 200, JSON.stringify(initial.body));
+        const script = initial.body.data.documents.find((document: { kind: string }) => document.kind === "script");
+        const savedScript = await api(`/director/projects/${projectId}/documents/script`, userOne, { method: "PUT", body: JSON.stringify({ revision: script.revision, content: "# 静室\n木门缓慢打开，露出空荡房间。" }) });
+        assert.equal(savedScript.response.status, 200, JSON.stringify(savedScript.body));
+        const breakdown = await api(`/director/projects/${projectId}/screenplay-breakdown`, userOne, { method: "PUT", body: JSON.stringify({ revision: initial.body.data.screenplayBreakdown.revision, scriptRevision: savedScript.body.data.revision, scenes: [{ id: "S1", heading: "内景 静室", title: "静室", location: "房间", timeOfDay: "夜", interiorExterior: "interior", characterNames: [], propNames: [], openingState: "门关闭", endingState: "门打开", dramaticTurn: "显露空房间", requiredDialogue: [], beats: [{ id: "B1", summary: "门缓慢打开", estimatedSeconds: 4 }], estimatedSeconds: 4 }], reviewIssues: [] }) });
+        assert.equal(breakdown.response.status, 200, JSON.stringify(breakdown.body));
+        const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ title: "静室" }) });
+        assert.equal(sequence.response.status, 201, JSON.stringify(sequence.body));
+        const created = await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "开门", payload: { durationSeconds: 4, boundary: "cut", sourceSceneId: "S1", sourceBeatIds: ["B1"], sourceDurationSeconds: 4, dramaticBeat: "门缓慢打开", openingState: "门关闭", endingState: "门打开" } }) });
+        assert.equal(created.response.status, 201, JSON.stringify(created.body));
+        const segment = created.body.data, boardPath = join(testData, "pdd-board.png");
+        await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=white:s=64x64", "-frames:v", "1", boardPath]);
+        const board = storeLocalFile(userId, boardPath, "board.png", "image/png");
+        const payload = { ...segment.payload, storyboardSheet: { ...segment.payload.storyboardSheet, imageFileId: board.fileId, frames: segment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>) => ({ ...frame, h3Visual: "A wooden door slowly opens in a quiet room. Fixed camera.", sound: "quiet room tone", dialogues: [] })) } };
+        db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify(payload), segment.id, userId);
+        syncDirectorVideoSegmentFile(userId, projectId, segment.id);
+        const generate = async (recipe?: string) => {
+            const row = db.prepare("SELECT revision FROM director_shots WHERE id=? AND user_id=?").get(segment.id, userId) as { revision: number };
+            const result = await api(`/director/video-segments/${segment.id}/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: row.revision, qualityPreset: "preview", recipe }) });
+            if (result.body.data?.id) cancelGeneration(userId, result.body.data.id);
+            return result;
+        };
+        const preflight = await api(`/director/video-segments/${segment.id}/preflight`, userOne);
+        assert.equal(preflight.body.data.acceleration, "pdd-ref8");
+        assert.equal(preflight.body.data.recipes.preview.steps, 8);
+        for (const recipe of [undefined, "base"] as const) {
+            const result = await generate(recipe);
+            assert.equal(result.response.status, 201, JSON.stringify(result.body));
+            const params = result.body.data.request.params;
+            assert.equal(params.h3Recipe, recipe || "pdd-ref8");
+            assert.equal(params.__directorSegment.recipe.steps, recipe ? 20 : 8);
+            assert.equal(params.__h3StateContext.modelRevision, recipe ? identity.modelRevision : `${identity.modelRevision}:pdd-ref8:${"e".repeat(64)}`);
+            const stored = db.prepare("SELECT request FROM generations WHERE id=? AND user_id=?").get(result.body.data.id, userId) as { request: string };
+            assert.deepEqual(JSON.parse(stored.request).params, params);
+        }
+        ready = false;
+        await settings.refreshMediaExecutorCatalog();
+        const fallback = await generate();
+        assert.equal(fallback.response.status, 201, JSON.stringify(fallback.body));
+        assert.equal(fallback.body.data.request.params.h3Recipe, "base");
+        const count = () => (db.prepare("SELECT count(*) AS count FROM generations WHERE user_id=?").get(userId) as { count: number }).count;
+        const beforeRejected = count();
+        assert.equal((await generate("pdd-ref8")).response.status, 409);
+        assert.equal(count(), beforeRejected);
+    } finally {
+        settings.saveMediaExecutorSettings(original);
+        await settings.refreshMediaExecutorCatalog();
+        await new Promise<void>((resolve) => executor.close(() => resolve()));
+    }
+});
+
 async function api(path: string, headers: Record<string, string>, init: RequestInit = {}) {
     const requestHeaders = new Headers(init.headers);
     Object.entries(headers).forEach(([name, value]) => requestHeaders.set(name, value));

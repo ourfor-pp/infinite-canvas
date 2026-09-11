@@ -68,6 +68,23 @@ class StateTest(unittest.TestCase):
         copy.write_text('changed implementation')
         changed=runtime.identify(self.path,self.path,self.path,[copy])
         self.assertNotEqual(first['modelRevision'],changed['modelRevision'])
+    def test_pdd_identity_and_state_are_bound_to_weights_and_implementation(self):
+        weights=Path(self.directory.name)/'pdd.safetensors';weights.write_bytes(b'pdd weights')
+        code=Path(self.directory.name)/'pdd.py';code.write_text('pdd implementation')
+        base={'modelRevision':'base', 'videoVaeRevision':'video', 'audioVaeRevision':'audio'}
+        first=runtime.identify_pdd_ref8(base,weights,[code])
+        self.assertNotEqual(first['modelRevision'],base['modelRevision'])
+        copied=Path(self.directory.name)/'copied.py';copied.write_bytes(code.read_bytes())
+        self.assertEqual(first,runtime.identify_pdd_ref8(base,weights,[copied]))
+        context={**self.context,'modelRevision':first['modelRevision']}
+        state.save(self.path,self.video,self.audio,context)
+        with self.assertRaises(ValueError):state.load(self.path,{**context,'modelRevision':base['modelRevision']})
+        for target in [weights,code]:
+            target.write_bytes(target.read_bytes()+b' changed')
+            changed=runtime.identify_pdd_ref8(base,weights,[code])
+            self.assertNotEqual(first['modelRevision'],changed['modelRevision'])
+            with self.assertRaises(ValueError):state.load(self.path,{**context,'modelRevision':changed['modelRevision']})
+        self.assertEqual(base['modelRevision'],'base')
     def test_decoder_and_shared_comfy_changes_invalidate_pipeline(self):
         root=Path(self.directory.name)/'comfy'
         for name in ['ldm/minimax/model.py','ldm/minimax/vae.py','ldm/minimax/audio_vae.py','ops.py']:

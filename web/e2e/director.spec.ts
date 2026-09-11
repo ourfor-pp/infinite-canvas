@@ -379,6 +379,31 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await expect(page.getByText("成片合成")).toBeVisible();
 });
 
+test("视频默认加速与基础版显式生成使用不同请求，续接不提供跨配方按钮", async ({ page }) => {
+    const current = structuredClone(state);
+    await mockApi(page, current);
+    await page.route("**/api/director/projects/director-e2e/sync?*", (route) => route.fulfill({ json: { data: { projectId: "director-e2e", version: 1, resources: new URL(route.request().url()).searchParams.get("resources")!.split(","), data: { state: current, project: { id: "director-e2e", name: "导演测试", kind: "director" }, assets: [asset], styles: [style], generations: [], renders: [], validation: { valid: true, diagnostics: [] }, mediaVersions: {} } } } }));
+    await page.route("**/api/director/video-segments/segment-1/preflight", (route) => route.fulfill({ json: { data: { selected: [], omitted: [], videoSelected: [], videoOmitted: [], assetBlockedReasons: [], blockedReasons: [], warnings: [], acceleration: "pdd-ref8", route: { mode: "ref2va", reason: "故事板参考" }, capabilities: { turboPreview: false }, recipes: { preview: { steps: 8 }, final: { steps: 8 } } } } }));
+    await page.goto("/__director-test.html");
+    await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "分镜", exact: true }).click();
+    await page.getByRole("tab", { name: "视频", exact: true }).click();
+    await expect(page.getByText("加速生成", { exact: true })).toBeVisible();
+    const submitted = () => page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname.endsWith("/video-segments/segment-1/generate"));
+    const defaultRequest = submitted();
+    await page.getByRole("button", { name: "生成成片", exact: true }).click();
+    expect((await defaultRequest).postDataJSON()).toMatchObject({ qualityPreset: "final" });
+    expect((await defaultRequest).postDataJSON().recipe).toBeUndefined();
+    const baseRequest = submitted();
+    await page.getByRole("button", { name: "基础版生成", exact: true }).click();
+    expect((await baseRequest).postDataJSON()).toMatchObject({ qualityPreset: "final", recipe: "base" });
+    Object.assign(current.videoSegments[0].payload, { boundary: "continue" });
+    await page.reload();
+    await page.getByRole("navigation", { name: "导演台功能" }).getByRole("button", { name: "分镜", exact: true }).click();
+    await page.getByRole("tab", { name: "视频", exact: true }).click();
+    await expect(page.getByText("加速生成", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "基础版生成", exact: true })).toHaveCount(0);
+});
+
 test("导演方案使用独立顶部工作区", async ({ page }) => {
     await mockApi(page, structuredClone(state));
     await page.goto("/__director-test.html");

@@ -1,9 +1,54 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { alignH3Frames, buildComfyWorkflow, COMFY_MODEL_DEFINITIONS, h3Recipe } from "./comfy-workflows.js";
+import { alignH3Frames, buildComfyWorkflow, COMFY_MODEL_DEFINITIONS, h3Recipe, selectH3Acceleration } from "./comfy-workflows.js";
 
 const image = (fileId = "source", role?: "reference" | "first-frame" | "last-frame") => ({ fileId, kind: "image" as const, name: `${fileId}.png`, role });
+
+test("导演默认加速仅用于就绪的 Ref2VA，续接继承来源且允许首段基础重做", () => {
+    const input = { mode: "ref2va" as const, pddReady: true, continuing: false, hasAudioReferences: false };
+    assert.equal(selectH3Acceleration(input), "pdd-ref8");
+    assert.equal(selectH3Acceleration({ ...input, requested: "base" }), "base");
+    assert.equal(selectH3Acceleration({ ...input, pddReady: false }), "base");
+    assert.equal(selectH3Acceleration({ ...input, mode: "fl2va" }), "base");
+    assert.equal(selectH3Acceleration({ ...input, hasAudioReferences: true }), "base");
+    assert.equal(selectH3Acceleration({ ...input, continuing: true, previousModelRevision: "base" }), "base");
+    assert.equal(selectH3Acceleration({ ...input, continuing: true, previousModelRevision: "base:pdd-ref8:digest" }), "pdd-ref8");
+    assert.throws(() => selectH3Acceleration({ ...input, requested: "pdd-ref8", pddReady: false }), /尚未就绪/);
+    assert.throws(() => selectH3Acceleration({ ...input, continuing: true, previousModelRevision: "base:pdd-ref8:digest", requested: "base" }), /首段重新生成/);
+});
+
+test("PDD 生产图保持参考与时间锚点，基础重做恢复独立调度", () => {
+    const files = [image("board"), image("first"), { fileId: "voice", kind: "audio" as const, name: "voice.wav" }, { fileId: "motion", kind: "video" as const, name: "motion.mp4" }];
+    const params = { qualityPreset: "final", seconds: 10, temporalGuides: [{ fileId: "first", frameIndex: 0 }] };
+    const fast = buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files, params: { ...params, h3Recipe: "pdd-ref8" } });
+    assert.equal(fast["5"].inputs.ref_image_size, "match");
+    assert.deepEqual(fast["5"].inputs["ref_audios.ref_audio_0"], ["41", 0]);
+    assert.deepEqual(fast["5"].inputs["ref_videos.ref_video_0"], ["62", 0]);
+    assert.deepEqual(fast["6"].inputs.conditioning, ["102", 0]);
+    assert.equal(fast["16"].class_type, "MiniMaxH3PDDAccApply");
+    assert.deepEqual(fast["10"].inputs.sigmas, ["16", 1]);
+    assert.equal(fast["8"], undefined);
+    assert.equal(fast["7"].inputs.sampler_name, "euler");
+    const base = buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files, params: { ...params, h3Recipe: "base" } });
+    assert.equal(base["8"].inputs.steps, 20);
+    assert.equal(base["16"], undefined);
+    assert.deepEqual(base["10"].inputs.sigmas, ["8", 0]);
+    assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-fl2va-local", prompt: "test", files: [image()], params: { h3Recipe: "pdd-ref8" } }), /首尾帧/);
+    assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [], params: { h3Recipe: "unknown" } }), /不支持/);
+});
+
+test("PDD 续接图保留累计双流且拒绝配方身份错配", () => {
+    const prior = { schemaVersion: 1, fps: 24, modelRevision: "base:pdd-ref8:digest", videoVaeRevision: "vvae", audioVaeRevision: "avae", sourceId: "previous", width: 1344, height: 768, frames: 243 };
+    const params = { h3Recipe: "pdd-ref8", seconds: 5, resolution: "768p", __h3StateContext: { ...prior, sourceId: "next", frames: 362 }, __h3PreviousState: { fileId: "state-file", context: prior }, __h3PreviousFrames: 243, __h3StateInputName: "state.safetensors" };
+    const fast = buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [image()], params });
+    assert.deepEqual(fast["10"].inputs.sigmas, ["16", 1]);
+    assert.deepEqual(fast["10"].inputs.latent_image, ["81", 0]);
+    assert.deepEqual(fast["70"].inputs.latent, ["83", 0]);
+    assert.deepEqual(fast["h3_cumulative"].inputs.video, ["87", 0]);
+    assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [], params: { ...params, h3Recipe: "base" } }), /身份不一致/);
+    assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [], params: { ...params, __h3StateContext: { ...params.__h3StateContext, modelRevision: "base" } } }), /身份不一致/);
+});
 
 test("Qwen 2512 按比例生成并根据质量选择步数", () => {
     const medium = buildComfyWorkflow({ model: "qwen-image-2512-local", prompt: "测试", params: { size: "3:2", quality: "medium" }, files: [] });

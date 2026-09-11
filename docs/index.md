@@ -60,3 +60,5 @@
 - Canvas projects, My Assets, generation records, media, and model settings are now stored by the Express backend. Browser IndexedDB remains only as an import source and for UI/plugin/remote-prompt caches.
 - All AI provider calls, internal ComfyUI work, the built-in Canvas Agent, and WebDAV snapshots run on the backend; provider credentials never reach the browser.
 - Docker, Render, Vercel, and fnOS packaging are follow-up work for the new backend architecture and are not maintained by this development milestone yet.
+
+- [导演 Agent 长视频落地路线](research/h3-agent-production-roadmap.md)：默认 Ref2VA 加速接入、配方身份和创作 Skills 研究入口。
