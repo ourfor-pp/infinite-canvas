@@ -1,11 +1,13 @@
+import { useDirectorStore } from "@/stores/use-director-store";
+import { readDirectorQuery } from "@/services/director-queries";
 import { useEffect, useRef, useState } from "react";
-import { App, Button, Drawer, Tooltip } from "antd";
+import { App, Button, Drawer, Dropdown, Tooltip } from "antd";
 import { History, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { canvasThemes, sxhAgentLightTheme } from "@/lib/canvas-theme";
 import { randomId } from "@/lib/utils";
-import { agentApi, agentClientId, subscribeAgent, type AgentComposerDocument, type AgentConversation, type AgentEvent, type AgentQueuedMessage, type AgentReferenceCandidate, type AgentSceneCapabilities, type AgentSession, type AgentTurnIndexItem } from "@/services/api/agent";
+import { agentApi, agentClientId, subscribeAgent, type AgentEngine, type AgentComposerDocument, type AgentConversation, type AgentEvent, type AgentQueuedMessage, type AgentReferenceCandidate, type AgentSceneCapabilities, type AgentSession, type AgentTurnIndexItem } from "@/services/api/agent";
 import { uploadServerFile, type ServerFile } from "@/services/api/server";
 import { selectAgentEntityReferences, useAgentStore, type AgentCanvasContext } from "@/stores/use-agent-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -16,6 +18,7 @@ import {
     AgentUserLocator,
     ScrollToBottomButton,
 } from "./agent-conversation-ui";
+import { CodexModelPicker } from "./codex-model-picker";
 import { AgentComposer } from "./agent-composer";
 import { AgentApprovalBar, AgentQuestionComposer } from "./agent-decision-dock";
 import { EMPTY_COMPOSER_DOCUMENT, composerPlainText, normalizeComposerDocument } from "./agent-composer-model";
@@ -44,14 +47,51 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
     const [events, setEvents] = useState<AgentEvent[]>([]);
     const [capabilities, setCapabilities] = useState<AgentSceneCapabilities | null>(null);
     const [references, setReferences] = useState<AgentReferenceCandidate[]>([]);
+    const directorReferenceVersion = useDirectorStore((store) => ["project", "assets", "direction", "segments", "sources"].map((resource) => store.data[projectId]?.epochs[resource as import("@/types/director-sync").DirectorResource] || 0).join(":"));
     const [model, setModel] = useState({ ready: false, modelName: "", providerName: "", protocolVersion: 1, storageVersion: 1 });
     const [composerDocument, setComposerDocument] = useState<AgentComposerDocument>(() => draft ? { version: 1, segments: [{ type: "text", text: draft }] } : EMPTY_COMPOSER_DOCUMENT);
+    useEffect(() => {
+        if (capabilities?.sceneId !== "director") return;
+        return useDirectorStore.getState().retainProject(projectId, ["assets", "direction", "segments", "sources"]);
+    }, [projectId, capabilities?.sceneId]);
+    useEffect(() => {
+        if (capabilities?.sceneId !== "director") return;
+        let active = true;
+        void readDirectorQuery(projectId, "project", ["agent-references"], () => agentApi.references(projectId)).then((items) => { if (active) setReferences(items); }).catch(() => undefined);
+        return () => { active = false; };
+    }, [projectId, capabilities?.sceneId, directorReferenceVersion]);
+    useEffect(() => {
+        if (capabilities?.sceneId !== "director") return;
+        const { data, states } = useDirectorStore.getState();
+        const project = data[projectId]; const state = states[projectId];
+        if (!project?.ready || !state) return;
+        setComposerDocument((current) => {
+            let changed = false;
+            const segments = current.segments.map((segment) => {
+                if (!("projectId" in segment) || segment.projectId !== projectId) return segment;
+                const collection = segment.type === "asset" ? project.assets : segment.type === "style" ? project.styles : segment.type === "director" && segment.entityKind === "sequence" ? state.sequences : segment.type === "director" && segment.entityKind === "video-segment" ? state.videoSegments : undefined;
+                if (!collection) return segment;
+                const id = segment.type === "asset" ? segment.assetId : segment.type === "style" ? segment.styleId : segment.type === "director" ? segment.entityId : "";
+                const entity = collection.find((item) => item.id === id);
+                const label = entity && ("name" in entity ? entity.name : entity.title);
+                if (label === segment.label && entity) return segment;
+                changed = true;
+                return entity ? { ...segment, label } : { type: "text" as const, text: `@${segment.label || id}（已删除）` };
+            });
+            return changed ? { version: 1, segments } : current;
+        });
+    }, [projectId, capabilities?.sceneId, directorReferenceVersion]);
     const [followUpMode, setFollowUpMode] = useState<"steer" | "queue">("steer");
     const [queuedMessages, setQueuedMessages] = useState<AgentQueuedMessage[]>([]);
     const [turnIndex, setTurnIndex] = useState<AgentTurnIndexItem[]>([]);
     const [attachments, setAttachments] = useState<ServerFile[]>([]);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    const [pendingMessage, setPendingMessage] = useState<{ projectId: string; event: AgentEvent } | null>(null);
+    const sendingRef = useRef(false);
+    const projectIdRef = useRef(projectId);
+    projectIdRef.current = projectId;
+    const [modelSaving, setModelSaving] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [olderLoading, setOlderLoading] = useState(false);
     const [backgroundUnread, setBackgroundUnread] = useState<Record<string, number>>({});
@@ -73,10 +113,18 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
     const lastStreamEventAtRef = useRef(Date.now());
     const reconcilingRef = useRef(false);
     const staleSkillWarningRef = useRef("");
+    const engineState = capabilities?.engines?.find((item) => item.id === (session?.engine || "builtin"));
     const busy = session?.status === "running" || session?.status === "waiting_for_user";
     eventsRef.current = events;
-    const eventKey = `${events.at(-1)?.seq || 0}:${String(events.at(-1)?.payload?.text || "").length}:${events.length}`;
+    const eventKey = `${pendingMessage?.event.payload.clientMessageId || ""}:${events.at(-1)?.seq || 0}:${String(events.at(-1)?.payload?.text || "").length}:${events.length}`;
     const { scrollRef, atBottomRef, showBottom: showScrollBottom, unread: unreadCount, onScroll: updateScroll, scrollBottom, preserveBeforePrepend, restoreAfterPrepend, beforeCollapse } = useAgentScroll({ sessionId: session?.id, eventKey, contentRef });
+
+    useEffect(() => {
+        if (capabilities?.sceneId !== "director" || busy) return;
+        let disposed = false;
+        const timer = setInterval(() => { void agentApi.capabilities(projectId).then((value) => { if (!disposed) setCapabilities(value); }).catch(() => {}); }, 15_000);
+        return () => { disposed = true; clearInterval(timer); };
+    }, [projectId, capabilities?.sceneId, busy]);
 
     useEffect(() => {
         if (!entityReferences.length) return;
@@ -107,7 +155,7 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
         atBottomRef.current = true;
         Promise.all([agentApi.config(), agentApi.capabilities(projectId), agentApi.references(projectId), agentApi.conversation(projectId, savedSessionId).catch(() => agentApi.conversation(projectId))])
             .then(async ([config, nextCapabilities, nextReferences, nextConversation]) => {
-                if (config.protocolVersion !== 3) throw new Error(`不支持的 Agent 通信协议版本：${config.protocolVersion}`);
+                if (config.protocolVersion !== 4) throw new Error(`不支持的 Agent 通信协议版本：${config.protocolVersion}`);
                 if (config.storageVersion !== 2) throw new Error(`不支持的 Agent 存储版本：${config.storageVersion}`);
                 if (!nextConversation.session) {
                     const created = await agentApi.createSession(projectId);
@@ -205,7 +253,7 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
                 setAgentState({ connected: true, activity: "已同步" });
                 return;
             }
-            if (event.events.some((item) => item.kind === "tool_result")) void agentApi.references(projectId).then(setReferences).catch(() => undefined);
+            if (event.events.some((item) => item.kind === "tool_result") && !useDirectorStore.getState().data[projectId]?.ready) void agentApi.references(projectId).then((items) => { if (projectIdRef.current === projectId) setReferences(items); }).catch(() => undefined);
             event.events.filter((item) => item.kind === "client_action").forEach((item) => void runClientAction(event.session.id, item));
             setConversation((current) => current ? { ...current, sessions: upsertSession(current.sessions, event.session), ...(current.session?.id === event.session.id ? { session: event.session } : {}) } : current);
             if (event.session.id === activeSession?.id) {
@@ -307,17 +355,26 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
     };
 
     const send = async () => {
+        if (sendingRef.current) return;
         if (!composerPlainText(composerDocument).trim() && !attachments.length && !composerDocument.segments.some((item) => item.type !== "text")) return;
+        sendingRef.current = true;
+        const sourceSessionId = session?.id;
+        const clientMessageId = randomId();
+        const submittedDocument = composerDocument;
+        setPendingMessage({ projectId, event: { sessionId: sourceSessionId || "", seq: -1, runId: null, kind: "user_text", createdAt: new Date().toISOString(), payload: {
+            clientMessageId, text: composerPlainText(submittedDocument), attachments: attachments.map((file) => ({ fileId: file.id, name: file.name, mimeType: file.mimeType })),
+        } } });
         setSending(true);
         atBottomRef.current = true;
         try {
             const next = await agentApi.send(projectId, {
                 preferredSessionId: session?.id,
-                clientMessageId: randomId(),
+                clientMessageId,
                 submissionMode: session?.status === "waiting_for_user" ? "queue" : busy ? followUpMode : "direct",
                 content: composerDocument,
                 attachmentFileIds: attachments.map((file) => file.id),
             });
+            if (projectIdRef.current !== projectId || activeSessionRef.current?.id !== sourceSessionId) return;
             applyConversation(next);
             if (next.session) markSessionSeen(next.session.id, next.session.eventSeq);
             setDraft(projectId, "");
@@ -329,13 +386,15 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
         } catch (error) {
             message.error(error instanceof Error ? error.message : "消息发送失败");
         } finally {
+            sendingRef.current = false;
             setSending(false);
+            setPendingMessage(null);
         }
     };
 
-    const newSession = async () => {
+    const newSession = async (engine: AgentEngine = "builtin") => {
         try {
-            const created = await agentApi.createSession(projectId);
+            const created = await agentApi.createSession(projectId, engine);
             setConversation((current) => current ? { ...current, sessions: [created, ...current.sessions], session: created } : current);
             setActiveSession(created);
             setCurrentSession(projectId, created.id);
@@ -476,7 +535,8 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
                         <span className="block truncate text-sm font-medium">{session?.title || (capabilities?.sceneId === "director" ? "导演 Agent" : "Canvas Agent")}</span>
                     </button>
                 </div>
-                <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={newSession} disabled={busy} /></Tooltip>
+                {session?.engine === "codex" ? <span className="text-xs opacity-50">Codex</span> : null}
+                {capabilities?.sceneId === "director" ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "builtin", label: "新建内置 Agent 对话" }, { key: "codex", label: "新建 Codex 对话" }], onClick: ({ key }) => void newSession(key as AgentEngine) }}><Button type="text" shape="circle" aria-label="选择引擎新建会话" icon={<Plus className="size-4" />} disabled={busy} /></Dropdown> : <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={() => void newSession()} disabled={busy} /></Tooltip>}
                 <Tooltip title="历史会话"><Button type="text" shape="circle" icon={<History className="size-4" />} onClick={() => setHistoryOpen(true)} /></Tooltip>
             </header>
 
@@ -493,13 +553,14 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
                         emptyState={capabilities?.composer}
                         status={session?.status}
                         currentRunId={session?.currentRunId}
+                        pendingMessage={pendingMessage?.projectId === projectId && pendingMessage.event.sessionId === (session?.id || "") ? pendingMessage.event : null}
                         pendingDecision={session?.pendingDecision}
                         canLoadEarlier={false}
                         loadingEarlier={olderLoading}
                         onLoadEarlier={() => void loadEarlier()}
                         onSuggestion={(text) => { setComposerDocument({ version: 1, segments: [{ type: "text", text }] }); setDraft(projectId, text); setComposerFocusRequest((value) => value + 1); }}
                         restartingMessageSeq={restartingMessageSeq}
-                        onRestartFromMessage={(event) => void restartFromMessage(event)}
+                        onRestartFromMessage={session?.engine === "codex" ? undefined : (event) => void restartFromMessage(event)}
                         onBeforeProcessAutoCollapse={beforeCollapse}
                     />
                 </div>
@@ -515,10 +576,12 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
                 {session?.pendingDecision?.kind === "proposal" ? <AgentDecisionCard pending={session.pendingDecision} theme={theme} busy={decisionBusy} onDecide={(decision, scope, proposalEdits) => void decide(decision, scope, proposalEdits)} /> : null}
                 {session?.pendingDecision?.kind !== "question" && session?.pendingDecision?.kind !== "proposal" ? <AgentComposer
                     document={composerDocument}
-                    ready={model.ready}
+                    modelControl={session?.engine === "codex" ? <CodexModelPicker key={session.id} session={session} onSavingChange={setModelSaving} onChange={(updated) => { if (activeSessionRef.current?.id === updated.id) setActiveSession({ ...activeSessionRef.current, codexOptions: updated.codexOptions }); }} /> : undefined}
+                    ready={engineState?.ready ?? model.ready}
+                    unavailableReason={engineState?.reason}
                     busy={busy}
                     waiting={session?.status === "waiting_for_user"}
-                    sending={sending}
+                    sending={sending || modelSaving}
                     uploading={uploading}
                     focusRequest={composerFocusRequest + preparedFocusRequest}
                     skills={capabilities?.skills || []}

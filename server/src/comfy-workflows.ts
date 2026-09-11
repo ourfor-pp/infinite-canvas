@@ -1,3 +1,4 @@
+import { h3StateContextSchema, type H3StateContext } from "./h3-state-context.js";
 type NodeInput = Record<string, unknown>;
 export type Workflow = Record<string, { class_type: string; inputs: NodeInput }>;
 export type ComfyUploadedInput = { fileId: string; kind: "image" | "video" | "audio"; name: string; role?: "reference" | "first-frame" | "last-frame" | "continuation" };
@@ -346,15 +347,10 @@ function miniMaxH3(input: WorkflowInput): Workflow {
     const images = imageFiles.filter((file) => !guideIds.has(file.fileId)).map((file) => file.name);
     const videos = videoFiles.filter((file) => !guideIds.has(file.fileId)).map((file) => file.name);
     const audios = audioFiles.filter((file) => !guideIds.has(file.fileId)).map((file) => file.name);
-    const ratioParts = String(input.params.ratio || input.params.size || "16:9").split(":").map(Number);
-    const ratio = ratioParts.length === 2 && ratioParts.every((value) => value > 0) ? ratioParts[0] / ratioParts[1] : 16 / 9;
-    const shortEdge = String(input.params.resolution || input.params.vquality).toLowerCase() === "480p" ? 480 : 768;
-    let width = ratio >= 1 ? shortEdge * ratio : shortEdge; let height = ratio >= 1 ? shortEdge : shortEdge / ratio;
-    const maxPixels = shortEdge * (shortEdge === 480 ? 864 : 1344);
-    if (width * height > maxPixels) { const scale = Math.sqrt(maxPixels / (width * height)); width *= scale; height *= scale; }
-    width = Math.max(32, Math.round(width / 32) * 32); height = Math.max(32, Math.round(height / 32) * 32);
+    const { width, height } = h3VideoDimensions(input.params);
     const duration = Math.max(4, Math.min(15, Number(input.params.seconds || input.params.videoSeconds) || 5));
     const referenceMode = input.model === "minimax-h3-ref2va-local";
+    if (!referenceMode && input.params.__h3StateContext !== undefined) throw new Error("Native H3 state workflow currently requires Ref2VA");
     const qualityPreset = input.params.qualityPreset === "final" ? "final" : "preview";
     const recipe = h3Recipe(referenceMode ? "ref2va" : "fl2va", qualityPreset, input.params.turboAvailable === true);
     const alignment = alignH3Frames(duration);
@@ -385,6 +381,7 @@ function miniMaxH3(input: WorkflowInput): Workflow {
     videos.forEach((video, index) => { const loadId = String(61 + index * 2); const componentsId = String(62 + index * 2); graph[loadId] = node("LoadVideo", { file: video }); graph[componentsId] = node("GetVideoComponents", { video: [loadId, 0] }); inputs[`ref_videos.ref_video_${index}`] = [componentsId, 0]; inputs[`ref_video_audios.ref_video_audio_${index}`] = [componentsId, 1]; });
     graph["5"] = node("MiniMaxH3ReferenceToVideo", inputs);
     addH3Guides(graph, input.files, guides);
+    addH3NativeState(graph, input, { width, height, frames: alignment.modelFrames });
     return graph;
 }
 
@@ -412,4 +409,58 @@ function voxCpm(input: WorkflowInput): Workflow {
     const graph: Workflow = { "1": node("RunningHub_VoxCPM_LoadModel", { model_name: "VoxCPM2", optimize: false, lora_name: "None" }), "2": node("RunningHub_VoxCPM_Generate", { model: ["1", 0], control_instruction: String(input.params.instructions || "自然、清晰、有感染力的中文旁白声音").trim(), text: input.prompt.trim(), cfg_value: Math.max(1, Math.min(5, Number(input.params.cfgValue) || 2)), inference_steps: Math.max(4, Math.min(50, Number(input.params.steps) || 10)), seed: Number.isFinite(Number(input.params.seed)) ? Number(input.params.seed) : seed(), ultimate_clone: input.params.ultimateClone === true, reference_audio_text: String(input.params.referenceTranscript || "").trim(), normalize_text: input.params.normalizeText !== false, denoise_reference: Boolean(reference) && input.params.denoiseReference !== false, max_len: Math.max(256, Math.min(8192, Number(input.params.maxLength) || 4096)), retry_badcase: input.params.retryBadcase !== false }), "3": node("SaveAudio", { audio: ["2", 0], filename_prefix: "InfiniteCanvas/VoxCPM2" }) };
     if (reference) { graph["4"] = node("LoadAudio", { audio: reference.name }); graph["2"].inputs.reference_audio = ["4", 0]; }
     return graph;
+}
+
+
+export function h3ContinuationFrames(seconds: number) {
+    if (!Number.isFinite(seconds) || seconds < 4 || seconds > 15) throw new Error("H3 continuation request must be between 4 and 15 seconds");
+    return Math.min(340, Math.max(17, Math.round(seconds * 24 / 17) * 17));
+}
+
+function addH3NativeState(graph: Workflow, input: WorkflowInput, dimensions: { width: number; height: number; frames: number }) {
+    if (input.params.__h3StateContext === undefined) {
+        if (input.params.__h3PreviousState || input.params.__h3StateInputName || input.params.__h3PreviousFrames) throw new Error("H3 continuation requires an explicit state context");
+        return;
+    }
+    const context = h3StateContextSchema.parse(input.params.__h3StateContext);
+    if (context.width !== dimensions.width || context.height !== dimensions.height) throw new Error("H3 state dimensions do not match generation");
+    const previous = input.params.__h3PreviousState as { fileId: string; context: H3StateContext } | undefined;
+    let samples: [string, number] = ["10", 0];
+    if (previous) {
+        const prior = h3StateContextSchema.parse(previous.context);
+        const extension = h3ContinuationFrames(Number(input.params.seconds || 5));
+        if (["modelRevision", "videoVaeRevision", "audioVaeRevision", "width", "height", "fps"].some((key) => prior[key as keyof H3StateContext] !== context[key as keyof H3StateContext]) || context.frames !== prior.frames + extension || input.params.__h3PreviousFrames !== prior.frames) throw new Error("H3 continuation context does not match source or extension");
+        const name = input.params.__h3StateInputName;
+        if (typeof name !== "string" || !/^[^/\\]+\.safetensors$/.test(name)) throw new Error("H3 continuation state upload is missing or invalid");
+        if (Array.isArray(input.params.temporalGuides) && input.params.temporalGuides.length) throw new Error("Native continuation cannot override its previous tail with another temporal guide");
+        graph["80"] = node("H3LoadContinuationState", { state_name: name, expected_context: JSON.stringify(prior) });
+        graph["81"] = node("MiniMaxH3GuidedContinuationWindow", { previous_av_latent: ["80", 0], overlap_frames: 22, extension_frames: extension });
+        graph["5"].inputs.length = ["81", 1];
+        graph["82"] = node("MiniMaxH3LatentTailGuide", { positive: ["5", 0], previous_av_latent: ["80", 0], target_av_latent: ["81", 0], overlap_video_tokens: ["81", 2], overlap_audio_tokens: ["81", 3] });
+        graph["6"].inputs.conditioning = ["82", 0];
+        graph["10"].inputs.latent_image = ["81", 0];
+        graph["83"] = node("MiniMaxH3AppendContinuation", { previous_av_latent: ["80", 0], sampled_window: ["10", 0], overlap_video_tokens: ["81", 2], overlap_audio_tokens: ["81", 3], transition_video_tokens: ["81", 4], transition_audio_tokens: ["81", 5] });
+        samples = ["83", 0];
+    } else if (context.frames !== dimensions.frames || Number(input.params.__h3PreviousFrames || 0) !== 0) throw new Error("H3 initial state frame count does not match generation");
+    graph["70"] = node("H3SaveContinuationState", { latent: samples, context: JSON.stringify(context) });
+    graph["11"].inputs.samples = ["70", 0];
+    graph["12"].inputs.samples = ["70", 0];
+    graph["85"] = node("H3NewAVSegment", { images: ["11", 0], audio: ["12", 0], previous_frames: previous?.context.frames || 0 });
+    graph["13"].inputs.images = ["85", 0];
+    graph["13"].inputs.audio = ["85", 1];
+    // Keep the latest full decode: appending changes the previous VAE tail.
+    graph["86"] = node("H3NewAVSegment", { images: ["11", 0], audio: ["12", 0], previous_frames: 0 });
+    graph["87"] = node("CreateVideo", { images: ["86", 0], audio: ["86", 1], fps: 24, bit_depth: 8 });
+    graph["h3_cumulative"] = node("SaveVideo", { video: ["87", 0], filename_prefix: "InfiniteCanvas/H3-Cumulative", format: "auto", codec: "auto" });
+}
+
+export function h3VideoDimensions(params: Record<string, unknown>) {
+    const ratioParts = String(params.ratio || params.size || "16:9").split(":").map(Number);
+    const ratio = ratioParts.length === 2 && ratioParts.every((value) => value > 0) ? ratioParts[0] / ratioParts[1] : 16 / 9;
+    const shortEdge = String(params.resolution || params.vquality).toLowerCase() === "480p" ? 480 : 768;
+    let width = ratio >= 1 ? shortEdge * ratio : shortEdge; let height = ratio >= 1 ? shortEdge : shortEdge / ratio;
+    const maxPixels = shortEdge * (shortEdge === 480 ? 864 : 1344);
+    if (width * height > maxPixels) { const scale = Math.sqrt(maxPixels / (width * height)); width *= scale; height *= scale; }
+    width = Math.max(32, Math.round(width / 32) * 32); height = Math.max(32, Math.round(height / 32) * 32);
+    return { width, height };
 }

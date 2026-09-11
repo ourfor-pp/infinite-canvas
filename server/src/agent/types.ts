@@ -47,7 +47,11 @@ export type AgentDecisionQuestion = {
     options: Array<{ label: string; description?: string }>;
 };
 
+export type AgentEngine = "builtin" | "codex";
+
 export type AgentSession = {
+    engine: AgentEngine;
+    codexOptions?: { model: string; effort: string };
     id: string;
     projectId: string;
     sdkSessionId: string | null;
@@ -65,6 +69,7 @@ export type AgentSession = {
 
 export type AgentMessageInput = {
     preferredSessionId?: string;
+    codexOptions?: { model: string; effort: string };
     clientMessageId: string;
     submissionMode: "direct" | "steer" | "queue";
     content: AgentComposerDocument;

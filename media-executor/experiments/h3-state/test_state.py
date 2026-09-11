@@ -3,6 +3,7 @@ from pathlib import Path
 import torch
 from safetensors.torch import save_file
 import state
+import runtime
 
 class StateTest(unittest.TestCase):
     def setUp(self):
@@ -51,4 +52,36 @@ class StateTest(unittest.TestCase):
         for previous in [True,-1,242,362]:
             with self.subTest(previous=previous),self.assertRaises(ValueError):state.new_av_segment(images,audio,previous)
         with self.assertRaises(ValueError):state.new_av_segment(images,{**audio,'waveform':audio['waveform'][...,:100]},243)
+    def test_runtime_fingerprint_invalidates_modified_files(self):
+        self.path.write_bytes(b'original model')
+        first=runtime.file_sha256(self.path)
+        self.assertEqual(runtime.file_sha256(self.path),first)
+        self.path.write_bytes(b'modified model')
+        self.assertNotEqual(runtime.file_sha256(self.path),first)
+    def test_runtime_identity_uses_content_not_install_path(self):
+        self.path.write_bytes(b'model')
+        code=Path(self.directory.name)/'code.py';code.write_text('implementation')
+        copy=Path(self.directory.name)/'copy.py';copy.write_bytes(code.read_bytes())
+        first=runtime.identify(self.path,self.path,self.path,[code])
+        moved=runtime.identify(self.path,self.path,self.path,[copy])
+        self.assertEqual(first,moved)
+        copy.write_text('changed implementation')
+        changed=runtime.identify(self.path,self.path,self.path,[copy])
+        self.assertNotEqual(first['modelRevision'],changed['modelRevision'])
+    def test_decoder_and_shared_comfy_changes_invalidate_pipeline(self):
+        root=Path(self.directory.name)/'comfy'
+        for name in ['ldm/minimax/model.py','ldm/minimax/vae.py','ldm/minimax/audio_vae.py','ops.py']:
+            path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(name)
+        self.path.write_bytes(b'unchanged weights')
+        def identity():return runtime.identify(self.path,self.path,self.path,runtime.comfy_sources(root))
+        previous=identity()
+        for name in ['ldm/minimax/vae.py','ldm/minimax/audio_vae.py','ops.py']:
+            with self.subTest(name=name):
+                (root/name).write_text(name+' changed')
+                current=identity()
+                self.assertNotEqual(previous['modelRevision'],current['modelRevision'])
+                self.assertEqual(previous['videoVaeRevision'],current['videoVaeRevision'])
+                previous=current
+        (root/'ldm/minimax/vae.py').unlink()
+        with self.assertRaises(ValueError):runtime.comfy_sources(root)
 if __name__=='__main__':unittest.main()

@@ -1,7 +1,7 @@
 ---
 name: director-breakdown-screenplay
 description: 将当前标准分场剧本转换为独立的结构化制作拆解；用于分析场次、表演节拍、素材候选和预计时长，不用于改写剧本、设计 Shot 或创建视频段。
-allowed-tools: [Read, Write, Edit, Glob, Grep, LS]
+allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__director_validate]
 ---
 
 # 剧本制作拆解
@@ -12,4 +12,4 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS]
 
 估算完成后与项目目标时长比较，并检查相邻场景是否重复同一冲突过程、重大决定是否缺少可观察的因果积累、场景是否没有独立功能、原故事关键事件或后果是否遗漏。只记录能由正文直接证明的问题，不因个人审美把题材惯例当成缺陷。把问题按 `duration`、`repetition`、`causality`、`scene_function`、`coverage` 写入 `reviewIssues`；没有实质问题时提交空数组。
 
-将总览写入 `screenplay/breakdown/overview.md`，逐场拆解写入 `screenplay/breakdown/scene-NNN.md`，使用稳定场次 ID 引用 `screenplay/scenes/`。存在诊断问题时明确建议返回剧本修订，不通过缩短节拍、压缩视频段或省略内容伪造达标；完成后结束，不继续创建素材或视频段。
+将总览写入 `screenplay/breakdown/overview.md`，逐场拆解写入 `screenplay/breakdown/scene-NNN.md`，使用稳定场次 ID 引用 `screenplay/scenes/`。存在诊断问题时明确建议返回剧本修订，不通过缩短节拍、压缩视频段或省略内容伪造达标；完成后运行工程校验；用户仅要求拆解时交付拆解，已授权完整制作时继续组合素材与视频段规划 Skill。

@@ -187,6 +187,7 @@ export type DirectorVideoSegment = {
         videoQualityPreset?: H3QualityPreset;
         videoRecipeSnapshot?: H3GenerationRecipe;
         videoNativeResolution?: string;
+        videoDurationSeconds?: number;
         videoGenerationDurationMs?: number;
         continuationFromSegmentId?: string;
         generationIntent?: "storyboard" | "transition";
@@ -219,3 +220,5 @@ export type DirectorTimeline = {
 export type DirectorState = { activeStyleId: string | null; workspace: DirectorWorkspace; sources: DirectorSource[]; documents: DirectorDocument[]; screenplayBreakdown: DirectorScreenplayBreakdown; sequences: DirectorSequence[]; videoSegments: DirectorVideoSegment[]; timeline: DirectorTimeline };
 
 export type DirectorRender = { id: string; projectId: string; status: "queued" | "running" | "succeeded" | "failed" | "canceled"; progress: number; outputFileId: string | null; error: string | null; createdAt: string; updatedAt: string };
+
+export type DirectorPlaybackPlan = { timelineRevision: number; segments: Array<{ segmentId: string; revision: number; fileId: string; trimIn: number; duration: number }> };

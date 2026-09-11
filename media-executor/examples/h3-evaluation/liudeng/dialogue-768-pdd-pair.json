@@ -1,0 +1,192 @@
+{
+  "base": {
+    "recipe": "base20-retry1",
+    "promptId": "028632ea-55ce-4c45-9594-c5adda087dfa",
+    "executionSeconds": 667.117,
+    "peakTotalGpuUsedMiB": 30070,
+    "promptSha256": "a8440ec32705d7e816d1cfb2a3b777cb5d03ba2f4f181b573a7efc2802035e21",
+    "frames": 243,
+    "width": 1376,
+    "height": 768,
+    "qualityAccepted": false,
+    "continuationStateCreated": false
+  },
+  "pdd": {
+    "recipe": "pdd8",
+    "promptId": "cf8ea6c6-bb52-497b-af92-f09d1cc5a36b",
+    "executionSeconds": 296.894,
+    "peakTotalGpuUsedMiB": 30670,
+    "promptSha256": "a8440ec32705d7e816d1cfb2a3b777cb5d03ba2f4f181b573a7efc2802035e21",
+    "frames": 243,
+    "width": 1376,
+    "height": 768,
+    "qualityAccepted": false,
+    "continuationStateCreated": false
+  },
+  "pairedExecutionSpeedup": 2.2469871401914485,
+  "asr": {
+    "base": {
+      "language": "Chinese",
+      "text": "还没睡。这灯刚修好。",
+      "time_stamps": {
+        "items": [
+          {
+            "text": "还",
+            "start_time": 1.68,
+            "end_time": 1.84
+          },
+          {
+            "text": "没",
+            "start_time": 1.84,
+            "end_time": 2.0
+          },
+          {
+            "text": "睡",
+            "start_time": 2.0,
+            "end_time": 2.32
+          },
+          {
+            "text": "这",
+            "start_time": 5.92,
+            "end_time": 6.08
+          },
+          {
+            "text": "灯",
+            "start_time": 6.08,
+            "end_time": 6.48
+          },
+          {
+            "text": "刚",
+            "start_time": 7.28,
+            "end_time": 7.44
+          },
+          {
+            "text": "修",
+            "start_time": 7.44,
+            "end_time": 7.68
+          },
+          {
+            "text": "好",
+            "start_time": 7.68,
+            "end_time": 8.0
+          }
+        ]
+      }
+    },
+    "pdd": {
+      "language": "Chinese",
+      "text": "还没睡。这灯刚修好。",
+      "time_stamps": {
+        "items": [
+          {
+            "text": "还",
+            "start_time": 1.68,
+            "end_time": 1.92
+          },
+          {
+            "text": "没",
+            "start_time": 1.92,
+            "end_time": 2.0
+          },
+          {
+            "text": "睡",
+            "start_time": 2.0,
+            "end_time": 2.32
+          },
+          {
+            "text": "这",
+            "start_time": 5.92,
+            "end_time": 6.08
+          },
+          {
+            "text": "灯",
+            "start_time": 6.08,
+            "end_time": 6.48
+          },
+          {
+            "text": "刚",
+            "start_time": 7.04,
+            "end_time": 7.2
+          },
+          {
+            "text": "修",
+            "start_time": 7.2,
+            "end_time": 7.36
+          },
+          {
+            "text": "好",
+            "start_time": 7.36,
+            "end_time": 7.76
+          }
+        ]
+      }
+    }
+  },
+  "media": {
+    "results": [
+      {
+        "recipe": "base20-retry1",
+        "sha256": "a8b65cec6b7a9fe89e18feeb4b8f1e382aeb1f94ed18e76e13e67355d9c0c27f",
+        "streams": [
+          {
+            "codec_type": "video",
+            "codec_name": "h264",
+            "width": 1376,
+            "height": 768,
+            "nb_frames": "243",
+            "duration": "10.125000",
+            "sample_rate": null,
+            "channels": null
+          },
+          {
+            "codec_type": "audio",
+            "codec_name": "aac",
+            "width": null,
+            "height": null,
+            "nb_frames": "318",
+            "duration": "10.125000",
+            "sample_rate": "32000",
+            "channels": 2
+          }
+        ],
+        "audioRms": 0.05491618439555168,
+        "audioPeak": 0.8072274923324585,
+        "qualityAccepted": false
+      },
+      {
+        "recipe": "pdd8",
+        "sha256": "21c42911665e66dc1a22c063f513404b6b734799793bb3f2c46071a0052ac95c",
+        "streams": [
+          {
+            "codec_type": "video",
+            "codec_name": "h264",
+            "width": 1376,
+            "height": 768,
+            "nb_frames": "243",
+            "duration": "10.125000",
+            "sample_rate": null,
+            "channels": null
+          },
+          {
+            "codec_type": "audio",
+            "codec_name": "aac",
+            "width": null,
+            "height": null,
+            "nb_frames": "318",
+            "duration": "10.125000",
+            "sample_rate": "32000",
+            "channels": 2
+          }
+        ],
+        "audioRms": 0.03140154853463173,
+        "audioPeak": 0.5071542263031006,
+        "qualityAccepted": false
+      }
+    ],
+    "comparison": "Silent side-by-side: base left, PDD eight-step right. Original audio retained in each source MP4.",
+    "scope": "Media validity and statistics only; not acting, lip sync or listening acceptance."
+  },
+  "qualityAccepted": false,
+  "decision": "PDD remains priority acceleration candidate. One 768p 10.125s same-input pair is 2.25x faster with complete ASR dialogue and stable full-frame overview. Both father lines exceed planned end. Full dynamics, voice/lips and independent repeats not accepted. No memory saving or end-to-end cost claim.",
+  "source": ".tmp/h3-evaluation/dialogue-768-pdd-pair"
+}

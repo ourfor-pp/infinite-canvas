@@ -5,7 +5,10 @@ export type AgentEventKind = "user_text" | "assistant_text" | "thinking" | "tool
 export type AgentEvent = { sessionId: string; seq: number; runId: string | null; kind: AgentEventKind; payload: Record<string, unknown>; createdAt: string };
 export type AgentDecisionQuestion = { id: string; question: string; header?: string; type: "text" | "single_choice" | "multiple_choice"; allowCustomInput: boolean; customInputPlaceholder?: string; options: Array<{ label: string; description?: string }> };
 export type AgentPendingDecision = { id: string; kind: "approval" | "question" | "proposal"; source: "policy" | "business" | "ask_user" | "proposal"; runId: string; content: string; toolName?: string; toolInput?: unknown; scopes?: Array<"once" | "session" | "project">; rulePreview?: string[]; questions?: AgentDecisionQuestion[] };
-export type AgentSession = { id: string; projectId: string; sdkSessionId: string | null; title: string; status: AgentStatus; eventSeq: number; currentRunId: string | null; pendingDecision: AgentPendingDecision | null; lastError: string | null; lastErrorCode: string | null; createdAt: string; updatedAt: string; events?: AgentEvent[] };
+export type AgentEngine = "builtin" | "codex";
+export type CodexOptions = { model: string; effort: string };
+export type CodexModelCatalog = { defaultModel: string; models: Array<{ id: string; name: string; description: string; defaultEffort: string; efforts: Array<{ id: string; description: string }>; isDefault: boolean }> };
+export type AgentSession = { codexOptions?: CodexOptions; engine: AgentEngine; id: string; projectId: string; sdkSessionId: string | null; title: string; status: AgentStatus; eventSeq: number; currentRunId: string | null; pendingDecision: AgentPendingDecision | null; lastError: string | null; lastErrorCode: string | null; createdAt: string; updatedAt: string; events?: AgentEvent[] };
 export type AgentComposerSegment =
     | { type: "text"; text: string }
     | { type: "skill"; mentionId: string; skillId: string; label?: string }
@@ -18,13 +21,15 @@ export type AgentQueuedMessage = { id: string; sessionId: string; clientMessageI
 export type AgentTurnIndexItem = { seq: number; runId: string | null; text: string; createdAt: string };
 export type AgentConversation = { projectId: string; sessions: AgentSession[]; session: AgentSession | null; queuedMessages: AgentQueuedMessage[] };
 export type AgentSkill = { id: string; name: string; description: string };
-export type AgentSceneCapabilities = { sceneId: "canvas" | "director"; skills: AgentSkill[]; referenceKinds: Array<"canvas" | "asset" | "style" | "director">; composer: { placeholder: string; referenceLabel: string; emptyTitle: string; emptyDescription: string; suggestions: string[] } };
+export type AgentSceneCapabilities = { engines: Array<{ id: AgentEngine; ready: boolean; reason: string; modelName?: string }>; sceneId: "canvas" | "director"; skills: AgentSkill[]; referenceKinds: Array<"canvas" | "asset" | "style" | "director">; composer: { placeholder: string; referenceLabel: string; emptyTitle: string; emptyDescription: string; suggestions: string[] } };
 export type AgentReferenceCandidate = { key: string; label: string; detail: string; segment: Exclude<AgentComposerSegment, { type: "text" } | { type: "skill" }> };
 export type AgentSettings = { modelRef: string; modelName?: string; providerName?: string; mediaModelRef: string; mediaModelName?: string; mediaProviderName?: string; mediaReady: boolean; toolSearchMode: string; ready: boolean };
 export type AdminAgentRun = { id: string; sessionId: string; status: string; modelRef: string; error: string | null; errorCode: string | null; toolSearchMode: string; toolSearchCallCount: number; startedAt: string; finishedAt: string | null; user: { id: string; username: string } };
 export type AgentStreamEvent = { type: "snapshot"; cursor: number; sessions: AgentSession[]; queuedMessages: Record<string, AgentQueuedMessage[]> } | { type: "delta"; cursor: number; session: AgentSession; events: AgentEvent[] } | { type: "queue.updated"; cursor: number; sessionId: string; queuedMessages: AgentQueuedMessage[] };
 export const agentClientId = globalThis.crypto?.randomUUID?.() || `page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const agentStreamCursors = new Map<string, string>();
+
+export type CodexSettings = { enabled: boolean; binary: string; model: string; ready: boolean; authenticated: boolean; version: string; reason: string; login: { loginId: string; verificationUrl: string; userCode: string } | null };
 
 export const agentApi = {
     config: () => serverRequest<{ ready: boolean; modelName: string; providerName: string; protocolVersion: number; storageVersion: number }>("/agent/config"),
@@ -34,7 +39,7 @@ export const agentApi = {
     events: (id: string, beforeSeq: number, limit = 500) => serverRequest<AgentEvent[]>(`/agent/sessions/${encodeURIComponent(id)}/events?beforeSeq=${beforeSeq}&limit=${limit}`),
     turnIndex: (id: string) => serverRequest<AgentTurnIndexItem[]>(`/agent/sessions/${encodeURIComponent(id)}/turn-index`),
     queued: (id: string) => serverRequest<AgentQueuedMessage[]>(`/agent/sessions/${encodeURIComponent(id)}/queued-messages`),
-    createSession: (projectId: string) => serverRequest<AgentSession>(`/agent/projects/${encodeURIComponent(projectId)}/sessions`, { method: "POST", body: JSON.stringify({}) }),
+    createSession: (projectId: string, engine: AgentEngine = "builtin") => serverRequest<AgentSession>(`/agent/projects/${encodeURIComponent(projectId)}/sessions`, { method: "POST", body: JSON.stringify({ engine }) }),
     send: (projectId: string, input: Record<string, unknown>) => serverRequest<AgentConversation>(`/agent/projects/${encodeURIComponent(projectId)}/messages`, { method: "POST", body: JSON.stringify(input) }),
     steerQueued: (sessionId: string, messageId: string) => serverRequest<AgentConversation>(`/agent/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}/steer`, { method: "POST" }),
     retryQueued: (sessionId: string, messageId: string) => serverRequest<AgentQueuedMessage[]>(`/agent/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}/retry`, { method: "POST" }),
@@ -44,6 +49,13 @@ export const agentApi = {
     cancel: (id: string) => serverRequest<AgentSession>(`/agent/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
     decide: (id: string, input: Record<string, unknown>) => serverRequest<AgentSession>(`/agent/sessions/${encodeURIComponent(id)}/approval`, { method: "POST", body: JSON.stringify(input) }),
     clientResult: (id: string, input: Record<string, unknown>) => serverRequest(`/agent/sessions/${encodeURIComponent(id)}/client-result`, { method: "POST", body: JSON.stringify(input) }),
+    codexModels: (sessionId: string) => serverRequest<CodexModelCatalog>(`/agent/sessions/${encodeURIComponent(sessionId)}/codex-models`),
+    saveCodexOptions: (sessionId: string, options: CodexOptions) => serverRequest<AgentSession>(`/agent/sessions/${encodeURIComponent(sessionId)}/codex-options`, { method: "PUT", body: JSON.stringify(options) }),
+    codexSettings: () => serverRequest<CodexSettings>("/admin/ai/codex"),
+    saveCodexSettings: (input: Pick<CodexSettings, "enabled" | "binary" | "model">) => serverRequest("/admin/ai/codex", { method: "PUT", body: JSON.stringify(input) }),
+    codexLogin: () => serverRequest<NonNullable<CodexSettings["login"]>>("/admin/ai/codex/login", { method: "POST" }),
+    codexLogout: () => serverRequest<CodexSettings>("/admin/ai/codex/logout", { method: "POST" }),
+    codexTest: () => serverRequest<CodexSettings & { models: Array<{ id: string; name: string }> }>("/admin/ai/codex/test", { method: "POST" }),
     adminSettings: () => serverRequest<AgentSettings>("/admin/ai/agent"),
     saveAdminSettings: (input: Record<string, unknown>) => serverRequest<AgentSettings>("/admin/ai/agent", { method: "PUT", body: JSON.stringify(input) }),
     testAdminSettings: (input?: Record<string, unknown>) => serverRequest<{ available: boolean; model: string; provider: string; toolSearchMode: string }>("/admin/ai/agent/test", { method: "POST", body: JSON.stringify(input || {}) }),

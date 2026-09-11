@@ -1,3 +1,4 @@
+import { markDirectorProjectChanged } from "./director-sync.js";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { existsSync } from "node:fs";
@@ -196,8 +197,13 @@ const updateSchema = z.object({
     dna: dnaSchema.optional(),
     references: z.object({ source: id.optional(), board: id.optional() }).optional(),
 });
-let emitStyle: (userId: string, style: unknown) => void = () => undefined;
-export function setVisualStyleEmitter(emitter: typeof emitStyle) { emitStyle = emitter; }
+let sendStyle: (userId: string, style: unknown) => void = () => undefined;
+export function setVisualStyleEmitter(emitter: typeof sendStyle) { sendStyle = emitter; }
+function emitStyle(userId: string, style: unknown) {
+    const projectId = (style as { projectId?: string }).projectId;
+    if (projectId) markDirectorProjectChanged(userId, projectId, ["direction", "segments", "media"]);
+    sendStyle(userId, style);
+}
 
 export function listVisualStyleTemplates() { return VISUAL_STYLE_TEMPLATES; }
 export function listVisualStyles(userId: string, projectId: string) {

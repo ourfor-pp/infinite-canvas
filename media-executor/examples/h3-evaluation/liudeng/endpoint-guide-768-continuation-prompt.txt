@@ -1,0 +1,25 @@
+subject_definitions:
+<Subject 1> is the older Chinese father in <Picture 1>, with short gray hair, broad cheekbones, a brown knitted cardigan and a faded pale blue shirt.
+<Subject 2> is the room in <Picture 1>, with the doorway at screen left, a worn wooden table, two off-white cups and a lit cream-shaded lamp at screen right.
+<Picture 1> is the complete storyboard of the preceding action. It supplies the father's identity and the room's appearance. Its upper-right panel supplies the final listening pose for this continuation.
+
+summary:
+[video continuation + reference generation + keyframe completion] Continue the supplied native audiovisual state as one 8.708-second sampling window, including 0.917 seconds of hidden overlap and 7.792 seconds of new action. The father releases the lamp, withdraws his left hand and listens toward the doorway. The final pose corresponds to the upper-right panel of <Picture 1>.
+
+retention_analysis:
+<Subject 1>: fully_preserved for facial identity, clothing, seated body position and age.
+<Subject 2>: fully_preserved for spatial layout, fixed camera composition, light direction and stationary props.
+<Picture 1>: partially_preserved as identity and room reference; its upper-right panel anchors the ending pose. Its preceding action order is not replayed. Render one full-frame view throughout.
+
+detailed_description:
+Use the same restrained live-action appearance, seated eye-level perspective and quiet warm light as the supplied native state.
+[Shot 1] From 00:00.000 to 00:00.917, continue the supplied audiovisual overlap at the end of the preceding action. <Subject 1> is already seated at the table in <Subject 2>, his left fingertips touching the lamp base at screen right and his right hand beside the nearer cup. His eyes are lowered toward his left hand. Preserve the existing body position and hand contact as time advances through the overlap. The camera remains fixed, with the doorway behind him on the left and the lamp on the right. Low room tone flows steadily across the boundary.
+From 00:00.917 to 00:03.000, he pauses briefly with his left fingertips resting on the lamp base. His shoulders rise slightly with a quiet breath and then settle. He makes one small blink while looking down. The cardigan sleeve rests naturally at his wrist, with visible soft folds. His right hand stays beside the nearer cup. Both cups retain their positions, orientation and contact with the tabletop. The lamp stays steadily lit. Keep the table edge, wall switch and doorway fixed in the frame while the small breathing movement takes place.
+From 00:03.000 to 00:05.700, he releases the lamp base once and draws his left forearm back along the tabletop. His fingers relax as his hand passes behind the far cup without touching it, then the hand lowers into his lap beside the chair. His right hand remains near the nearer cup. His eyes follow the withdrawing hand briefly before lifting toward the doorway at screen left. His head turns only a little, and his torso keeps its seated weight. A faint sleeve rustle accompanies the withdrawal; the room tone continues underneath.
+From 00:05.700 to 00:08.708, he holds the listening pose shown in the upper-right panel of <Picture 1>. His left hand remains lowered and his right hand rests close to the nearer cup. His gaze stays just outside the doorway. The mouth remains closed and relaxed, with a slight attentive lift of the eyebrows. Hold the same face shape, lamp brightness, cup positions and camera perspective through the final frame. The moment ends with the father waiting for a response, without a repeated reach or a reset of the action. No other person enters the image. There is no dialogue, singing or voiced exhalation.
+
+overall_soundscape:
+Soft continuous indoor room tone with a faint sleeve rustle during the left-hand withdrawal. The native overlap and newly generated ambience share the same quiet acoustic space.
+
+non_diegetic_music:
+N/A

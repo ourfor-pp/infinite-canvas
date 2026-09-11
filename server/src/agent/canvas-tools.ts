@@ -169,7 +169,7 @@ export function generationStatus(userId: string, input: z.infer<typeof canvasToo
     if (input.id) {
         const row = getGenerationForAgent(userId, input.id);
         if (!row) throw agentToolError("GENERATION_NOT_FOUND", "生成任务不存在");
-        if (projectId && generationProjectId(row.request) !== projectId) throw agentToolError("GENERATION_NOT_FOUND", "生成任务不存在或不属于当前画布");
+        if (projectId && generationProjectId(row.request) !== projectId) throw agentToolError("GENERATION_NOT_FOUND", "生成任务不存在或不属于当前项目");
         return generationResponse(row);
     }
     const rows = db.prepare("SELECT * FROM generations WHERE user_id=? ORDER BY created_at DESC LIMIT 200").all(userId) as Parameters<typeof generationResponse>[0][];
@@ -325,6 +325,9 @@ function agentToolError(code: string, message: string) {
 }
 
 function generationProjectId(request: string) {
-    const params = parseJson<{ params?: { __agentCanvas?: { projectId?: string } | null; __directorShot?: { projectId?: string } | null } }>(request, {}).params;
-    return params?.__agentCanvas?.projectId || params?.__directorShot?.projectId || "";
+    const params = parseJson<{ params?: Record<string, { projectId?: string } | null> }>(request, {}).params;
+    for (const key of ["__agentCanvas", "__creativeAsset", "__directorShot", "__directorSegment", "__directorStoryboardSheet"]) {
+        if (params?.[key]?.projectId) return params[key].projectId;
+    }
+    return "";
 }

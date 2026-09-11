@@ -1,15 +1,20 @@
+import { directorResources, directorResourcesForPaths, markDirectorProjectChanged } from "./director-sync.js";
+import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import {
-    copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, watch, writeFileSync, type FSWatcher,
+    copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, relative, resolve, sep } from "node:path";
+import { watch, type FSWatcher } from "chokidar";
 import AdmZip from "adm-zip";
 import matter from "gray-matter";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
+import { addH3Archive, validateH3Archive, restoreH3Archive } from "./h3-archive.js";
 import { config } from "./config.js";
 import { db, parseJson } from "./database.js";
 import { collectFileIds, getStoredFile, syncFileRefs } from "./file-store.js";
+import { screenplayScene, screenplayReviewIssue, segmentFileSchema, storyboardFileSchema, timelineFileSchema } from "./director-file-contract.js";
 import { h3AudioReferencesInput } from "./h3-prompt.js";
 import { inferVisualStyleMediumFamily, serializeVisualStyleMarkdown } from "./visual-style-contract.js";
 
@@ -57,14 +62,14 @@ type StyleRow = { id: string; name: string; mode: string; template_id: string | 
 
 const projectSchema = z.object({ format: z.literal("infinite-canvas-director"), version: z.literal(1), id: z.string().min(1), name: z.string().min(1) }).passthrough();
 const entitySchema = z.object({ id: z.string().min(1), kind: z.string().min(1), name: z.string().optional(), title: z.string().optional() }).passthrough();
-const storyboardSchema = z.object({ version: z.literal(1), segmentId: z.string().min(1), layout: z.enum(["2x2", "3x2", "3x3"]), frames: z.array(z.record(z.string(), z.unknown())).max(9) }).passthrough();
+const storyboardSchema = storyboardFileSchema;
 const promptReferenceSchema = z.object({
     path: z.string().trim().min(1),
     purpose: z.enum(["style_reference", "identity_reference", "wardrobe_reference", "composition_reference", "reference_input"]).default("reference_input"),
     label: z.string().trim().min(1).optional(),
 });
-const timelineSchema = z.record(z.string(), z.unknown());
-const ignoredExportRoots = new Set([".trash", ".runtime", ".cache", ".claude"]);
+const timelineSchema = timelineFileSchema;
+const ignoredExportRoots = new Set([".trash", ".runtime", ".cache", ".claude", ".codex", ".agents"]);
 const maxImportFiles = 20_000;
 const maxImportBytes = 20 * 1024 * 1024 * 1024;
 const workspaceWatchers = new Map<string, { watcher: FSWatcher; timer?: NodeJS.Timeout; pending: Set<string> }>();
@@ -146,13 +151,32 @@ export function migrateDirectorProject(userId: string, projectId: string) {
 export function validateDirectorProject(userId: string, projectId: string, relativeScope = "") {
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     const target = safeWorkspacePath(root, relativeScope || ".");
+    reconcileDirectorProjectFiles(userId, projectId);
     const diagnostics = validateDirectorRoot(root, target);
-    indexDirectorProject(userId, projectId, diagnostics);
     return { projectId, scope: relativeScope || ".", valid: !diagnostics.some((item) => item.severity === "error"), diagnostics };
 }
 
 export function getDirectorValidation(userId: string, projectId: string) {
     return validateDirectorProject(userId, projectId);
+}
+
+export function resolveDirectorMediaFile(userId: string, projectId: string, relativePath: string, kind: "image" | "audio" | "video") {
+    const root = ensureDirectorProjectWorkspace(userId, projectId);
+    const path = safeWorkspacePath(root, relativePath);
+    if (!existsSync(path) || !statSync(path).isFile() || !mediaMimeType(path).startsWith(`${kind}/`)) throw workspaceError(400, "DIRECTOR_MEDIA_INVALID", `工程路径不是可用的 ${kind} 文件`);
+    return { path, fileId: registerDirectorMediaFile(userId, projectId, root, path) };
+}
+
+// Materialize backend outputs inside the project so native tools can read them without API credentials.
+export function cacheDirectorMediaFile(userId: string, projectId: string, fileId: string) {
+    const root = ensureDirectorProjectWorkspace(userId, projectId);
+    const file = getStoredFile(userId, fileId);
+    if (!file || !/^(image|audio|video)\//.test(file.mime_type)) throw workspaceError(404, "DIRECTOR_MEDIA_NOT_FOUND", "媒体文件不存在或无权访问");
+    const name = `${createHash("sha256").update(fileId).digest("hex")}${extname(file.path)}`;
+    const path = safeWorkspacePath(root, `.cache/media-inspection/${name}`);
+    mkdirSync(dirname(path), { recursive: true });
+    if (!existsSync(path)) copyFileSync(file.path, path);
+    return { path: posixRelative(root, path), mimeType: file.mime_type, bytes: file.bytes };
 }
 
 export function assertDirectorProjectValid(userId: string, projectId: string) {
@@ -162,20 +186,26 @@ export function assertDirectorProjectValid(userId: string, projectId: string) {
     return result;
 }
 
-export function exportDirectorProjectZip(userId: string, projectId: string) {
+export async function exportDirectorProjectZip(userId: string, projectId: string) {
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     const validation = validateDirectorProject(userId, projectId);
     if (!validation.valid) throw workspaceError(409, "DIRECTOR_PROJECT_INVALID", "工程存在错误，修正后才能导出", validation.diagnostics);
+    const sourceRows = () => JSON.stringify(db.prepare("SELECT id,payload FROM director_shots WHERE user_id=? AND project_id=? ORDER BY id").all(userId, projectId));
+    const sourceSnapshot = sourceRows();
+    const exportFiles = () => walkFiles(root).filter((path) => { const rel = posixRelative(root, path); return !rel.startsWith(".h3/") && !ignoredExportRoots.has(rel.split("/")[0]); });
+    const fileIdentity = (path: string) => { const info = statSync(path); return [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs].join(":"); };
+    const files = new Map(exportFiles().map((path) => [path, fileIdentity(path)]));
     const zip = new AdmZip();
-    for (const path of walkFiles(root)) {
+    for (const path of files.keys()) {
         const rel = posixRelative(root, path);
-        if (ignoredExportRoots.has(rel.split("/")[0])) continue;
         zip.addLocalFile(path, dirname(rel) === "." ? "" : dirname(rel));
     }
+    await addH3Archive(zip, userId, projectId, (id) => directorExternalId(projectId, id));
+    if (sourceRows() !== sourceSnapshot || exportFiles().length !== files.size || [...files].some(([path, identity]) => !existsSync(path) || fileIdentity(path) !== identity)) throw workspaceError(409, "DIRECTOR_EXPORT_CHANGED", "导出期间工程发生变化，请重新导出");
     return { buffer: zip.toBuffer(), filename: `${slug(basename(root)) || "director-project"}.zip` };
 }
 
-export function importDirectorProjectZip(userId: string, projectId: string, buffer: Buffer) {
+export async function importDirectorProjectZip(userId: string, projectId: string, buffer: Buffer) {
     if (!buffer.length || buffer.length > maxImportBytes) throw workspaceError(413, "DIRECTOR_IMPORT_SIZE", "工程包为空或超过大小限制");
     const zip = new AdmZip(buffer);
     const entries = zip.getEntries();
@@ -207,6 +237,7 @@ export function importDirectorProjectZip(userId: string, projectId: string, buff
         rmSync(building, { recursive: true, force: true });
         throw workspaceError(400, "DIRECTOR_IMPORT_INVALID", "工程包校验失败", diagnostics);
     }
+    const nativeEntries = await validateH3Archive(building);
     const project = parseYaml(readFileSync(resolve(building, "project.yaml"), "utf8")) as Record<string, unknown>;
     const importedTitle = (db.prepare("SELECT title FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as { title: string } | undefined)?.title || String(project.name || "导入的导演项目");
     writeYaml(resolve(building, "project.yaml"), { ...project, id: projectId, name: importedTitle });
@@ -218,6 +249,7 @@ export function importDirectorProjectZip(userId: string, projectId: string, buff
     renameSync(building, root);
     indexDirectorProject(userId, projectId, diagnostics);
     reconcileDirectorProjectFiles(userId, projectId);
+    restoreH3Archive(userId, projectId, root, nativeEntries, (id) => directorMirrorId("director_shots", userId, projectId, id));
     return { projectId, files: entries.filter((entry) => !entry.isDirectory).length, diagnostics };
     } catch (error) {
         rmSync(building, { recursive: true, force: true });
@@ -281,6 +313,8 @@ export function writeDirectorDocumentPart(userId: string, projectId: string, kin
 }
 
 export function resolveDirectorEntityReference(userId: string, projectId: string, relativePath: string, allowedKinds: string[]) {
+    reconcileDirectorProjectFiles(userId, projectId);
+    assertDirectorProjectValid(userId, projectId);
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     let path = safeWorkspacePath(root, relativePath);
     if (existsSync(path) && statSync(path).isDirectory()) {
@@ -335,12 +369,19 @@ export function syncDirectorSourceFiles(userId: string, projectId: string, sourc
 export function syncDirectorBreakdownFile(userId: string, projectId: string, payload: unknown, revision: number) {
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     writeMarkdown(resolve(root, "screenplay", "breakdown", "overview.md"), { id: "screenplay-breakdown", kind: "screenplay-breakdown", sourceRevision: revision }, `\`\`\`yaml\n${stringifyYaml(payload)}\`\`\`\n`);
+    const sceneFiles = walkFiles(resolve(root, "screenplay/breakdown")).filter((path) => /^scene-.*\.md$/.test(basename(path)));
+    if (sceneFiles.length) {
+        for (const file of sceneFiles) moveToTrash(root, file);
+        const scenes = documentRecord(payload).scenes;
+        if (Array.isArray(scenes)) scenes.forEach((scene, index) => writeMarkdown(resolve(root, "screenplay/breakdown", `scene-${pad(index + 1)}.md`), { ...documentRecord(scene), kind: "screenplay-breakdown-scene" }, ""));
+    }
+
     indexDirectorProject(userId, projectId, validateDirectorRoot(root));
 }
 
 export function syncDirectorTimelineFile(userId: string, projectId: string, payload: unknown) {
     const root = ensureDirectorProjectWorkspace(userId, projectId);
-    writeFileAtomic(resolve(root, "timeline", "timeline.json"), `${JSON.stringify(payload, null, 2)}\n`);
+    writeFileAtomic(resolve(root, "timeline", "timeline.json"), `${JSON.stringify(timelineToFile(userId, projectId, root, payload), null, 2)}\n`);
     indexDirectorProject(userId, projectId, validateDirectorRoot(root));
 }
 
@@ -553,8 +594,8 @@ export function syncDirectorVideoSegmentFile(userId: string, projectId: string, 
         return { ...reference, path: posixRelative(root, target), ...(speakerAssetId ? { speakerAssetId: directorExternalId(projectId, speakerAssetId) } : {}) };
     });
     syncFileRefs(userId, "director_shot", segmentId, payload);
-    writeMarkdown(resolve(folder, "segment.md"), { ...(existing ? matter(readFileSync(existing, "utf8")).data : {}), id: externalSegmentId, kind: "video-segment", name: segment.title, sequenceId: externalSequenceId, order: segment.position + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references, audioReferences, ...segmentNarrativeMetadata(payload), sourceRevision: segment.revision }, String(payload.description ?? payload.action ?? ""));
-    writeYaml(resolve(folder, "storyboard.yaml"), { version: 1, segmentId: externalSegmentId, layout: sheet.layout || "2x2", frames: Array.isArray(sheet.frames) ? sheet.frames : [] });
+    writeMarkdown(resolve(folder, "segment.md"), { ...(existing ? matter(readFileSync(existing, "utf8")).data : {}), id: externalSegmentId, kind: "video-segment", name: segment.title, sequenceId: externalSequenceId, order: segment.position + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references, audioReferences, ...segmentNarrativeMetadata(payload, projectId), sourceRevision: segment.revision }, String(payload.description ?? payload.action ?? ""));
+    if (payload.generationIntent !== "transition") writeYaml(resolve(folder, "storyboard.yaml"), { version: 1, segmentId: externalSegmentId, layout: sheet.layout || "2x2", frames: framesToFile(projectId, sheet.frames) });
     writeFileAtomic(resolve(folder, "storyboard-prompt.md"), String(sheet.promptSnapshot || sheet.prompt || payload.storyboardPrompt || ""));
     const storyboardFileId = String(sheet.fileId || sheet.imageFileId || "");
     if (storyboardFileId) copyNamedFile(userId, storyboardFileId, resolve(folder, "storyboard.png"));
@@ -583,36 +624,49 @@ export function trashDirectorVideoSegmentFolder(userId: string, projectId: strin
 
 export function reconcileDirectorProjectFiles(userId: string, projectId: string) {
     const root = ensureDirectorProjectWorkspace(userId, projectId);
+    const validation = validateDirectorRoot(root);
+    if (validation.some((item) => item.severity === "error" && !["ASSET_VISUAL_PROMPT_MISSING", "ASSET_SOUND_PROMPT_MISSING", "ASSET_REFERENCE_MISSING", "VARIANT_REFERENCE_MISSING", "ASSET_PROMPT_REFERENCE_MISSING", "DIRECTION_REFERENCE_MISSING", "SEGMENT_LINK_MISSING", "SEGMENT_AUDIO_MISSING", "TIMELINE_SEGMENT_MISSING", "TIMELINE_MEDIA_INVALID"].includes(item.code))) { indexDirectorProject(userId, projectId, validation, false); return validation; }
+    db.transaction(() => {
     registerDirectorProjectMedia(userId, projectId, root);
     const now = new Date().toISOString();
     const manifest = projectSchema.parse(parseYaml(readFileSync(resolve(root, "project.yaml"), "utf8")));
     const projectRow = db.prepare("SELECT title,payload FROM projects WHERE user_id=? AND id=?").get(userId, projectId) as { title: string; payload: string };
     if (projectRow.title !== manifest.name) db.prepare("UPDATE projects SET title=?,revision=revision+1,updated_at=? WHERE user_id=? AND id=?").run(manifest.name, now, userId, projectId);
     const manifestValues = manifest as Record<string, unknown>;
-    db.prepare(`UPDATE director_workspaces SET target_duration_seconds=?,aspect_ratio=?,language=?,stage=?,updated_at=? WHERE user_id=? AND project_id=?`).run(
-        Math.max(10, Number(manifestValues.targetDurationSeconds) || 600), String(manifestValues.aspectRatio || "16:9"), String(manifestValues.language || "zh-CN"), String(manifestValues.stage || "source"), now, userId, projectId,
-    );
+    const values = [Math.max(10, Number(manifestValues.targetDurationSeconds) || 600), String(manifestValues.aspectRatio || "16:9"), String(manifestValues.language || "zh-CN"), String(manifestValues.stage || "source")];
+    db.prepare(`UPDATE director_workspaces SET target_duration_seconds=?,aspect_ratio=?,language=?,stage=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=?
+        AND (target_duration_seconds<>? OR aspect_ratio<>? OR language<>? OR stage<>?)`).run(...values, now, userId, projectId, ...values);
     for (const kind of ["story", "script"] as const) {
         const row = db.prepare("SELECT content FROM director_documents WHERE user_id=? AND project_id=? AND kind=?").get(userId, projectId, kind) as { content: string } | undefined;
         const content = composeLogicalDocument(logicalDocumentParts(userId, projectId, root, kind)).trimEnd();
         if (row && row.content.trimEnd() !== content) db.prepare("UPDATE director_documents SET content=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND kind=?").run(content, now, userId, projectId, kind);
     }
-    const timelinePath = resolve(root, "timeline", "timeline.json");
-    const timeline = JSON.parse(readFileSync(timelinePath, "utf8")) as Record<string, unknown>;
-    const current = db.prepare("SELECT payload FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string } | undefined;
-    if (current && JSON.stringify(parseJson(current.payload, {})) !== JSON.stringify(timeline)) db.prepare("UPDATE director_timelines SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=?").run(JSON.stringify(timeline), now, userId, projectId);
     reconcileDirection(userId, projectId, root, now);
     reconcileSources(userId, projectId, root, now);
     reconcileAssets(userId, projectId, root, now);
+    const breakdown = readBreakdown(root);
+    if (breakdown?.scenes.length) {
+        const estimatedDurationSeconds = breakdown.scenes.reduce((total, scene) => total + scene.estimatedSeconds, 0);
+        const payload = JSON.stringify({ scenes: breakdown.scenes, estimatedDurationSeconds, review: { status: breakdown.reviewIssues.length ? "needs_revision" : "passed", targetDurationSeconds: Number(manifestValues.targetDurationSeconds) || 600, estimatedDurationSeconds, issues: breakdown.reviewIssues } });
+        const current = db.prepare("SELECT payload FROM director_screenplay_breakdowns WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string } | undefined;
+        if (current && current.payload !== payload) db.prepare("UPDATE director_screenplay_breakdowns SET payload=?,script_revision=(SELECT revision FROM director_documents WHERE user_id=? AND project_id=? AND kind='script'),revision=revision+1,updated_at=? WHERE user_id=? AND project_id=?").run(payload, userId, projectId, now, userId, projectId);
+    }
     reconcileStoryboards(userId, projectId, root, now);
+    const timelinePath = resolve(root, "timeline", "timeline.json");
+    const timeline = timelineFromFile(userId, projectId, root, JSON.parse(readFileSync(timelinePath, "utf8")));
+    const current = db.prepare("SELECT payload FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string } | undefined;
+    if (current && !isDeepStrictEqual(parseJson(current.payload, {}), timeline)) db.prepare("UPDATE director_timelines SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=?").run(JSON.stringify(timeline), now, userId, projectId);
+    })();
     const diagnostics = validateDirectorRoot(root);
-    indexDirectorProject(userId, projectId, diagnostics);
+    indexDirectorProject(userId, projectId, diagnostics, true);
     return diagnostics;
 }
 
 export function removeDirectorProjectWorkspace(userId: string, projectId: string) {
     const root = directorProjectRoot(userId, projectId);
-    workspaceWatchers.get(root)?.watcher.close();
+    const watcher = workspaceWatchers.get(root);
+    watcher?.watcher.close();
+    if (watcher?.timer) clearTimeout(watcher.timer);
     workspaceWatchers.delete(root);
     const ids = db.prepare("SELECT file_id FROM file_refs WHERE user_id=? AND owner_type='director_project' AND owner_id=?").all(userId, projectId) as Array<{ file_id: string }>;
     db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='director_project' AND owner_id=?").run(userId, projectId);
@@ -625,20 +679,47 @@ function watchDirectorWorkspace(userId: string, projectId: string, root: string)
     if (workspaceWatchers.has(root)) return;
     try {
         const state: { watcher: FSWatcher; timer?: NodeJS.Timeout; pending: Set<string> } = { watcher: null as unknown as FSWatcher, pending: new Set() };
-        state.watcher = watch(root, { recursive: true }, (_event, filename) => {
-            const path = String(filename || "").replace(/\\/g, "/");
-            if (!path || ignoredExportRoots.has(path.split("/")[0]!)) return;
+        let firstChange = 0;
+        let retries = 0;
+        const flush = () => {
+            state.timer = undefined;
+            if (!db.open) return;
+            const pending = Array.from(state.pending);
+            state.pending.clear();
+            firstChange = 0;
+            try {
+                const needsReconcile = (db.prepare("SELECT needs_reconcile FROM director_sync_versions WHERE user_id=? AND project_id=?").get(userId, projectId) as { needs_reconcile: number } | undefined)?.needs_reconcile;
+                if (!retries && !needsReconcile && !pending.some((path) => indexedPathChanged(userId, projectId, root, path))) return;
+                const diagnostics = reconcileDirectorProjectFiles(userId, projectId);
+                if (diagnostics.some((item) => item.severity === "error") && retries++ < 3) state.timer = setTimeout(flush, 500);
+                else retries = 0;
+            } catch (error) {
+                indexDirectorProject(userId, projectId, [diag("error", "WORKSPACE_SYNC_FAILED", ".", error instanceof Error ? error.message : "工程同步失败，请重试")], false);
+                if (retries++ < 3) state.timer = setTimeout(flush, 500);
+                else { retries = 0; markDirectorProjectChanged(userId, projectId, ["validation"]); }
+            }
+            state.timer?.unref();
+        };
+        const schedule = (path: string) => {
+            if (ignoredExportRoots.has(path.split("/")[0]!) || path.endsWith(".tmp")) return;
             state.pending.add(path);
+            firstChange ||= Date.now();
             if (state.timer) clearTimeout(state.timer);
-            state.timer = setTimeout(() => {
-                if (!db.open) return;
-                const pending = Array.from(state.pending);
-                state.pending.clear();
-                if (!pending.some((path) => indexedPathChanged(userId, projectId, root, path))) return;
-                try { const diagnostics = reconcileDirectorProjectFiles(userId, projectId); emitWorkspaceUpdate(userId, projectId, diagnostics); } catch { /* diagnostics remain available through explicit validation */ }
-            }, 250);
-        });
-        state.watcher.unref();
+            state.timer = setTimeout(flush, Math.max(0, Math.min(250, 750 - (Date.now() - firstChange))));
+            state.timer.unref();
+        };
+        state.watcher = watch(root, { persistent: false, ignoreInitial: true, followSymlinks: false, atomic: true,
+            ignored: (path) => ignoredExportRoots.has(posixRelative(root, path).split("/")[0]!),
+        }).on("all", (_event, path) => schedule(posixRelative(root, path)))
+            // Raw notifications also cover in-place writes with preserved mtime/size.
+            // Hash comparison in flush decides whether any business data changed.
+            .on("raw", (_event, filename, details: unknown) => {
+                const watched = (details as { watchedPath?: string })?.watchedPath || root;
+                const path = existsSync(watched) && statSync(watched).isDirectory() ? resolve(watched, filename) : watched;
+                if (path === root || path.startsWith(`${root}${sep}`)) schedule(posixRelative(root, path));
+            })
+            .on("ready", () => schedule(""))
+            .on("error", () => { markDirectorProjectChanged(userId, projectId, ["validation"]); });
         workspaceWatchers.set(root, state);
     } catch { /* explicit validation remains available on platforms without recursive watch */ }
 }
@@ -757,10 +838,10 @@ function exportStoryboards(userId: string, projectId: string, root: string) {
             const payload = parseJson<Record<string, unknown>>(segment.payload, {});
             const folder = resolve(root, "storyboards", seqName, `seg-${pad(segmentIndex + 1)}-${slug(segment.title) || "segment"}`);
             const refs = { characters: payload.characterRefs || [], locations: payload.sceneRefs || [], props: payload.propRefs || [] };
-            writeMarkdown(resolve(folder, "segment.md"), { id: segment.id, kind: "video-segment", name: segment.title, sequenceId: sequence.id, order: segmentIndex + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references: refs, ...segmentNarrativeMetadata(payload), sourceRevision: segment.revision }, String(payload.description ?? payload.action ?? ""));
+            writeMarkdown(resolve(folder, "segment.md"), { id: segment.id, kind: "video-segment", name: segment.title, sequenceId: sequence.id, order: segmentIndex + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references: refs, ...segmentNarrativeMetadata(payload, projectId), sourceRevision: segment.revision }, String(payload.description ?? payload.action ?? ""));
             const board = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown>
                 : payload.storyboard && typeof payload.storyboard === "object" ? payload.storyboard as Record<string, unknown> : {};
-            writeYaml(resolve(folder, "storyboard.yaml"), { version: 1, segmentId: segment.id, layout: board.layout || "2x2", frames: Array.isArray(board.frames) ? board.frames : [] });
+            if (payload.generationIntent !== "transition") writeYaml(resolve(folder, "storyboard.yaml"), { version: 1, segmentId: segment.id, layout: board.layout || "2x2", frames: framesToFile(projectId, board.frames) });
             writeFileAtomic(resolve(folder, "storyboard-prompt.md"), String(board.prompt || payload.storyboardPrompt || ""));
             copyNamedFile(userId, String(board.imageFileId || board.fileId || ""), resolve(folder, "storyboard.png"));
             const videoFolder = resolve(root, "videos", `seg-${segment.id}`);
@@ -806,8 +887,9 @@ function reconcileDirection(userId: string, projectId: string, root: string, now
     if (!existingStyle) db.prepare(`INSERT INTO visual_styles(id,user_id,project_id,name,mode,template_id,description,status,dna,reference_files,revision,created_at,updated_at) VALUES(?,?,?,?,'custom',?,?,'draft',?,'{}',1,?,?)`).run(styleId, userId, projectId, styleName, sourceTemplateId, description, dna, now, now);
     else if (existingStyle.name !== styleName || existingStyle.description !== description || existingStyle.dna !== dna) {
         const references = parseJson<Record<string, unknown>>(existingStyle.reference_files, {});
-        delete references.board;
-        if (styleDocument.data.referenceBoard) {
+        const visualChanged = serializeVisualStyleMarkdown(existingStyle.name, existingStyle.description, previousDna).trim() !== styleDocument.content.trim();
+        if (visualChanged) delete references.board;
+        if (visualChanged && styleDocument.data.referenceBoard) {
             moveManagedDirectionReference(root, "style-board");
             const nextData = { ...styleDocument.data } as Record<string, unknown>;
             delete nextData.referenceBoard;
@@ -884,12 +966,12 @@ function reconcileAssets(userId: string, projectId: string, root: string, now: s
                 narrativeDescription: section(document.content, "剧情身份") || currentPayload.narrativeDescription || "",
                 visualDescription: section(document.content, "视觉设定") || currentPayload.visualDescription || "",
                 designProfile: document.data.designProfile ?? currentPayload.designProfile ?? null,
-                mediaDrafts: document.data.mediaDrafts ?? currentPayload.mediaDrafts,
+                mediaDrafts: { image: {}, audio: {}, ...documentRecord(document.data.mediaDrafts ?? currentPayload.mediaDrafts) },
                 dependencies: document.data.dependencies ?? currentPayload.dependencies,
                 requiredVariants: document.data.requiredVariants || currentPayload.requiredVariants || [],
-                variants: media.length ? media : currentPayload.variants || [],
-                primaryImageId: media.find((item) => item.kind === "image")?.id || currentPayload.primaryImageId || null,
-                primaryAudioId: media.find((item) => item.kind === "audio")?.id || currentPayload.primaryAudioId || null,
+                variants: media,
+                primaryImageId: media.find((item) => item.kind === "image")?.id || null,
+                primaryAudioId: media.find((item) => item.kind === "audio")?.id || null,
             };
             const name = entity.name || entity.title || entity.id;
             if (!existing) db.prepare("INSERT INTO creative_assets(id,user_id,project_id,kind,name,status,payload,revision,created_at,updated_at) VALUES(?,?,?,?,?,'draft',?,1,?,?)").run(mirrorId, userId, projectId, kind, name, JSON.stringify(payload), now, now);
@@ -920,36 +1002,50 @@ function reconcileStoryboards(userId: string, projectId: string, root: string, n
             const segmentId = directorMirrorId("director_shots", userId, projectId, segmentEntity.id);
             seenSegments.add(segmentId);
             const segmentFolder = dirname(segmentPath);
-            const storyboard = storyboardSchema.parse(parseYaml(readFileSync(resolve(segmentFolder, "storyboard.yaml"), "utf8")));
+            const storyboard = segmentDocument.data.generationIntent === "transition" ? { layout: "2x2", frames: [] } : storyboardSchema.parse(parseYaml(readFileSync(resolve(segmentFolder, "storyboard.yaml"), "utf8")));
             const existing = db.prepare("SELECT title,position,payload FROM director_shots WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, segmentId) as { title: string; position: number; payload: string } | undefined;
             const currentPayload = parseJson<Record<string, unknown>>(existing?.payload, {});
             const references = documentRecord(segmentDocument.data.references);
             const currentSheet = documentRecord(currentPayload.storyboardSheet);
             const prompt = existsSync(resolve(segmentFolder, "storyboard-prompt.md")) ? readFileSync(resolve(segmentFolder, "storyboard-prompt.md"), "utf8") : "";
-            const nextSheet: Record<string, unknown> = { ...currentSheet, revision: Number(currentSheet.revision) || 1, layout: storyboard.layout, frames: storyboard.frames };
+            const frames = storyboard.frames.map((frame, position) => ({ ...frame, position, dialogue: "", dialogues: frame.dialogues?.map((cue) => ({ ...cue, speakerAssetId: directorMirrorId("creative_assets", userId, projectId, cue.speakerAssetId) })) || [] }));
+            const sheetChanged = Boolean(existing) && (currentSheet.layout !== storyboard.layout || JSON.stringify(framesToFile(projectId, currentSheet.frames)) !== JSON.stringify(framesToFile(projectId, frames)) || String(currentSheet.promptSnapshot || "") !== prompt);
+            const nextSheet: Record<string, unknown> = { ...currentSheet, revision: (Number(currentSheet.revision) || 1) + Number(sheetChanged), layout: storyboard.layout, frames, ...(sheetChanged && currentSheet.imageFileId ? { review: { status: "stale", summary: "工程提示已修改，请重新生成故事板", issues: [] } } : {}) };
             const storyboardImage = resolve(segmentFolder, "storyboard.png");
-            if (existsSync(storyboardImage)) nextSheet.imageFileId = registerDirectorMediaFile(userId, projectId, root, storyboardImage);
+            nextSheet.imageFileId = existsSync(storyboardImage) ? registerDirectorMediaFile(userId, projectId, root, storyboardImage) : undefined;
             if (prompt || "promptSnapshot" in currentSheet) nextSheet.promptSnapshot = prompt;
             const payload: Record<string, unknown> = {
                 ...currentPayload,
+                ...Object.fromEntries(segmentNarrativeKeys.map((key) => [key, undefined])),
                 ...segmentNarrativeMetadata(segmentDocument.data),
+                ...Object.fromEntries(segmentLinkKeys.filter((key) => segmentDocument.data[key]).map((key) => [key, directorMirrorId("director_shots", userId, projectId, String(segmentDocument.data[key]))])),
                 durationSeconds: Number(segmentDocument.data.durationSeconds) || 4,
                 characterRefs: remapReferences("creative_assets", userId, projectId, references.characters),
                 sceneRefs: remapReferences("creative_assets", userId, projectId, references.locations),
                 propRefs: remapReferences("creative_assets", userId, projectId, references.props),
-                audioReferences: h3AudioReferencesInput.parse((Array.isArray(segmentDocument.data.audioReferences) ? segmentDocument.data.audioReferences : []).map((value: unknown) => {
+                audioReferences: h3AudioReferencesInput.parse((Array.isArray(segmentDocument.data.audioReferences) ? segmentDocument.data.audioReferences : []).flatMap((value: unknown) => {
                     const reference = documentRecord(value);
                     const path = safeWorkspacePath(root, String(reference.path || ""));
-                    return { purpose: reference.purpose, description: reference.description, fileId: registerDirectorMediaFile(userId, projectId, root, path), ...(reference.speakerAssetId ? { speakerAssetId: directorMirrorId("creative_assets", userId, projectId, String(reference.speakerAssetId)) } : {}) };
+                    return existsSync(path) ? [{ purpose: reference.purpose, description: reference.description, fileId: registerDirectorMediaFile(userId, projectId, root, path), ...(reference.speakerAssetId ? { speakerAssetId: directorMirrorId("creative_assets", userId, projectId, String(reference.speakerAssetId)) } : {}) }] : [];
                 })),
                 storyboardSheet: nextSheet,
             };
+            if (existing && (sheetChanged || JSON.stringify(segmentNarrativeMetadata(currentPayload)) !== JSON.stringify(segmentNarrativeMetadata(payload)))) payload.videoStale = Boolean(currentPayload.videoFileId);
+            if (sheetChanged) { payload.storyboardStale = Boolean(currentSheet.imageFileId); payload.h3PromptStale = true; payload.needsReview = true; }
+            if (existsSync(storyboardImage)) {
+                const imageHash = hashFile(storyboardImage);
+                if (currentPayload.storyboardImageHash && currentPayload.storyboardImageHash !== imageHash) payload.storyboardStale = false;
+                payload.storyboardImageHash = imageHash;
+            }
             const videoFolder = resolve(root, "videos", `seg-${segmentEntity.id}`);
             const finalVideo = resolve(videoFolder, "final.mp4");
             const previewVideo = resolve(videoFolder, "preview.mp4");
             const modelAudio = resolve(videoFolder, "model-audio.wav");
-            if (existsSync(finalVideo) || existsSync(previewVideo)) payload.videoFileId = registerDirectorMediaFile(userId, projectId, root, existsSync(finalVideo) ? finalVideo : previewVideo);
-            if (existsSync(modelAudio)) payload.nativeAudioFileId = registerDirectorMediaFile(userId, projectId, root, modelAudio);
+            const videoPath = existsSync(finalVideo) ? finalVideo : existsSync(previewVideo) ? previewVideo : undefined;
+            payload.videoFileId = videoPath ? registerDirectorMediaFile(userId, projectId, root, videoPath) : undefined;
+            payload.videoContentVersion = videoPath ? hashFile(videoPath) : undefined;
+            payload.nativeAudioFileId = existsSync(modelAudio) ? registerDirectorMediaFile(userId, projectId, root, modelAudio) : undefined;
+            payload.nativeAudioContentVersion = existsSync(modelAudio) ? hashFile(modelAudio) : undefined;
             const description = segmentDocument.content.trim();
             if (description || "description" in currentPayload) payload.description = description;
             const segmentName = segmentEntity.name || segmentEntity.title || segmentEntity.id;
@@ -962,13 +1058,83 @@ function reconcileStoryboards(userId: string, projectId: string, root: string, n
     for (const row of db.prepare("SELECT id FROM director_sequences WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>) if (!seenSequences.has(row.id)) db.prepare("DELETE FROM director_sequences WHERE id=? AND user_id=?").run(row.id, userId);
 }
 
-function segmentNarrativeMetadata(value: Record<string, unknown>) {
-    return Object.fromEntries(["dramaticBeat", "openingState", "endingState"].filter((key) => typeof value[key] === "string").map((key) => [key, value[key]]));
+function framesToFile(projectId: string, value: unknown) {
+    return (Array.isArray(value) ? value : []).map((value) => {
+        const frame = documentRecord(value);
+        return { id: frame.id, shotNumber: frame.shotNumber, timeSeconds: frame.timeSeconds, kind: frame.kind, description: frame.description || "", action: frame.action || "", cameraAngle: frame.cameraAngle || "", cameraMove: frame.cameraMove || "", h3Visual: frame.h3Visual || "", sound: frame.sound || "", dialogues: (Array.isArray(frame.dialogues) ? frame.dialogues : []).map((value) => { const cue = documentRecord(value); return { ...cue, speakerAssetId: directorExternalId(projectId, String(cue.speakerAssetId)) }; }) };
+    });
+}
+
+const segmentLinkKeys = ["continuationFromSegmentId", "transitionFromSegmentId", "transitionToSegmentId"];
+const segmentNarrativeKeys = ["sourceSceneId", "sourceBeatIds", "sourceDurationSeconds", "dramaticBeat", "openingState", "endingState", "boundary", "generationIntent", ...segmentLinkKeys, "h3VisualDescription", "h3Soundscape", "h3NonDiegeticMusic"];
+function segmentNarrativeMetadata(value: Record<string, unknown>, projectId?: string) {
+    return Object.fromEntries(segmentNarrativeKeys.filter((key) => value[key] !== undefined).map((key) => [key, projectId && segmentLinkKeys.includes(key) ? directorExternalId(projectId, String(value[key])) : value[key]]));
+}
+
+function timelineFromFile(userId: string, projectId: string, root: string, value: unknown) {
+    const timeline = timelineSchema.parse(value);
+    // Dangling dependencies remain visible in validation, while deleted entities
+    // and unavailable clips disappear from the read projection. Never rewrite files.
+    const segmentIds = new Set((db.prepare("SELECT id FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>).map((row) => row.id));
+    const hasSegment = (id: string) => segmentIds.has(directorMirrorId("director_shots", userId, projectId, id));
+    if (timeline.segmentOrder) timeline.segmentOrder = timeline.segmentOrder.filter(hasSegment);
+    for (const track of timeline.tracks || []) track.clips = track.clips.filter((clip) => (!clip.segmentId || hasSegment(clip.segmentId)) && (!clip.path || (existsSync(safeWorkspacePath(root, clip.path)) && /^(audio|video)\//.test(mediaMimeType(clip.path)))));
+    return { ...timeline, ...(timeline.segmentOrder ? { segmentOrder: timeline.segmentOrder.map((id) => directorMirrorId("director_shots", userId, projectId, id)) } : {}), ...(timeline.tracks ? { tracks: timeline.tracks.map((track) => ({ ...track, clips: track.clips.map(({ path, ...clip }) => ({ ...clip, ...(clip.segmentId ? { segmentId: directorMirrorId("director_shots", userId, projectId, clip.segmentId), ...(clip.id === `model-original-${clip.segmentId}` ? { id: `model-original-${directorMirrorId("director_shots", userId, projectId, clip.segmentId)}` } : {}) } : {}), ...(path ? { fileId: registerDirectorMediaFile(userId, projectId, root, safeWorkspacePath(root, path)) } : {}) })) })) } : {}) };
+}
+
+function timelineToFile(userId: string, projectId: string, root: string, value: unknown) {
+    const timeline = documentRecord(value);
+    return { ...timeline, ...(Array.isArray(timeline.segmentOrder) ? { segmentOrder: timeline.segmentOrder.map((id) => directorExternalId(projectId, String(id))) } : {}), ...(Array.isArray(timeline.tracks) ? { tracks: timeline.tracks.map((value) => {
+        const track = documentRecord(value);
+        return { ...track, clips: (Array.isArray(track.clips) ? track.clips : []).map((value) => {
+            const { fileId, ...clip } = documentRecord(value);
+            const file = fileId ? getStoredFile(userId, String(fileId)) : undefined;
+            if (fileId && !file) throw workspaceError(400, "TIMELINE_MEDIA_MISSING", `时间线音频不存在：${clip.id}`);
+            let path: string | undefined;
+            if (file) {
+                const target = file.path.startsWith(`${root}${sep}`) ? file.path : resolve(root, "timeline", "inputs", `${file.id}${extname(file.path)}`);
+                if (target !== file.path) { mkdirSync(dirname(target), { recursive: true }); copyFileSync(file.path, target); }
+                path = posixRelative(root, target);
+            }
+            return { ...clip, ...(clip.segmentId ? { segmentId: directorExternalId(projectId, String(clip.segmentId)), ...(clip.id === `model-original-${clip.segmentId}` ? { id: `model-original-${directorExternalId(projectId, String(clip.segmentId))}` } : {}) } : {}), ...(path ? { path } : {}) };
+        }) };
+    }) } : {}) };
+}
+
+export function archiveDirectorRender(userId: string, projectId: string, renderId: string, source: string, metadata: Record<string, unknown>) {
+    const root = ensureDirectorProjectWorkspace(userId, projectId);
+    const target = safeWorkspacePath(root, `renders/${renderId}`);
+    if (existsSync(target)) throw workspaceError(409, "RENDER_ARCHIVE_EXISTS", "成功成片归档已存在，不能覆盖");
+    const building = safeWorkspacePath(root, `.runtime/render-${renderId}`);
+    mkdirSync(building, { recursive: true });
+    try {
+        copyFileSync(source, resolve(building, "final.mp4"));
+        writeFileAtomic(resolve(building, "render.json"), `${JSON.stringify({ version: 1, renderId, projectId, createdAt: new Date().toISOString(), ...metadata, segmentIds: Array.isArray(metadata.segmentIds) ? metadata.segmentIds.map((id) => directorExternalId(projectId, String(id))) : [], timeline: JSON.parse(readFileSync(resolve(root, "timeline/timeline.json"), "utf8")), output: "final.mp4", sha256: hashFile(source) }, null, 2)}\n`);
+        mkdirSync(dirname(target), { recursive: true }); renameSync(building, target);
+    } finally { rmSync(building, { recursive: true, force: true }); }
+    indexDirectorProject(userId, projectId, validateDirectorRoot(root));
+    markDirectorProjectChanged(userId, projectId, ["renders", "media"]);
+    emitWorkspaceUpdate(userId, projectId, []);
+    return { outputPath: posixRelative(root, resolve(target, "final.mp4")), metadataPath: posixRelative(root, resolve(target, "render.json")) };
 }
 
 function exportTimeline(userId: string, projectId: string, root: string) {
     const row = db.prepare("SELECT payload FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string } | undefined;
-    writeFileAtomic(resolve(root, "timeline", "timeline.json"), `${JSON.stringify(parseJson(row?.payload, {}), null, 2)}\n`);
+    writeFileAtomic(resolve(root, "timeline", "timeline.json"), `${JSON.stringify(timelineToFile(userId, projectId, root, parseJson(row?.payload, {})), null, 2)}\n`);
+}
+
+function readBreakdown(root: string) {
+    const path = resolve(root, "screenplay/breakdown/overview.md");
+    if (!existsSync(path)) return undefined;
+    const text = matter(readFileSync(path, "utf8"));
+    const block = text.content.match(/```yaml\s*([\s\S]*?)```/i)?.[1];
+    const overview = block ? documentRecord(parseYaml(block)) : text.data;
+    const sceneFiles = walkFiles(resolve(root, "screenplay/breakdown")).filter((file) => /^scene-.*\.md$/.test(basename(file))).sort();
+    const scenes = z.array(screenplayScene).parse(sceneFiles.length ? sceneFiles.map((file) => matter(readFileSync(file, "utf8")).data) : overview.scenes || []);
+    if (new Set(scenes.map((scene) => scene.id)).size !== scenes.length) throw new Error("制作拆解场次 ID 重复");
+    for (const scene of scenes) if (new Set(scene.beats.map((beat) => beat.id)).size !== scene.beats.length) throw new Error(`场次 ${scene.id} 的节拍 ID 重复`);
+    const reviewIssues = z.array(screenplayReviewIssue).parse(overview.reviewIssues || documentRecord(overview.review).issues || []);
+    return { scenes, reviewIssues };
 }
 
 function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] {
@@ -979,30 +1145,51 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
     const files = (existsSync(scope) && statSync(scope).isFile() ? [scope] : walkFiles(scope))
         .filter((path) => !ignoredExportRoots.has(posixRelative(root, path).split("/")[0]!));
     const ids = new Map<string, string>();
-    const knownIds = new Set(walkFiles(root).filter((path) => path.endsWith(".md")).flatMap((path) => {
-        try { const id = matter(readFileSync(path, "utf8")).data.id; return typeof id === "string" ? [id] : []; } catch { return []; }
+    const knownEntities = new Map(walkFiles(root).filter((path) => path.endsWith(".md") && !lstatSync(path).isSymbolicLink() && !ignoredExportRoots.has(posixRelative(root, path).split("/")[0])).flatMap((path) => {
+        try { const data = matter(readFileSync(path, "utf8")).data; return typeof data.id === "string" ? [[data.id, { kind: String(data.kind), path }] as const] : []; } catch { return []; }
     }));
     const documents: Array<{ path: string; data: Record<string, unknown> }> = [];
     for (const path of files) {
         const rel = posixRelative(root, path);
-        if (rel.includes("..") || lstatSync(path).isSymbolicLink()) diagnostics.push(diag("error", "ILLEGAL_PATH", rel, "工程包含非法路径或符号链接"));
+        if (rel.includes("..") || lstatSync(path).isSymbolicLink()) { diagnostics.push(diag("error", "ILLEGAL_PATH", rel, "工程包含非法路径或符号链接")); continue; }
         if (path.endsWith(".md")) validateParsed(path, () => {
             const parsed = matter(readFileSync(path, "utf8"));
             if (["AGENTS.md", "prompt.md", "storyboard-prompt.md", "video-prompt.md"].includes(basename(path)) || basename(path).startsWith("original.")) return;
             const entity = entitySchema.parse(parsed.data);
+            if (entity.kind === "video-segment") segmentFileSchema.parse(parsed.data);
             documents.push({ path: rel, data: parsed.data as Record<string, unknown> });
             if (ids.has(entity.id)) diagnostics.push({ ...diag("error", "DUPLICATE_ID", rel, `实体 ID 与 ${ids.get(entity.id)} 重复`), entityId: entity.id });
             else ids.set(entity.id, rel);
         }, diagnostics, root, "FRONTMATTER_INVALID");
         if (basename(path) === "storyboard.yaml") validateParsed(path, () => {
+            if (existsSync(resolve(dirname(path), "segment.md")) && matter(readFileSync(resolve(dirname(path), "segment.md"), "utf8")).data.generationIntent === "transition") return;
             const board = storyboardSchema.parse(parseYaml(readFileSync(path, "utf8")));
             const expected = board.layout === "2x2" ? 4 : board.layout === "3x2" ? 6 : 9;
             if (board.frames.length !== expected) diagnostics.push(diag("error", "STORYBOARD_FRAME_COUNT", rel, `${board.layout} 故事板必须包含 ${expected} 个画格`));
             const segmentPath = resolve(dirname(path), "segment.md");
+            if (existsSync(segmentPath)) {
+                const segment = matter(readFileSync(segmentPath, "utf8")).data;
+                if (board.frames.at(-1)?.timeSeconds !== segment.durationSeconds) diagnostics.push(diag("error", "STORYBOARD_END_TIME", rel, "最后画格时间必须等于视频段时长"));
+                for (const [index, frame] of board.frames.entries()) for (const cue of frame.dialogues || []) {
+                    if (cue.endSeconds > Number(segment.durationSeconds)) diagnostics.push(diag("error", "DIALOGUE_WINDOW", rel, `frames.${index}.dialogues：对白超出视频段时长`));
+                    const speakers = documentRecord(segment.references).characters;
+                    if (!Array.isArray(speakers) || !speakers.some((ref) => (typeof ref === "string" ? ref : documentRecord(ref).id) === cue.speakerAssetId)) diagnostics.push(diag("error", "DIALOGUE_SPEAKER", rel, `frames.${index}.dialogues：说话人必须在本段角色引用中`));
+                }
+            }
             if (existsSync(segmentPath) && String(matter(readFileSync(segmentPath, "utf8")).data.id || "") !== board.segmentId) diagnostics.push(diag("error", "STORYBOARD_SEGMENT_MISMATCH", rel, "故事板 segmentId 与所在视频段不一致"));
         }, diagnostics, root, "STORYBOARD_INVALID");
-        if (basename(path) === "timeline.json") validateParsed(path, () => timelineSchema.parse(JSON.parse(readFileSync(path, "utf8"))), diagnostics, root, "TIMELINE_INVALID");
+        if (basename(path) === "timeline.json") validateParsed(path, () => {
+            const timeline = timelineSchema.parse(JSON.parse(readFileSync(path, "utf8")));
+            const segmentIds = new Set(walkFiles(resolve(root, "storyboards")).filter((file) => basename(file) === "segment.md").map((file) => matter(readFileSync(file, "utf8")).data.id));
+            for (const id of [...(timeline.segmentOrder || []), ...(timeline.tracks || []).flatMap((track) => track.clips.flatMap((clip) => clip.segmentId ? [clip.segmentId] : []))]) if (!segmentIds.has(id)) diagnostics.push(diag("error", "TIMELINE_SEGMENT_MISSING", rel, `视频段不存在：${id}`));
+            for (const track of timeline.tracks || []) for (const clip of track.clips) {
+                if (clip.path && (!existsSync(safeWorkspacePath(root, clip.path)) || !/^(audio|video)\//.test(mediaMimeType(clip.path)))) diagnostics.push(diag("error", "TIMELINE_MEDIA_INVALID", rel, `轨道 ${track.id} / ${clip.id} 的媒体不存在或不是音视频：${clip.path}`));
+                if (!clip.path) diagnostics.push(diag("warning", "TIMELINE_MEDIA_PENDING", rel, `轨道 ${track.id} / ${clip.id} 尚未指定声音文件`));
+            }
+        }, diagnostics, root, "TIMELINE_INVALID");
     }
+    let breakdown: ReturnType<typeof readBreakdown>;
+    validateParsed(resolve(root, "screenplay/breakdown/overview.md"), () => { breakdown = readBreakdown(root); }, diagnostics, root, "BREAKDOWN_INVALID");
     const sequenceOrders = new Map<number, string>();
     const segmentOrders = new Map<string, Map<number, string>>();
     const documentPartOrders = new Map<string, Map<number, string>>([["story/chapters/", new Map()], ["screenplay/scenes/", new Map()]]);
@@ -1024,14 +1211,22 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
         }
         if (kind === "sequence") {
             const order = Number(document.data.order);
+            if (!Number.isInteger(order) || order < 1) diagnostics.push(diag("error", "SEQUENCE_ORDER_INVALID", document.path, "order 必须为正整数"));
             if (Number.isFinite(order) && sequenceOrders.has(order)) diagnostics.push(diag("error", "DUPLICATE_SEQUENCE_ORDER", document.path, `剧情段落顺序与 ${sequenceOrders.get(order)} 重复`));
             else if (Number.isFinite(order)) sequenceOrders.set(order, document.path);
         }
         if (kind !== "video-segment") continue;
+        if (document.data.sourceSceneId) {
+            const scene = breakdown?.scenes.find((scene) => scene.id === document.data.sourceSceneId);
+            if (!scene) diagnostics.push(diag("error", "SEGMENT_SOURCE_SCENE", document.path, "sourceSceneId 未对应制作拆解中的场次"));
+            else for (const beat of Array.isArray(document.data.sourceBeatIds) ? document.data.sourceBeatIds : []) if (!scene.beats.some((item) => item.id === beat)) diagnostics.push(diag("error", "SEGMENT_SOURCE_BEAT", document.path, `sourceBeatIds 引用不存在的节拍：${beat}`));
+        } else diagnostics.push(diag("warning", "SEGMENT_SOURCE_PENDING", document.path, "尚未填写 sourceSceneId 和 sourceBeatIds，视频生成前必须补齐"));
         const duration = Number(document.data.durationSeconds);
         if (!Number.isFinite(duration) || duration < 4 || duration > 15) diagnostics.push(diag("error", "VIDEO_SEGMENT_DURATION", document.path, "视频段时长必须为 4–15 秒"));
         const sequenceId = String(document.data.sequenceId || "");
-        if (!knownIds.has(sequenceId)) diagnostics.push(diag("error", "SEGMENT_SEQUENCE_MISSING", document.path, `视频段引用的剧情段落不存在：${sequenceId}`));
+        if (knownEntities.get(sequenceId)?.kind !== "sequence") diagnostics.push(diag("error", "SEGMENT_SEQUENCE_MISSING", document.path, `视频段引用的剧情段落不存在：${sequenceId}`));
+        const sequencePath = knownEntities.get(sequenceId)?.path;
+        if (sequencePath && !resolve(root, document.path).startsWith(`${dirname(sequencePath)}${sep}`)) diagnostics.push(diag("error", "SEGMENT_SEQUENCE_FOLDER", document.path, "sequenceId 与所属 sequence.md 目录不一致"));
         const orders = segmentOrders.get(sequenceId) || new Map<number, string>();
         const order = Number(document.data.order);
         if (Number.isFinite(order) && orders.has(order)) diagnostics.push(diag("error", "DUPLICATE_SEGMENT_ORDER", document.path, `同一剧情段落内的视频段顺序与 ${orders.get(order)} 重复`));
@@ -1042,13 +1237,21 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
             if (!Array.isArray(values)) continue;
             for (const value of values) {
                 const id = typeof value === "string" ? value : value && typeof value === "object" ? String((value as Record<string, unknown>).id || "") : "";
-                if (id && !knownIds.has(id)) diagnostics.push(diag("error", "ASSET_REFERENCE_MISSING", document.path, `${label}引用不存在：${id}`));
+                if (id && knownEntities.get(id)?.kind !== ({ "角色": "character", "场景": "scene", "道具": "prop" })[label]) diagnostics.push(diag("error", "ASSET_REFERENCE_MISSING", document.path, `${label}引用不存在：${id}`));
                 const variantId = value && typeof value === "object" ? String((value as Record<string, unknown>).variantId || "") : "";
-                if (variantId && !knownIds.has(variantId)) diagnostics.push(diag("error", "VARIANT_REFERENCE_MISSING", document.path, `素材变体不存在：${variantId}`));
+                if (variantId && (knownEntities.get(variantId)?.kind !== "asset-variant" || !knownEntities.get(variantId)?.path.startsWith(`${dirname(knownEntities.get(id)?.path || "")}${sep}variants${sep}`))) diagnostics.push(diag("error", "VARIANT_REFERENCE_MISSING", document.path, `素材变体不存在：${variantId}`));
                 else if (variantId && !variantMediaReady.get(variantId)) diagnostics.push(diag("warning", "VARIANT_PRIMARY_MEDIA_MISSING", document.path, `素材变体缺少主图，生成当前视频段前需补齐：${variantId}`));
             }
         }
+        for (const key of segmentLinkKeys) if (document.data[key] && (knownEntities.get(String(document.data[key]))?.kind !== "video-segment")) diagnostics.push(diag("error", "SEGMENT_LINK_MISSING", document.path, `${key} 引用的视频段不存在`));
+        for (const reference of Array.isArray(document.data.audioReferences) ? document.data.audioReferences : []) {
+            const value = documentRecord(reference);
+            if (value.speakerAssetId && (!Array.isArray(references.characters) || !references.characters.some((ref) => (typeof ref === "string" ? ref : documentRecord(ref).id) === value.speakerAssetId))) diagnostics.push(diag("error", "SEGMENT_AUDIO_SPEAKER", document.path, "音频说话人必须属于本段角色引用"));
+            validateParsed(resolve(root, document.path), () => { const path = safeWorkspacePath(root, String(value.path)); if (!existsSync(path)) diagnostics.push(diag("error", "SEGMENT_AUDIO_MISSING", document.path, `引用音频不存在：${value.path}`)); else if (!mediaMimeType(path).startsWith("audio/")) throw new Error(`audioReferences.path 不是音频：${value.path}`); }, diagnostics, root, "SEGMENT_AUDIO_INVALID");
+        }
         const folder = resolve(root, dirname(document.path));
+        if (document.data.generationIntent === "transition") continue;
+        if (!existsSync(resolve(folder, "storyboard.yaml"))) diagnostics.push(diag("error", "STORYBOARD_MISSING", document.path, "普通视频段缺少 storyboard.yaml"));
         if (!existsSync(resolve(folder, "storyboard-prompt.md"))) diagnostics.push(diag("warning", "STORYBOARD_PROMPT_MISSING", document.path, "缺少故事板提示词"));
         if (!existsSync(resolve(folder, "storyboard.png"))) diagnostics.push(diag("info", "STORYBOARD_MEDIA_PENDING", document.path, "故事板图片尚未生成"));
     }
@@ -1081,7 +1284,7 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
         if (!existsSync(resolve(root, required))) diagnostics.push(diag("error", "REQUIRED_FILE_MISSING", required, "缺少必要工程文件"));
     }
     const stylePath = resolve(root, "direction", "visual-style.md");
-    if (existsSync(stylePath)) {
+    if (documents.some((document) => document.path === "direction/visual-style.md")) {
         const style = matter(readFileSync(stylePath, "utf8"));
         const requiredStyleSections = ["总体风格", "媒介", "通用渲染", "角色呈现", "场景呈现", "道具呈现", "色彩", "光线", "反差", "材质与质感", "镜头与景深", "构图", "后期处理", "避免元素"];
         const missingSections = requiredStyleSections.filter((heading) => !new RegExp(`^##\\s+${heading}\\s*$`, "m").test(style.content));
@@ -1094,13 +1297,13 @@ function validateDirectorRoot(root: string, scope = root): DirectorDiagnostic[] 
         }
     }
     const rulesPath = resolve(root, "direction", "directing-rules.md");
-    if (existsSync(rulesPath) && !/^##\s+创作定位\s*$/m.test(matter(readFileSync(rulesPath, "utf8")).content)) {
+    if (documents.some((document) => document.path === "direction/directing-rules.md") && !/^##\s+创作定位\s*$/m.test(matter(readFileSync(rulesPath, "utf8")).content)) {
         diagnostics.push(diag("warning", "DIRECTING_POSITIONING_MISSING", "direction/directing-rules.md", "导演规则缺少“创作定位”首章"));
     }
     return diagnostics;
 }
 
-function indexDirectorProject(userId: string, projectId: string, diagnostics: DirectorDiagnostic[]) {
+function indexDirectorProject(userId: string, projectId: string, diagnostics: DirectorDiagnostic[], applied = false) {
     const root = directorProjectRoot(userId, projectId);
     registerDirectorProjectMedia(userId, projectId, root);
     syncDirectionReferenceIndex(userId, projectId, root);
@@ -1109,22 +1312,34 @@ function indexDirectorProject(userId: string, projectId: string, diagnostics: Di
     const upsert = db.prepare(`INSERT INTO director_file_index(user_id,project_id,path,entity_id,kind,sha256,revision,bytes,media_type,metadata,diagnostics,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,project_id,path) DO UPDATE SET entity_id=excluded.entity_id,kind=excluded.kind,sha256=excluded.sha256,revision=excluded.revision,bytes=excluded.bytes,media_type=excluded.media_type,metadata=excluded.metadata,diagnostics=excluded.diagnostics,updated_at=excluded.updated_at`);
     const seen = new Set<string>();
+    const changedPaths: string[] = [];
+    const previouslyPending = Boolean((db.prepare("SELECT needs_reconcile FROM director_sync_versions WHERE user_id=? AND project_id=?").get(userId, projectId) as { needs_reconcile: number } | undefined)?.needs_reconcile);
     db.transaction(() => {
         for (const path of walkFiles(root).filter((path) => !ignoredExportRoots.has(posixRelative(root, path).split("/")[0]!))) {
             const rel = posixRelative(root, path);
             const sha = hashFile(path);
             const prior = previous.get(rel);
+            if (prior?.sha256 !== sha) changedPaths.push(rel);
             const revision = prior ? prior.revision + Number(prior.sha256 !== sha) : 1;
             const info = fileInfo(path);
             const fileDiagnostics = diagnostics.filter((item) => item.path === rel);
             upsert.run(userId, projectId, rel, info.entityId, info.kind, sha, revision, statSync(path).size, info.mediaType, "{}", JSON.stringify(fileDiagnostics), now);
             seen.add(rel);
         }
-        for (const path of previous.keys()) if (!seen.has(path)) db.prepare("DELETE FROM director_file_index WHERE user_id=? AND project_id=? AND path=?").run(userId, projectId, path);
+        for (const path of previous.keys()) if (!seen.has(path)) {
+            changedPaths.push(path);
+            db.prepare("DELETE FROM director_file_index WHERE user_id=? AND project_id=? AND path=?").run(userId, projectId, path);
+        }
         const rootHash = createHash("sha256").update(Array.from(seen).sort().map((path) => `${path}:${hashFile(resolve(root, path))}`).join("\n")).digest("hex");
         db.prepare(`INSERT INTO director_project_storage(user_id,project_id,format_version,root_hash,migrated_at,indexed_at) VALUES(?,?,1,?,?,?)
             ON CONFLICT(user_id,project_id) DO UPDATE SET root_hash=excluded.root_hash,indexed_at=excluded.indexed_at`).run(userId, projectId, rootHash, now, now);
     })();
+    db.prepare(`INSERT INTO director_sync_versions(user_id,project_id,version,needs_reconcile,diagnostics) VALUES(?,?,0,?,?)
+        ON CONFLICT(user_id,project_id) DO UPDATE SET needs_reconcile=excluded.needs_reconcile,diagnostics=excluded.diagnostics`).run(userId, projectId, Number(!applied && (previouslyPending || changedPaths.length > 0)), JSON.stringify(diagnostics));
+    if (changedPaths.length || (applied && previouslyPending)) {
+        markDirectorProjectChanged(userId, projectId, !applied ? ["validation"] : previouslyPending ? directorResources : directorResourcesForPaths(changedPaths));
+        emitWorkspaceUpdate(userId, projectId, diagnostics);
+    }
 }
 
 function registerDirectorProjectMedia(userId: string, projectId: string, root: string) {
@@ -1188,6 +1403,7 @@ function assetMediaVariants(userId: string, projectId: string, root: string, fol
             id: `media-${createHash("sha256").update(rel).digest("hex").slice(0, 20)}`,
             kind: mediaKind,
             fileId: registerDirectorMediaFile(userId, projectId, root, path),
+            contentVersion: hashFile(path),
             label: basename(path, extname(path)).replace(/[-_]+/g, " "),
             prompt: "",
             usage,
@@ -1537,7 +1753,7 @@ function validateParsed(path: string, parse: () => void, diagnostics: DirectorDi
 
 function fileInfo(path: string) {
     const extension = extname(path).toLowerCase();
-    const mediaType = [".png", ".jpg", ".jpeg", ".webp"].includes(extension) ? "image" : [".mp4", ".mov", ".webm"].includes(extension) ? "video" : [".wav", ".mp3", ".m4a"].includes(extension) ? "audio" : null;
+    const mediaType = mediaMimeType(path)?.split("/")[0] || null;
     if (extension === ".md") {
         try {
             const data = matter(readFileSync(path, "utf8")).data as Record<string, unknown>;

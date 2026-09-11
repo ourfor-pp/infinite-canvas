@@ -1,3 +1,5 @@
+import { getDirectorSyncSnapshot } from "./director-sync-snapshot.js";
+import { markDirectorProjectChanged } from "./director-sync.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { createReadStream } from "node:fs";
 import { nanoid } from "nanoid";
@@ -34,7 +36,7 @@ import {
     getDirectorDocument, getDirectorScreenplayBreakdown, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
     updateDirectorDocument, updateDirectorScreenplayBreakdown, updateDirectorSequence, updateDirectorTimeline, updateDirectorVideoSegment, updateDirectorWorkspace, updateDirectorSegmentAssetReference,
 } from "./director.js";
-import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflight, listDirectorRenders, retryDirectorRender } from "./director-render.js";
+import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflight, getDirectorPlaybackPlan, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
 import {
     addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
@@ -111,6 +113,7 @@ api.post("/projects", route((req) => {
         db.prepare("INSERT INTO projects(id, user_id, kind, title, payload, revision, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 1, ?, ?)").run(value.id, req.user.id, value.kind, value.title, JSON.stringify(payload), payload.createdAt, now);
         if (value.kind === "director") initializeDirectorProject(req.user.id, value.id, now);
         syncFileRefs(req.user.id, "project", value.id, payload);
+        markDirectorProjectChanged(req.user.id, value.id, ["project"]);
         return projectResponse(db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(value.id, req.user.id) as ProjectRow);
     })();
 }, 201));
@@ -144,6 +147,7 @@ api.put("/projects/:id", route((req) => {
             throw apiError(409, "PROJECT_CONFLICT", "项目已在其他页面更新", { current: projectResponse(current) });
         }
         syncFileRefs(req.user.id, "project", routeId(req), payload);
+        markDirectorProjectChanged(req.user.id, routeId(req), ["project"]);
         return projectResponse(db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(req.params.id, req.user.id) as ProjectRow);
     })();
 }));
@@ -158,12 +162,14 @@ api.put("/projects/:id/force", route((req) => {
         const result = db.prepare("UPDATE projects SET title=?, payload=?, revision=revision+1, updated_at=? WHERE id=? AND user_id=?").run(value.title, JSON.stringify(payload), now, req.params.id, req.user.id);
         if (!result.changes) throw apiError(404, "PROJECT_NOT_FOUND", "项目不存在");
         syncFileRefs(req.user.id, "project", routeId(req), payload);
+        markDirectorProjectChanged(req.user.id, routeId(req), ["project"]);
         return projectResponse(db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(req.params.id, req.user.id) as ProjectRow);
     })();
 }));
 
 api.delete("/projects/:id", route((req) => {
     const projectId = routeId(req);
+    const director = Boolean(db.prepare("SELECT 1 FROM projects WHERE user_id=? AND id=? AND kind='director'").get(req.user.id, projectId));
     if (db.prepare("SELECT 1 FROM agent_sessions WHERE user_id=? AND project_id=? AND status IN ('running','waiting_for_user')").get(req.user.id, projectId)) throw apiError(409, "PROJECT_AGENT_BUSY", "Agent 正在使用这个项目，请先停止任务");
     const result = db.transaction(() => {
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='creative_asset' AND owner_id IN (SELECT id FROM creative_assets WHERE user_id=? AND project_id=?)").run(req.user.id, req.user.id, projectId);
@@ -179,8 +185,11 @@ api.delete("/projects/:id", route((req) => {
     })();
     removeAgentProjectWorkspace(req.user.id, projectId);
     removeDirectorProjectWorkspace(req.user.id, projectId);
+    if (director) markDirectorProjectChanged(req.user.id, projectId, ["project"], true);
     return result;
 }));
+
+api.get("/director/projects/:id/sync", route((req) => getDirectorSyncSnapshot(req.user.id, routeId(req), String(req.query.resources || "").split(","), req.query.refresh === "1")));
 
 api.get("/director/projects/:id", route((req) => {
     ensureDirectorProjectWorkspace(req.user.id, routeId(req));
@@ -202,15 +211,15 @@ api.get("/director/projects/:id/direction/style-board", (req, res, next) => {
 });
 api.get("/director/projects/:id/logical-documents/:kind", route((req) => readDirectorLogicalDocument(req.user.id, routeId(req), routeParam(req, "kind"))));
 api.put("/director/projects/:id/logical-documents/:kind/part", route((req) => writeDirectorDocumentPart(req.user.id, routeId(req), routeParam(req, "kind"), String(req.body?.path || ""), String(req.body?.content || ""), typeof req.headers["if-match"] === "string" ? req.headers["if-match"].replace(/^\"|\"$/g, "") : undefined)));
-api.get("/director/projects/:id/export", (req, res, next) => {
+api.get("/director/projects/:id/export", async (req, res, next) => {
     try {
-        const result = exportDirectorProjectZip(req.user.id, routeId(req));
+        const result = await exportDirectorProjectZip(req.user.id, routeId(req));
         res.setHeader("Content-Type", "application/zip");
         res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`);
         res.send(result.buffer);
     } catch (error) { next(error); }
 });
-api.post("/director/projects/import", express.raw({ type: ["application/zip", "application/x-zip-compressed"], limit: config.maxUploadBytes }), (req, res, next) => {
+api.post("/director/projects/import", express.raw({ type: ["application/zip", "application/x-zip-compressed"], limit: config.maxUploadBytes }), async (req, res, next) => {
     try {
         if (!Buffer.isBuffer(req.body)) throw apiError(415, "DIRECTOR_IMPORT_TYPE", "请上传 ZIP 工程包");
         const projectId = nanoid();
@@ -222,7 +231,7 @@ api.post("/director/projects/import", express.raw({ type: ["application/zip", "a
             initializeDirectorProject(req.user.id, projectId, now);
         })();
         try {
-            const result = importDirectorProjectZip(req.user.id, projectId, req.body);
+            const result = await importDirectorProjectZip(req.user.id, projectId, req.body);
             res.status(201).json({ data: result });
         } catch (error) {
             db.prepare("DELETE FROM projects WHERE id=? AND user_id=?").run(projectId, req.user.id);
@@ -252,6 +261,7 @@ api.delete("/director/video-segments/:id", route((req) => deleteDirectorVideoSeg
 api.get("/director/video-segments/:id/preflight", route((req) => getDirectorVideoSegmentPreflight(req.user.id, routeId(req))));
 api.post("/director/video-segments/:id/storyboard/generate", route((req) => createDirectorStoryboardGeneration(req.user.id, routeId(req), req.body), 202));
 api.post("/director/video-segments/:id/generate", asyncRoute((req) => createDirectorVideoSegmentGeneration(req.user.id, routeId(req), req.body), 201));
+api.get("/director/projects/:id/playback-plan", asyncRoute((req) => getDirectorPlaybackPlan(req.user.id, routeId(req))));
 api.put("/director/projects/:id/timeline", route((req) => updateDirectorTimeline(req.user.id, routeId(req), req.body)));
 api.get("/director/projects/:id/renders", route((req) => listDirectorRenders(req.user.id, routeId(req))));
 api.post("/director/projects/:id/renders", route((req) => createDirectorRender(req.user.id, routeId(req), req.body), 202));

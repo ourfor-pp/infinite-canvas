@@ -169,3 +169,31 @@ test("续接视频原声先占 Audio 编号，独立参考与实际上传顺序�
     assert.deepEqual(h3AudioPromptReferences(references, false).map((item) => item.tag), ["<Audio 1>"]);
     assert.deepEqual(h3AudioPromptReferences(references, true).map((item) => item.tag), ["<Audio 1>", "<Audio 2>"]);
 });
+
+test("原生续接时间映射不修改对白原文或引用编号", async () => {
+    const { compileH3NativeContinuationPrompt } = await import("./h3-prompt.js");
+    const cue = { speakerAssetId: "father", speakerName: "父亲", text: "这灯，刚修好。", language: "Chinese", delivery: "quietly", startSeconds: 1, endSeconds: 3 };
+    const sheet = { frames: [{ shotNumber: 1, timeSeconds: 0, description: "", action: "", cameraAngle: "", cameraMove: "", h3Visual: "The father remains seated.", dialogues: [cue], sound: "quiet room tone" }] };
+    const prompt = compileH3NativeContinuationPrompt({ durationSeconds: 5, boundary: "continue" }, sheet, [{ tag: "<Picture 1>", purpose: "storyboard", subjectKind: "character", subjectTag: "<Subject 1>", assetId: "father" }], 119);
+    assert.match(prompt, /00:00\.917/);
+    assert.match(prompt, /这灯，刚修好。/);
+    assert.match(prompt, /5\.88-second/);
+    assert.doesNotMatch(prompt, /<Video 1>|<Audio 1>/);
+    assert.equal(cue.startSeconds, 1);
+    assert.equal(cue.endSeconds, 3);
+    assert.deepEqual([...prompt.matchAll(/^(subject_definitions|summary|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music):/gm)].map((match) => match[1]), ["subject_definitions", "summary", "retention_analysis", "detailed_description", "overall_soundscape", "non_diegetic_music"]);
+});
+
+test("原生续接末画格和末句对白落在对齐后的实际窗口内", async () => {
+    const { compileH3NativeContinuationPrompt } = await import("./h3-prompt.js");
+    const cue = { speakerAssetId: "father", speakerName: "父亲", text: "这灯，刚修好。", language: "Chinese", delivery: "quietly", startSeconds: 6, endSeconds: 8 };
+    const frame = { shotNumber: 1, timeSeconds: 0, description: "", action: "", cameraAngle: "", cameraMove: "", h3Visual: "The father remains seated.", sound: "quiet room tone" };
+    const sheet = { frames: [frame, { ...frame, timeSeconds: 8, dialogues: [cue] }] };
+    const before = structuredClone(sheet);
+    const prompt = compileH3NativeContinuationPrompt({ durationSeconds: 8, boundary: "continue" }, sheet, [], 187);
+    assert.match(prompt, /By 00:08\.708/);
+    assert.match(prompt, /00:06\.760/);
+    assert.doesNotMatch(prompt, /00:08\.917/);
+    assert.match(prompt, /这灯，刚修好。/);
+    assert.deepEqual(sheet, before);
+});

@@ -13,7 +13,7 @@ export default function DirectorPage() {
     const loadProjects = useDirectorStore((state) => state.loadProjects);
     const createProject = useDirectorStore((state) => state.createProject);
     const deleteProject = useDirectorStore((state) => state.deleteProject);
-    useEffect(() => { void loadProjects().catch((error) => message.error(error instanceof Error ? error.message : "导演项目加载失败")); }, [loadProjects, message]);
+    useEffect(() => { void loadProjects().catch((error) => message.error(error instanceof Error ? error.message : "导演项目加载失败")); return useDirectorStore.getState().watchProjects(); }, [loadProjects, message]);
     const create = async () => {
         try { const project = await createProject(`未命名长片 ${projects.length + 1}`); navigate(`/director/${project.id}/overview`); }
         catch (error) { message.error(error instanceof Error ? error.message : "创建失败"); }

@@ -7,8 +7,26 @@ import { promisify } from "node:util";
 import { db } from "../database.js";
 import { getStoredFile, storeLocalFile } from "../file-store.js";
 import { runTextModelOnce } from "../generation-service.js";
+import { cacheDirectorMediaFile, resolveDirectorMediaFile } from "../director-workspace.js";
 
 const execFileAsync = promisify(execFile);
+
+export async function understandDirectorAudios(userId: string, projectId: string, modelRef: string, input: { items: Array<{ path: string; prompt?: string }> }) {
+    const files = input.items.map(({ path, prompt }) => ({ fileId: resolveDirectorMediaFile(userId, projectId, path, "audio").fileId, prompt }));
+    const results = await understandProjectAudios(userId, projectId, modelRef, { items: files });
+    return results.map(({ text, structured }, index) => ({ path: input.items[index].path, text, ...(structured === undefined ? {} : { structured }) }));
+}
+
+export async function sampleDirectorVideo(userId: string, projectId: string, input: { path: string; mode: "overview" | "frames"; count?: number; timesSeconds?: number[] }) {
+    const { fileId } = resolveDirectorMediaFile(userId, projectId, input.path, "video");
+    if (input.mode === "overview") {
+        if (input.timesSeconds?.length) throw mediaError("MEDIA_SAMPLE_OPTIONS", "指定时间抽帧请使用 frames 模式");
+        const result = await prepareProjectVideoOverview(userId, projectId, { fileId, frameCount: input.count });
+        return { path: input.path, mode: input.mode, probe: result.probe, frameCount: result.frameCount, layout: result.layout, image: cacheDirectorMediaFile(userId, projectId, result.contactSheet.fileId) };
+    }
+    const result = await sampleProjectVideoFrames(userId, projectId, { fileId, count: input.count, timesSeconds: input.timesSeconds });
+    return { path: input.path, mode: input.mode, probe: result.probe, frames: result.frames.map(({ timeSeconds, file }) => ({ timeSeconds, ...cacheDirectorMediaFile(userId, projectId, file.fileId) })) };
+}
 
 export async function understandProjectImages(userId: string, projectId: string, modelRef: string, input: { fileIds: string[]; prompt?: string; detail?: "low" | "high" | "xhigh" }) {
     requireMediaModel(modelRef);
@@ -89,7 +107,7 @@ function requireMediaFile(userId: string, projectId: string, fileId: string, kin
 
 function projectOwnsFile(userId: string, projectId: string, fileId: string) {
     return Boolean(db.prepare(`SELECT 1 FROM file_refs r WHERE r.user_id=? AND r.file_id=? AND (
-        (r.owner_type IN ('project','agent_project') AND r.owner_id=?) OR
+        (r.owner_type IN ('project','agent_project','director_project') AND r.owner_id=?) OR
         (r.owner_type='creative_asset' AND EXISTS(SELECT 1 FROM creative_assets a WHERE a.id=r.owner_id AND a.user_id=r.user_id AND a.project_id=?)) OR
         (r.owner_type='visual_style' AND EXISTS(SELECT 1 FROM visual_styles s WHERE s.id=r.owner_id AND s.user_id=r.user_id AND s.project_id=?)) OR
         (r.owner_type='director_shot' AND EXISTS(SELECT 1 FROM director_shots d WHERE d.id=r.owner_id AND d.user_id=r.user_id AND d.project_id=?)) OR

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -79,7 +81,7 @@ test("Agent Skill 解析单行和列表 allowed-tools", () => {
 test("画布与导演 Agent 的 Skill 和工具清单完全隔离", () => {
     assert.equal(agentScenes.canvas.skillIds.some((id) => id.startsWith("director-")), false);
     assert.equal(agentScenes.director.skillIds.every((id) => id.startsWith("director-")), true);
-    assert.equal(agentScenes.director.skillIds.length, 15);
+    assert.equal(agentScenes.director.skillIds.length, 14);
     assert.equal(agentScenes.director.skillIds.includes("director-write-story"), true);
     assert.equal(agentScenes.canvas.skillIds.includes("director-write-story"), false);
     assert.equal(agentScenes.canvas.tools.some((item) => item.id.startsWith("director_")), false);
@@ -866,7 +868,7 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     assert.equal(savedAgentSettings.body.data.mediaReady, true);
     assert.equal(savedAgentSettings.body.data.mediaModelName, "Agent 测试模型");
     const publicConfig = await api("/agent/config", userTwo);
-    assert.deepEqual(publicConfig.body.data, { ready: true, modelName: "Agent 测试模型", providerName: "Agent 测试渠道", protocolVersion: 3, storageVersion: 2 });
+    assert.deepEqual(publicConfig.body.data, { ready: true, modelName: "Agent 测试模型", providerName: "Agent 测试渠道", protocolVersion: 4, storageVersion: 2 });
     assert.equal(JSON.stringify(publicConfig.body).includes(modelRef), false);
 
     assert.equal((await api("/agent/projects/project-1/conversation", userTwo)).response.status, 404);
@@ -1035,11 +1037,240 @@ test("文件上传、Range 下载、路径穿越和越权访问", async () => {
     assert.equal((await fetch(`${origin}/files/..%2Fapp.db/content`, { headers: userOne })).status, 404);
 });
 
+test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接", async () => {
+    const { resolveDirectorH3Continuation, resolveDirectorH3Cumulative } = await import("./h3-continuation.js");
+    const { syncDirectorGeneration } = await import("./director-render.js");
+    const { storeLocalFile, getStoredFile } = await import("./file-store.js");
+    const projectId = "h3-binding-project", segmentId = "h3-binding-segment", generationId = "h3-binding-generation";
+    const userId = userOne["X-Trim-Userid"], now = new Date().toISOString();
+    assert.equal((await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "续接绑定测试" }) })).response.status, 201);
+    assert.equal((await api(`/director/projects/${projectId}`, userOne)).response.status, 200);
+    db.prepare("INSERT INTO director_sequences(id,user_id,project_id,position,title,created_at,updated_at) VALUES(?,?,?,0,'场次',?,?)").run("h3-binding-sequence", userId, projectId, now, now);
+    const initialPayload = { durationSeconds: 4, videoGenerationId: generationId, storyboardSheet: { revision: 1, layout: "2x2", frames: Array.from({ length: 4 }, (_, index) => ({ id: `h3-frame-${index}`, position: index, shotNumber: 1, timeSeconds: index * 4 / 3, kind: index === 0 ? "shot-start" : index === 3 ? "shot-end" : "keyframe", description: "静态画面", action: "", cameraAngle: "", cameraMove: "", sound: "" })) } };
+    db.prepare("INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,payload,created_at,updated_at) VALUES(?,?,?,'h3-binding-sequence',0,'片段',?,?,?)").run(segmentId, userId, projectId, JSON.stringify(initialPayload), now, now);
+    const sourcePath = join(testData, "h3-source.mp4"), statePath = join(testData, "h3-state.safetensors");
+    await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=64x64:r=24", "-f", "lavfi", "-i", "anullsrc=r=32000:cl=stereo", "-vf", "drawbox=color=white:t=fill:enable='eq(n,106)'", "-frames:v", "107", "-t", String(107 / 24), "-c:v", "libx264", "-c:a", "aac", sourcePath]);
+    writeFileSync(statePath, "state transport fixture; tensor validation belongs to the Comfy loader");
+    const video = storeLocalFile(userId, sourcePath, "source.mp4", "video/mp4");
+    const state = storeLocalFile(userId, statePath, "state.safetensors", "application/octet-stream");
+    const cumulativePath = join(testData, "h3-cumulative.mp4");
+    await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=green:s=64x64:r=24", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=32000", "-frames:v", "107", "-t", String(107 / 24), "-c:v", "libx264", "-c:a", "aac", cumulativePath]);
+    const cumulativeSource = storeLocalFile(userId, cumulativePath, "cumulative.mp4", "video/mp4");
+
+    const context = { schemaVersion: 1 as const, fps: 24 as const, modelRevision: "model-sha", videoVaeRevision: "video-vae-sha", audioVaeRevision: "audio-vae-sha", sourceId: "test-source", width: 64, height: 64, frames: 107 };
+    const request = { params: { __directorSegment: { projectId, segmentId, storyboardRevision: 1 }, __h3StateContext: context } };
+    db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES(?,?,'video','succeeded','minimax-h3-ref2va-local',?,?,?,?)").run(generationId, userId, JSON.stringify(request), JSON.stringify({ files: [video], continuationStates: [state], cumulativeVideos: [cumulativeSource] }), now, now);
+    const generation = db.prepare("SELECT * FROM generations WHERE id=? AND user_id=?").get(generationId, userId) as import("./generation-service.js").GenerationRow;
+    const readPayload = () => JSON.parse((db.prepare("SELECT payload FROM director_shots WHERE id=? AND user_id=?").get(segmentId, userId) as { payload: string }).payload);
+    const writePayload = (payload: unknown) => db.prepare("UPDATE director_shots SET payload=?,revision=revision+1 WHERE id=? AND user_id=?").run(JSON.stringify(payload), segmentId, userId);
+    const syncing = syncDirectorGeneration(generation);
+    writePayload({ ...initialPayload, description: "解码期间的新编辑" });
+    await syncing;
+    const adopted = readPayload();
+    assert.equal(adopted.description, "解码期间的新编辑", "异步媒体处理不得覆盖用户新编辑");
+    const lastFrame = getStoredFile(userId, adopted.actualLastFrameFileId)!;
+    const { stdout: lastPixel } = await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-i", lastFrame.path, "-vf", "scale=1:1", "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { encoding: "buffer" });
+    assert.ok([...lastPixel].every((channel) => channel > 230), "实际尾帧必须是最后一帧白色，不能是提前0.12秒的蓝色画面");
+    const cumulative = await resolveDirectorH3Cumulative(userId, projectId, segmentId);
+    assert.equal(cumulative.fileId, cumulativeSource.fileId);
+    assert.equal(cumulative.frames, 107);
+    assert.equal(cumulative.generationId, generationId);
+    const playback = await api(`/director/projects/${projectId}/playback-plan`, userOne);
+    assert.equal(playback.response.status, 200);
+    assert.equal(playback.body.data.segments[0].fileId, cumulativeSource.fileId);
+    assert.equal(playback.body.data.segments[0].duration, 107 / 24);
+    assert.equal((await api(`/director/projects/${projectId}/playback-plan`, userTwo)).response.status, 404);
+
+    await assert.rejects(resolveDirectorH3Cumulative(userTwo["X-Trim-Userid"], projectId, segmentId));
+    writePayload({ ...adopted, h3CumulativeVideo: { ...adopted.h3CumulativeVideo, frames: 124 } });
+    await assert.rejects(resolveDirectorH3Cumulative(userId, projectId, segmentId), /累计音视频/);
+    writePayload(adopted);
+
+    const binding = await resolveDirectorH3Continuation(userId, projectId, segmentId, context);
+    assert.equal(adopted.durationSeconds, 4, "保留创作计划时长");
+    assert.equal(adopted.videoDurationSeconds, 107 / 24, "保留原生媒体时长，不能裁掉状态对应的尾帧");
+    const timeline = JSON.parse((db.prepare("SELECT payload FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string }).payload);
+    assert.equal(timeline.tracks.find((track: { id: string }) => track.id === "model-original").clips[0].duration, 107 / 24);
+    assert.deepEqual(cumulative.chain.map((item) => item.segmentId), [segmentId]);
+    db.prepare("UPDATE generations SET request=? WHERE id=?").run(JSON.stringify({ ...request, params: { ...request.params, __h3PreviousFrames: binding.context.frames, __h3PreviousState: binding } }), generationId);
+    await assert.rejects(resolveDirectorH3Cumulative(userId, projectId, segmentId), /来源链无效/);
+    db.prepare("UPDATE generations SET request=? WHERE id=?").run(JSON.stringify(request), generationId);
+    const { createDirectorRender, listDirectorRenders } = await import("./director-render.js");
+    const refreshedProject = await api(`/director/projects/${projectId}`, userOne);
+    assert.equal(refreshedProject.response.status, 200);
+    const refreshedTrack = refreshedProject.body.data.timeline.payload.tracks.find((track: { id: string }) => track.id === "model-original");
+    assert.equal(refreshedTrack?.clips.length, 1, "生成自动加入的模型原声必须在工程刷新后保留");
+    const timelineRow = db.prepare("SELECT revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { revision: number };
+    const rendering = createDirectorRender(userId, projectId, { timelineRevision: timelineRow.revision });
+    let rendered = rendering;
+    for (let attempt = 0; attempt < 100 && !["succeeded", "failed"].includes(rendered.status); attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        rendered = listDirectorRenders(userId, projectId).find((item) => item.id === rendering.id)!;
+    }
+    assert.equal(rendered.status, "succeeded", rendered.error || "累计媒体合成未完成");
+    const { directorProjectRoot, archiveDirectorRender } = await import("./director-workspace.js");
+    const archiveRoot = join(directorProjectRoot(userId, projectId), "renders", rendered.id);
+    assert.ok(existsSync(join(archiveRoot, "final.mp4")));
+    const archiveMetadata = JSON.parse(readFileSync(join(archiveRoot, "render.json"), "utf8"));
+    assert.equal(archiveMetadata.renderId, rendered.id);
+    assert.deepEqual(archiveMetadata.segmentIds, [segmentId]);
+    assert.equal(archiveMetadata.fps, 24);
+    assert.match(archiveMetadata.sha256, /^[a-f0-9]{64}$/);
+    assert.throws(() => archiveDirectorRender(userId, projectId, rendered.id, join(archiveRoot, "final.mp4"), {}), /不能覆盖/);
+    const renderZip = new AdmZip(Buffer.from(await (await fetch(`${origin}/director/projects/${projectId}/export`, { headers: userOne })).arrayBuffer()));
+    assert.ok(renderZip.getEntry(`renders/${rendered.id}/final.mp4`));
+    assert.ok(renderZip.getEntry(`renders/${rendered.id}/render.json`));
+    const renderedMedia = getStoredFile(userId, rendered.outputFileId!)!;
+    const { stdout: renderedProbe } = await promisify(execFileCallback)("ffprobe", ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "json", renderedMedia.path]);
+    assert.equal(JSON.parse(renderedProbe).streams[0].nb_read_frames, "107");
+    const { stdout: pixel } = await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-i", renderedMedia.path, "-vf", "scale=1:1", "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { encoding: "buffer" });
+    assert.ok(pixel[1]! > pixel[0]! + 50 && pixel[1]! > pixel[2]! + 50, "最终画面必须采用绿色累计视频，不能回退蓝色旧预览");
+    const { stdout: audioStats } = await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-i", renderedMedia.path, "-vn", "-t", "0.1", "-ac", "1", "-ar", "32000", "-f", "s16le", "pipe:1"], { encoding: "buffer" });
+    assert.ok(Array.from({ length: audioStats.length / 2 }, (_, index) => Math.abs(audioStats.readInt16LE(index * 2))).some((sample) => sample > 100), "模型原声必须来自累计视频的正弦音轨，不能沿用静音旧预览");
+
+    const exported = await fetch(`${origin}/director/projects/${projectId}/export`, { headers: userOne });
+    assert.equal(exported.status, 200);
+    const archive = new AdmZip(Buffer.from(await exported.arrayBuffer()));
+    assert.ok(archive.getEntry(".h3/manifest.json"));
+    const importZip = (zip: AdmZip) => fetch(`${origin}/director/projects/import`, { method: "POST", headers: { ...userTwo, "Content-Type": "application/zip" }, body: new Uint8Array(zip.toBuffer()) });
+    const importedResponse = await importZip(archive);
+    assert.equal(importedResponse.status, 201);
+    const importedProjectId = (await importedResponse.json()).data.projectId;
+    const importedProject = (await api(`/director/projects/${importedProjectId}`, userTwo)).body.data;
+    const importedSegment = importedProject.videoSegments[0];
+    const importedState = await resolveDirectorH3Continuation(userTwo["X-Trim-Userid"], importedProjectId, importedSegment.id, context);
+    assert.notEqual(importedState.fileId, state.fileId);
+    assert.notEqual(importedState.generationId, generationId);
+    assert.equal(importedState.stateSha256, binding.stateSha256);
+    assert.equal(importedState.context.sourceId, context.sourceId, "保留状态中的原始来源标识，不改写 tensor 元数据");
+    const importedCumulative = await resolveDirectorH3Cumulative(userTwo["X-Trim-Userid"], importedProjectId, importedSegment.id);
+    assert.notEqual(importedCumulative.fileId, cumulativeSource.fileId);
+    assert.equal(importedProject.timeline.payload.tracks[0].clips[0].id, `model-original-${importedSegment.id}`);
+    assert.equal((await fetch(`${origin}/files/${importedState.fileId}/content`, { headers: userOne })).status, 404);
+    const importedGeneration = db.prepare("SELECT request FROM generations WHERE user_id=? AND id=?").get(userTwo["X-Trim-Userid"], importedState.generationId) as { request: string };
+    assert.equal(JSON.parse(importedGeneration.request).params.__h3ArchiveImport.sourceGenerationId, generationId);
+    const reexported = await fetch(`${origin}/director/projects/${importedProjectId}/export`, { headers: userTwo });
+    assert.equal(reexported.status, 200);
+    assert.equal(JSON.parse(new AdmZip(Buffer.from(await reexported.arrayBuffer())).readAsText(".h3/manifest.json")).entries[0].sourceGenerationId, generationId, "反复导入导出保留原始来源生成标识");
+    const manifest = JSON.parse(archive.readAsText(".h3/manifest.json"));
+    const damaged = new AdmZip(archive.toBuffer());
+    damaged.updateFile(manifest.entries[0].state.path, Buffer.from("damaged state"));
+    assert.equal((await importZip(damaged)).status, 400, "拒绝状态内容哈希不匹配的导入");
+    for (const patch of [{ parentSegmentId: manifest.entries[0].segmentId }, { state: { ...manifest.entries[0].state, path: ".h3/../../app.db" } }]) {
+        const invalidArchive = new AdmZip(archive.toBuffer());
+        invalidArchive.updateFile(".h3/manifest.json", Buffer.from(JSON.stringify({ ...manifest, entries: [{ ...manifest.entries[0], ...patch }] })));
+        assert.equal((await importZip(invalidArchive)).status, 400, "拒绝循环来源或状态路径越界");
+    }
+    const importedRendering = createDirectorRender(userTwo["X-Trim-Userid"], importedProjectId, { timelineRevision: importedProject.timeline.revision });
+    let importedRendered = importedRendering;
+    for (let attempt = 0; attempt < 100 && !["succeeded", "failed"].includes(importedRendered.status); attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        importedRendered = listDirectorRenders(userTwo["X-Trim-Userid"], importedProjectId).find((item) => item.id === importedRendering.id)!;
+    }
+    assert.equal(importedRendered.status, "succeeded", importedRendered.error || "导入后累计合成未完成");
+    const importedOutput = getStoredFile(userTwo["X-Trim-Userid"], importedRendered.outputFileId!)!;
+    const { stdout: importedAudio } = await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-i", importedOutput.path, "-vn", "-t", "0.1", "-ac", "1", "-ar", "32000", "-f", "s16le", "pipe:1"], { encoding: "buffer" });
+    assert.ok(Array.from({ length: importedAudio.length / 2 }, (_, index) => Math.abs(importedAudio.readInt16LE(index * 2))).some((sample) => sample > 100), "跨项目恢复后仍须采用累计原声，而非静音旧预览");
+    const { exportDirectorProjectZip } = await import("./director-workspace.js");
+    const exporting = exportDirectorProjectZip(userId, projectId);
+    writePayload({ ...readPayload(), description: "导出期间的新编辑" });
+    await assert.rejects(exporting, /发生变化/, "不得导出混合版本的来源状态与工程文件");
+    writePayload(adopted);
+
+    assert.equal(binding.fileId, state.fileId);
+    assert.equal(binding.videoFileId, adopted.videoFileId);
+    assert.notEqual(binding.videoFileId, video.fileId, "绑定导演采用的视频，不冒充原始供应商文件");
+    const { reconcileDirectorProjectFiles } = await import("./director-workspace.js");
+    reconcileDirectorProjectFiles(userId, projectId);
+    assert.equal((await resolveDirectorH3Continuation(userId, projectId, segmentId, context)).videoSha256, binding.videoSha256, "工程内同内容媒体镜像保持状态来源一致");
+    await assert.rejects(resolveDirectorH3Continuation(userTwo["X-Trim-Userid"], projectId, segmentId, context), /不存在|不属于/);
+    await assert.rejects(resolveDirectorH3Continuation(userId, "another-project", segmentId, context), /不存在|不属于/);
+    await assert.rejects(resolveDirectorH3Continuation(userId, projectId, segmentId, { ...context, modelRevision: "different" }), /不一致/);
+    writePayload({ ...adopted, videoFileId: video.fileId });
+    await assert.rejects(resolveDirectorH3Continuation(userId, projectId, segmentId, context), /已失效|发生变化/);
+    writePayload({ ...adopted, videoGenerationId: "newer-generation" });
+    const beforeLateResult = readPayload();
+    await syncDirectorGeneration(generation);
+    assert.deepEqual(readPayload(), beforeLateResult, "较晚完成的旧生成不得覆盖新任务");
+    writePayload(adopted);
+    writeFileSync(getStoredFile(userId, cumulativeSource.fileId)!.path, "changed cumulative media bytes");
+    await assert.rejects(resolveDirectorH3Cumulative(userId, projectId, segmentId), /累计音视频/);
+    writeFileSync(getStoredFile(userId, state.fileId)!.path, "changed state bytes");
+    await assert.rejects(resolveDirectorH3Continuation(userId, projectId, segmentId, context), /发生变化/);
+});
+
+test("导演自动原声按默认叙事顺序定位并保留刷新及混音音量", async () => {
+    const { syncDirectorGeneration } = await import("./director-render.js");
+    const { storeLocalFile } = await import("./file-store.js");
+    const userId = userOne["X-Trim-Userid"], projectId = "native-audio-refresh", now = new Date().toISOString();
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "原声刷新" }) });
+    assert.equal((await api(`/director/projects/${projectId}`, userOne)).response.status, 200);
+    const path = join(testData, "native-audio-refresh.mp4");
+    await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=64x64:r=24", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=32000", "-t", "4", "-c:v", "libx264", "-c:a", "aac", path]);
+    const video = storeLocalFile(userId, path, "native-audio-refresh.mp4", "video/mp4");
+    for (const [position, suffix] of ["z", "a"].entries()) {
+        const segmentId = `native-audio-${suffix}`, sequenceId = `native-sequence-${suffix}`, generationId = `native-audio-generation-${suffix}`;
+        db.prepare("INSERT INTO director_sequences(id,user_id,project_id,position,title,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").run(sequenceId, userId, projectId, position, "场次", now, now);
+        db.prepare("INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,payload,created_at,updated_at) VALUES(?,?,?,?,0,'片段',?,?,?)").run(segmentId, userId, projectId, sequenceId, JSON.stringify({ durationSeconds: 4, videoGenerationId: generationId, storyboardSheet: { revision: 1, layout: "2x2", frames: Array.from({ length: 4 }, (_, index) => ({ id: `${segmentId}-frame-${index}`, shotNumber: 1, timeSeconds: index * 4 / 3, kind: index === 0 ? "shot-start" : index === 3 ? "shot-end" : "keyframe", description: "静态画面", action: "", cameraAngle: "", cameraMove: "", sound: "" })) } }), now, now);
+        db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES(?,?,'video','succeeded','test',?,?,?,?)").run(generationId, userId, JSON.stringify({ params: { __directorSegment: { projectId, segmentId } } }), JSON.stringify({ files: [video] }), now, now);
+        // These fixtures model production entities, whose files exist before the
+        // asynchronous generation callback yields to the workspace watcher.
+        const { syncDirectorSequenceFile, syncDirectorVideoSegmentFile } = await import("./director-workspace.js");
+        syncDirectorSequenceFile(userId, projectId, sequenceId);
+        syncDirectorVideoSegmentFile(userId, projectId, segmentId);
+        await syncDirectorGeneration(db.prepare("SELECT * FROM generations WHERE id=? AND user_id=?").get(generationId, userId) as import("./generation-service.js").GenerationRow);
+    }
+    const refreshed = await api(`/director/projects/${projectId}`, userOne);
+    assert.equal(refreshed.response.status, 200);
+    const clips = refreshed.body.data.timeline.payload.tracks.find((track: { id: string }) => track.id === "model-original").clips;
+    assert.deepEqual(clips.map((clip: { segmentId: string; start: number }) => [clip.segmentId, clip.start]), [["native-audio-z", 0], ["native-audio-a", 4]]);
+    const plan = await api(`/director/projects/${projectId}/playback-plan`, userOne);
+    assert.deepEqual(plan.body.data.segments.map((segment: { segmentId: string }) => segment.segmentId), ["native-audio-z", "native-audio-a"]);
+    clips[1].volume = 0.5;
+    const timeline = await api(`/director/projects/${projectId}/timeline`, userOne, { method: "PUT", body: JSON.stringify({ revision: refreshed.body.data.timeline.revision, payload: refreshed.body.data.timeline.payload }) });
+    const submission = await api(`/director/projects/${projectId}/renders`, userOne, { method: "POST", body: JSON.stringify({ timelineRevision: timeline.body.data.revision }) });
+    assert.equal(submission.response.status, 202, JSON.stringify(submission.body));
+    let rendered = submission.body.data;
+    for (let attempt = 0; attempt < 100 && !["succeeded", "failed"].includes(rendered.status); attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        rendered = (await api(`/director/projects/${projectId}/renders`, userOne)).body.data.find((item: { id: string }) => item.id === rendered.id);
+    }
+    assert.equal(rendered.status, "succeeded", rendered.error);
+    const { getStoredFile } = await import("./file-store.js");
+    const rms = async (file: string, start: number) => {
+        const { stdout } = await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-ss", String(start), "-i", file, "-vn", "-t", "0.5", "-ac", "2", "-ar", "48000", "-f", "f32le", "pipe:1"], { encoding: "buffer" });
+        let squares = 0;
+        for (let index = 0; index < stdout.length; index += 4) squares += stdout.readFloatLE(index) ** 2;
+        return Math.sqrt(squares / (stdout.length / 4));
+    };
+    const output = getStoredFile(userId, rendered.outputFileId)!.path;
+    const { stdout: mixedProbe } = await promisify(execFileCallback)("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "json", output]);
+    assert.equal(JSON.parse(mixedProbe).streams[0].channels, 2, "首段单声道原声不得将最终混音折为单声道");
+    const sourceRms = await rms(path, 0.5);
+    assert.ok(Math.abs(await rms(output, 0.5) / sourceRms - 1) < 0.05, "首段不得因为后续音轨和静音填充而衰减");
+    assert.ok(Math.abs(await rms(output, 4.5) / sourceRms - 0.5) < 0.03, "后段应保留用户设置的半音量");
+    const loudProject = (await api(`/director/projects/${projectId}`, userOne)).body.data;
+    loudProject.timeline.payload.tracks[0].clips.forEach((clip: { start: number; volume: number }) => { clip.start = 0; clip.volume = 20; });
+    const loudTimeline = await api(`/director/projects/${projectId}/timeline`, userOne, { method: "PUT", body: JSON.stringify({ revision: loudProject.timeline.revision, payload: loudProject.timeline.payload }) });
+    let loudRender = (await api(`/director/projects/${projectId}/renders`, userOne, { method: "POST", body: JSON.stringify({ timelineRevision: loudTimeline.body.data.revision }) })).body.data;
+    for (let attempt = 0; attempt < 100 && !["succeeded", "failed"].includes(loudRender.status); attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        loudRender = (await api(`/director/projects/${projectId}/renders`, userOne)).body.data.find((item: { id: string }) => item.id === loudRender.id);
+    }
+    assert.equal(loudRender.status, "succeeded", loudRender.error);
+    const { stdout: limited } = await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-ss", "0.5", "-i", getStoredFile(userId, loudRender.outputFileId)!.path, "-vn", "-t", "0.5", "-f", "f32le", "pipe:1"], { encoding: "buffer" });
+    let peak = 0;
+    for (let index = 0; index < limited.length; index += 4) peak = Math.max(peak, Math.abs(limited.readFloatLE(index)));
+    assert.ok(peak > 0.9 && peak < 0.99, `重叠高增益音轨必须限幅，实际 AAC 解码峰值 ${peak}`);
+});
+
 test("ComfyUI 原生续接状态与普通媒体输出分离", async () => {
     const { collectComfyOutputs } = await import("./generation-service.js");
     const state = { filename: "state.safetensors", subfolder: "h3-state", type: "output" };
     const video = { filename: "clip.mp4", type: "output" };
-    assert.deepEqual(collectComfyOutputs({ "1": { h3_states: [state] }, "2": { videos: [video] } }), { files: [video], continuationStates: [state] });
+    const cumulative = { filename: "cumulative.mp4", type: "output" };
+    assert.deepEqual(collectComfyOutputs({ "1": { h3_states: [state] }, "2": { videos: [video] }, h3_cumulative: { images: [cumulative] } }), { files: [video], continuationStates: [state], cumulativeVideos: [cumulative] });
+    assert.throws(() => collectComfyOutputs({ h3_cumulative: { images: [state] } }), /累计音视频格式无效/);
     assert.deepEqual(collectComfyOutputs({ "1": { h3_states: [state] } }).files, []);
     assert.throws(() => collectComfyOutputs({ "1": { h3_states: [{ filename: "unsafe.pkl" }] } }), /状态格式无效/);
 });
@@ -1053,7 +1284,11 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
         if (url.pathname === "/prompt") return json(response, { prompt_id: `prompt-${++promptCounter}` });
         if (url.pathname.startsWith("/history/")) {
             const id = url.pathname.split("/").pop() || "";
-            return json(response, { [id]: { status: { status_str: "success" }, outputs: { "70": { h3_states: [{ filename: "state.safetensors", subfolder: "h3-state", type: "output" }] }, "11": { images: [{ filename: "result.png", type: "output" }] } } } });
+            return json(response, { [id]: { status: { status_str: "success" }, outputs: { h3_cumulative: { images: [{ filename: "cumulative.mp4", type: "output" }] }, "70": { h3_states: [{ filename: "state.safetensors", subfolder: "h3-state", type: "output" }] }, "11": { images: [{ filename: "result.png", type: "output" }] } } } });
+        }
+        if (url.pathname === "/view" && url.searchParams.get("filename") === "cumulative.mp4") {
+            response.writeHead(200, { "Content-Type": "video/mp4" });
+            return response.end(Buffer.from("cumulative-transport-fixture"));
         }
         if (url.pathname === "/view" && url.searchParams.get("filename") === "state.safetensors") {
             response.writeHead(200, { "Content-Type": "application/octet-stream" });
@@ -1125,6 +1360,11 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
         assert.equal(upscaleGeneration.status, "succeeded");
         assert.equal(upscaleGeneration.result.files.length, 1);
         assert.equal(upscaleGeneration.result.files[0].name, "result.png");
+        const cumulativeFile = upscaleGeneration.result.cumulativeVideos[0];
+        assert.equal(cumulativeFile.name, "cumulative.mp4");
+        assert.equal(await (await fetch(`${origin}/files/${cumulativeFile.fileId}/content`, { headers: userOne })).text(), "cumulative-transport-fixture");
+        assert.equal((await fetch(`${origin}/files/${cumulativeFile.fileId}/content`, { headers: userTwo })).status, 404);
+        assert.ok(db.prepare("SELECT 1 FROM file_refs WHERE user_id=? AND owner_type='generation' AND owner_id=? AND file_id=?").get(userOne["X-Trim-Userid"], upscaleGeneration.id, cumulativeFile.fileId));
         const stateFile = upscaleGeneration.result.continuationStates[0];
         assert.equal(stateFile.name, "state.safetensors");
         const ownedState = await fetch(`${origin}/files/${stateFile.fileId}/content`, { headers: userOne });
@@ -1196,3 +1436,115 @@ async function nextSseMatching(stream: AsyncGenerator<TestSseEvent>, predicate: 
         clearTimeout(timer!);
     }
 }
+
+test("Codex 会话只属于导演项目，默认内置引擎且不允许跨用户或分叉", async () => {
+    const projectId = "codex-engine-test";
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "Codex 验收", kind: "director" }) });
+    const standard = await api(`/agent/projects/${projectId}/sessions`, userOne, { method: "POST", body: "{}" });
+    assert.equal(standard.body.data.engine, "builtin");
+    const codex = await api(`/agent/projects/${projectId}/sessions`, userOne, { method: "POST", body: JSON.stringify({ engine: "codex" }) });
+    assert.equal(codex.response.status, 201);
+    assert.equal(codex.body.data.engine, "codex");
+    assert.equal((await api(`/agent/sessions/${codex.body.data.id}/fork`, userOne, { method: "POST", body: "{}" })).response.status, 409);
+    assert.equal((await api(`/agent/projects/${projectId}/conversation?sessionId=${codex.body.data.id}`, userTwo)).response.status, 404);
+    assert.equal((await api("/agent/projects/project-1/sessions", userOne, { method: "POST", body: JSON.stringify({ engine: "codex" }) })).response.status, 400);
+    assert.equal((await api("/admin/ai/codex", userTwo)).response.status, 403);
+    const capabilities = await api(`/agent/projects/${projectId}/capabilities`, userOne);
+    assert.equal(capabilities.body.data.engines.find((item: { id: string }) => item.id === "codex").ready, false);
+    assert.equal(capabilities.body.data.engines.find((item: { id: string }) => item.id === "builtin").ready, true);
+});
+
+test("Agent 同步索引早于文件监听时仍通知导演页面，重复读取不反复广播", async () => {
+    const projectId = "codex-file-events-test";
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "文件变更", kind: "director" }) });
+    const { ensureDirectorProjectWorkspace, reconcileDirectorProjectFiles, setDirectorWorkspaceEmitter } = await import("./director-workspace.js");
+    const root = ensureDirectorProjectWorkspace(userOne["X-Trim-Userid"], projectId);
+    let notifications = 0;
+    setDirectorWorkspaceEmitter((_userId, id) => { if (id === projectId) notifications++; });
+    try {
+        writeFileSync(join(root, "story", "index.md"), "---\nid: story\nkind: story\nname: 文件变更\n---\n\n# 文件变更验收\n");
+        reconcileDirectorProjectFiles(userOne["X-Trim-Userid"], projectId);
+        assert.ok(notifications > 0, "主动同步索引也必须发布文件更新");
+        const count = notifications;
+        reconcileDirectorProjectFiles(userOne["X-Trim-Userid"], projectId);
+        assert.equal(notifications, count, "重复读取同一索引不得引起刷新循环");
+        const state = await api(`/director/projects/${projectId}`, userOne);
+        assert.match(state.body.data.documents.find((item: { kind: string }) => item.kind === "story").content, /文件变更验收/);
+        const prop = join(root, "assets", "props", "blue-umbrella");
+        mkdirSync(prop, { recursive: true });
+        writeFileSync(join(prop, "prop.md"), "---\nid: blue-umbrella\nkind: prop\nname: 蓝伞\n---\n\n# 描述\n蓝色雨伞\n");
+        reconcileDirectorProjectFiles(userOne["X-Trim-Userid"], projectId);
+        const assets = await api(`/projects/${projectId}/creative-assets`, userOne);
+        assert.equal(assets.response.status, 200, "文件新建素材必须满足业务读取结构");
+        assert.deepEqual(assets.body.data[0].payload.mediaDrafts.image, { prompt: "", model: null, params: {} });
+        assert.equal((await api(`/agent/projects/${projectId}/references`, userOne)).response.status, 200);
+    } finally { setDirectorWorkspaceEmitter(() => {}); }
+});
+
+
+test("Skill 文件样例投影来源和 H3 字段，时间线使用相对媒体路径且往返稳定", async () => {
+    const { ensureDirectorProjectWorkspace, reconcileDirectorProjectFiles, validateDirectorProject, syncDirectorVideoSegmentFile, syncDirectorTimelineFile } = await import("./director-workspace.js");
+    const { parse, stringify } = await import("yaml");
+    const { default: matter } = await import("gray-matter");
+    const projectId = "director-file-contract-test", userId = userOne["X-Trim-Userid"];
+    await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "格式样例", kind: "director" }) });
+    const root = ensureDirectorProjectWorkspace(userId, projectId);
+    const skill = (path: string) => new URL(`./agent/scenes/director/skills/${path}`, import.meta.url);
+    const sequence = join(root, "storyboards/seq-001-station"), segment = join(sequence, "seg-001-door");
+    mkdirSync(segment, { recursive: true });
+    copyFileSync(skill("director-plan-storyboards/references/examples/sequence.md"), join(sequence, "sequence.md"));
+    for (const file of ["segment.md", "storyboard.yaml"]) copyFileSync(skill(`director-plan-storyboards/references/examples/${file}`), join(segment, file));
+    copyFileSync(skill("director-breakdown-screenplay/references/scene-example.md"), join(root, "screenplay/breakdown/scene-001.md"));
+    writeFileSync(join(root, "screenplay/breakdown/overview.md"), "---\nid: screenplay-breakdown\nkind: screenplay-breakdown\nreviewIssues: []\n---\n测试拆解\n");
+    writeFileSync(join(segment, "storyboard-prompt.md"), "A single 2x2 storyboard sheet showing a wooden door opening.");
+    const timelineFile = join(root, "timeline/timeline.json");
+    const audioPath = join(root, "videos/seg-segment-001/model-audio.wav");
+    mkdirSync(join(root, "videos/seg-segment-001"), { recursive: true });
+    await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=6", audioPath]);
+    copyFileSync(skill("director-arrange-timeline/references/timeline.json"), timelineFile);
+    assert.equal(validateDirectorProject(userId, projectId).valid, true);
+    assert.equal(reconcileDirectorProjectFiles(userId, projectId).some((item) => item.severity === "error"), false);
+    const readSegment = () => JSON.parse((db.prepare("SELECT payload FROM director_shots WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string }).payload);
+    const payload = readSegment();
+    assert.equal(payload.sourceSceneId, "scene-001");
+    assert.deepEqual(payload.sourceBeatIds, ["beat-001"]);
+    assert.match(payload.h3VisualDescription, /wooden door/);
+    assert.equal(payload.storyboardSheet.frames[3].position, 3);
+    const timeline = db.prepare("SELECT payload,revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string; revision: number };
+    assert.ok(JSON.parse(timeline.payload).tracks[0].clips[0].fileId);
+    assert.equal(JSON.parse(timeline.payload).tracks[0].clips[0].path, undefined);
+    syncDirectorTimelineFile(userId, projectId, JSON.parse(timeline.payload));
+    assert.equal(JSON.parse(readFileSync(timelineFile, "utf8")).tracks[0].clips[0].path, "videos/seg-segment-001/model-audio.wav");
+    reconcileDirectorProjectFiles(userId, projectId);
+    assert.equal((db.prepare("SELECT revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { revision: number }).revision, timeline.revision);
+    syncDirectorVideoSegmentFile(userId, projectId, "segment-001");
+    assert.equal(matter(readFileSync(join(segment, "segment.md"), "utf8")).data.sourceDurationSeconds, 6);
+    const zipResponse = await fetch(`${origin}/director/projects/${projectId}/export`, { headers: userOne });
+    assert.equal(zipResponse.status, 200);
+    const importedResponse = await fetch(`${origin}/director/projects/import`, { method: "POST", headers: { ...userOne, "Content-Type": "application/zip" }, body: new Uint8Array(await zipResponse.arrayBuffer()) });
+    const imported = await importedResponse.json() as { data: { projectId: string } };
+    assert.equal(importedResponse.status, 201, JSON.stringify(imported));
+    const importedState = (await api(`/director/projects/${imported.data.projectId}`, userOne)).body.data;
+    assert.equal(importedState.timeline.payload.segmentOrder[0], importedState.videoSegments[0].id);
+    assert.notEqual(importedState.videoSegments[0].id, "segment-001", "同名工程实体必须隔离");
+    assert.equal(importedState.videoSegments[0].payload.sourceSceneId, "scene-001");
+    assert.equal(importedState.timeline.payload.tracks[0].clips[0].segmentId, importedState.videoSegments[0].id);
+    assert.notEqual(importedState.timeline.payload.tracks[0].clips[0].fileId, JSON.parse(timeline.payload).tracks[0].clips[0].fileId);
+    writeFileSync(join(segment, "storyboard.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aVZ0AAAAASUVORK5CYII=", "base64"));
+    reconcileDirectorProjectFiles(userId, projectId);
+    const imageId = readSegment().storyboardSheet.imageFileId;
+    const board = parse(readFileSync(join(segment, "storyboard.yaml"), "utf8"));
+    board.frames[1].action = "The wooden door begins to swing slowly.";
+    writeFileSync(join(segment, "storyboard.yaml"), stringify(board));
+    reconcileDirectorProjectFiles(userId, projectId);
+    assert.equal(readSegment().storyboardStale, true);
+    assert.equal(readSegment().storyboardSheet.imageFileId, imageId, "语义变更保留旧媒体并标记过期");
+    board.frames[2].dialogues = [{ speakerAssetId: "unknown", speakerName: "未知", text: "你好", language: "zh-CN", delivery: "quiet", startSeconds: 4, endSeconds: 7 }];
+    writeFileSync(join(segment, "storyboard.yaml"), stringify(board));
+    const invalid = validateDirectorProject(userId, projectId);
+    assert.equal(invalid.valid, false);
+    assert.ok(invalid.diagnostics.some((item) => item.code === "DIALOGUE_WINDOW" && item.path.endsWith("storyboard.yaml")));
+    assert.ok(invalid.diagnostics.some((item) => item.code === "DIALOGUE_SPEAKER"));
+    reconcileDirectorProjectFiles(userId, projectId);
+    assert.deepEqual(readSegment().storyboardSheet.frames[2].dialogues, [], "损坏文件不能覆盖可用投影");
+});

@@ -1,3 +1,4 @@
+import { markDirectorGenerationChanged } from "./director-sync.js";
 import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
 import { nanoid } from "nanoid";
@@ -5,6 +6,7 @@ import { adapterFor, type AiGenerationRequest, type ProviderContext } from "./ai
 import { config } from "./config.js";
 import { decryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
+import { h3StateContextSchema, verifyRequestedH3Continuation } from "./h3-continuation.js";
 import { buildComfyWorkflow, type GenerationPurpose } from "./comfy-workflows.js";
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
 import { decryptCredentials, getProviderRow, resolveImageModel, resolveMediaUnderstandingModel, resolveProviderModel, resolvePurposeModel, resolveSelectableModel, type AiModelDefinition, type AudioMode, type AudioOperation, type MediaKind } from "./provider-service.js";
@@ -109,6 +111,7 @@ export function createGeneration(userId: string, input: AiGenerationRequest) {
             VALUES(?, ?, ?, 'queued', ?, ?, ?, 0, ?, ?, ?)`).run(id, userId, input.kind, selection.providerId, selection.modelId, JSON.stringify(input), selection.comfyServerId || null, now, now);
         syncFileRefs(userId, "generation", id, input);
     })();
+    markDirectorGenerationChanged(userId, id);
     schedulePump();
     return generationResponse(getGenerationRow(userId, id)!);
 }
@@ -274,10 +277,13 @@ async function runComfyGeneration(row: GenerationRow, request: AiGenerationReque
     let promptId = row.remote_task_id;
     if (!promptId) {
         const uploaded = await uploadComfyReferences(baseUrl, row.user_id, request.references || [], signal);
+        const previousState = request.params?.__h3PreviousState as { fileId?: string } | undefined;
+        if (previousState) await verifyRequestedH3Continuation(row.user_id, previousState, h3StateContextSchema.parse(request.params?.__h3StateContext));
+        const stateUpload = previousState ? await uploadComfyFile(baseUrl, row.user_id, String(previousState.fileId || ""), signal) : undefined;
         const workflow = buildComfyWorkflow({
             model: row.model_id,
             prompt: request.prompt || "",
-            params: { ...(request.params || {}), referenceTranscript: request.references?.find((reference) => reference.kind === "audio")?.transcript || request.params?.referenceTranscript },
+            params: { ...(request.params || {}), __h3StateInputName: stateUpload?.name, referenceTranscript: request.references?.find((reference) => reference.kind === "audio")?.transcript || request.params?.referenceTranscript },
             files: uploaded,
         });
         const created = await comfyJson<{ prompt_id?: string; node_errors?: unknown }>(`${baseUrl}/prompt`, { method: "POST", headers: { ...comfyHeaders, "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow, client_id: `infinite-canvas-${row.id}` }), signal });
@@ -290,8 +296,8 @@ async function runComfyGeneration(row: GenerationRow, request: AiGenerationReque
         const url = `${baseUrl}/view?${new URLSearchParams({ filename: file.filename, subfolder: file.subfolder || "", type: file.type || "output" })}`;
         return storeRemoteFile(row.user_id, await fetch(url, { headers: comfyHeaders, signal, redirect: "error" }), basename(file.filename));
     };
-    const [files, continuationStates] = await Promise.all([Promise.all(output.files.map(download)), Promise.all(output.continuationStates.map(download))]);
-    return { files, ...(continuationStates.length ? { continuationStates } : {}) };
+    const [files, continuationStates, cumulativeVideos] = await Promise.all([Promise.all(output.files.map(download)), Promise.all(output.continuationStates.map(download)), Promise.all(output.cumulativeVideos.map(download))]);
+    return { files, ...(continuationStates.length ? { continuationStates } : {}), ...(cumulativeVideos.length ? { cumulativeVideos } : {}) };
 }
 
 function selectComfyServer(id: string | null, model: string) {
@@ -299,17 +305,22 @@ function selectComfyServer(id: string | null, model: string) {
     return rows.find((row) => (!id || row.id === id) && parseJson<string[]>(row.models, []).includes(model));
 }
 
-async function uploadComfyReferences(baseUrl: string, userId: string, references: NonNullable<AiGenerationRequest["references"]>, signal: AbortSignal) {
+async function uploadComfyFile(baseUrl: string, userId: string, fileId: string, signal: AbortSignal) {
     const headers: Record<string, string> = baseUrl.includes("/v1/comfy") ? { Authorization: `Bearer ${getMediaExecutorSettings().token}` } : {};
-    return Promise.all(references.map(async (reference, index) => {
-        const stored = getStoredFile(userId, reference.fileId);
-        if (!stored) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
-        const form = new FormData();
-        form.set("type", "input");
-        form.set("image", await openAsBlob(stored.path, { type: stored.mime_type }), stored.original_name || `reference-${index}`);
-        const result = await comfyJson<{ name?: string; subfolder?: string }>(`${baseUrl}/upload/image`, { method: "POST", headers, body: form, signal });
-        if (!result.name) throw generationError("COMFY_UPLOAD_FAILED", "ComfyUI 素材上传失败");
-        return { fileId: reference.fileId, kind: reference.kind || storedKind(stored.mime_type), role: reference.role, name: result.subfolder ? `${result.subfolder}/${result.name}` : result.name };
+    const stored = getStoredFile(userId, fileId);
+    if (!stored) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
+    const form = new FormData();
+    form.set("type", "input");
+    form.set("image", await openAsBlob(stored.path, { type: stored.mime_type }), stored.original_name || fileId);
+    const result = await comfyJson<{ name?: string; subfolder?: string }>(`${baseUrl}/upload/image`, { method: "POST", headers, body: form, signal });
+    if (!result.name) throw generationError("COMFY_UPLOAD_FAILED", "ComfyUI 素材上传失败");
+    return { name: result.subfolder ? `${result.subfolder}/${result.name}` : result.name, mimeType: stored.mime_type };
+}
+
+async function uploadComfyReferences(baseUrl: string, userId: string, references: NonNullable<AiGenerationRequest["references"]>, signal: AbortSignal) {
+    return Promise.all(references.map(async (reference) => {
+        const uploaded = await uploadComfyFile(baseUrl, userId, reference.fileId, signal);
+        return { fileId: reference.fileId, kind: reference.kind || storedKind(uploaded.mimeType), role: reference.role, name: uploaded.name };
     }));
 }
 
@@ -353,7 +364,8 @@ function comfyErrorMessage(messages: unknown[] | undefined) {
 export function collectComfyOutputs(outputs: Record<string, unknown> | undefined) {
     const files: ComfyOutputFile[] = [];
     const continuationStates: ComfyOutputFile[] = [];
-    Object.values(outputs || {}).forEach((output) => {
+    const cumulativeVideos: ComfyOutputFile[] = [];
+    Object.entries(outputs || {}).forEach(([nodeId, output]) => {
         if (!output || typeof output !== "object") return;
         Object.entries(output).forEach(([key, items]) => {
             if (!Array.isArray(items)) return;
@@ -362,11 +374,14 @@ export function collectComfyOutputs(outputs: Record<string, unknown> | undefined
                 if (key === "h3_states") {
                     if (!item.filename.endsWith(".safetensors")) throw generationError("COMFY_H3_STATE_INVALID", "H3 续接状态格式无效");
                     continuationStates.push(item as ComfyOutputFile);
+                } else if (nodeId === "h3_cumulative") {
+                    if (!/\.(mp4|webm|mkv)$/i.test(item.filename)) throw generationError("COMFY_H3_CUMULATIVE_INVALID", "H3 累计音视频格式无效");
+                    cumulativeVideos.push(item as ComfyOutputFile);
                 } else files.push(item as ComfyOutputFile);
             });
         });
     });
-    return { files, continuationStates };
+    return { files, continuationStates, cumulativeVideos };
 }
 
 async function comfyJson<T>(url: string, init?: RequestInit) {
@@ -394,6 +409,7 @@ function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["s
     );
     const updated = getGenerationRow(row.user_id, row.id);
     if (updated) {
+        markDirectorGenerationChanged(row.user_id, row.id);
         emitEvent(row.user_id, "generation.updated", generationResponse(updated));
         try { syncAgentGenerationCanvas(updated); } catch { /* 结果已持久化，画布回写可由刷新恢复。 */ }
         try {

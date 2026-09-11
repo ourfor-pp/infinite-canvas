@@ -1,0 +1,392 @@
+{
+  "preferredReviewVersion": "review-v3",
+  "versions": {
+    "review-v2": {
+      "timeline": {
+        "path": ".tmp/h3-evaluation/liudeng/review-v2/liudeng-native-audio-review.mp4",
+        "frames": 1346,
+        "seconds": 56.083333333333336,
+        "renderSeconds": 6.325,
+        "timeline": [
+          {
+            "shot": "A",
+            "source": ".tmp/h3-evaluation/liudeng/a-pdd8-768p-native-481frames/output-0.mp4",
+            "sourceSha256": "3fbf158dd3d2c4c87e0c3757d3b1415027d15d17e12c38c72d3ccc101ca3c6cc",
+            "startFrame": 0,
+            "frames": 481
+          },
+          {
+            "shot": "B",
+            "source": ".tmp/h3-evaluation/liudeng/../endpoint-guide-768-continuation/pdd8/cumulative.mp4",
+            "sourceSha256": "b7e57e60ecd67528046d7a10798055ba02aae324f99b7d70b63de4f1a43ff3cc",
+            "startFrame": 481,
+            "frames": 379
+          },
+          {
+            "shot": "C",
+            "source": ".tmp/h3-evaluation/liudeng/c-pdd8-768p-first-guide/output-0.mp4",
+            "sourceSha256": "8daa64c6f31d76f1d4daaecb88daf414ad518b61b748f0f7c820c63807625254",
+            "startFrame": 860,
+            "frames": 243
+          },
+          {
+            "shot": "D",
+            "source": ".tmp/h3-evaluation/liudeng/d-pdd8-768p-cup/output-0.mp4",
+            "sourceSha256": "316f1bbff2a02cdb673a3ff821362f0c7b14e829f8281eaba729156416152102",
+            "startFrame": 1103,
+            "frames": 243
+          }
+        ],
+        "accepted": false,
+        "note": "Review assembly of candidate takes. Original generated audio, no music or foley replacement, ordinary upscale/crop to1080p. No source-seam repair. Full quality acceptance pending."
+      },
+      "mix": {
+        "musicSource": "/home/cec/infinite-canvas/.tmp/h3-evaluation/liudeng/music/music.wav",
+        "musicSourceStartSeconds": 7.875,
+        "musicStartSeconds": 43.958333333333336,
+        "musicDurationSeconds": 12.125,
+        "musicGainDb": -14,
+        "nativeGainDb": {
+          "A": 6,
+          "B": 6,
+          "C": 0,
+          "D": 6
+        },
+        "premaster": {
+          "input_i": "-29.52",
+          "input_tp": "-8.47",
+          "input_lra": "25.40",
+          "input_thresh": "-45.14",
+          "output_i": "-17.98",
+          "output_tp": "-1.50",
+          "output_lra": "9.30",
+          "output_thresh": "-28.76",
+          "normalization_type": "dynamic",
+          "target_offset": "1.98"
+        },
+        "masterPass": {
+          "input_i": "-29.52",
+          "input_tp": "-8.47",
+          "input_lra": "25.40",
+          "input_thresh": "-45.14",
+          "output_i": "-17.47",
+          "output_tp": "-1.50",
+          "output_lra": "22.40",
+          "output_thresh": "-31.62",
+          "normalization_type": "dynamic",
+          "target_offset": "1.47"
+        },
+        "encodedOutput": {
+          "input_i": "-16.44",
+          "input_tp": "-1.90",
+          "input_lra": "20.30",
+          "input_thresh": "-29.88",
+          "output_i": "-16.11",
+          "output_tp": "-1.00",
+          "output_lra": "8.10",
+          "output_thresh": "-26.63",
+          "normalization_type": "dynamic",
+          "target_offset": "0.11"
+        },
+        "listeningAccepted": false,
+        "qualityAccepted": false,
+        "note": "Native track contains inseparable generated speech and ambience. Two-pass loudnorm; reported normalization_type states actual linear/dynamic behavior.",
+        "firstPassEncodedOutput": {
+          "input_i": "-17.88",
+          "input_tp": "-1.46",
+          "input_lra": "22.30",
+          "input_thresh": "-31.78",
+          "output_i": "-17.16",
+          "output_tp": "-1.50",
+          "output_lra": "7.50",
+          "output_thresh": "-27.69",
+          "normalization_type": "dynamic",
+          "target_offset": "1.16"
+        },
+        "deliveryCorrection": {
+          "gainDb": 2.9499999999999993,
+          "limiterCeilingDbfs": -2.5,
+          "limiterOversamplingHz": 192000,
+          "latencyCompensationSeconds": 0.005
+        },
+        "loudnessMetricsPassed": true,
+        "deliveryAttempts": [
+          {
+            "gainDb": 1.879999999999999,
+            "limiterCeilingDbfs": -2.5,
+            "encodedMeasurement": {
+              "input_i": "-17.07",
+              "input_tp": "-1.81",
+              "input_lra": "20.70",
+              "input_thresh": "-30.66",
+              "output_i": "-16.37",
+              "output_tp": "-1.00",
+              "output_lra": "7.90",
+              "output_thresh": "-26.90",
+              "normalization_type": "dynamic",
+              "target_offset": "0.37"
+            },
+            "passed": false
+          },
+          {
+            "gainDb": 2.9499999999999993,
+            "limiterCeilingDbfs": -2.5,
+            "encodedMeasurement": {
+              "input_i": "-16.44",
+              "input_tp": "-1.90",
+              "input_lra": "20.30",
+              "input_thresh": "-29.88",
+              "output_i": "-16.11",
+              "output_tp": "-1.00",
+              "output_lra": "8.10",
+              "output_thresh": "-26.63",
+              "normalization_type": "dynamic",
+              "target_offset": "0.11"
+            },
+            "passed": true
+          }
+        ]
+      },
+      "output": ".tmp/h3-evaluation/liudeng/review-v2/liudeng-music-review.mp4",
+      "outputSha256": "4fd6def6b34201da2347b9660c5a39af8016faf014a53a720458c5f594ced236",
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080,
+            "r_frame_rate": "24/1",
+            "duration": "56.083333",
+            "nb_frames": "1346"
+          },
+          {
+            "codec_type": "audio",
+            "sample_rate": "48000",
+            "channels": 2,
+            "r_frame_rate": "0/0",
+            "duration": "56.083000",
+            "nb_frames": "2630"
+          }
+        ]
+      },
+      "qualityAccepted": false
+    },
+    "review-v3": {
+      "timeline": {
+        "path": ".tmp/h3-evaluation/liudeng/review-v3/liudeng-native-audio-review.mp4",
+        "frames": 1010,
+        "seconds": 42.083333333333336,
+        "renderSeconds": 4.778,
+        "timeline": [
+          {
+            "shot": "A",
+            "source": ".tmp/h3-evaluation/liudeng/a-pdd8-768p-native-481frames/output-0.mp4",
+            "sourceSha256": "3fbf158dd3d2c4c87e0c3757d3b1415027d15d17e12c38c72d3ccc101ca3c6cc",
+            "startFrame": 0,
+            "frames": 193
+          },
+          {
+            "shot": "B",
+            "source": ".tmp/h3-evaluation/liudeng/../endpoint-guide-768-continuation/pdd8/cumulative.mp4",
+            "sourceSha256": "b7e57e60ecd67528046d7a10798055ba02aae324f99b7d70b63de4f1a43ff3cc",
+            "startFrame": 193,
+            "frames": 379
+          },
+          {
+            "shot": "C",
+            "source": ".tmp/h3-evaluation/liudeng/c-pdd8-768p-first-guide/output-0.mp4",
+            "sourceSha256": "8daa64c6f31d76f1d4daaecb88daf414ad518b61b748f0f7c820c63807625254",
+            "startFrame": 572,
+            "frames": 243
+          },
+          {
+            "shot": "D",
+            "source": ".tmp/h3-evaluation/liudeng/d-pdd8-768p-cup/output-0.mp4",
+            "sourceSha256": "316f1bbff2a02cdb673a3ff821362f0c7b14e829f8281eaba729156416152102",
+            "startFrame": 815,
+            "frames": 195
+          }
+        ],
+        "accepted": false,
+        "note": "Review assembly of candidate takes. Original generated audio, no music or foley replacement, ordinary upscale/crop to1080p. No source-seam repair. Full quality acceptance pending."
+      },
+      "mix": {
+        "musicSource": "/home/cec/infinite-canvas/.tmp/h3-evaluation/liudeng/music/music.wav",
+        "musicSourceStartSeconds": 7.875,
+        "musicStartSeconds": 29.958333333333336,
+        "musicDurationSeconds": 12.125,
+        "musicGainDb": -14,
+        "nativeGainDb": {
+          "A": 6,
+          "B": 6,
+          "C": 0,
+          "D": 6
+        },
+        "premaster": {
+          "input_i": "-28.48",
+          "input_tp": "-8.44",
+          "input_lra": "24.20",
+          "input_thresh": "-44.00",
+          "output_i": "-18.20",
+          "output_tp": "-1.50",
+          "output_lra": "11.30",
+          "output_thresh": "-29.28",
+          "normalization_type": "dynamic",
+          "target_offset": "2.20"
+        },
+        "masterPass": {
+          "input_i": "-28.48",
+          "input_tp": "-8.44",
+          "input_lra": "24.20",
+          "input_thresh": "-44.00",
+          "output_i": "-16.78",
+          "output_tp": "-1.50",
+          "output_lra": "22.70",
+          "output_thresh": "-31.21",
+          "normalization_type": "dynamic",
+          "target_offset": "0.78"
+        },
+        "encodedOutput": {
+          "input_i": "-16.21",
+          "input_tp": "-1.86",
+          "input_lra": "21.30",
+          "input_thresh": "-29.57",
+          "output_i": "-16.66",
+          "output_tp": "-1.00",
+          "output_lra": "9.50",
+          "output_thresh": "-27.32",
+          "normalization_type": "dynamic",
+          "target_offset": "0.66"
+        },
+        "listeningAccepted": false,
+        "qualityAccepted": false,
+        "note": "Native track contains inseparable generated speech and ambience. Two-pass loudnorm; reported normalization_type states actual linear/dynamic behavior.",
+        "firstPassEncodedOutput": {
+          "input_i": "-17.29",
+          "input_tp": "-1.43",
+          "input_lra": "22.80",
+          "input_thresh": "-31.43",
+          "output_i": "-17.99",
+          "output_tp": "-1.50",
+          "output_lra": "8.60",
+          "output_thresh": "-28.61",
+          "normalization_type": "dynamic",
+          "target_offset": "1.99"
+        },
+        "deliveryCorrection": {
+          "gainDb": 2.969999999999999,
+          "limiterCeilingDbfs": -2.5,
+          "limiterOversamplingHz": 192000,
+          "latencyCompensationSeconds": 0.005
+        },
+        "loudnessMetricsPassed": true,
+        "deliveryAttempts": [
+          {
+            "gainDb": 1.2899999999999991,
+            "limiterCeilingDbfs": -2.5,
+            "encodedMeasurement": {
+              "input_i": "-17.11",
+              "input_tp": "-2.21",
+              "input_lra": "21.50",
+              "input_thresh": "-30.75",
+              "output_i": "-17.17",
+              "output_tp": "-1.00",
+              "output_lra": "9.40",
+              "output_thresh": "-27.81",
+              "normalization_type": "dynamic",
+              "target_offset": "1.17"
+            },
+            "passed": false
+          },
+          {
+            "gainDb": 2.3999999999999986,
+            "limiterCeilingDbfs": -2.5,
+            "encodedMeasurement": {
+              "input_i": "-16.57",
+              "input_tp": "-1.85",
+              "input_lra": "21.40",
+              "input_thresh": "-29.97",
+              "output_i": "-16.83",
+              "output_tp": "-1.00",
+              "output_lra": "9.40",
+              "output_thresh": "-27.49",
+              "normalization_type": "dynamic",
+              "target_offset": "0.83"
+            },
+            "passed": false
+          },
+          {
+            "gainDb": 2.969999999999999,
+            "limiterCeilingDbfs": -2.5,
+            "encodedMeasurement": {
+              "input_i": "-16.21",
+              "input_tp": "-1.86",
+              "input_lra": "21.30",
+              "input_thresh": "-29.57",
+              "output_i": "-16.66",
+              "output_tp": "-1.00",
+              "output_lra": "9.50",
+              "output_thresh": "-27.32",
+              "normalization_type": "dynamic",
+              "target_offset": "0.66"
+            },
+            "passed": true
+          }
+        ]
+      },
+      "output": ".tmp/h3-evaluation/liudeng/review-v3/liudeng-music-review.mp4",
+      "outputSha256": "1448f3460e4489a074e46f47dc080bd6e00fd462abc6f7c7de4dddc2db559961",
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080,
+            "r_frame_rate": "24/1",
+            "duration": "42.083333",
+            "nb_frames": "1010"
+          },
+          {
+            "codec_type": "audio",
+            "sample_rate": "48000",
+            "channels": 2,
+            "r_frame_rate": "0/0",
+            "duration": "42.083000",
+            "nb_frames": "1974"
+          }
+        ]
+      },
+      "qualityAccepted": false
+    }
+  },
+  "nativeContinuation": {
+    "shot": "B",
+    "source": ".tmp/h3-evaluation/endpoint-guide-768-continuation/pdd8/cumulative.mp4",
+    "frames": 379,
+    "seconds": 15.791666666666666,
+    "wholeCumulativeSourceRetained": true,
+    "noCrossfadeOrSpeedChange": true
+  },
+  "editorialChanges": [
+    "Shorten A from481 to193frames, removing the later doorway wait.",
+    "Replace B with379frame endpoint-guided native768p cumulative take.",
+    "Keep all243frames of the dialogue shot C.",
+    "Shorten D from243 to195frames, retaining the cup handover and reducing its final hold."
+  ],
+  "remainingReview": [
+    {
+      "version": "review-v3",
+      "seconds": 23.833333333333332,
+      "issue": "B to C changes father hand pose and apparent shirt tone; inspect match cut and identity/lighting before adoption."
+    },
+    {
+      "version": "review-v3",
+      "seconds": 0,
+      "issue": "Full-speed acting, footsteps, dialogue timbre, lips and score remain unaccepted; numeric loudness is not listening approval."
+    }
+  ],
+  "qualifiedFilmSeconds": 0,
+  "note": "1920x1080 delivery is ordinary scaling/crop from native768p sources. This is an editorial candidate, not a quality-gated acceleration acceptance."
+}

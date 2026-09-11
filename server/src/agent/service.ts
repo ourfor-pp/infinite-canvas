@@ -9,7 +9,7 @@ import { db, parseJson } from "../database.js";
 import { getStoredFile } from "../file-store.js";
 import { decryptCredentials, getProviderRow, resolveAgentModel, resolveMediaUnderstandingModel, type AiModelDefinition } from "../provider-service.js";
 import { registerAgentProviderProxy } from "./provider-proxy.js";
-import { buildAgentMcpServer } from "./mcp/index.js";
+import { buildAgentMcpServer, buildAgentToolDefinitions } from "./mcp/index.js";
 import { getBuiltInAgentSkill, listBuiltInAgentSkills, syncBuiltInAgentSkills, validateBuiltInAgentSkills, type BuiltInAgentSkill } from "./skill-registry.js";
 import { getCanvasState, listAgentCreativeAssets, listAgentVisualStyles } from "./canvas-tools.js";
 import { agentScenes, resolveAgentScene, sceneAutoAllowedTools, sceneHasReference, sceneHasSkill, sceneRegisteredTools, sceneSkillIds, validateAgentScenes, type AgentSceneDefinition } from "./scenes/index.js";
@@ -17,23 +17,26 @@ import { creativeAssetInputSchema, getCreativeAsset } from "../creative-assets.j
 import { getVisualStyle } from "../visual-styles.js";
 import { getDirectorState } from "../director.js";
 import { ensureDirectorProjectWorkspace, getDirectorAssetDetail, reconcileDirectorProjectFiles } from "../director-workspace.js";
-import type { AgentComposerDocument, AgentEvent, AgentEventKind, AgentMessageInput, AgentPendingDecision, AgentQueuedMessage, AgentSession, AgentSessionStatus, AgentStreamEvent } from "./types.js";
+import type { AgentComposerDocument, AgentEngine, AgentEvent, AgentEventKind, AgentMessageInput, AgentPendingDecision, AgentQueuedMessage, AgentSession, AgentSessionStatus, AgentStreamEvent } from "./types.js";
 import { SdkInputChannel } from "./sdk-input-channel.js";
+import { CodexRuntime } from "./codex/runtime.js";
+import { registerCodexImage } from "./codex/images.js";
+import { codexOptionsSchema, listCodexModels, resolveCodexOptions, type CodexOptions, assertCodexReady, codexPublicStatus, getCodexSettings, readCodexStatus } from "./codex/settings.js";
 
 type SessionRow = {
-    id: string; user_id: string; project_id: string; sdk_session_id: string | null; title: string;
+    id: string; user_id: string; project_id: string; engine: AgentEngine; codex_thread_id: string | null; codex_options: string; sdk_session_id: string | null; title: string;
     status: AgentSessionStatus; event_seq: number; current_run_id: string | null; pending_decision: string | null; fork_pending: number; fork_resume_at: string | null;
     last_error: string | null; last_error_code: string | null; created_at: string; updated_at: string;
 };
 type RunRow = { id: string; session_id: string; user_id: string; status: string; model_ref: string; usage: string | null; error: string | null; error_code: string | null; tool_search_mode: string; tool_search_call_count: number; started_at: string; finished_at: string | null };
-type QueueRow = { id: string; user_id: string; project_id: string; session_id: string; wait_for_run_id: string | null; accepted_run_id: string | null; client_message_id: string; content: string; attachment_file_ids: string; display_text: string; status: string; error: string | null; created_at: string; updated_at: string };
+type QueueRow = { codex_options: string | null; id: string; user_id: string; project_id: string; session_id: string; wait_for_run_id: string | null; accepted_run_id: string | null; client_message_id: string; content: string; attachment_file_ids: string; display_text: string; status: string; error: string | null; created_at: string; updated_at: string };
 type AgentSettings = { modelRef: string; modelName?: string; providerName?: string; mediaModelRef: string; mediaModelName?: string; mediaProviderName?: string; mediaReady: boolean; toolSearchMode: string; ready: boolean };
 type DecisionResult = { approved: boolean; scope: "once" | "session" | "project"; comment?: string; answers?: Record<string, string>; proposalEdits?: unknown };
 class RetriableAgentDiagnosticError extends Error { code = "AGENT_RETRIABLE_DIAGNOSTIC"; }
 
 type ConversationListener = { clientId: string; send: (event: AgentStreamEvent) => void };
 const conversationListeners = new Map<string, Set<ConversationListener>>();
-const running = new Map<string, { controller: AbortController; query?: Query; input?: SdkInputChannel; run: RunRow }>();
+const running = new Map<string, { controller: AbortController; query?: Query; input?: SdkInputChannel; codex?: CodexRuntime; projectKey: string; run: RunRow }>();
 const decisions = new Map<string, { sessionId: string; resolve: (result: DecisionResult) => void }>();
 const clientActions = new Map<string, { sessionId: string; resolve: (result: { ok: boolean; data?: unknown; error?: string }) => void }>();
 const sdkToolCalls = new Map<string, string>();
@@ -144,22 +147,25 @@ export function getConversation(userId: string, projectId: string, sessionId?: s
     return { projectId, sessions: sessions.map((row) => sessionResponse(row, false)), session: selected ? sessionResponse(selected, true) : null, queuedMessages: selected ? queueMessages(selected.id) : [] };
 }
 
-export function createSession(userId: string, projectId: string, title = "新对话") {
+export function createSession(userId: string, projectId: string, title = "新对话", engine: AgentEngine = "builtin") {
     assertProject(userId, projectId);
-    const session = createSessionRecord(userId, projectId, title);
+    z.enum(["builtin", "codex"]).parse(engine);
+    if (engine === "codex" && resolveAgentScene(userId, projectId).id !== "director") throw agentError(400, "CODEX_DIRECTOR_ONLY", "Codex 仅支持导演项目");
+    const session = createSessionRecord(userId, projectId, title, engine);
     publishProjectSnapshot(userId, projectId);
     return session;
 }
 
-function createSessionRecord(userId: string, projectId: string, title: string) {
+function createSessionRecord(userId: string, projectId: string, title: string, engine: AgentEngine = "builtin") {
     const now = new Date().toISOString();
     const id = nanoid();
-    db.prepare("INSERT INTO agent_sessions(id, user_id, project_id, title, status, created_at, updated_at) VALUES(?, ?, ?, ?, 'idle', ?, ?)").run(id, userId, projectId, title.trim() || "新对话", now, now);
+    db.prepare("INSERT INTO agent_sessions(id, user_id, project_id, title, engine, status, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 'idle', ?, ?)").run(id, userId, projectId, title.trim() || "新对话", engine, now, now);
     return sessionResponse(getSessionRow(userId, id)!, true);
 }
 
 export function forkSession(userId: string, sessionId: string, fromEventSeq?: number) {
     const source = requireSession(userId, sessionId);
+    if (source.engine === "codex") throw agentError(409, "CODEX_FORK_UNSUPPORTED", "Codex 第一版暂不支持会话分叉，请新建对话");
     if (["running", "waiting_for_user"].includes(source.status)) throw agentError(409, "AGENT_SESSION_BUSY", "运行中的会话不能分叉");
     const sourceMessage = fromEventSeq === undefined ? null : db.prepare("SELECT kind, payload FROM agent_events WHERE session_id=? AND seq=?").get(source.id, fromEventSeq) as { kind: AgentEventKind; payload: string } | undefined;
     if (fromEventSeq !== undefined && sourceMessage?.kind !== "user_text") throw agentError(404, "AGENT_FORK_MESSAGE_NOT_FOUND", "只能从当前会话中的用户消息创建分支");
@@ -192,6 +198,22 @@ export function removeAgentProjectWorkspace(userId: string, projectId: string) {
     rmSync(legacyAgentProjectWorkspace(userId, projectId), { recursive: true, force: true });
 }
 
+export async function getSessionCodexModels(userId: string, sessionId: string) {
+    const session = requireSession(userId, sessionId);
+    if (session.engine !== "codex") throw agentError(400, "AGENT_ENGINE_MISMATCH", "当前会话不是 Codex");
+    return listCodexModels();
+}
+
+export async function updateSessionCodexOptions(userId: string, sessionId: string, input: unknown) {
+    const catalog = await getSessionCodexModels(userId, sessionId);
+    const value = codexOptionsSchema.parse(input);
+    resolveCodexOptions(value, catalog);
+    const session = requireSession(userId, sessionId);
+    db.prepare("UPDATE agent_sessions SET codex_options=?,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(value), new Date().toISOString(), sessionId, userId);
+    publishProjectSnapshot(userId, session.project_id);
+    return sessionResponse(requireSession(userId, sessionId), false);
+}
+
 export async function sendMessage(userId: string, projectId: string, input: AgentMessageInput) {
     assertProject(userId, projectId);
     const normalized = validateMessageInput(input);
@@ -202,6 +224,7 @@ export async function sendMessage(userId: string, projectId: string, input: Agen
     let session = normalized.preferredSessionId ? requireSession(userId, normalized.preferredSessionId) : latestSession(userId, projectId);
     if (session && session.project_id !== projectId) throw agentError(409, "AGENT_SESSION_PROJECT_MISMATCH", "会话不属于当前画布");
     if (!session) session = getSessionRow(userId, createSession(userId, projectId).id)!;
+    if (session.engine === "codex") normalized.codexOptions = resolveCodexOptions(normalized.codexOptions || parseJson(session.codex_options, {}), await listCodexModels());
     const busy = ["running", "waiting_for_user"].includes(session.status);
     if (normalized.submissionMode === "queue" && busy) {
         enqueueMessage(userId, session, normalized);
@@ -211,6 +234,18 @@ export async function sendMessage(userId: string, projectId: string, input: Agen
         if (session.status === "waiting_for_user") throw agentError(409, "AGENT_DECISION_REQUIRED", "请先处理当前审批或追问，也可以选择稍后发送");
         if (session.status !== "running") throw agentError(409, "AGENT_SESSION_NOT_RUNNING", "当前会话没有可调整的运行任务");
         const active = running.get(session.id);
+        if (session.engine === "codex" && session.current_run_id) {
+            const runId = session.current_run_id;
+            const prepared = prepareMessage(userId, projectId, normalized.content, normalized.attachmentFileIds);
+            const workspace = projectWorkspace(userId, projectId);
+            const prompt = buildPrompt(session, { ...prepared.context, attachments: stageAttachments(workspace, prepared.context.attachments || []).map((file) => ({ ...file, path: `/workspace/${relative(workspace, file.path)}` })) }, prepared.skills[0] || null);
+            const accepted = await active?.codex?.steer(prompt, () => db.transaction(() => {
+                appendUserMessage(session!.id, runId, normalized, prepared, "steer");
+                db.prepare("INSERT INTO agent_message_receipts(user_id,client_message_id,session_id,run_id,created_at) VALUES(?,?,?,?,?)").run(userId, normalized.clientMessageId, session!.id, runId, new Date().toISOString());
+            })());
+            if (!accepted) { enqueueMessage(userId, session, normalized); drainQueuedMessages(session.id); }
+            return getConversation(userId, projectId, session.id);
+        }
         if (!active?.input || !session.current_run_id) throw agentError(409, "AGENT_INPUT_CHANNEL_NOT_READY", "Agent 输入通道尚未就绪，请稍后重试或选择稍后发送");
         const prepared = prepareMessage(userId, projectId, normalized.content, normalized.attachmentFileIds);
         const prompt = buildPrompt(session, prepared.context, prepared.skills[0] || null);
@@ -227,18 +262,19 @@ export async function sendMessage(userId: string, projectId: string, input: Agen
 
 function startDirectMessage(userId: string, session: SessionRow, normalized: ReturnType<typeof validateMessageInput>, queueId?: string) {
     const settings = getAgentSettings();
-    if (!settings.ready) throw agentError(503, "AGENT_NOT_CONFIGURED", "管理员尚未配置可用的 Agent 模型");
+    if (session.engine === "codex") assertCodexReady();
+    else if (!settings.ready) throw agentError(503, "AGENT_NOT_CONFIGURED", "管理员尚未配置可用的 Agent 模型");
     const prepared = prepareMessage(userId, session.project_id, normalized.content, normalized.attachmentFileIds);
     const runId = nanoid();
     const now = new Date().toISOString();
     db.transaction(() => {
-        db.prepare("INSERT INTO agent_runs(id, session_id, user_id, status, model_ref, started_at) VALUES(?, ?, ?, 'queued', ?, ?)").run(runId, session!.id, userId, settings.modelRef, now);
+        db.prepare("INSERT INTO agent_runs(id, session_id, user_id, status, model_ref, started_at) VALUES(?, ?, ?, 'queued', ?, ?)").run(runId, session!.id, userId, session.engine === "codex" ? `codex::${normalized.codexOptions?.model || getCodexSettings().model || "default"}` : settings.modelRef, now);
         db.prepare("UPDATE agent_sessions SET status='running', current_run_id=?, last_error=NULL, last_error_code=NULL, title=CASE WHEN title='新对话' THEN ? ELSE title END, updated_at=? WHERE id=? AND user_id=?")
             .run(runId, prepared.displayText.slice(0, 80), now, session!.id, userId);
         appendUserMessage(session.id, runId, normalized, prepared, queueId ? "queue" : "direct");
         const addFileRef = db.prepare("INSERT OR IGNORE INTO file_refs(file_id, user_id, owner_type, owner_id) SELECT id, user_id, 'agent_project', ? FROM stored_files WHERE id=? AND user_id=?");
         normalized.attachmentFileIds.forEach((fileId) => addFileRef.run(session.project_id, fileId, userId));
-        db.prepare("UPDATE agent_runs SET usage=? WHERE id=?").run(JSON.stringify(prepared.context), runId);
+        db.prepare("UPDATE agent_runs SET usage=? WHERE id=?").run(JSON.stringify({ ...prepared.context, ...(session.engine === "codex" ? { codexOptions: normalized.codexOptions } : {}) }), runId);
         db.prepare("INSERT INTO agent_message_receipts(user_id, client_message_id, session_id, run_id, created_at) VALUES(?, ?, ?, ?, ?)").run(userId, normalized.clientMessageId, session.id, runId, now);
         if (queueId) db.prepare("UPDATE agent_queued_messages SET status='running', accepted_run_id=?, updated_at=? WHERE id=?").run(runId, now, queueId);
     })();
@@ -380,9 +416,10 @@ export function getSessionEvents(userId: string, sessionId: string, beforeSeq?: 
     return sessionEvents(sessionId, beforeSeq, limit);
 }
 
-export function getAgentCapabilities(userId: string, projectId: string) {
+export async function getAgentCapabilities(userId: string, projectId: string) {
     const scene = resolveAgentScene(userId, projectId);
-    return { sceneId: scene.id, skills: listBuiltInAgentSkills(sceneSkillIds(scene)), referenceKinds: scene.referenceKinds, composer: { ...scene.composer, suggestions: [...scene.composer.suggestions] } };
+    if (scene.id === "director" && getCodexSettings().enabled) await readCodexStatus();
+    return { engines: [{ id: "builtin", ready: getAgentSettings().ready, reason: getAgentSettings().ready ? "" : "管理员尚未配置内置 Agent" }, ...(scene.id === "director" ? [{ id: "codex", ...codexPublicStatus() }] : [])], sceneId: scene.id, skills: listBuiltInAgentSkills(sceneSkillIds(scene)), referenceKinds: scene.referenceKinds, composer: { ...scene.composer, suggestions: [...scene.composer.suggestions] } };
 }
 
 export function listAgentReferences(userId: string, projectId: string, query: { q?: string; limit?: number } = {}) {
@@ -433,10 +470,14 @@ function schedulePump() {
 function pumpQueue() {
     while (running.size < config.agentMaxConcurrency) {
         const rows = db.prepare("SELECT * FROM agent_runs WHERE status='queued' ORDER BY started_at LIMIT 100").all() as RunRow[];
-        const run = rows.find((candidate) => Array.from(running.values()).filter((item) => item.run.user_id === candidate.user_id).length < config.agentUserConcurrency);
+        const run = rows.find((candidate) => {
+            const session = requireSession(candidate.user_id, candidate.session_id);
+            const projectKey = conversationKey(candidate.user_id, session.project_id);
+            return !Array.from(running.values()).some((item) => item.projectKey === projectKey) && Array.from(running.values()).filter((item) => item.run.user_id === candidate.user_id).length < config.agentUserConcurrency;
+        });
         if (!run) return;
         const controller = new AbortController();
-        running.set(run.session_id, { controller, run });
+        running.set(run.session_id, { controller, run, projectKey: conversationKey(run.user_id, requireSession(run.user_id, run.session_id).project_id) });
         db.prepare("UPDATE agent_runs SET status='running' WHERE id=?").run(run.id);
         void executeRun(run, controller).finally(() => {
             running.delete(run.session_id);
@@ -449,17 +490,15 @@ async function executeRun(run: RunRow, controller: AbortController) {
     const session = requireSession(run.user_id, run.session_id);
     try {
         const scene = resolveAgentScene(run.user_id, session.project_id);
-        const selection = resolveAgentModel(run.model_ref);
-        const context = parseJson<{ input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; skillIds?: string[] }>(run.usage, {});
+        const context = parseJson<{ codexOptions?: CodexOptions; input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; skillIds?: string[] }>(run.usage, {});
         const skill = context.skillIds?.[0] ? getEnabledSkill(context.skillIds[0], scene) : null;
         const workspace = projectWorkspace(run.user_id, session.project_id);
         mkdirSync(workspace, { recursive: true });
         validateBuiltInAgentSkills(sceneSkillIds(scene), sceneAutoAllowedTools(scene));
-        const syncedSkills = syncBuiltInAgentSkills(workspace, sceneSkillIds(scene));
-        const prompt = buildPrompt(session, { ...context, attachments: stageAttachments(workspace, context.attachments || []) }, skill);
-        const runtime = runtimeEnv(selection.provider, selection.provider.credentials, selection.model, resolve(workspace, ".claude"));
-        db.prepare("UPDATE agent_runs SET tool_search_mode=? WHERE id=?").run(runtime.toolSearchMode, run.id);
-        const mcp = buildAgentMcpServer({
+        const syncedSkills = syncBuiltInAgentSkills(workspace, sceneSkillIds(scene), session.engine);
+        const attachments = stageAttachments(workspace, context.attachments || []).map((file) => ({ ...file, path: session.engine === "codex" ? `/workspace/${relative(workspace, file.path)}` : file.path }));
+        const prompt = buildPrompt(session, { ...context, attachments }, skill);
+        const mcpContext: Parameters<typeof buildAgentMcpServer>[0] = {
             session: { id: session.id, projectId: session.project_id },
             run: { userId: run.user_id, mediaModelRef: getAgentSettings().mediaModelRef },
             appendEvent: (kind, payload) => appendEvent(session.id, run.id, kind, payload),
@@ -468,7 +507,26 @@ async function executeRun(run: RunRow, controller: AbortController) {
             resolveWorkspacePath: (path) => safeWorkspacePath(workspace, path),
             writeWorkspaceText: (path, content) => writeWorkspaceText(workspace, path, content),
             waitForWorkspacePath: (path) => waitForWorkspacePath(safeWorkspacePath(workspace, path)),
-        }, scene);
+        };
+        if (session.engine === "codex") {
+            const runtime = new CodexRuntime({
+                sessionId: session.id, runId: run.id, workspace, threadId: session.codex_thread_id, prompt, options: context.codexOptions,
+                instructions: scene.systemPrompt(session.project_id, "codex"), signal: controller.signal,
+                tools: buildAgentToolDefinitions(mcpContext, scene, "codex"),
+                image: (path) => registerCodexImage(session.user_id, session.project_id, workspace, path),
+                bindThread: (id) => { db.prepare("UPDATE agent_sessions SET codex_thread_id=? WHERE id=?").run(id, session.id); },
+                bindTurn: (id) => { db.prepare("UPDATE agent_runs SET codex_turn_id=? WHERE id=?").run(id, run.id); },
+                append: (kind, payload) => { appendEvent(session.id, run.id, kind, payload); },
+                ask: (input) => requireBusinessDecision(session, run, "ask_user", input, "question"),
+            });
+            const active = running.get(session.id); if (active) active.codex = runtime;
+            appendEvent(session.id, run.id, "run_state", { state: "running", content: "Codex 已开始处理" });
+            await runtime.run();
+        } else {
+        const selection = resolveAgentModel(run.model_ref);
+        const runtime = runtimeEnv(selection.provider, selection.provider.credentials, selection.model, resolve(workspace, ".claude"));
+        db.prepare("UPDATE agent_runs SET tool_search_mode=? WHERE id=?").run(runtime.toolSearchMode, run.id);
+        const mcp = buildAgentMcpServer(mcpContext, scene);
         const streamState = { turn: 0 };
         const nativeTools = resolveAgentNativeTools(runtime.toolSearchEnabled, scene.id);
         appendEvent(session.id, run.id, "run_state", { state: "running", content: "Agent 已开始处理" });
@@ -515,6 +573,7 @@ async function executeRun(run: RunRow, controller: AbortController) {
                 await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
                 input = new SdkInputChannel([sdkUserMessage(retryAgentPrompt(session.id, run.id))]);
             }
+        }
         }
         const now = new Date().toISOString();
         db.transaction(() => {
@@ -751,7 +810,8 @@ type ProviderNonNull = NonNullable<ReturnType<typeof getProviderRow>>;
 
 function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; path?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
     const sections = [context.input || "请处理本次请求。"];
-    if (skill) sections.unshift(`使用原生 Skill 工具加载并遵循“${skill.id}”（${skill.name}）完成本次请求。Skill 已同步到当前会话，不要使用 Read 查找服务端 Skill 源文件。`);
+    if (skill && session.engine === "codex") sections.unshift(`读取并遵循 .agents/skills/${skill.id}/SKILL.md（${skill.name}）完成本次请求。`);
+    else if (skill) sections.unshift(`使用原生 Skill 工具加载并遵循“${skill.id}”（${skill.name}）完成本次请求。Skill 已同步到当前会话，不要使用 Read 查找服务端 Skill 源文件。`);
     if (context.references?.length) sections.push(`## 本次画布引用\n${JSON.stringify(context.references, null, 2)}`);
     if (context.assetReferences?.length) sections.push(`## 本次创作资产引用\n${JSON.stringify(context.assetReferences, null, 2)}\n修改前读取最新 revision；不要把新增媒体静默设为主版本。`);
     if (context.styleReferences?.length) sections.push(`## 本次视觉风格引用\n${JSON.stringify(context.styleReferences, null, 2)}\n修改前读取最新 revision；资产生成时优先沿用这个风格。`);
@@ -881,6 +941,7 @@ function validateMessageInput(input: AgentMessageInput) {
     const mention = { mentionId: z.string().trim().min(1).max(128), projectId: z.string().trim().min(1).max(128) };
     return z.object({
         preferredSessionId: z.string().max(128).optional(),
+        codexOptions: codexOptionsSchema.optional(),
         clientMessageId: z.string().trim().min(1).max(128),
         submissionMode: z.enum(["direct", "steer", "queue"]),
         content: z.object({ version: z.literal(1), segments: z.array(z.discriminatedUnion("type", [
@@ -956,6 +1017,7 @@ function appendUserMessage(sessionId: string, runId: string, input: ReturnType<t
     appendEvent(sessionId, runId, "user_text", {
         text: prepared.displayText, content: { version: 1, segments: prepared.displaySegments }, clientMessageId: input.clientMessageId, submissionMode,
         attachments: prepared.attachments.map(({ path: _path, ...item }) => item),
+        ...(input.codexOptions && submissionMode !== "steer" ? { codexOptions: input.codexOptions } : {}),
     });
 }
 
@@ -963,8 +1025,8 @@ function enqueueMessage(userId: string, session: SessionRow, input: ReturnType<t
     const prepared = prepareMessage(userId, session.project_id, input.content, input.attachmentFileIds);
     const id = nanoid(); const now = new Date().toISOString();
     db.transaction(() => {
-        db.prepare("INSERT INTO agent_queued_messages(id,user_id,project_id,session_id,wait_for_run_id,client_message_id,content,attachment_file_ids,display_text,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'queued',?,?)")
-            .run(id, userId, session.project_id, session.id, session.current_run_id, input.clientMessageId, JSON.stringify(input.content), JSON.stringify(input.attachmentFileIds), prepared.displayText, now, now);
+        db.prepare("INSERT INTO agent_queued_messages(id,user_id,project_id,session_id,wait_for_run_id,client_message_id,content,attachment_file_ids,display_text,codex_options,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'queued',?,?)")
+            .run(id, userId, session.project_id, session.id, session.current_run_id, input.clientMessageId, JSON.stringify(input.content), JSON.stringify(input.attachmentFileIds), prepared.displayText, input.codexOptions ? JSON.stringify(input.codexOptions) : null, now, now);
         const add = db.prepare("INSERT OR IGNORE INTO file_refs(file_id,user_id,owner_type,owner_id) SELECT id,user_id,'agent_queue',? FROM stored_files WHERE id=? AND user_id=?");
         input.attachmentFileIds.forEach((fileId) => add.run(id, fileId, userId));
     })();
@@ -986,7 +1048,7 @@ function requireQueue(userId: string, sessionId: string, messageId: string) {
     const row = db.prepare("SELECT * FROM agent_queued_messages WHERE id=? AND session_id=? AND user_id=?").get(messageId, sessionId, userId) as QueueRow | undefined;
     if (!row) throw agentError(404, "AGENT_QUEUE_NOT_FOUND", "排队消息不存在"); return row;
 }
-function queuedInput(row: QueueRow, mode: "direct" | "steer"): AgentMessageInput { return { preferredSessionId: row.session_id, clientMessageId: row.client_message_id, submissionMode: mode, content: parseJson(row.content, { version: 1, segments: [{ type: "text", text: row.display_text }] }), attachmentFileIds: parseJson(row.attachment_file_ids, []) }; }
+function queuedInput(row: QueueRow, mode: "direct" | "steer"): AgentMessageInput { return { ...(row.codex_options ? { codexOptions: codexOptionsSchema.parse(JSON.parse(row.codex_options)) } : {}), preferredSessionId: row.session_id, clientMessageId: row.client_message_id, submissionMode: mode, content: parseJson(row.content, { version: 1, segments: [{ type: "text", text: row.display_text }] }), attachmentFileIds: parseJson(row.attachment_file_ids, []) }; }
 function publishQueue(session: SessionRow) {
     const listeners = conversationListeners.get(conversationKey(session.user_id, session.project_id));
     const event: AgentStreamEvent = { type: "queue.updated", cursor: session.event_seq, sessionId: session.id, queuedMessages: queueMessages(session.id) };
@@ -1063,7 +1125,7 @@ function conversationKey(userId: string, projectId: string) {
 }
 
 function sessionResponse(row: SessionRow, includeEvents: boolean): AgentSession {
-    return { id: row.id, projectId: row.project_id, sdkSessionId: row.sdk_session_id, title: row.title, status: row.status, eventSeq: row.event_seq, currentRunId: row.current_run_id, pendingDecision: parseJson(row.pending_decision, null), lastError: row.last_error, lastErrorCode: row.last_error_code, createdAt: row.created_at, updatedAt: row.updated_at, ...(includeEvents ? { events: sessionEvents(row.id) } : {}) };
+    return { id: row.id, engine: row.engine, ...(row.engine === "codex" ? { codexOptions: codexOptionsSchema.parse(parseJson(row.codex_options, {})) } : {}), projectId: row.project_id, sdkSessionId: row.sdk_session_id, title: row.title, status: row.status, eventSeq: row.event_seq, currentRunId: row.current_run_id, pendingDecision: parseJson(row.pending_decision, null), lastError: row.last_error, lastErrorCode: row.last_error_code, createdAt: row.created_at, updatedAt: row.updated_at, ...(includeEvents ? { events: sessionEvents(row.id) } : {}) };
 }
 
 function getSessionRow(userId: string, sessionId: string) {

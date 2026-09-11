@@ -1,3 +1,4 @@
+import { markDirectorProjectChanged } from "./director-sync.js";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -55,6 +56,7 @@ export type CreativeAssetVariant = {
     fileId: string;
     label: string;
     prompt: string;
+    contentVersion?: string;
     generationId?: string;
     usage?: string;
     transcript?: string;
@@ -109,6 +111,7 @@ const variant = z.object({
     fileId: id,
     label: z.string().max(200).default(""),
     prompt: text.default(""),
+    contentVersion: z.string().optional(),
     generationId: id.optional(),
     usage: z.string().max(100).optional(),
     transcript: text.optional(),
@@ -178,8 +181,13 @@ export const creativeAssetInputSchema = z.object({
 });
 export const creativeAssetUpdateSchema = creativeAssetInputSchema.partial().extend({ revision: z.number().int().positive() });
 
-let emitAsset: (userId: string, asset: unknown) => void = () => undefined;
-export function setCreativeAssetEmitter(emitter: typeof emitAsset) { emitAsset = emitter; }
+let sendAsset: (userId: string, asset: unknown) => void = () => undefined;
+export function setCreativeAssetEmitter(emitter: typeof sendAsset) { sendAsset = emitter; }
+function emitAsset(userId: string, asset: unknown) {
+    const projectId = (asset as { projectId?: string }).projectId;
+    if (projectId) markDirectorProjectChanged(userId, projectId, ["assets", "segments", "media"]);
+    sendAsset(userId, asset);
+}
 
 export function listCreativeAssets(userId: string, projectId: string) {
     assertProject(userId, projectId);

@@ -79,6 +79,15 @@ export function compileH3Prompt(mode: "fl2va" | "ref2va", payload: Record<string
     return `subject_definitions:\n${definitions}\n\nsummary:\n[${payload.boundary === "continue" ? "video continuation + " : ""}reference generation${references.some((reference) => reference.audioPurpose) ? " + audio reference" : ""}] Generate one ${duration.toFixed(2)}-second audiovisual sequence. Follow the storyboard's chronological Shot plan while rendering a normal full-frame cinematic video, never a grid or split screen.\n\nretention_analysis:\n${retention}\n\ndetailed_description:\n${description}\n\noverall_soundscape:\n${soundscape}\n\nnon_diegetic_music:\n${music}`;
 }
 
+export function compileH3NativeContinuationPrompt(payload: Record<string, unknown>, sheet: StoryboardSheet, references: H3ReferenceDefinition[], extensionFrames: number) {
+    const offset = 22 / 24;
+    const scale = extensionFrames / 24 / Number(payload.durationSeconds || 4);
+    const at = (seconds: number) => seconds * scale + offset;
+    const shifted = { frames: sheet.frames.map((frame) => ({ ...frame, timeSeconds: at(frame.timeSeconds), dialogues: frame.dialogues?.map((cue) => ({ ...cue, startSeconds: at(cue.startSeconds), endSeconds: at(cue.endSeconds) })) })) };
+    const prompt = compileH3Prompt("ref2va", { ...payload, durationSeconds: (extensionFrames + 22) / 24 }, shifted, references);
+    return prompt.replace("detailed_description:\n", "detailed_description:\nFrom 00:00.000 to 00:00.917, preserve the supplied native audiovisual overlap exactly, continuing the existing motion and sound without replaying an entrance or adding new speech. The storyboard action and dialogue below begin after this hidden overlap.\n\n");
+}
+
 export function validateH3PromptPlan(payload: Record<string, unknown>, sheet: StoryboardSheet | undefined, availableCharacterAssetIds: string[] = []): H3PromptValidation {
     if (!sheet?.frames.length) return { blockedReasons: ["缺少故事板时序结构"], warnings: [] };
     const duration = Number(payload.durationSeconds || 4);

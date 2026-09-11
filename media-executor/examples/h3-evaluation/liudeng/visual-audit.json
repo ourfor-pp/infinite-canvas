@@ -1,0 +1,107 @@
+{
+  "sourceSha256": "787d785e03f92aba5becad326e8b361adcbd7e30557e70246dd69d5cc053d31e",
+  "method": "Visual inspection of exact decoded frame contact sheets. No full-speed listening or phoneme-level lip-sync scoring.",
+  "nativeContinuation": {
+    "boundaryFrame": 385,
+    "frames": [
+      373,
+      384,
+      385,
+      397
+    ],
+    "observation": "Father position, hands, two cups and illuminated lamp remain visually consistent in sampled frames around native continuation boundary.",
+    "fullMotionAccepted": false
+  },
+  "cuts": {
+    "boundaries": [
+      193,
+      572,
+      815
+    ],
+    "offsetFrames": [
+      -12,
+      -1,
+      0,
+      12
+    ],
+    "observation": "A/B changes corridor to father close view; B/C widens to daughter and father with hand by lamp. C/D changes to hands close-up: daughter hand is already on tabletop after previously holding suitcase.",
+    "reviewIssue": {
+      "id": "C-D-action-ellipsis",
+      "timeSeconds": 33.958333333333336,
+      "severity": "needs-viewing",
+      "description": "Unshown hand transition and changed cup composition may make cut abrupt; an intentional time ellipsis is possible, so this is not confirmed object teleportation.",
+      "nextAction": "Review cut at normal speed with sound before changing shot. If abrupt, revise end of C to begin hand reach and D opening to continue the same action, preserving cup positions."
+    }
+  },
+  "cupAction": {
+    "frames": [
+      815,
+      839,
+      863,
+      887,
+      911,
+      935,
+      959,
+      983,
+      1007
+    ],
+    "observation": "Sampled frames show father reaching, sliding cup toward daughter, daughter holding cup, father withdrawing.",
+    "fineHandPhysicsAccepted": false
+  },
+  "mouthSamples": {
+    "daughter": {
+      "frames": [
+        602,
+        605,
+        608,
+        611,
+        614,
+        617,
+        620,
+        623,
+        626,
+        629,
+        632
+      ],
+      "crop": [
+        220,
+        80,
+        360,
+        420
+      ]
+    },
+    "father": {
+      "frames": [
+        706,
+        709,
+        712,
+        715,
+        718,
+        721,
+        724,
+        727,
+        730,
+        733,
+        736,
+        739,
+        742,
+        745,
+        748,
+        751,
+        754,
+        757,
+        760,
+        763,
+        766
+      ],
+      "crop": [
+        1080,
+        220,
+        360,
+        420
+      ]
+    },
+    "observation": "Both characters have changing mouth shapes in their respective dialogue windows. This does not establish phoneme alignment, natural speech or absence of unintended mouth motion."
+  },
+  "qualityAccepted": false
+}

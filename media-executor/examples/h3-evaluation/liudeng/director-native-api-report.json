@@ -1,0 +1,701 @@
+{
+  "scope": "two independent real Director HTTP generation jobs with isolated application database, executor and ComfyUI",
+  "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "recipe": "base20-preview-480p",
+  "runs": [
+    {
+      "segmentId": "lamp-0",
+      "generationId": "5VKxsZjE_JmmuoyQiVUMl",
+      "promptId": "637fef74-0078-407a-ba00-510d2cff6695",
+      "status": "succeeded",
+      "executionSeconds": 72.206,
+      "requestedSeconds": 5,
+      "mediaSeconds": 5.166666666666667,
+      "state": {
+        "projectId": "h3-native-entry",
+        "segmentId": "lamp-0",
+        "generationId": "5VKxsZjE_JmmuoyQiVUMl",
+        "videoFileId": "JyhNuMEZSyElzULS_S40F",
+        "fileId": "Za4XmjQpfLgjkYDziCVTB",
+        "videoSha256": "943ee591855c8ef7690a18fa6badf77cf1d9a00d55cbf5743b75c6423c31ab8d",
+        "stateSha256": "10a0990edcbfdde77aba93981142bbe32629f89033cc995902d810dcfcf49ba7",
+        "context": {
+          "schemaVersion": 1,
+          "fps": 24,
+          "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61",
+          "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+          "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+          "sourceId": "h3-native-entry/lamp-0/Zrer3kbZpHMhP4YMZ4rqu",
+          "width": 864,
+          "height": 480,
+          "frames": 124
+        }
+      },
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_type": "video",
+            "width": 864,
+            "height": 480,
+            "r_frame_rate": "24/1",
+            "duration": "5.166667",
+            "nb_read_frames": "124"
+          },
+          {
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "5.166656",
+            "nb_read_frames": "162"
+          }
+        ]
+      },
+      "promptSha256": "daae215a918829816879ffd75fc752286cdc69b4d16205046fab9f92520fe177",
+      "graph": {
+        "1": {
+          "class_type": "UNETLoader",
+          "inputs": {
+            "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+            "weight_dtype": "default"
+          }
+        },
+        "2": {
+          "class_type": "CLIPLoader",
+          "inputs": {
+            "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+            "type": "minimax",
+            "device": "default"
+          }
+        },
+        "3": {
+          "class_type": "VAELoader",
+          "inputs": {
+            "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+          }
+        },
+        "4": {
+          "class_type": "VAELoader",
+          "inputs": {
+            "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+          }
+        },
+        "5": {
+          "class_type": "MiniMaxH3ReferenceToVideo",
+          "inputs": {
+            "clip": [
+              "2",
+              0
+            ],
+            "vae": [
+              "3",
+              0
+            ],
+            "prompt": "subject_definitions:\n<Picture 1> is the complete storyboard sheet; read panels left to right and top to bottom and use it only as the authoritative chronological Shot plan.\n\nsummary:\n[reference generation] Generate one 5.00-second audiovisual sequence. Follow the storyboard's chronological Shot plan while rendering a normal full-frame cinematic video, never a grid or split screen.\n\nretention_analysis:\n<Picture 1>: fully_preserved for chronology, Shot grouping, composition intent, screen direction, and continuity; do not preserve gutters, panel borders, labels, or collage layout.\n\ndetailed_description:\n[Shot 1]. Initially, A single full-frame medium shot shows the older Chinese father seated at the worn wooden table in the interior shown in <Picture 1>. His short gray hair, broad cheekbones, brown knitted cardigan and faded pale blue shirt remain consistent. The cream lampshade occupies the left foreground and two off-white cups rest on the tabletop. Warm light falls across his face while the background remains dim and blue-gray. His right fingertips rest beside the lamp base. The camera is fixed at seated eye level with a natural 50 mm perspective; the table edge and doorway retain stable positions. Render the storyboard as successive moments of this one room, with no visible panel borders.. Synchronized diegetic audio: soft steady indoor room tone and faint cloth movement. By 00:01.700, The father hears a faint footstep beyond the doorway on screen right and pauses his fingers. Only his eyes move toward the doorway at first; his head and shoulders remain almost still. The corners of his mouth are relaxed and closed. His attention changes through a small eye movement rather than a broad facial expression. The lamp maintains constant brightness, and the cups remain stationary. Keep his hands anatomically stable, with the same fingers visibly contacting the wooden surface. Preserve the fixed camera, the room geometry, the warm facial light and the cooler shadow behind his shoulder.. Synchronized diegetic audio: soft steady indoor room tone and faint cloth movement. By 00:03.300, He turns his chin a few degrees toward screen right, making a restrained acknowledgment of someone outside the frame. His right hand slowly eases away from the lamp base and rests on the table. His sleeve slides slightly over his wrist; the cardigan folds respond to that small movement. He does not stand up or leave his chair. There is no new person entering the frame. Maintain one continuous perspective throughout the movement, with natural motion blur and stable facial proportions. The cups and lamp do not drift or change shape. His shoulders settle with a quiet breath, with no voiced sound.. Synchronized diegetic audio: soft steady indoor room tone and faint cloth movement. By 00:05.000, He settles into a still listening posture with both hands supported by the table, his eyes directed toward the doorway. Retain the small change in head angle and the final hand position reached during this shot. The expression remains quiet and guarded, with no smile or theatrical reaction. The warm lampshade and dim background stay in the same locations and retain their original brightness. End on this held composition with a brief natural blink, no cut, no camera movement, and no reset of the earlier hand movement. The room tone continues smoothly through the final frame; there is no dialogue, singing or narration.. Synchronized diegetic audio: soft steady indoor room tone and faint cloth movement. No character speaks, sings, narrates, or vocalizes.\n\noverall_soundscape:\nsoft steady indoor room tone, and soft steady indoor room tone and faint cloth movement remain synchronized with the visible actions. No unintended speech, narration, singing, music, or indistinct vocalization is audible.\n\nnon_diegetic_music:\nN/A",
+            "width": 864,
+            "height": 480,
+            "length": 124,
+            "audio_vae": [
+              "4",
+              0
+            ],
+            "ref_image_size": "match",
+            "ref_images.ref_image_0": [
+              "21",
+              0
+            ]
+          }
+        },
+        "6": {
+          "class_type": "BasicGuider",
+          "inputs": {
+            "model": [
+              "15",
+              0
+            ],
+            "conditioning": [
+              "102",
+              0
+            ]
+          }
+        },
+        "7": {
+          "class_type": "KSamplerSelect",
+          "inputs": {
+            "sampler_name": "res_multistep"
+          }
+        },
+        "8": {
+          "class_type": "BasicScheduler",
+          "inputs": {
+            "model": [
+              "15",
+              0
+            ],
+            "scheduler": "simple",
+            "steps": 20,
+            "denoise": 1.0
+          }
+        },
+        "9": {
+          "class_type": "RandomNoise",
+          "inputs": {
+            "noise_seed": 7510846557250075
+          }
+        },
+        "10": {
+          "class_type": "SamplerCustomAdvanced",
+          "inputs": {
+            "noise": [
+              "9",
+              0
+            ],
+            "guider": [
+              "6",
+              0
+            ],
+            "sampler": [
+              "7",
+              0
+            ],
+            "sigmas": [
+              "8",
+              0
+            ],
+            "latent_image": [
+              "5",
+              1
+            ]
+          }
+        },
+        "11": {
+          "class_type": "VAEDecode",
+          "inputs": {
+            "samples": [
+              "70",
+              0
+            ],
+            "vae": [
+              "3",
+              0
+            ]
+          }
+        },
+        "12": {
+          "class_type": "VAEDecodeAudio",
+          "inputs": {
+            "samples": [
+              "70",
+              0
+            ],
+            "vae": [
+              "4",
+              0
+            ]
+          }
+        },
+        "13": {
+          "class_type": "CreateVideo",
+          "inputs": {
+            "images": [
+              "85",
+              0
+            ],
+            "audio": [
+              "85",
+              1
+            ],
+            "fps": 24.0,
+            "bit_depth": 8
+          }
+        },
+        "14": {
+          "class_type": "SaveVideo",
+          "inputs": {
+            "video": [
+              "13",
+              0
+            ],
+            "filename_prefix": "InfiniteCanvas/MiniMax-H3",
+            "format": "auto",
+            "codec": "auto"
+          }
+        },
+        "15": {
+          "class_type": "PathchSageAttentionKJ",
+          "inputs": {
+            "model": [
+              "1",
+              0
+            ],
+            "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+            "allow_compile": false
+          }
+        },
+        "21": {
+          "class_type": "LoadImage",
+          "inputs": {
+            "image": "storyboard.png"
+          }
+        },
+        "70": {
+          "class_type": "H3SaveContinuationState",
+          "inputs": {
+            "latent": [
+              "10",
+              0
+            ],
+            "context": "{\"schemaVersion\":1,\"fps\":24,\"modelRevision\":\"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61\",\"videoVaeRevision\":\"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\",\"audioVaeRevision\":\"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\",\"sourceId\":\"h3-native-entry/lamp-0/Zrer3kbZpHMhP4YMZ4rqu\",\"width\":864,\"height\":480,\"frames\":124}"
+          }
+        },
+        "85": {
+          "class_type": "H3NewAVSegment",
+          "inputs": {
+            "images": [
+              "11",
+              0
+            ],
+            "audio": [
+              "12",
+              0
+            ],
+            "previous_frames": 0
+          }
+        },
+        "100": {
+          "class_type": "LoadImage",
+          "inputs": {
+            "image": "lamp-0-storyboard-opening.png"
+          }
+        },
+        "102": {
+          "class_type": "MiniMaxH3AddGuide",
+          "inputs": {
+            "positive": [
+              "5",
+              0
+            ],
+            "latent": [
+              "5",
+              1
+            ],
+            "vae": [
+              "3",
+              0
+            ],
+            "audio_vae": [
+              "4",
+              0
+            ],
+            "frame_idx": 0,
+            "image": [
+              "100",
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "segmentId": "lamp-1",
+      "generationId": "eusYeeRikh4ksOfhWw4sE",
+      "promptId": "0a330f89-8a7a-44dd-bb88-05ce1084e291",
+      "status": "succeeded",
+      "executionSeconds": 108.022,
+      "requestedSeconds": 5,
+      "mediaSeconds": 4.958333333333333,
+      "state": {
+        "projectId": "h3-native-entry",
+        "segmentId": "lamp-1",
+        "generationId": "eusYeeRikh4ksOfhWw4sE",
+        "videoFileId": "cFJkZ3njHVmQ55Pgxllrx",
+        "fileId": "76MOiKMozhpJK0pR9Za4D",
+        "videoSha256": "ed5ade36b3204ce15b7e0f620d656f9e09ce1514a51de56c92e13dd8a88748db",
+        "stateSha256": "cc0c1e929510950a1c008497a74fa19e0137dbb8de587e803307c1cfb97efcfc",
+        "context": {
+          "schemaVersion": 1,
+          "fps": 24,
+          "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61",
+          "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+          "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+          "sourceId": "h3-native-entry/lamp-1/edTanstqqN5HJOGuBZpnp",
+          "width": 864,
+          "height": 480,
+          "frames": 243
+        }
+      },
+      "probe": {
+        "programs": [],
+        "streams": [
+          {
+            "codec_type": "video",
+            "width": 864,
+            "height": 480,
+            "r_frame_rate": "24/1",
+            "duration": "4.958333",
+            "nb_read_frames": "119"
+          },
+          {
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "4.958344",
+            "nb_read_frames": "155"
+          }
+        ]
+      },
+      "promptSha256": "325e4596d5e18aa63ab5017c5f575444562d4d624e448d198b2130a6083f9cd0",
+      "graph": {
+        "1": {
+          "class_type": "UNETLoader",
+          "inputs": {
+            "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+            "weight_dtype": "default"
+          }
+        },
+        "2": {
+          "class_type": "CLIPLoader",
+          "inputs": {
+            "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+            "type": "minimax",
+            "device": "default"
+          }
+        },
+        "3": {
+          "class_type": "VAELoader",
+          "inputs": {
+            "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+          }
+        },
+        "4": {
+          "class_type": "VAELoader",
+          "inputs": {
+            "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+          }
+        },
+        "5": {
+          "class_type": "MiniMaxH3ReferenceToVideo",
+          "inputs": {
+            "clip": [
+              "2",
+              0
+            ],
+            "vae": [
+              "3",
+              0
+            ],
+            "prompt": "subject_definitions:\n<Picture 1> is the complete storyboard sheet; read panels left to right and top to bottom and use it only as the authoritative chronological Shot plan.\n\nsummary:\n[video continuation + reference generation] Generate one 5.88-second audiovisual sequence. Follow the storyboard's chronological Shot plan while rendering a normal full-frame cinematic video, never a grid or split screen.\n\nretention_analysis:\n<Picture 1>: fully_preserved for chronology, Shot grouping, composition intent, screen direction, and continuity; do not preserve gutters, panel borders, labels, or collage layout.\n\ndetailed_description:\nFrom 00:00.000 to 00:00.917, preserve the supplied native audiovisual overlap exactly, continuing the existing motion and sound without replaying an entrance or adding new speech. The storyboard action and dialogue below begin after this hidden overlap.\n\n[Shot 1]. Initially, Continue the same fixed full-frame view of the father seated beside the lit lamp, preserving the exact head angle, hand placement, warm facial lighting and room geometry established at the end of the preceding segment. His cardigan and pale shirt retain their folds, and both cups remain in place. The hidden overlap leads directly into a held listening posture. He does not repeat the earlier hand movement, turn back to an earlier pose, or reenter the frame. Maintain the stable 50 mm seated eye-level perspective and the same distance to his face. His closed mouth remains relaxed, with no speech or vocalization.. Synchronized diegetic audio: soft steady indoor room tone and faint cloth movement. By 00:02.617, His gaze remains on the doorway at screen right. A small inhale slightly raises his chest beneath the brown cardigan. His fingers stay relaxed against the wood rather than gripping or tapping. The lampshade casts an unchanged soft edge of light across his cheek and the bridge of his nose. His expression remains restrained and attentive, with no large eyebrow movement or sudden smile. The worn table edge stays straight and fixed in the frame. Keep the background doorway in the same place and preserve the shallow depth of field; the camera neither pushes in nor reframes his face.. Synchronized diegetic audio: soft steady indoor room tone and faint cloth movement. By 00:04.217, The father briefly lowers his eyes toward the nearest off-white cup while keeping his head almost still. His right thumb relaxes against the tabletop; no object is picked up or moved. Allow one natural blink, followed by a gradual return of his gaze toward the doorway. The movement is small and continuous rather than a repeated animation loop. Keep his age, face shape and short gray hair consistent. His seated body retains its weight and contact with the chair. The lamp remains lit at the same level; the room stays quiet with steady low interior ambience.. Synchronized diegetic audio: soft steady indoor room tone and faint cloth movement. By 00:05.917, He holds the final listening posture, looking toward the doorway with both hands still on the table. The face, lamp, cups and doorway preserve their positions and proportions as time continues. His shoulders settle imperceptibly at the end of the breath, without any spoken or voiced sound. Render the complete screen as one continuous live-action camera view, maintaining the existing light, lens perspective and composition. The scene ends on a quiet held moment, with no cut, transition, fade, repeated entrance or replay of the previous segment. Carry the same soft room tone through the last frame so the next segment can continue naturally.. Synchronized diegetic audio: soft steady indoor room tone and faint cloth movement. No character speaks, sings, narrates, or vocalizes.\n\noverall_soundscape:\nsoft steady indoor room tone, and soft steady indoor room tone and faint cloth movement remain synchronized with the visible actions. No unintended speech, narration, singing, music, or indistinct vocalization is audible.\n\nnon_diegetic_music:\nN/A",
+            "width": 864,
+            "height": 480,
+            "length": [
+              "81",
+              1
+            ],
+            "audio_vae": [
+              "4",
+              0
+            ],
+            "ref_image_size": "match",
+            "ref_images.ref_image_0": [
+              "21",
+              0
+            ]
+          }
+        },
+        "6": {
+          "class_type": "BasicGuider",
+          "inputs": {
+            "model": [
+              "15",
+              0
+            ],
+            "conditioning": [
+              "82",
+              0
+            ]
+          }
+        },
+        "7": {
+          "class_type": "KSamplerSelect",
+          "inputs": {
+            "sampler_name": "res_multistep"
+          }
+        },
+        "8": {
+          "class_type": "BasicScheduler",
+          "inputs": {
+            "model": [
+              "15",
+              0
+            ],
+            "scheduler": "simple",
+            "steps": 20,
+            "denoise": 1.0
+          }
+        },
+        "9": {
+          "class_type": "RandomNoise",
+          "inputs": {
+            "noise_seed": 8110420827112089
+          }
+        },
+        "10": {
+          "class_type": "SamplerCustomAdvanced",
+          "inputs": {
+            "noise": [
+              "9",
+              0
+            ],
+            "guider": [
+              "6",
+              0
+            ],
+            "sampler": [
+              "7",
+              0
+            ],
+            "sigmas": [
+              "8",
+              0
+            ],
+            "latent_image": [
+              "81",
+              0
+            ]
+          }
+        },
+        "11": {
+          "class_type": "VAEDecode",
+          "inputs": {
+            "samples": [
+              "70",
+              0
+            ],
+            "vae": [
+              "3",
+              0
+            ]
+          }
+        },
+        "12": {
+          "class_type": "VAEDecodeAudio",
+          "inputs": {
+            "samples": [
+              "70",
+              0
+            ],
+            "vae": [
+              "4",
+              0
+            ]
+          }
+        },
+        "13": {
+          "class_type": "CreateVideo",
+          "inputs": {
+            "images": [
+              "85",
+              0
+            ],
+            "audio": [
+              "85",
+              1
+            ],
+            "fps": 24.0,
+            "bit_depth": 8
+          }
+        },
+        "14": {
+          "class_type": "SaveVideo",
+          "inputs": {
+            "video": [
+              "13",
+              0
+            ],
+            "filename_prefix": "InfiniteCanvas/MiniMax-H3",
+            "format": "auto",
+            "codec": "auto"
+          }
+        },
+        "15": {
+          "class_type": "PathchSageAttentionKJ",
+          "inputs": {
+            "model": [
+              "1",
+              0
+            ],
+            "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+            "allow_compile": false
+          }
+        },
+        "21": {
+          "class_type": "LoadImage",
+          "inputs": {
+            "image": "storyboard.png"
+          }
+        },
+        "70": {
+          "class_type": "H3SaveContinuationState",
+          "inputs": {
+            "latent": [
+              "83",
+              0
+            ],
+            "context": "{\"schemaVersion\":1,\"fps\":24,\"modelRevision\":\"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61\",\"videoVaeRevision\":\"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\",\"audioVaeRevision\":\"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\",\"sourceId\":\"h3-native-entry/lamp-1/edTanstqqN5HJOGuBZpnp\",\"width\":864,\"height\":480,\"frames\":243}"
+          }
+        },
+        "80": {
+          "class_type": "H3LoadContinuationState",
+          "inputs": {
+            "state_name": "4492fb611a7d4071886dcc4e657a4d91.safetensors",
+            "expected_context": "{\"schemaVersion\":1,\"fps\":24,\"modelRevision\":\"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61\",\"videoVaeRevision\":\"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\",\"audioVaeRevision\":\"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\",\"sourceId\":\"h3-native-entry/lamp-0/Zrer3kbZpHMhP4YMZ4rqu\",\"width\":864,\"height\":480,\"frames\":124}"
+          }
+        },
+        "81": {
+          "class_type": "MiniMaxH3GuidedContinuationWindow",
+          "inputs": {
+            "previous_av_latent": [
+              "80",
+              0
+            ],
+            "overlap_frames": 22,
+            "extension_frames": 119
+          }
+        },
+        "82": {
+          "class_type": "MiniMaxH3LatentTailGuide",
+          "inputs": {
+            "positive": [
+              "5",
+              0
+            ],
+            "previous_av_latent": [
+              "80",
+              0
+            ],
+            "target_av_latent": [
+              "81",
+              0
+            ],
+            "overlap_video_tokens": [
+              "81",
+              2
+            ],
+            "overlap_audio_tokens": [
+              "81",
+              3
+            ]
+          }
+        },
+        "83": {
+          "class_type": "MiniMaxH3AppendContinuation",
+          "inputs": {
+            "previous_av_latent": [
+              "80",
+              0
+            ],
+            "sampled_window": [
+              "10",
+              0
+            ],
+            "overlap_video_tokens": [
+              "81",
+              2
+            ],
+            "overlap_audio_tokens": [
+              "81",
+              3
+            ],
+            "transition_video_tokens": [
+              "81",
+              4
+            ],
+            "transition_audio_tokens": [
+              "81",
+              5
+            ]
+          }
+        },
+        "85": {
+          "class_type": "H3NewAVSegment",
+          "inputs": {
+            "images": [
+              "11",
+              0
+            ],
+            "audio": [
+              "12",
+              0
+            ],
+            "previous_frames": 124
+          }
+        }
+      }
+    }
+  ],
+  "executionSeconds": 180.228,
+  "outputSeconds": 10.125,
+  "qualifiedSeconds": 0,
+  "perceptualAcceptance": false,
+  "limitations": [
+    "Only a two-job integration check, not a speed comparison or final-film acceptance.",
+    "Full motion, audio listening and seam review remain required.",
+    "Test prompt incorrectly locates lamp on screen left while the supplied storyboard shows it on screen right; final prompts need visual consistency correction.",
+    "Six-frame seam review shows a small pose/framing change; native-state prefix equality does not prove a visually seamless cut between separately decoded clips."
+  ],
+  "prefixComparison": {
+    "audio": {
+      "before": [
+        1,
+        32,
+        2,
+        207
+      ],
+      "after": [
+        1,
+        32,
+        2,
+        405
+      ],
+      "prefixExact": true
+    },
+    "video": {
+      "before": [
+        1,
+        24,
+        37,
+        30,
+        54
+      ],
+      "after": [
+        1,
+        24,
+        72,
+        30,
+        54
+      ],
+      "prefixExact": true
+    }
+  },
+  "reviewMedia": ".tmp/h3-evaluation/director-native-api/two-segments.mp4",
+  "seamMetrics": {
+    "metric": "mean absolute RGB difference at 432x240, 0-255 scale",
+    "seamFrame": 124,
+    "seamDifference": 2.3025689125061035,
+    "localBefore": [
+      0.4025527238845825,
+      0.37800925970077515,
+      0.35574203729629517,
+      0.37724408507347107,
+      0.32213541865348816
+    ],
+    "localAfter": [
+      0.3633262515068054,
+      0.12147633731365204,
+      0.1894000768661499,
+      0.3789673447608948,
+      0.22395190596580505
+    ],
+    "allMedian": 0.48385417461395264,
+    "seamPercentile": 100.0,
+    "interpretation": "Frame difference alone is not perceptual proof; visible pose/composition change at the seam requires review and investigation."
+  }
+}

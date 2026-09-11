@@ -1,0 +1,240 @@
+{
+  "hypothesis": "A final-frame native guide may suppress late storyboard layout leakage while retaining the whole storyboard reference.",
+  "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "samePromptAsOpeningOnlyControl": true,
+  "promptSha256": "3d3f79eb2e81a40d0a88047b5d2fc5277fbce8e7795d499dbc1169c854fa0f1e",
+  "referenceHashes": {
+    "storyboard.png": "9b21da964c1fd306aa1d8c0d19668da6b9eadfe4ff4e9f7d5d889424247f2f08",
+    "lamp-0-storyboard-opening.png": "a47d19a3acad935ca028e579073931d51837971d3858e70fcc90bb85f799b072"
+  },
+  "intervention": {
+    "newGuideFrame": 191,
+    "source": "lower-right panel of the same whole storyboard",
+    "crop": {
+      "image": [
+        "21",
+        0
+      ],
+      "width": 831,
+      "height": 468,
+      "x": 841,
+      "y": 473
+    },
+    "wholeStoryboardRetained": true
+  },
+  "qualityAccepted": false,
+  "qualifiedSeconds": 0,
+  "scope": "Single seed 864x480 diagnostic; does not prove native768p or full film quality.",
+  "runs": {
+    "base20": {
+      "recipe": "base20",
+      "promptId": "b81a39b4-762f-4174-996d-391071fcc1ed",
+      "executionSeconds": 130.371,
+      "peakTotalGpuUsedMiB": 30568,
+      "seed": 8517197894835789,
+      "frames": 192,
+      "width": 864,
+      "height": 480,
+      "runtimeIdentity": {
+        "ready": true,
+        "schemaVersion": 1,
+        "modelId": "minimax-h3-ref2va-local",
+        "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+        "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+        "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+        "implementationRevision": "ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13"
+      },
+      "gpuCacheUnloadedBeforeSubmission": true,
+      "qualityAccepted": false,
+      "outputSha256": "87b5a20c4515a81aa44a94e0ad0b1cd787ef58aa747edca379aaeebf081fc4ea"
+    },
+    "pdd8": {
+      "recipe": "pdd8",
+      "promptId": "c68869a2-b5ef-499a-a63c-6ec37bb8c42f",
+      "executionSeconds": 73.902,
+      "peakTotalGpuUsedMiB": 30568,
+      "seed": 8517197894835789,
+      "frames": 192,
+      "width": 864,
+      "height": 480,
+      "runtimeIdentity": {
+        "ready": true,
+        "schemaVersion": 1,
+        "modelId": "minimax-h3-ref2va-local",
+        "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+        "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+        "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+        "implementationRevision": "ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13"
+      },
+      "gpuCacheUnloadedBeforeSubmission": true,
+      "qualityAccepted": false,
+      "outputSha256": "408a258d9cc15b3ec479cb736d2ab030e68dc6940612ddaa70f5aedf30d13d7e"
+    }
+  },
+  "executionSpeedup": 1.7641065194446701,
+  "motion": {
+    "base20": {
+      "frames": 192,
+      "initialBackgroundCorners": 32,
+      "validFrames": 191,
+      "maxTranslationPixels": 4.301832408443758,
+      "maxScaleDeviation": 0.03364698371335295,
+      "last": {
+        "frame": 191,
+        "inliers": 10,
+        "scale": 0.9894239316941408,
+        "translationPixels": 3.9802432931430176
+      },
+      "samples": [
+        {
+          "frame": 1,
+          "inliers": 31,
+          "scale": 0.9998668237644671,
+          "translationPixels": 0.19477041447793372
+        },
+        {
+          "frame": 25,
+          "inliers": 26,
+          "scale": 0.999861896492857,
+          "translationPixels": 0.2583481150539593
+        },
+        {
+          "frame": 49,
+          "inliers": 24,
+          "scale": 0.9999759363869584,
+          "translationPixels": 0.24939587336923194
+        },
+        {
+          "frame": 73,
+          "inliers": 24,
+          "scale": 0.9999777830163032,
+          "translationPixels": 0.04289393028481718
+        },
+        {
+          "frame": 97,
+          "inliers": 19,
+          "scale": 1.0001872940956822,
+          "translationPixels": 0.08326637254013514
+        },
+        {
+          "frame": 121,
+          "inliers": 11,
+          "scale": 0.989255689709519,
+          "translationPixels": 3.095420697875823
+        },
+        {
+          "frame": 145,
+          "inliers": 11,
+          "scale": 0.9893044757436563,
+          "translationPixels": 3.5635499474045877
+        },
+        {
+          "frame": 169,
+          "inliers": 10,
+          "scale": 0.9894221381597368,
+          "translationPixels": 3.969139973099448
+        }
+      ]
+    },
+    "pdd8": {
+      "frames": 192,
+      "initialBackgroundCorners": 16,
+      "validFrames": 191,
+      "maxTranslationPixels": 4.153203835535283,
+      "maxScaleDeviation": 0.011925418101681129,
+      "last": {
+        "frame": 191,
+        "inliers": 10,
+        "scale": 0.9894140534327964,
+        "translationPixels": 3.752740498944939
+      },
+      "samples": [
+        {
+          "frame": 1,
+          "inliers": 16,
+          "scale": 1.0001349679787415,
+          "translationPixels": 0.10581156302945928
+        },
+        {
+          "frame": 25,
+          "inliers": 13,
+          "scale": 0.9998584956550989,
+          "translationPixels": 0.010648932466264723
+        },
+        {
+          "frame": 49,
+          "inliers": 13,
+          "scale": 1.0000262376007103,
+          "translationPixels": 0.08390105705611364
+        },
+        {
+          "frame": 73,
+          "inliers": 13,
+          "scale": 1.0000829941212779,
+          "translationPixels": 0.09945522133616126
+        },
+        {
+          "frame": 97,
+          "inliers": 10,
+          "scale": 1.0001942377242024,
+          "translationPixels": 0.11024114358152654
+        },
+        {
+          "frame": 121,
+          "inliers": 10,
+          "scale": 0.9884411331812346,
+          "translationPixels": 4.044929873020817
+        },
+        {
+          "frame": 145,
+          "inliers": 10,
+          "scale": 0.9891801465724145,
+          "translationPixels": 3.733809844433498
+        },
+        {
+          "frame": 169,
+          "inliers": 10,
+          "scale": 0.9892463494956361,
+          "translationPixels": 3.7321301702477636
+        }
+      ]
+    },
+    "method": "First-frame background corner tracking in left doorway and upper-right wall; forward-backward optical-flow error <1px and affine RANSAC with >=8 inliers. Diagnostic only; does not certify camera stability, object identity, acting, or audio."
+  },
+  "audio": {
+    "base20": {
+      "samples": 512000,
+      "rms": 0.002211316682733184,
+      "peak": 0.05010437220335007,
+      "listeningAccepted": false
+    },
+    "pdd8": {
+      "samples": 512000,
+      "rms": 0.001998747475699659,
+      "peak": 0.029523398727178574,
+      "listeningAccepted": false
+    }
+  },
+  "visualReview": {
+    "method": "Viewed full-duration 2fps contact sheets for both 8-second outputs; background tracking covered all 191 frame transitions.",
+    "pddFindings": [
+      "No visible grid or unrequested second person in sampled frames.",
+      "Father glances left, lowers eyes and reaches toward the lamp.",
+      "Later framing changes remain visible; full motion, hand anatomy and audio acceptance pending."
+    ],
+    "baseFindings": [
+      "Single full-frame composition in sampled frames.",
+      "Later framing changes also occur."
+    ],
+    "notProven": [
+      "All-frame absence of transient artifacts",
+      "Natural full-speed acting and audio",
+      "Native768p quality",
+      "Continuation with endpoint guides",
+      "Multi-seed repeatability",
+      "End-to-end qualified-film speedup"
+    ]
+  },
+  "gpuMeasurement": "Total GPU memory sampled every3 seconds, includes other processes and can miss short peaks. Equal recorded peaks do not prove equal model VRAM.",
+  "nextExperiment": "Use identical whole storyboard, first/last native guides, prompt and seed at native768p for base20/PDD8; inspect motion and original audio before continuation or promotion."
+}

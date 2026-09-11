@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentRef, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Button, Checkbox, Empty, Image, Input, Modal, Popconfirm, Popover, Select, Tooltip } from "antd";
 import {
-    Archive, ArrowDown, AtSign, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleSlash2, Download, Eye,
+    Archive, ArrowDown, AtSign, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleSlash2, Download, Eye,
     Clock3, Copy, File, FileAudio, FileText, FileVideo, GitFork, History, ImageIcon, Pencil,
     LoaderCircle, MessageCircleQuestion, Paperclip, Search, Send, ShieldAlert, Sparkles, Square, Trash2, Wrench, X,
 } from "lucide-react";
@@ -16,6 +16,7 @@ import type { AgentEntityReference } from "@/stores/use-agent-store";
 import type { AgentEvent, AgentPendingDecision, AgentSession, AgentSkill, AgentTurnIndexItem } from "@/services/api/agent";
 import { serverApiUrl, type ServerFile } from "@/services/api/server";
 import { useCopyText } from "@/hooks/use-copy-text";
+import processStyles from "./agent-process.module.css";
 
 export function AgentConversationFlow({
     events,
@@ -29,6 +30,7 @@ export function AgentConversationFlow({
     pendingDecision,
     status,
     currentRunId,
+    pendingMessage,
     restartingMessageSeq,
     onRestartFromMessage,
     onBeforeProcessAutoCollapse,
@@ -44,11 +46,24 @@ export function AgentConversationFlow({
     pendingDecision?: AgentPendingDecision | null;
     status?: AgentSession["status"];
     currentRunId?: string | null;
+    pendingMessage?: AgentEvent | null;
     restartingMessageSeq?: number | null;
     onRestartFromMessage?: (event: ProjectedEvent) => void;
     onBeforeProcessAutoCollapse?: (element: HTMLElement) => void;
 }) {
-    const items = useMemo(() => buildConversationItems(events), [events]);
+    const sendingId = pendingMessage && !events.some((event) => event.kind === "user_text" && event.sessionId === pendingMessage.sessionId && event.payload.clientMessageId === pendingMessage.payload.clientMessageId) ? `sending-${pendingMessage.payload.clientMessageId}` : undefined;
+    const items = useMemo(() => {
+        const result = buildConversationItems(events);
+        if (status === "running" && currentRunId) {
+            const lastUserIndex = result.findLastIndex((item) => item.type === "user" && item.event.runId === currentRunId);
+            const lastUser = result[lastUserIndex];
+            if (lastUser?.type === "user" && !result.slice(lastUserIndex + 1).some((item) => item.type === "round" && item.runId === currentRunId)) {
+                result.splice(lastUserIndex + 1, 0, { type: "round", id: `waiting-${currentRunId}-${lastUser.event.seq}`, runId: currentRunId, events: [] });
+            }
+        }
+        if (pendingMessage && sendingId) result.push({ type: "user", id: `pending-${sendingId}`, event: pendingMessage }, { type: "round", id: sendingId, runId: null, events: [] });
+        return result;
+    }, [events, status, currentRunId, pendingMessage, sendingId]);
     const activeRoundId = useMemo(() => {
         if (!currentRunId) return undefined;
         for (let index = items.length - 1; index >= 0; index -= 1) { const item = items[index]; if (item.type === "round" && item.runId === currentRunId) return item.id; }
@@ -82,8 +97,8 @@ export function AgentConversationFlow({
             {(items.length > 80 ? virtual.items.map((virtualItem) => ({ item: items[virtualItem.index], top: virtualItem.top })) : items.map((item) => ({ item, top: undefined }))).map(({ item, top }) => {
                 const position = top === undefined ? undefined : { position: "absolute" as const, top: top + historyOffset, left: 0, right: 0 };
                 if (item.type === "time") return <div key={item.id} className="agent-time-note"><time>{item.label}</time></div>;
-                if (item.type === "user") return <Measured key={item.id} id={item.id} style={position} onHeight={recordHeight}><UserMessage event={item.event} theme={theme} restarting={restartingMessageSeq === item.event.seq} onRestart={onRestartFromMessage} /></Measured>;
-                return <Measured key={item.id} id={item.id} className="agent-assistant-round" style={position} onHeight={recordHeight}><AssistantRound events={item.events} theme={theme} status={item.id === activeRoundId ? status : "completed"} pendingDecision={item.id === activeRoundId ? pendingDecision : null} onBeforeProcessAutoCollapse={onBeforeProcessAutoCollapse} /></Measured>;
+                if (item.type === "user") return <Measured key={item.id} id={item.id} style={position} onHeight={recordHeight}><UserMessage event={item.event} theme={theme} restarting={restartingMessageSeq === item.event.seq} onRestart={item.event === pendingMessage ? undefined : onRestartFromMessage} /></Measured>;
+                return <Measured key={item.id} id={item.id} className="agent-assistant-round" style={position} onHeight={recordHeight}>{item.id === sendingId ? <StatusPill state="running" text="正在发送…" /> : <AssistantRound events={item.events} theme={theme} status={item.id === activeRoundId ? status : "completed"} pendingDecision={item.id === activeRoundId ? pendingDecision : null} onBeforeProcessAutoCollapse={onBeforeProcessAutoCollapse} />}</Measured>;
             })}
         </div>
     );
@@ -130,7 +145,7 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
     const files = attachments.filter((item) => !String(item.mimeType || "").startsWith("image/") || !item.fileId);
     return (
         <div className="flex w-full scroll-mt-4 justify-end pl-10" data-agent-user-seq={event.seq}>
-            <article className="group flex min-w-0 max-w-[88%] flex-col items-end">
+            <article className="group relative flex min-w-0 max-w-[88%] flex-col items-end">
                 <div className="agent-user-bubble w-fit max-w-full rounded-[18px_18px_5px_18px] px-3.5 py-2.5 text-sm leading-6">
                 {text ? <div className={`whitespace-pre-wrap break-words ${long && !expanded ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_75%,transparent)]" : ""}`}>{visibleText}</div> : null}
                 {long ? <div className="mt-1 flex gap-3 text-xs font-medium opacity-55">{!expanded || text.length > visibleLimit ? <button type="button" className="hover:opacity-80" onClick={() => { setExpanded(true); setVisibleLimit((value) => Math.min(text.length, value + 12_000)); }}>{expanded ? "继续展开" : "展开全文"}</button> : null}{expanded ? <button type="button" className="hover:opacity-80" onClick={() => { setExpanded(false); setVisibleLimit(4_000); }}>收起</button> : null}</div> : null}
@@ -145,7 +160,7 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
                     </div>
                 ) : null}
                 </div>
-                {text ? <div className="mt-1.5 flex gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                {text ? <div className="absolute right-0 top-full z-10 flex gap-1.5 pt-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <Tooltip title="复制消息内容"><button type="button" aria-label="复制消息内容" onClick={() => copyText(text, "已复制消息内容")} className="grid size-7 place-items-center rounded-full border transition hover:-translate-y-px" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.muted }}><Copy className="size-3.5" /></button></Tooltip>
                     {onRestart ? <Popconfirm title="确认重新开始聊天线程？" description="会新建分支并把这条消息填回输入框；画布和工作目录不会回滚。" okText="确认重新开始" cancelText="取消" onConfirm={() => onRestart(event)}><Tooltip title="从这条消息重新开始"><button type="button" aria-label="从这条消息重新开始" disabled={restarting} className="grid size-7 place-items-center rounded-full border transition hover:-translate-y-px disabled:cursor-wait disabled:opacity-40" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.muted }}><Pencil className="size-3.5" /></button></Tooltip></Popconfirm> : null}
                 </div> : null}
@@ -182,11 +197,11 @@ export const AssistantRound = memo(function AssistantRound({ events, theme, stat
     };
     return (
         <div className="group/round pr-1">
-            {process.length || processMessages.length || decisionHistory.length ? <ProcessGroup events={process} processMessages={processMessages} decisions={decisionHistory} roundEvents={events} theme={theme} status={status} onBeforeAutoCollapse={onBeforeProcessAutoCollapse} /> : null}
-            <div className="agent-streamdown relative mt-2 text-sm leading-6">
+            {process.length || processMessages.length || decisionHistory.length ? <ProcessGroup events={process} processMessages={processMessages} decisions={decisionHistory} roundEvents={events} status={status} onBeforeAutoCollapse={onBeforeProcessAutoCollapse} /> : null}
+            {answers.length || (copyText && roundCompleted) ? <div className="agent-streamdown relative mt-2 text-sm leading-6">
                 {answers.map((event) => <Streamdown key={`${event.sessionId}:${event.seq}`} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } }} isAnimating={Boolean(event.payload.delta)}>{eventText(event)}</Streamdown>)}
                 {copyText && roundCompleted ? <div className="mt-1 flex h-6 items-center"><Tooltip title={copied ? "已复制" : "复制回复"}><button type="button" aria-label="复制本轮回复内容" onClick={() => void copy()} className="grid size-6 place-items-center rounded-md opacity-0 transition hover:bg-black/5 group-hover/round:opacity-50 focus-visible:opacity-50 dark:hover:bg-white/10">{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}</button></Tooltip></div> : null}
-            </div>
+            </div> : null}
             {artifacts.length ? <ArtifactStrip events={artifacts} theme={theme} /> : null}
             {errors.map((event) => <AgentErrorNotice key={event.seq} event={event} />)}
             <RoundStatus events={events} status={status} />
@@ -208,7 +223,7 @@ function AgentErrorNotice({ event }: { event: ProjectedEvent }) {
     return <div className="agent-error-notice"><CircleAlert className="size-4 shrink-0" /><div className="min-w-0"><strong>{content.title}</strong><p>{content.message}</p>{known[code] && raw && raw !== content.message ? <details><summary>查看技术详情</summary><pre>{code} · {raw}</pre></details> : null}</div></div>;
 }
 
-function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, status, onBeforeAutoCollapse }: { events: ProjectedEvent[]; processMessages: ProjectedEvent[]; decisions: Array<{ request: AgentPendingDecision; event: ProjectedEvent; response?: ProjectedEvent }>; roundEvents: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; onBeforeAutoCollapse?: (element: HTMLElement) => void }) {
+function ProcessGroup({ events, processMessages, decisions, roundEvents, status, onBeforeAutoCollapse }: { events: ProjectedEvent[]; processMessages: ProjectedEvent[]; decisions: Array<{ request: AgentPendingDecision; event: ProjectedEvent; response?: ProjectedEvent }>; roundEvents: ProjectedEvent[]; status?: AgentSession["status"]; onBeforeAutoCollapse?: (element: HTMLElement) => void }) {
     const groupRef = useRef<HTMLElement>(null);
     const tools = events.filter((event) => event.kind === "tool_call");
     const thinking = events.filter((event) => event.kind === "thinking");
@@ -225,7 +240,14 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
     const [now, setNow] = useState(Date.now());
     const runningTools = terminal ? 0 : tools.filter((event) => !event.result).length;
     const headerParts = [tools.length ? `${tools.length} 次工具调用` : "", runningTools ? `${runningTools} 项进行中` : "", failedTools ? `${failedTools} 项失败` : "", processMessages.length + decisions.length ? `${processMessages.length + decisions.length} 条过程记录` : "", thinking.length ? `思考 ${thinking.length} 轮` : ""].filter(Boolean);
-    const visibleEvents = showAllTools || tools.length <= 6 ? events : events.filter((event) => event.kind === "thinking" || tools.slice(0, 4).includes(event) || tools.slice(-2).includes(event));
+    const steps: Array<{ event: ProjectedEvent; thinking: ProjectedEvent[] }> = [];
+    let pendingThinking: ProjectedEvent[] = [];
+    for (const event of events) {
+        if (event.kind === "thinking") pendingThinking.push(event);
+        else { steps.push({ event, thinking: pendingThinking }); pendingThinking = []; }
+    }
+    if (pendingThinking.length) steps.push({ event: pendingThinking[0], thinking: pendingThinking });
+    const visibleSteps = steps.map((step, index) => ({ ...step, index })).filter(({ event }) => showAllTools || tools.length <= 6 || event.kind === "thinking" || tools.slice(0, 4).includes(event) || tools.slice(-2).includes(event));
     const duration = roundDuration(roundEvents, running, now);
     useEffect(() => {
         if (!running) return;
@@ -241,7 +263,7 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
         lastAutoOpenedFailure.current = failureKey;
     }, [failureKey]);
     return (
-        <section ref={groupRef} className="agent-process-group">
+        <section ref={groupRef} className={`agent-process-group ${processStyles.group}`}>
             <button type="button" className="agent-process-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
                 <ChevronRight className={`size-3.5 transition ${open ? "rotate-90" : ""}`} />
                 <span>{headerParts.join(" · ") || "过程记录"}</span>
@@ -249,9 +271,9 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, theme, 
             </button>
             {open ? (
                 <div className="agent-process-content">
-                    {visibleEvents.map((event) => event.kind === "thinking"
-                        ? <ThinkingStep key={`${event.seq}`} event={event} theme={theme} />
-                        : <ToolStep key={`${event.seq}`} event={event} theme={theme} now={now} terminalStatus={terminal ? status : undefined} autoOpenFailure={event.seq === latestFailedToolSeq} />)}
+                    {visibleSteps.map(({ event, thinking, index }) => event.kind === "thinking"
+                        ? <ThinkingStep key={event.seq} events={thinking} index={index} />
+                        : <ToolStep key={event.seq} event={event} thinking={thinking} index={index} now={now} terminalStatus={terminal ? status : undefined} autoOpenFailure={event.seq === latestFailedToolSeq} />)}
                     {tools.length > 6 ? <button type="button" className="agent-process-more" onClick={() => setShowAllTools((value) => !value)}>{showAllTools ? "收起工具步骤" : `查看全部 ${tools.length} 个工具步骤`}</button> : null}
                     {processMessages.length ? <div className="agent-process-records">{processMessages.map((event) => <div key={event.seq} className="agent-process-record"><Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } }}>{eventText(event)}</Streamdown></div>)}</div> : null}
                     {decisions.length ? <div className="agent-process-records">{decisions.map(({ request, event, response }) => <DecisionHistory key={event.seq} request={request} response={response} />)}</div> : null}
@@ -283,56 +305,66 @@ function DecisionHistory({ request, response }: { request: AgentPendingDecision;
     return <div className="agent-process-record flex items-start gap-2"><ShieldAlert className="mt-1 size-3.5 shrink-0" /><span className="min-w-0"><strong className="block font-medium text-current">操作确认</strong><span className="block break-words">{request.content}</span><em className="mt-0.5 block text-[10px] not-italic opacity-60">{response ? approved ? "已允许" : "已取消" : "已结束"}</em></span></div>;
 }
 
-function ThinkingStep({ event, theme }: { event: ProjectedEvent; theme: CanvasTheme }) {
+function thinkingText(events: ProjectedEvent[]) { return events.map((event) => eventText(event).replace(/^思考[：:]\s*/i, "")).join("\n\n"); }
+
+function ThinkingStep({ events, index }: { events: ProjectedEvent[]; index: number }) {
     const [open, setOpen] = useState(false);
-    const text = eventText(event).replace(/^思考[：:]\s*/i, "");
-    return (
-        <div className="agent-process-step">
-            <button type="button" onClick={() => setOpen((value) => !value)} className="agent-process-step-toggle" aria-expanded={open} aria-label={open ? "收起详情" : "展开详情"}>
-                <Brain className="size-3.5 shrink-0" /><span className="min-w-0 flex-1 truncate">{text || "思考过程"}</span><ChevronDown className={`size-3 transition ${open ? "rotate-180" : ""}`} />
-            </button>
-            {open ? <div className="agent-process-thinking">{text}</div> : null}
-        </div>
-    );
+    const text = thinkingText(events);
+    return <div className="agent-process-step">
+        <button type="button" onClick={() => setOpen((value) => !value)} className="agent-process-step-toggle" aria-expanded={open} aria-label={open ? "收起详情" : "展开详情"}>
+            <ChevronRight className={`size-3.5 shrink-0 transition ${open ? "rotate-90" : ""}`} /><span>#{index + 1} · 已思考</span><small>{text}</small>
+        </button>
+        {open ? <div className="agent-process-thinking">{text}</div> : null}
+    </div>;
 }
 
-function ToolStep({ event, theme, now, terminalStatus, autoOpenFailure }: { event: ProjectedEvent; theme: CanvasTheme; now: number; terminalStatus?: AgentSession["status"]; autoOpenFailure?: boolean }) {
+function ToolStep({ event, thinking, index, now, terminalStatus, autoOpenFailure }: { event: ProjectedEvent; thinking: ProjectedEvent[]; index: number; now: number; terminalStatus?: AgentSession["status"]; autoOpenFailure?: boolean }) {
     const failed = Boolean(event.result?.payload.isError);
     const [open, setOpen] = useState(Boolean(failed && autoOpenFailure));
+    const [detailsOpen, setDetailsOpen] = useState(true);
     const name = formatAgentToolName(String(event.payload.toolName || "工具"));
     const target = toolTarget(event.payload.input);
     const duration = toolDuration(event, now);
     const settled = Boolean(event.result || terminalStatus);
-    const settledFailed = failed || terminalStatus === "failed" || terminalStatus === "canceled";
-    useEffect(() => { if (failed && autoOpenFailure) setOpen(true); }, [autoOpenFailure, failed]);
-    return (
-        <div className="agent-process-step">
-            <button type="button" onClick={() => setOpen((value) => !value)} className="agent-process-step-toggle" aria-expanded={open} aria-label={open ? "收起详情" : "展开详情"}>
-                <Wrench className="size-3.5 shrink-0 opacity-50" />
-                <span className="min-w-0 flex-1 truncate font-medium">{name}{target ? <span className="font-normal opacity-45"> · {target}</span> : null}</span>
-                {duration ? <span className="tabular-nums opacity-40">{duration}</span> : null}
-                {settled ? settledFailed ? <CircleAlert className="size-3.5 text-red-500" /> : <Check className="size-3.5 text-emerald-500" /> : <LoaderCircle className="size-3.5 animate-spin opacity-45" />}
-                <ChevronDown className={`size-3 opacity-40 transition ${open ? "rotate-180" : ""}`} />
-            </button>
-            {open ? <div className="mt-2 space-y-2 pl-5"><CodeBlock label="输入" value={event.payload.input} theme={theme} />{event.result ? <CodeBlock label={failed ? "错误" : "结果"} value={event.result.payload.output} theme={theme} /> : null}</div> : null}
-        </div>
-    );
+    const summary = thinkingText(thinking);
+    const state = failed ? "失败" : event.result ? "完成" : terminalStatus === "canceled" ? "已取消" : terminalStatus ? "已结束" : "执行中";
+    useEffect(() => { if (failed && autoOpenFailure) { setOpen(true); setDetailsOpen(true); } }, [autoOpenFailure, failed]);
+    return <div className="agent-process-step">
+        <button type="button" onClick={() => setOpen((value) => !value)} className="agent-process-step-toggle" aria-expanded={open} aria-label={open ? "收起详情" : "展开详情"}>
+            <ChevronRight className={`size-3.5 shrink-0 transition ${open ? "rotate-90" : ""}`} />
+            <span>#{index + 1} · {thinking.length ? "已思考 · " : ""}{name}</span>
+            {summary ? <small>{summary}</small> : null}
+            {!settled ? <LoaderCircle className="size-3.5 shrink-0 animate-spin opacity-45" /> : failed ? <CircleAlert className="size-3.5 shrink-0 text-red-500" /> : null}
+        </button>
+        {open ? <div className={processStyles.stepContent}>
+            {summary ? <div className="agent-process-thinking">{summary}</div> : null}
+            <div className={processStyles.toolCard}>
+                <button type="button" className={processStyles.toolHeader} onClick={() => setDetailsOpen((value) => !value)} aria-expanded={detailsOpen} aria-label={detailsOpen ? "收起工具内容" : "展开工具内容"}>
+                    <span className={processStyles.toolTitle}><span className={processStyles.toolType}>{name}</span>{target ? <span className={processStyles.toolTarget}> · {target}</span> : null}</span>
+                    <em className={processStyles.toolStatus} data-failed={failed || undefined}>{state}{duration ? ` · ${duration}` : ""}</em>
+                    <ChevronRight className={`size-3.5 shrink-0 transition ${detailsOpen ? "rotate-90" : ""}`} />
+                </button>
+                {detailsOpen ? <div className={processStyles.toolDetails}><CodeBlock label="输入参数" value={event.payload.input} />{event.result ? <CodeBlock label={failed ? "错误信息" : "输出内容"} value={event.result.payload.output} /> : null}</div> : null}
+            </div>
+        </div> : null}
+    </div>;
 }
 
-function CodeBlock({ label, value, theme }: { label: string; value: unknown; theme: CanvasTheme }) {
-    const [copied, setCopied] = useState(false);
+function CodeBlock({ label, value }: { label: string; value: unknown }) {
+    const copyText = useCopyText();
     const text = formatUnknown(value);
-    return <div><div className="mb-1 flex items-center justify-between text-[10px] font-medium opacity-40"><span>{label}</span><button type="button" className="flex items-center gap-1 hover:opacity-80" onClick={() => void navigator.clipboard.writeText(text).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1200); })}>{copied ? <Check className="size-3" /> : <Copy className="size-3" />}{copied ? "已复制" : "复制"}</button></div><pre className="thin-scrollbar max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-lg p-2 text-[11px] leading-5" style={{ background: theme.toolbar.itemHover }}>{text}</pre></div>;
+    return <div className={processStyles.codeBlock}><header><strong>{label}</strong><button type="button" onClick={() => copyText(text)}><Copy className="size-3.5" />复制</button></header><pre className="thin-scrollbar">{text}</pre></div>;
 }
 
 function ArtifactStrip({ events, theme }: { events: ProjectedEvent[]; theme: CanvasTheme }) {
     const [preview, setPreview] = useState<ProjectedEvent | null>(null);
-    const unique = events.filter((event, index) => events.findIndex((candidate) => artifactKey(candidate) === artifactKey(event)) === index);
+    const unique = events.filter((event, index) => events.findIndex((candidate) => artifactKey(candidate) === artifactKey(event)) === index)
+        .map((event) => event.payload.fileId ? { ...event, payload: { ...event.payload, url: fileUrl(String(event.payload.fileId)) } } : event);
     const images = unique.filter((event) => String(event.payload.mimeType || "").startsWith("image/"));
     const files = unique.filter((event) => !String(event.payload.mimeType || "").startsWith("image/"));
     return (
         <div className="mt-4 space-y-2">
-            {images.length ? <Image.PreviewGroup><div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>{images.map((event) => <div key={event.seq} className="group/artifact relative grid place-items-center overflow-hidden rounded-xl border bg-white" style={{ borderColor: theme.node.stroke }}><Image preview src={String(event.payload.url)} alt={String(event.payload.title || "Agent 产物")} rootClassName="!grid !w-full place-items-center" className={`!block !h-auto !w-full object-contain ${images.length === 1 ? "!max-h-[520px]" : "!max-h-60"}`} /><span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/45 px-2 py-1 text-[11px] text-white">{String(event.payload.title || event.payload.name || "图片产物")}</span><a href={String(event.payload.url || "#")} download className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-lg bg-black/45 text-white opacity-0 transition group-hover/artifact:opacity-100" title="下载产物"><Download className="size-3.5" /></a></div>)}</div></Image.PreviewGroup> : null}
+            {images.length ? <Image.PreviewGroup><div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>{images.map((event) => <div key={event.seq} className="group/artifact relative grid place-items-center overflow-hidden rounded-xl border bg-white" style={{ borderColor: theme.node.stroke }}><Image preview src={String(event.payload.url)} alt={String(event.payload.title || "Agent 产物")} rootClassName="!grid !w-full place-items-center" className={`!block !h-auto !w-full object-contain ${images.length === 1 ? "!max-h-[520px]" : "!max-h-60"}`} /><a href={String(event.payload.url || "#")} download className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-lg bg-black/45 text-white opacity-0 transition group-hover/artifact:opacity-100" title="下载产物"><Download className="size-3.5" /></a></div>)}</div></Image.PreviewGroup> : null}
             {files.map((event) => <div key={event.seq} className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: theme.node.stroke, color: theme.node.text }}><span className="grid size-9 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}>{artifactIcon(String(event.payload.mimeType || ""))}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{String(event.payload.title || event.payload.name || "Agent 产物")}</span><span className="text-xs opacity-45">{artifactKind(String(event.payload.mimeType || ""))}{Number(event.payload.bytes) ? ` · ${formatBytes(Number(event.payload.bytes))}` : ""}</span></span><Tooltip title="预览"><button type="button" className="grid size-8 place-items-center rounded-lg hover:bg-black/5" onClick={() => setPreview(event)}><Eye className="size-3.5" /></button></Tooltip><Tooltip title="下载"><a href={String(event.payload.url || "#")} download className="grid size-8 place-items-center rounded-lg hover:bg-black/5"><Download className="size-3.5" /></a></Tooltip></div>)}
             <Modal title={preview ? String(preview.payload.title || preview.payload.name || "Agent 产物") : "Agent 产物"} open={Boolean(preview)} onCancel={() => setPreview(null)} footer={preview ? <a href={String(preview.payload.url || "#")} download className="inline-flex items-center gap-2"><Download className="size-4" />下载原文件</a> : null} width="min(920px, calc(100vw - 32px))" destroyOnHidden>{preview ? <iframe title="Agent 产物预览" src={String(preview.payload.url || "about:blank")} sandbox="allow-same-origin" className="h-[min(70vh,720px)] w-full border-0 bg-white" /> : null}</Modal>
         </div>
@@ -355,7 +387,7 @@ function RoundStatus({ events, status }: { events: ProjectedEvent[]; status?: Ag
         if (event.kind === "tool_call") return !event.result;
         if (event.kind !== "run_state") return false;
         const text = eventText(event).trim();
-        return Boolean(text && !["Agent 已开始处理", "Agent 开始执行"].includes(text));
+        return Boolean(text && !["Agent 已开始处理", "Agent 开始执行", "Codex 已开始处理"].includes(text));
     });
     const text = activity?.kind === "thinking"
         ? `思考：${eventText(activity).replace(/^思考[：:]\s*/i, "").trim()}`
@@ -586,7 +618,7 @@ export function AgentHistoryList({ sessions, activeId, unread, query, theme, onQ
     onQuery: (value: string) => void; onActivate: (id: string) => void; onDelete: (id: string) => void; onFork: (id: string) => void;
 }) {
     const filtered = sessions.filter((session) => session.title.toLowerCase().includes(query.trim().toLowerCase()));
-    return <div><Input prefix={<Search className="size-3.5 opacity-45" />} value={query} onChange={(event) => onQuery(event.target.value)} allowClear placeholder="搜索历史会话" /><div className="mt-3 space-y-1">{filtered.map((session) => <div key={session.id} role="button" tabIndex={0} className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 dark:hover:bg-white/5" style={{ background: session.id === activeId ? theme.toolbar.itemHover : undefined }} onClick={() => onActivate(session.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onActivate(session.id); } }}><span className="relative grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}><History className="size-3.5 opacity-55" /><i className={`absolute bottom-0.5 right-0.5 size-1.5 rounded-full ${statusDot(session.status)}`} /></span><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="block min-w-0 flex-1 truncate text-sm font-medium">{session.title || "新会话"}</span>{unread?.[session.id] ? <span className="rounded-full bg-blue-500 px-1.5 text-[10px] text-white">{unread[session.id]}</span> : null}</span><span className="mt-0.5 flex items-center gap-1 text-[11px] opacity-45"><Clock3 className="size-3" />{formatRelativeTime(session.updatedAt)} · {statusText(session.status)}</span></span><span className="flex opacity-0 transition group-hover:opacity-60 group-focus-visible:opacity-60"><Tooltip title="从这里分叉"><button type="button" className="grid size-7 place-items-center rounded-md hover:bg-black/10 dark:hover:bg-white/10" onClick={(event) => { event.stopPropagation(); onFork(session.id); }}><GitFork className="size-3.5" /></button></Tooltip>{session.id !== activeId && !["running", "waiting_for_user"].includes(session.status) ? <Popconfirm title="删除这段会话？" onConfirm={() => onDelete(session.id)}><button type="button" className="grid size-7 place-items-center rounded-md hover:bg-red-500/10 hover:text-red-500" onClick={(event) => event.stopPropagation()}><Trash2 className="size-3.5" /></button></Popconfirm> : null}</span></div>)}{!filtered.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? "没有匹配的会话" : "暂无历史会话"} /> : null}</div></div>;
+    return <div><Input prefix={<Search className="size-3.5 opacity-45" />} value={query} onChange={(event) => onQuery(event.target.value)} allowClear placeholder="搜索历史会话" /><div className="mt-3 space-y-1">{filtered.map((session) => <div key={session.id} role="button" tabIndex={0} className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 dark:hover:bg-white/5" style={{ background: session.id === activeId ? theme.toolbar.itemHover : undefined }} onClick={() => onActivate(session.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onActivate(session.id); } }}><span className="relative grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover }}><History className="size-3.5 opacity-55" /><i className={`absolute bottom-0.5 right-0.5 size-1.5 rounded-full ${statusDot(session.status)}`} /></span><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="block min-w-0 flex-1 truncate text-sm font-medium">{session.title || "新会话"}</span>{unread?.[session.id] ? <span className="rounded-full bg-blue-500 px-1.5 text-[10px] text-white">{unread[session.id]}</span> : null}</span><span className="mt-0.5 flex items-center gap-1 text-[11px] opacity-45"><Clock3 className="size-3" />{session.engine === "codex" ? "Codex · " : ""}{formatRelativeTime(session.updatedAt)} · {statusText(session.status)}</span></span><span className="flex opacity-0 transition group-hover:opacity-60 group-focus-visible:opacity-60">{session.engine !== "codex" ? <Tooltip title="从这里分叉"><button type="button" className="grid size-7 place-items-center rounded-md hover:bg-black/10 dark:hover:bg-white/10" onClick={(event) => { event.stopPropagation(); onFork(session.id); }}><GitFork className="size-3.5" /></button></Tooltip> : null}{session.id !== activeId && !["running", "waiting_for_user"].includes(session.status) ? <Popconfirm title="删除这段会话？" onConfirm={() => onDelete(session.id)}><button type="button" className="grid size-7 place-items-center rounded-md hover:bg-red-500/10 hover:text-red-500" onClick={(event) => event.stopPropagation()}><Trash2 className="size-3.5" /></button></Popconfirm> : null}</span></div>)}{!filtered.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? "没有匹配的会话" : "暂无历史会话"} /> : null}</div></div>;
 }
 
 export function AgentSkillList({ skills, query, theme, onQuery, onSelect }: { skills: AgentSkill[]; query: string; theme: CanvasTheme; onQuery: (value: string) => void; onSelect: (skill: AgentSkill) => void }) {
@@ -657,5 +689,5 @@ function formatDuration(ms: number) { const seconds = Math.max(0, Math.floor(ms 
 function formatRelativeTime(value: string) { const delta = Date.now() - Date.parse(value); if (delta < 60_000) return "刚刚"; if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`; if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`; return new Date(value).toLocaleDateString("zh-CN"); }
 function statusText(status: AgentSession["status"]) { return ({ idle: "空闲", running: "运行中", waiting_for_user: "等待确认", completed: "已完成", failed: "失败", canceled: "已取消" } as const)[status]; }
 function statusDot(status: AgentSession["status"]) { return status === "running" ? "bg-blue-500" : status === "waiting_for_user" ? "bg-amber-500" : status === "failed" ? "bg-red-500" : status === "completed" ? "bg-emerald-500" : "bg-zinc-400"; }
-function toolTarget(value: unknown) { const input = recordOf(value); if (!input) return ""; const candidate = input.title || input.name || input.path || input.nodeId || input.projectId || (Array.isArray(input.ids) ? `${input.ids.length} 个对象` : ""); return String(candidate || "").slice(0, 48); }
+function toolTarget(value: unknown) { if (typeof value === "string") return value.trim().slice(0, 120); const input = recordOf(value); if (!input) return ""; const candidate = input.title || input.name || input.path || input.nodeId || input.projectId || (Array.isArray(input.ids) ? `${input.ids.length} 个对象` : ""); return String(candidate || "").slice(0, 48); }
 export { projectAgentEvents };

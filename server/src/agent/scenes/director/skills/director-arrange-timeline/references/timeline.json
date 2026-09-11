@@ -1,0 +1,24 @@
+{
+  "segmentOrder": [
+    "segment-001"
+  ],
+  "tracks": [
+    {
+      "id": "original",
+      "kind": "model-original",
+      "clips": [
+        {
+          "id": "original-001",
+          "segmentId": "segment-001",
+          "path": "videos/seg-segment-001/model-audio.wav",
+          "start": 0,
+          "duration": 6,
+          "trimIn": 0,
+          "volume": 1,
+          "muted": false,
+          "loop": false
+        }
+      ]
+    }
+  ]
+}

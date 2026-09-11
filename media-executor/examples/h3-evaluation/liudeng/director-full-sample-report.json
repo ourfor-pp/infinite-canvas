@@ -1,0 +1,304 @@
+{
+  "projectId": "gkbc5LhV4JB19YjZnXEhQ",
+  "chain": [
+    {
+      "segmentId": "lamp-0",
+      "generationId": "1ha-DXptC7YmcpWVnF-ib",
+      "frames": 192
+    },
+    {
+      "segmentId": "lamp-1",
+      "generationId": "qfBbTb48a_UY80PGjSpUp",
+      "frames": 379
+    }
+  ],
+  "frames": 379,
+  "seconds": 15.791666666666666,
+  "clips": [
+    {
+      "id": "model-original",
+      "kind": "model-original",
+      "clips": [
+        {
+          "id": "model-original-arrival",
+          "segmentId": "arrival",
+          "start": 0,
+          "duration": 8.041666666666666,
+          "volume": 1,
+          "muted": true,
+          "fileId": "director-0752979675d7ce9abcf853bc41d9bdc5"
+        },
+        {
+          "id": "model-original-lamp-0",
+          "segmentId": "lamp-0",
+          "start": 8.041666666666666,
+          "duration": 8,
+          "volume": 1,
+          "muted": true,
+          "fileId": "director-26d1cd9cc604d784927d62815d53008f"
+        },
+        {
+          "id": "model-original-lamp-1",
+          "segmentId": "lamp-1",
+          "start": 16.041666666666668,
+          "duration": 7.791666666666667,
+          "volume": 1,
+          "muted": true,
+          "fileId": "director-e8801bd46b925b0c4c13a3df0d1855de"
+        },
+        {
+          "id": "model-original-dialogue",
+          "segmentId": "dialogue",
+          "start": 23.833333333333332,
+          "duration": 10.125,
+          "volume": 1,
+          "muted": true,
+          "fileId": "director-31985125177494f84096286ca194e809"
+        },
+        {
+          "id": "model-original-cup",
+          "segmentId": "cup",
+          "start": 33.958333333333336,
+          "duration": 8.125,
+          "volume": 1,
+          "muted": true,
+          "fileId": "director-6f72194bfb7fbf99f648b207c2500c1f"
+        }
+      ]
+    },
+    {
+      "id": "review-master",
+      "kind": "ambient",
+      "clips": [
+        {
+          "id": "review-master",
+          "start": 0,
+          "duration": 42.083333333333336,
+          "volume": 1,
+          "muted": false,
+          "fileId": "director-2dbdd15f20b8e0953af53a4d032f7636"
+        }
+      ]
+    }
+  ],
+  "renderId": "zw-e5A_pM_3MC3WnBy1m1",
+  "runtimeContinuationTested": false,
+  "totalFrames": 1010,
+  "totalDurationSeconds": 42.083333333333336,
+  "width": 1920,
+  "height": 1080,
+  "nativeSourceResolution": [
+    1376,
+    768
+  ],
+  "reconstructedReviewPlan": true,
+  "qualityAccepted": false,
+  "formalDeploymentPerformed": false,
+  "loudness": {
+    "input_i": "-16.47",
+    "input_tp": "-2.07",
+    "input_lra": "20.60",
+    "input_thresh": "-29.86",
+    "output_i": "-16.62",
+    "output_tp": "-1.00",
+    "output_lra": "7.90",
+    "output_thresh": "-27.27",
+    "normalization_type": "dynamic",
+    "target_offset": "0.62"
+  },
+  "archiveSha256": "c17e5468b84c6f01ca5c9e90622f89992017eb464f3fcd26ca9afd73a3192371",
+  "outputSha256": "787d785e03f92aba5becad326e8b361adcbd7e30557e70246dd69d5cc053d31e",
+  "renderPreservation": {
+    "outputSha256": "787d785e03f92aba5becad326e8b361adcbd7e30557e70246dd69d5cc053d31e",
+    "masterAudioComparison": {
+      "lagSamples16k": 0,
+      "correlation": 0.9940117903341636,
+      "linearGain": 0.9939789872677164
+    },
+    "sourceDialogueComparison": {
+      "lagSamples16k": 0,
+      "correlation": 0.778171609151213,
+      "linearGain": 3.9519179182897206
+    },
+    "videoComparisons": [
+      {
+        "shot": "A",
+        "sourceFrames": 193,
+        "renderFrames": 193,
+        "meanGrayMAE": 0.23428329695196057,
+        "maxFrameGrayMAE": 0.2647569444444444,
+        "boundaryFrameMAE": [
+          0.17081404320987653,
+          0.24344135802469136
+        ]
+      },
+      {
+        "shot": "B",
+        "sourceFrames": 379,
+        "renderFrames": 379,
+        "meanGrayMAE": 0.18963591037167335,
+        "maxFrameGrayMAE": 0.2527970679012346,
+        "boundaryFrameMAE": [
+          0.14462770061728394,
+          0.1923707561728395
+        ]
+      },
+      {
+        "shot": "C",
+        "sourceFrames": 243,
+        "renderFrames": 243,
+        "meanGrayMAE": 0.19958966811461665,
+        "maxFrameGrayMAE": 0.25135030864197533,
+        "boundaryFrameMAE": [
+          0.1505594135802469,
+          0.20775462962962962
+        ]
+      },
+      {
+        "shot": "D",
+        "sourceFrames": 195,
+        "renderFrames": 195,
+        "meanGrayMAE": 0.19987659267173158,
+        "maxFrameGrayMAE": 0.2725694444444444,
+        "boundaryFrameMAE": [
+          0.15639467592592593,
+          0.24657600308641975
+        ]
+      }
+    ],
+    "presentationTimestamps": {
+      "frames": 1010,
+      "strictlyIncreasing": true,
+      "minFrameInterval": 0.041665999999999315,
+      "maxFrameInterval": 0.04199200000000047,
+      "maxDeviationFrom24fpsSeconds": 0.0006513333333373339
+    },
+    "scope": "Verifies render preservation only. Does not certify original acting, lips, listening quality or perceptual seamlessness. Director fits/pads source; earlier manual review crops source."
+  },
+  "browserPlayback": {
+    "renderPreviewVerified": true,
+    "continued": {
+      "time": 8.328549,
+      "src": "/api/files/G1LWEl--ShK0SJzOSOPee/content",
+      "paused": false
+    },
+    "errors": [],
+    "downloadedSha256": "787d785e03f92aba5becad326e8b361adcbd7e30557e70246dd69d5cc053d31e",
+    "requests": [
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-675246fed5254fb1d032e5e18444d8e5/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-a9f20e57d4e9236345cf8171378c191b/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-09d0cb19b8580091a63af3ed9da5777e/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-99920c294d21e0350607947819b64973/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-99920c294d21e0350607947819b64973/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-99920c294d21e0350607947819b64973/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-09d0cb19b8580091a63af3ed9da5777e/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-675246fed5254fb1d032e5e18444d8e5/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-09d0cb19b8580091a63af3ed9da5777e/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-99920c294d21e0350607947819b64973/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-675246fed5254fb1d032e5e18444d8e5/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-09d0cb19b8580091a63af3ed9da5777e/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-99920c294d21e0350607947819b64973/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-99920c294d21e0350607947819b64973/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-99920c294d21e0350607947819b64973/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/director-4bc4a423eed73f475f40646206980c62/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/G1LWEl--ShK0SJzOSOPee/content",
+        "status": 206
+      },
+      {
+        "url": "http://127.0.0.1:5173/api/files/VsbkTRF4O7ILCzXgB5kiI/content",
+        "status": 206
+      }
+    ],
+    "downloadName": "content.mp4",
+    "monitorLabel": "当前监听：模型原声",
+    "fullDuration": "42.08333333333333",
+    "realBackend": true,
+    "realMedia": true,
+    "scope": "Real isolated app and imported media: native boundary, rendered mixed-file playback with original paused, Escape removal, fresh reopen, downloaded SHA256. No full perceptual quality or live WebSocket acceptance."
+  }
+}

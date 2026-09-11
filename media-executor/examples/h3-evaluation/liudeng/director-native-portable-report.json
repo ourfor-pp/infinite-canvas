@@ -1,0 +1,182 @@
+{
+  "roundtrip": {
+    "projectId": "xH2uMpJmDBe7VuzFzZNAx",
+    "chain": [
+      {
+        "segmentId": "lamp-0",
+        "generationId": "_RnkqQtdP8OaNXKQMrHAS",
+        "frames": 192
+      },
+      {
+        "segmentId": "lamp-1",
+        "generationId": "Eeo5LCrggfCXdpQMKC2i6",
+        "frames": 379
+      }
+    ],
+    "frames": 379,
+    "seconds": 15.791666666666666,
+    "clips": [
+      {
+        "id": "model-original",
+        "kind": "model-original",
+        "clips": [
+          {
+            "id": "model-original-lamp-0",
+            "segmentId": "lamp-0",
+            "start": 0,
+            "duration": 8,
+            "volume": 1,
+            "muted": false,
+            "fileId": "director-c4b4b4e89d19ccddcba2a3ec68cbb7f7"
+          },
+          {
+            "id": "model-original-lamp-1",
+            "segmentId": "lamp-1",
+            "start": 8,
+            "duration": 7.791666666666667,
+            "volume": 1,
+            "muted": false,
+            "fileId": "director-2804c6d4a57ff17cb9861b2b489cd09f"
+          }
+        ]
+      }
+    ],
+    "renderId": "awIhsE0DQUuFzqfFhW7Pn",
+    "runtimeContinuationTested": false,
+    "decodedVideoMatchesSource": true,
+    "decodedAudioMatchesSource": true
+  },
+  "continuedAfterImport": {
+    "projectId": "DkOYwKFpzk831bBzsmyVH",
+    "chain": [
+      {
+        "segmentId": "lamp-0",
+        "generationId": "c8WwQsRSw7LQNwn1r-Vdp",
+        "frames": 192
+      },
+      {
+        "segmentId": "lamp-1",
+        "generationId": "kow2YM_hOOZ5Swc_N1Xbg",
+        "frames": 379
+      }
+    ],
+    "frames": 379,
+    "seconds": 15.791666666666666,
+    "clips": [
+      {
+        "id": "model-original",
+        "kind": "model-original",
+        "clips": [
+          {
+            "id": "model-original-lamp-0",
+            "segmentId": "lamp-0",
+            "start": 0,
+            "duration": 8,
+            "volume": 1,
+            "muted": false,
+            "fileId": "director-9c431a2e51b27ce237750ec1f4426898"
+          },
+          {
+            "id": "model-original-lamp-1",
+            "segmentId": "lamp-1",
+            "start": 8,
+            "duration": 7.791666666666667,
+            "volume": 1,
+            "muted": false,
+            "fileId": "director-9d31da9938046f823701fa1e075706d5"
+          }
+        ]
+      }
+    ],
+    "renderId": "dnXyrZ5qEEBsTFYbQHtGW",
+    "runtimeContinuationTested": true,
+    "generationId": "kow2YM_hOOZ5Swc_N1Xbg",
+    "promptId": "08fc4c73-bcb9-47a9-a7ef-8b111c58b9e8",
+    "executionSeconds": 166.244,
+    "runtimeIdentity": {
+      "ready": true,
+      "schemaVersion": 1,
+      "modelId": "minimax-h3-ref2va-local",
+      "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+      "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "implementationRevision": "ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13"
+    }
+  },
+  "source": {
+    "sourcePromptId": "cd48fe91-2cb1-4f63-a06e-b42da9f77503",
+    "context": {
+      "schemaVersion": 1,
+      "fps": 24,
+      "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+      "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "sourceId": "core-fingerprint-pair/base20/fixed-seed",
+      "width": 864,
+      "height": 480,
+      "frames": 192
+    },
+    "stateSha256": "e2a4fa4b74f893b898caa323748d6a43ba0ad0afcb89650826afa07c8e00d655",
+    "notes": "Fixture reuses unmodified actual base20 state and media from the current-runtime fixed-seed experiment. It retains the authored two-segment storyboard and removes the old second-segment media. No latent metadata was rewritten."
+  },
+  "latentPrefix": {
+    "audio": {
+      "sourceShape": [
+        1,
+        32,
+        2,
+        320
+      ],
+      "targetShape": [
+        1,
+        32,
+        2,
+        632
+      ],
+      "exactPrefix": true
+    },
+    "video": {
+      "sourceShape": [
+        1,
+        24,
+        57,
+        30,
+        54
+      ],
+      "targetShape": [
+        1,
+        24,
+        112,
+        30,
+        54
+      ],
+      "exactPrefix": true
+    }
+  },
+  "probe": {
+    "programs": [],
+    "streams": [
+      {
+        "codec_type": "video",
+        "width": 1920,
+        "height": 1080,
+        "duration": "15.791667",
+        "nb_read_frames": "379"
+      },
+      {
+        "codec_type": "audio",
+        "channels": 2,
+        "duration": "15.791000",
+        "nb_read_frames": "741"
+      }
+    ]
+  },
+  "qualifiedSeconds": 0,
+  "qualityAccepted": false,
+  "preSubmissionFailure": {
+    "generationId": "ONDC8JMQBLx7Tqtt67sH0",
+    "errorCode": "SERVICE_RESTART_INTERRUPTED",
+    "remoteTaskId": null,
+    "cause": "Acceptance harness called recovery after creating a new task; verified terminal with no remote task and empty queue, then retried once."
+  }
+}

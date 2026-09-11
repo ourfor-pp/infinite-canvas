@@ -154,3 +154,41 @@ test("MiniMax H3 Ref2VA 限制合计 12 个参考文件", () => {
     const files = [...Array.from({ length: 7 }, (_, index) => image(`i${index}`)), ...Array.from({ length: 3 }, (_, index) => ({ fileId: `v${index}`, kind: "video" as const, name: `v${index}.mp4` })), ...Array.from({ length: 3 }, (_, index) => ({ fileId: `a${index}`, kind: "audio" as const, name: `a${index}.wav` }))];
     assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", params: { seconds: 15 }, files }), /数量超限/);
 });
+
+test("H3 首段保存原生状态，续段追加后仅输出新增音视频", () => {
+    const prior = { schemaVersion: 1, fps: 24, modelRevision: "model", videoVaeRevision: "vvae", audioVaeRevision: "avae", sourceId: "previous", width: 1344, height: 768, frames: 243 };
+    const initial = buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [image("board")], params: { seconds: 5, resolution: "768p", __h3StateContext: { ...prior, frames: 124 } } });
+    assert.deepEqual(initial["70"].inputs.latent, ["10", 0]);
+    assert.deepEqual(initial["11"].inputs.samples, ["70", 0]);
+    assert.equal(initial["85"].inputs.previous_frames, 0);
+    const params = { seconds: 5, resolution: "768p", __h3StateContext: { ...prior, sourceId: "next", frames: 362 }, __h3PreviousState: { fileId: "state-file", context: prior }, __h3PreviousFrames: 243, __h3StateInputName: "state.safetensors" };
+    const continued = buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [image("board")], params });
+    assert.equal(continued["81"].inputs.extension_frames, 119);
+    assert.equal(continued["81"].inputs.overlap_frames, 22);
+    assert.deepEqual(continued["10"].inputs.latent_image, ["81", 0]);
+    assert.deepEqual(continued["83"].inputs.sampled_window, ["10", 0]);
+    assert.deepEqual(continued["83"].inputs.transition_video_tokens, ["81", 4]);
+    assert.deepEqual(continued["83"].inputs.transition_audio_tokens, ["81", 5]);
+    assert.deepEqual(continued["70"].inputs.latent, ["83", 0]);
+    assert.equal(continued["85"].inputs.previous_frames, 243);
+    assert.deepEqual(continued["13"].inputs.images, ["85", 0]);
+    assert.deepEqual(continued["13"].inputs.audio, ["85", 1]);
+    assert.equal(continued["86"].inputs.previous_frames, 0);
+    assert.deepEqual(continued["87"].inputs.images, ["86", 0]);
+    assert.deepEqual(continued["h3_cumulative"].inputs.video, ["87", 0]);
+    assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [], params: { ...params, __h3StateInputName: "../state.safetensors" } }), /upload/);
+    assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [], params: { ...params, __h3StateContext: undefined } }), /explicit state context/);
+    assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [], params: { ...params, __h3StateContext: { ...params.__h3StateContext, modelRevision: "other" } } }), /context/);
+    assert.throws(() => buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", files: [image("g")], params: { ...params, temporalGuides: [{ fileId: "g", frameIndex: 0 }] } }), /override/);
+});
+
+test("H3 续接窗口包含隐藏重叠且不超过单次 362 帧", async () => {
+    const { h3ContinuationFrames } = await import("./comfy-workflows.js");
+    for (const seconds of [4, 5, 10, 15]) {
+        const frames = h3ContinuationFrames(seconds);
+        assert.equal(frames % 17, 0);
+        assert.ok(frames + 22 <= 362);
+    }
+    assert.equal(h3ContinuationFrames(15), 340);
+    assert.throws(() => h3ContinuationFrames(NaN), /between/);
+});

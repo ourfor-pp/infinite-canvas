@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { test } from "node:test";
+const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(resolve(serverRoot, "package.json"));
+const Sqlite = require("better-sqlite3");
+const root = mkdtempSync(join(tmpdir(), "codex-migration-"));
+const migrate = () => spawnSync(process.execPath, ["--import", resolve(serverRoot, "node_modules/tsx/dist/loader.mjs"), "--input-type=module", "-e", `const {db}=await import(${JSON.stringify(resolve(serverRoot, "src/database.ts"))});db.close()`], { env: { ...process.env, DATA_DIR: root }, encoding: "utf8" });
+test("Codex 升级先备份并完整保留历史，损坏清单拒绝覆盖", () => {
+ try {
+  assert.equal(migrate().status, 0);
+  const db = new Sqlite(join(root,"app.db"));
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO users VALUES('u','test',0,?,?)").run(now,now);
+  db.prepare("INSERT INTO projects(id,user_id,kind,title,payload,created_at,updated_at) VALUES('p','u','director','test','{}',?,?)").run(now,now);
+  db.prepare("INSERT INTO agent_sessions(id,user_id,project_id,title,status,created_at,updated_at) VALUES('s','u','p','历史','idle',?,?)").run(now,now);
+  const payload = JSON.stringify({text:'历史正文'.repeat(10000)});
+  db.prepare("INSERT INTO agent_events VALUES('s',1,NULL,'assistant_text',?,?)").run(payload,now);
+  db.exec("DROP TABLE agent_tool_requests; DROP TABLE codex_settings; ALTER TABLE agent_sessions DROP COLUMN engine; ALTER TABLE agent_sessions DROP COLUMN codex_thread_id; ALTER TABLE agent_runs DROP COLUMN codex_turn_id; DELETE FROM schema_migrations WHERE version=26; UPDATE agent_metadata SET protocol_version=3");
+  db.close();
+  const backup = join(root,"migration-backups/agent-codex-v1");
+  rmSync(backup,{recursive:true});
+  const result=migrate(); assert.equal(result.status,0,result.stderr);
+  const upgraded=new Sqlite(join(root,"app.db"));
+  assert.equal(upgraded.prepare("SELECT engine FROM agent_sessions WHERE id='s'").get().engine,'builtin');
+  assert.equal(upgraded.prepare("SELECT payload FROM agent_events WHERE session_id='s'").get().payload,payload);
+  assert.deepEqual(upgraded.prepare("SELECT protocol_version,storage_version FROM agent_metadata").get(),{protocol_version:4,storage_version:2});
+  const saved=new Sqlite(join(backup,"app.db"),{readonly:true});
+  assert.equal(saved.prepare("SELECT payload FROM agent_events WHERE session_id='s'").get().payload,payload); saved.close();
+  const manifest=JSON.parse(readFileSync(join(backup,"manifest.json"),"utf8"));
+  assert.equal(manifest.sourceProtocol,3); assert.equal(manifest.sourceStorage,2);
+  upgraded.exec("DELETE FROM schema_migrations WHERE version=26; UPDATE agent_metadata SET protocol_version=3"); upgraded.close();
+  manifest.version=999; writeFileSync(join(backup,"manifest.json"),JSON.stringify(manifest));
+  const rejected=migrate(); assert.notEqual(rejected.status,0); assert.match(rejected.stderr,/清单版本未知/);
+  const preserved=new Sqlite(join(root,"app.db"),{readonly:true}); assert.equal(preserved.prepare("SELECT payload FROM agent_events WHERE session_id='s'").get().payload,payload); preserved.close();
+ } finally { rmSync(root,{recursive:true,force:true}); }
+});

@@ -127,7 +127,11 @@ export function sendStoredFile(req: Request, res: Response) {
     const range = req.headers.range;
     res.setHeader("Content-Type", row.mime_type);
     res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "private, max-age=3600");
+    const metadata = parseJson<{ directorProjectId?: string; sha256?: string }>(row.metadata, {});
+    const versioned = metadata.sha256 && req.query.v === metadata.sha256;
+    res.setHeader("Cache-Control", metadata.directorProjectId && !versioned ? "private, no-cache" : "private, max-age=3600");
+    if (metadata.sha256) res.setHeader("ETag", `"${metadata.sha256}"`);
+    if (!range && req.fresh) { res.status(304).end(); return; }
     if (!range) {
         res.setHeader("Content-Length", size);
         createReadStream(localPath).pipe(res);

@@ -324,6 +324,7 @@ def health(_: None = Depends(authorize)):
                 except httpx.HTTPError:
                     runtimes[name] = False
     comfy_features = {"temporalGuides": False, "turboPreview": False}
+    h3_runtime = None
     try:
         with httpx.Client(timeout=httpx.Timeout(2, connect=.5), trust_env=False) as client:
             info = client.get(f"{COMFY_URL}/object_info").json()
@@ -331,9 +332,18 @@ def health(_: None = Depends(authorize)):
             "temporalGuides": "MiniMaxH3AddGuide" in info,
             "turboPreview": "MiniMaxH3TurboLoRA" in info and "MiniMaxH3TurboSampler" in info,
         }
+        required = {"H3SaveContinuationState", "H3LoadContinuationState", "H3NewAVSegment", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "MiniMaxH3AppendContinuation"}
+        comfy_features["nativeState"] = required.issubset(info)
+        if comfy_features["nativeState"]:
+            with httpx.Client(timeout=httpx.Timeout(2, connect=.5), trust_env=False) as client:
+                response = client.get(f"{COMFY_URL}/h3/runtime")
+            identity = response.json() if response.status_code == 200 else {}
+            if identity.get("ready") is True:
+                h3_runtime = identity
+
     except (httpx.HTTPError, ValueError):
         pass
-    return {"ok": True, "models": MODELS, "runtimes": runtimes, "comfyUrl": bool(COMFY_URL), "comfyFeatures": comfy_features}
+    return {"ok": True, "models": MODELS, "runtimes": runtimes, "comfyUrl": bool(COMFY_URL), "comfyFeatures": comfy_features, "h3Runtime": h3_runtime}
 
 
 @app.post("/v1/files")

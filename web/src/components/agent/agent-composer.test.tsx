@@ -26,6 +26,22 @@ describe("Agent 输入框", () => {
         await act(async () => root.unmount()); holder.remove();
     });
 
+    it("引擎不可用时仍能编辑已有引用草稿，Enter 不发送且故障原因可见", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const onSend = vi.fn(), onDocumentChange = vi.fn();
+        await act(async () => root.render(<AgentComposer document={{ version: 1, segments: [{ type: "text", text: "保留草稿" }] }} ready={false} unavailableReason="连接恢复中" busy={false} waiting={false} sending={false} uploading={false} attachments={[]} skills={[]} references={[]} focusRequest={0} followUpMode="steer" onDocumentChange={onDocumentChange} onFollowUpModeChange={vi.fn()} onSend={onSend} onCancel={vi.fn()} onUpload={vi.fn()} onRemoveAttachment={vi.fn()} />));
+        const editor = holder.querySelector<HTMLElement>("[role='textbox']")!;
+        expect(editor.getAttribute("contenteditable")).toBe("true");
+        expect(holder.querySelector("[role='status']")?.textContent).toBe("连接恢复中");
+        editor.textContent = "仍可输入";
+        await act(async () => editor.dispatchEvent(new Event("input", { bubbles: true })));
+        expect(onDocumentChange).toHaveBeenCalledWith({ version: 1, segments: [{ type: "text", text: "仍可输入" }] });
+        await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+        expect(onSend).not.toHaveBeenCalled();
+        expect(holder.querySelector<HTMLButtonElement>("[aria-label='发送']")?.disabled).toBe(true);
+        await act(async () => root.unmount()); holder.remove();
+    });
+
     it("超过三个附件时折叠为待发送附件摘要", async () => {
         const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
         const attachments = Array.from({ length: 4 }, (_, index) => ({ id: `file-${index}`, fileId: `file-${index}`, name: `参考${index + 1}.png`, mimeType: "image/png", bytes: 1024, url: "", metadata: {}, createdAt: "2026-08-15T00:00:00.000Z" }));

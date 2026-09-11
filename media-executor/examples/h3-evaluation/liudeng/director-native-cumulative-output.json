@@ -1,0 +1,91 @@
+{
+  "14": {
+    "programs": [],
+    "streams": [
+      {
+        "codec_type": "video",
+        "width": 864,
+        "height": 480,
+        "duration": "4.958333",
+        "nb_read_frames": "119"
+      },
+      {
+        "codec_type": "audio",
+        "duration": "4.959000",
+        "nb_read_frames": "155"
+      }
+    ]
+  },
+  "h3_cumulative": {
+    "programs": [],
+    "streams": [
+      {
+        "codec_type": "video",
+        "width": 864,
+        "height": 480,
+        "duration": "10.125000",
+        "nb_read_frames": "243"
+      },
+      {
+        "codec_type": "audio",
+        "duration": "10.125000",
+        "nb_read_frames": "317"
+      }
+    ]
+  },
+  "promptId": "fae156e6-e52d-4590-8279-d536abc7bfd2",
+  "audioBoundary": {
+    "sampleRate": 32000,
+    "channels": 2,
+    "parentSamples": 165600,
+    "cumulativeSamples": 324000,
+    "equalPrefixSamples": 1,
+    "lastChangedSample": 165599,
+    "changedSamples": 25661,
+    "maxAbsDifference": 0.000885009765625,
+    "rmsDifference": 3.135042425128631e-05,
+    "changedTailMilliseconds": 5174.96875,
+    "format": "SaveAudio FLAC decoded to stereo float32; no AAC encoding",
+    "rmsSource": 0.0010957993799820542,
+    "windowComparison": [
+      {
+        "startSeconds": 0.0,
+        "endSeconds": 1.0,
+        "maxAbsDifference": 3.0517578125e-05,
+        "rmsDifference": 7.671241291973274e-06
+      },
+      {
+        "startSeconds": 1.0,
+        "endSeconds": 2.0,
+        "maxAbsDifference": 3.0517578125e-05,
+        "rmsDifference": 7.548860594397411e-06
+      },
+      {
+        "startSeconds": 2.0,
+        "endSeconds": 3.0,
+        "maxAbsDifference": 3.0517578125e-05,
+        "rmsDifference": 7.427402579196496e-06
+      },
+      {
+        "startSeconds": 3.0,
+        "endSeconds": 4.0,
+        "maxAbsDifference": 3.0517578125e-05,
+        "rmsDifference": 7.497602837247541e-06
+      },
+      {
+        "startSeconds": 4.0,
+        "endSeconds": 5.0,
+        "maxAbsDifference": 9.1552734375e-05,
+        "rmsDifference": 1.0244432814943139e-05
+      },
+      {
+        "startSeconds": 5.0,
+        "endSeconds": 5.175,
+        "maxAbsDifference": 0.000885009765625,
+        "rmsDifference": 0.00016482165665365756
+      }
+    ],
+    "interpretation": "Small differences span much of the clip; this does not establish a localized tail-only audio effect or audible discontinuity."
+  },
+  "scope": "Real dual output from saved cumulative state; full Director adoption/render integration remains pending."
+}

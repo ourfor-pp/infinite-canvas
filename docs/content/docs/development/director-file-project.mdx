@@ -1,42 +1,50 @@
 ---
-title: Director file project format
-description: Authoritative on-disk format and safety rules for Director projects
+title: 导演文件工程格式
+description: 导演工程的权威文件、结构校验与成片归档
 ---
 
-# Director file project format
+# 导演文件工程格式
 
-A Director project is stored under its own server-owned directory. Creative files are the authority; SQLite keeps permissions, Agent sessions, jobs, generation history and a rebuildable file index.
+创作文件是权威数据源。SQLite 保留身份与权限、Agent 会话、任务、生成历史以及可重建的业务投影和文件索引；不要求这些运行数据改存文件。
 
-## Main layout
+## 工程布局
 
-- `project.yaml` identifies format version and project-wide settings.
-- `story/` and `screenplay/` contain Markdown documents and chapter/scene files.
-- `direction/` separates visual style from project-specific directing rules.
-- `assets/characters`, `assets/locations` and `assets/props` contain one folder per authoritative asset. Identity media and persistent state variants stay inside that folder.
-- `storyboards/<sequence>/<segment>` contains `segment.md`, `storyboard.yaml`, the compiled prompt and one complete storyboard image.
-- `videos/<segment>` contains the compiled video prompt, preview/final video and model audio.
-- `timeline/timeline.json` is the only intentionally JSON-heavy creative file.
-- `.trash/` contains recoverable deletions and is excluded from normal export.
+- `project.yaml`：格式版本和项目设置。
+- `story/index.md`、`story/chapters/`：故事总览与章节。
+- `screenplay/index.md`、`screenplay/scenes/`：剧本总览与场次；`screenplay/breakdown/` 保存制作拆解。
+- `direction/visual-style.md` 与 `direction/directing-rules.md`：视觉风格和导演规则两份权威文档。
+- `assets/characters/`、`assets/locations/`、`assets/props/`：素材主档、视觉设计、声音与持续状态变体。
+- `storyboards/<sequence>/<segment>/`：`segment.md`、`storyboard.yaml`、`storyboard-prompt.md` 和一张完整 `storyboard.png`。独立 transition 视频段不需要故事板。
+- `videos/seg-<稳定视频段ID>/`：视频提示、`preview.mp4` / `final.mp4`、`model-audio.wav`。
+- `timeline/timeline.json`：视频段顺序与声音轨；外部声音归入 `timeline/inputs/`。
+- `renders/<renderId>/final.mp4` 与 `render.json`：每次成功成片及时间线快照、来源视频段、时长、尺寸、帧率和成片 SHA-256。失败或取消不产生成功归档，重试不覆盖成功版本。
 
-Markdown frontmatter stores stable IDs, ordering and references. Display revisions come from the rebuildable file index; write conflicts and generation dependencies use SHA-256 content hashes.
+Markdown Frontmatter 保存稳定 ID、顺序、来源和引用。引用媒体使用工程根目录相对路径；数据库 fileId 由服务端解析，不写进时间线或视频段音频引用。目录名与显示名称可以变化，实体 ID 保持稳定。
 
-## Asset folders
+## 可复制格式示例
 
-Each material card resolves to one character, location or prop folder. Its `character.md`, `location.md` or `prop.md` file is the authoritative dossier.
+规范与完整样例随对应领域 Skill 提供，避免出现两套不同格式：
 
-- Characters keep the base image prompt, optional inputs and current identity media under `identity/`; locations and props use `design/`.
-- The prompt is always `prompt.md`. Reference images live only in `inputs/`; current generated outputs stay beside the prompt and use stable media-role names such as `primary.*`, `face-closeup.*`, `body-front.*` or `body-back.*`.
-- Character voice uses `voice/`; location ambience and prop effects use `sound/`. The body of `sound.md` is the only sound prompt, optional audition text or suggested duration stays in frontmatter, `reference.*` is the single allowed sound input and `primary.*` is the current output.
-- A persistent costume or state uses `variants/var-NNN-slug/` with `variant.md`, its own `prompt.md`, optional `inputs/` and one current `primary.*`. A variant is created only when it persists across video segments or is necessary for continuity.
+- `server/src/agent/scenes/director/skills/director-plan-storyboards/references/file-format.md`，及 `examples/sequence.md`、`examples/segment.md`、`examples/storyboard.yaml`。
+- `server/src/agent/scenes/director/skills/director-breakdown-screenplay/references/breakdown-schema.md` 与 `scene-example.md`。
+- `server/src/agent/scenes/director/skills/director-arrange-timeline/references/file-format.md` 与 `timeline.json`。
 
-Media jobs name a target folder, media role and expected prompt hash. A result replaces only that role when the hash still matches; otherwise it remains in generation history without overwriting current creative files.
+字段类型由 `server/src/director-file-contract.ts` 校验。视频段来源、续接关系、英文 H3 提示、结构化对白与音频路径都会进入业务投影；保存时保留已生成媒体，语义变化标记旧媒体待检查。
 
-## Editing and validation
+## 素材约定
 
-Page saves use atomic replacement and `If-Match`. Director Agents may use only project-confined `Read`, `Write`, `Edit`, `Glob`, `Grep` and `LS`; absolute paths, path traversal, symlink escape, Bash and arbitrary binary writes are not available.
+角色基础设计使用 `identity/prompt.md`，一次生成一张横版 16:9 三栏身份板，统一保存 `identity/primary.*`。三栏为正面全身、背面全身和放大的正面头肩近景，不拆为三个输出。场景和道具使用 `design/`。
 
-Validation reports a path, code and severity. Drafts may remain incomplete. Warnings do not block work; errors such as malformed frontmatter, duplicate IDs, broken references, invalid storyboard structure or video segments outside 4–15 seconds block paid generation and final export.
+`prompt.md` 正文是原样发送的最终提示词。项目内参考图在 Frontmatter `references` 中显式声明 `path`、`purpose` 和可选 `label`；用户专属输入放在同目录 `inputs/`。声音使用 `voice/sound.md` 或 `sound/sound.md`，一个可选 `reference.*` 和一个当前 `primary.*`。持续造型变化使用独立 `variants/<variant>/`。
 
-## ZIP exchange
+## 编辑与校验
 
-Exports contain current creative files and referenced current media, but exclude credentials, Agent sessions, queues, caches, `.trash` and unreferenced generation history. Imports unpack to a temporary directory, reject absolute/traversal paths and symlinks, validate the whole project, assign a new project ID, rebuild media authorization and indexes, then switch atomically.
+页面保存使用原子替换与 `If-Match`。内置 Agent 使用受工程路径约束的文件工具；Codex 使用独立沙箱中的命令、文件编辑及原生生图能力，可以操作工程文件与媒体，账户凭据和其他工程不可访问。引擎细节见 [Codex 接入](./director-codex)。
+
+结构校验返回文件路径、错误码、严重性与字段位置，检查类型、顺序、引用、Shot 时间、对白窗口、素材类别、声音路径与时间线轨道。草稿缺少媒体可提示待补；显式引用不存在的媒体、非法路径或结构错误会阻止生成及导出。生产前 `director_validate_video_segments` 进一步检查叙事、英文提示和实际媒体条件。
+
+Codex 可用 `segmentPaths` 校验、用 `segmentPath` 生成；`director_start_render({})` 解析当前时间线，不需猜测数据库 revision。生成与合成仍遵循用户已授权范围。
+
+## 工程交换
+
+ZIP 包含创作文件、当前引用媒体和成功成片，排除凭据、会话、队列、缓存、`.trash` 和未采用的生成历史。导入先在临时目录解包，拒绝越界路径与符号链接，通过校验后重建授权及索引并原子切换。Docker 静态资源路径与实际生产部署仍需单独验收。

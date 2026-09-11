@@ -1,0 +1,11 @@
+{
+  "source": "c-state-new-segment/output-0.mp4",
+  "stateSha256": "025c863d4dc77ba0899c18b53a57b9e19f6b445cf8481a5e33fdbdd2dc7e3ff1",
+  "cumulativeFrames": 362,
+  "previousFrames": 243,
+  "newFrames": 119,
+  "mediaDurationSeconds": 4.958333333333333,
+  "wrongOutputFrameCountRejected": true,
+  "wrongPreviousGridRejected": true,
+  "scope": "production output validator against real H3 decoded media; not complete Director generation entry acceptance"
+}

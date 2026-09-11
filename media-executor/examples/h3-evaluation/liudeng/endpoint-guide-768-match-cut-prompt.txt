@@ -1,0 +1,25 @@
+subject_definitions:
+<Subject 1> is the older Chinese father in <Picture 1>, with short gray hair, broad cheekbones, a brown knitted cardigan and a faded pale blue shirt.
+<Subject 2> is the room in <Picture 1>, with the doorway at screen left, a worn wooden table, two off-white cups and a lit cream-shaded lamp at screen right.
+<Picture 1> is the complete storyboard of the preceding action. It supplies the father's identity and the room's appearance. Its lower-right panel supplies the final hand position and downward gaze for this continuation.
+
+summary:
+[video continuation + reference generation + keyframe completion] Continue the supplied native audiovisual state as one 8.708-second sampling window, including 0.917 seconds of hidden overlap and 7.792 seconds of new action. The father quietly checks the lamp base with his left fingertips and settles with that hand still resting at the base, looking down. The final pose corresponds to the lower-right panel of <Picture 1> and prepares a cut to the daughter's arrival.
+
+retention_analysis:
+<Subject 1>: fully_preserved for facial identity, clothing, seated body position and age.
+<Subject 2>: fully_preserved for spatial layout, fixed camera composition, light direction and stationary props.
+<Picture 1>: partially_preserved as identity and room reference; its lower-right panel anchors the ending pose. Its preceding action order is not replayed. Render one full-frame view throughout.
+
+detailed_description:
+Use the same restrained live-action appearance, seated eye-level perspective and warm practical light as the supplied native state.
+[Shot 1] From 00:00.000 to 00:00.917, continue the supplied audiovisual overlap at the end of the preceding action. <Subject 1> is already seated at the table in <Subject 2>, his left fingertips touching the lamp base at screen right and his right hand beside the nearer cup. His eyes are lowered toward his left hand. Keep the existing body position, sleeve folds and fingertip contact while time advances naturally through the overlap. The doorway remains behind him on the left and the lampshade on the right. The same low room tone continues without a change in acoustic space.
+From 00:00.917 to 00:03.000, he gently presses his left fingertips against the edge of the lamp base, checking that it sits firmly on the table. The lamp remains stationary and lit, with no wobble or brightness change. His thumb makes a small sliding movement along the near edge, while the other fingers remain naturally curved against the base. His eyes follow this tiny movement. His right hand stays supported beside the nearer cup. Preserve both cups and their handles in their original positions, with unchanged contact shadows on the scratched wood.
+From 00:03.000 to 00:05.700, he relaxes the pressure in his left hand but keeps his fingertips at the base. He briefly lifts only his eyes toward the doorway, listening, while his head remains mostly lowered. A quiet inhale raises his shoulders slightly beneath the knitted cardigan. He then lowers his eyes back to the lamp. This is a single restrained response rather than a repeated glance or an exaggerated turn. His mouth stays closed, and his face retains the same age, cheekbones and natural skin texture. The camera, chair, table edge, wall switch and doorway retain their positions.
+From 00:05.700 to 00:08.708, he settles into the final pose shown in the lower-right panel of <Picture 1>. His left hand is still resting against the lamp base, his right hand is relaxed beside the nearer cup, and his gaze is directed down toward the lamp. His shoulders settle at the end of the breath. Hold this clear hand contact and downward head angle through the final frame so the next shot can begin from the same physical action. The room remains quietly lit, with stable shadows and no new person entering the image. There is no hand withdrawal, repeated reach, cut, camera move or fade in this segment. No character speaks, sings or produces a voiced exhalation.
+
+overall_soundscape:
+Soft continuous indoor room tone, a faint fingertip contact against the lamp base, and slight sleeve movement. The native overlap and newly generated ambience share the same quiet acoustic space.
+
+non_diegetic_music:
+N/A

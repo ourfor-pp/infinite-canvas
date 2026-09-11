@@ -1,0 +1,145 @@
+{
+  "projectId": "sqShXuUbZyu4lvlnHTajT",
+  "chain": [
+    {
+      "segmentId": "lamp-0",
+      "generationId": "w-GBOHHc_DD9MyUPKWsa7",
+      "frames": 192
+    },
+    {
+      "segmentId": "lamp-1",
+      "generationId": "xPpRv3EyuzMnhwTp4srYU",
+      "frames": 379
+    }
+  ],
+  "frames": 379,
+  "seconds": 15.791666666666666,
+  "clips": [
+    {
+      "id": "model-original",
+      "kind": "model-original",
+      "clips": [
+        {
+          "id": "model-original-lamp-0",
+          "segmentId": "lamp-0",
+          "start": 0,
+          "duration": 8,
+          "volume": 1,
+          "muted": false,
+          "fileId": "director-29e6857d6d09244ae890029577174810"
+        },
+        {
+          "id": "model-original-lamp-1",
+          "segmentId": "lamp-1",
+          "start": 8,
+          "duration": 7.791666666666667,
+          "volume": 1,
+          "muted": false,
+          "fileId": "director-8ade7442cadeab6dc0ee138ce3e696ea"
+        }
+      ]
+    }
+  ],
+  "renderId": "JApvRyaQwUyxUsldr7KM4",
+  "runtimeContinuationTested": true,
+  "generationId": "xPpRv3EyuzMnhwTp4srYU",
+  "comfyPromptId": "33a79a1a-482f-45c5-9433-bc17ab438907",
+  "executionSeconds": 169.216,
+  "promptVerification": {
+    "oldPromptSha256": "59ae62e7a95699839f5552416ba8a21cc05da830fbfc07abc405b76d895fd3e7",
+    "newPromptSha256": "bbd3790e5d9e3a59355167a40f6c8de032fd791355d5cad43637984334c8c10f",
+    "oldTimes": [
+      "00:00.000",
+      "00:00.917",
+      "00:03.417",
+      "00:06.417",
+      "00:08.917"
+    ],
+    "newTimes": [
+      "00:00.000",
+      "00:00.917",
+      "00:03.352",
+      "00:06.273",
+      "00:08.708"
+    ],
+    "onlyTimestampChanges": true,
+    "officialSectionsInOrder": [
+      "subject_definitions",
+      "summary",
+      "retention_analysis",
+      "detailed_description",
+      "overall_soundscape",
+      "non_diegetic_music"
+    ]
+  },
+  "executedPromptMatchesApplicationRequest": true,
+  "sourceStateSha256": "e2a4fa4b74f893b898caa323748d6a43ba0ad0afcb89650826afa07c8e00d655",
+  "outputStateSha256": "0e398a264198bb9e82331db89a57ad86f007a3aed4b2ec32ceeac56aa0d1a0f0",
+  "latentPrefixExact": {
+    "video": true,
+    "audio": true
+  },
+  "media": {
+    "new-segment.mp4": {
+      "sha256": "4da2b8e3838c342bf303a72c0c487cc111ee8b755eac8ec8858b0ac696964ed0",
+      "streams": [
+        {
+          "codec_type": "video",
+          "width": 864,
+          "height": 480,
+          "r_frame_rate": "24/1",
+          "duration": "7.791667",
+          "nb_read_frames": "187"
+        },
+        {
+          "codec_type": "audio",
+          "r_frame_rate": "0/0",
+          "duration": "7.792000",
+          "nb_read_frames": "244"
+        }
+      ]
+    },
+    "cumulative.mp4": {
+      "sha256": "9dcfa6d4a4f5039fba54367d6c37470a9d7dd8064a42f358e2a9bca5e7adc7ab",
+      "streams": [
+        {
+          "codec_type": "video",
+          "width": 864,
+          "height": 480,
+          "r_frame_rate": "24/1",
+          "duration": "15.791667",
+          "nb_read_frames": "379"
+        },
+        {
+          "codec_type": "audio",
+          "r_frame_rate": "0/0",
+          "duration": "15.792000",
+          "nb_read_frames": "494"
+        }
+      ]
+    },
+    "final.mp4": {
+      "sha256": "4ade0946269ee0c758ca1770edadb8392b709810aaa062101be443fb1fc2e7ce",
+      "streams": [
+        {
+          "codec_type": "video",
+          "width": 1920,
+          "height": 1080,
+          "r_frame_rate": "24/1",
+          "duration": "15.791667",
+          "nb_read_frames": "379"
+        },
+        {
+          "codec_type": "audio",
+          "r_frame_rate": "0/0",
+          "duration": "15.791000",
+          "nb_read_frames": "741"
+        }
+      ]
+    }
+  },
+  "qualityAccepted": false,
+  "formalDeployment": false,
+  "scope": "Current application compiler through real isolated Director generate API, executor, state adoption, cumulative playback plan and final render. Base20 preview at 864x480; not a quality or acceleration benchmark.",
+  "setupFailure": "First launch used repository root instead of server cwd; app import failed before creating a generation. Retried with corrected cwd; one Comfy task."
+}

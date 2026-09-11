@@ -1,3 +1,4 @@
+import { h3RuntimeCatalogSchema, type H3RuntimeCatalog } from "./h3-state-context.js";
 import { z } from "zod";
 import { config } from "./config.js";
 import { decryptJson, encryptJson } from "./crypto.js";
@@ -11,7 +12,7 @@ const schema = z.object({
 });
 export type MediaExecutorSettings = z.infer<typeof schema>;
 export type MediaExecutorModel = { engine?: string; [key: string]: unknown };
-export type MediaExecutorHealth = { available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean } };
+export type MediaExecutorHealth = { h3Runtime?: H3RuntimeCatalog; available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean; nativeState?: boolean } };
 
 const emptyCatalog = (): MediaExecutorHealth => ({ available: false, models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, turboPreview: false } });
 let catalog: MediaExecutorHealth = emptyCatalog();
@@ -51,7 +52,8 @@ export async function refreshMediaExecutorCatalog(value = getMediaExecutorSettin
         const runtimes = health.runtimes && typeof health.runtimes === "object" ? health.runtimes : {};
         const models = Object.fromEntries(Object.entries(health.models && typeof health.models === "object" ? health.models : {}).filter(([, model]) => !model.engine || runtimes[model.engine]));
         const features = health.comfyFeatures && typeof health.comfyFeatures === "object" ? health.comfyFeatures : { temporalGuides: false, turboPreview: false };
-        return catalog = { available: true, models, runtimes, comfyFeatures: { temporalGuides: Boolean(features.temporalGuides), turboPreview: Boolean(features.turboPreview) } };
+        const h3Runtime = h3RuntimeCatalogSchema.safeParse(health.h3Runtime);
+        return catalog = { ...(h3Runtime.success ? { h3Runtime: h3Runtime.data } : {}), available: true, models, runtimes, comfyFeatures: { temporalGuides: Boolean(features.temporalGuides), turboPreview: Boolean(features.turboPreview), nativeState: Boolean(features.nativeState) } };
     } catch {
         return catalog = emptyCatalog();
     }

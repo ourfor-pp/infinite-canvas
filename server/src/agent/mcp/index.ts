@@ -1,6 +1,7 @@
 import { h3AudioReferencesInput } from "../../h3-prompt.js";
 import { basename } from "node:path";
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -36,8 +37,8 @@ import {
   retryDirectorRender,
   updateDirectorStoryboardPrompts,
 } from "../../director-render.js";
-import type { AgentSceneDefinition } from "../scenes/index.js";
-import { resolveDirectorEntityReference, trashDirectorProjectPath, validateDirectorProject } from "../../director-workspace.js";
+import { sceneTools, type AgentSceneDefinition } from "../scenes/index.js";
+import { reconcileDirectorProjectFiles, assertDirectorProjectValid, resolveDirectorEntityReference, trashDirectorProjectPath, validateDirectorProject } from "../../director-workspace.js";
 import { createDirectorAssetGeneration } from "../../creative-asset-generation.js";
 import {
   addAsset,
@@ -71,7 +72,8 @@ import {
   analyzeAgentVisualStyle,
   generateAgentVisualStyleReferences,
 } from "../canvas-tools.js";
-import { prepareProjectVideoOverview, sampleProjectVideoFrames, understandProjectAudios, understandProjectImages } from "../media-understanding.js";
+import { directorMediaModels, directorTaskQuery, getDirectorGenerationTasks, getDirectorRenderTasks } from "../director-tools.js";
+import { sampleDirectorVideo, understandDirectorAudios, prepareProjectVideoOverview, sampleProjectVideoFrames, understandProjectAudios, understandProjectImages } from "../media-understanding.js";
 
 type AgentMcpContext = {
   session: { id: string; projectId: string };
@@ -156,10 +158,19 @@ function normalizeAskUserInput(input: { summary?: string; questions: Array<{ id?
   };
 }
 
-export function buildAgentMcpServer(
+export type AgentToolDefinition = { name: string; description: string; inputSchema: z.ZodRawShape; handler: (input: Record<string, unknown>, extra?: unknown) => Promise<CallToolResult> };
+function tool<S extends z.ZodRawShape>(name: string, description: string, inputSchema: S, handler: (input: z.output<z.ZodObject<S>>) => Promise<CallToolResult>): AgentToolDefinition { return { name, description, inputSchema, handler: (input) => handler(z.object(inputSchema).parse(input)) }; }
+export function buildAgentMcpServer(context: AgentMcpContext, scene: AgentSceneDefinition) {
+  return createSdkMcpServer({ name: "infinite_canvas", tools: buildAgentToolDefinitions(context, scene) });
+}
+
+export function buildAgentToolDefinitions(
   context: AgentMcpContext,
   scene: AgentSceneDefinition,
+  engine: "builtin" | "codex" = "builtin",
 ) {
+  const allowed = new Set(sceneTools(scene, engine).map((item) => item.id));
+  const registeredTools = (server: { name: string; tools: AgentToolDefinition[] }) => server.tools.filter((item) => allowed.has(item.name));
   const { session, run } = context;
   const projectId = session.projectId;
   const call = <T>(
@@ -219,7 +230,14 @@ export function buildAgentMcpServer(
       throw mcpError(403, "AGENT_PROJECT_ISOLATED", "项目会话不能操作其他项目");
     return input.projectId || projectId;
   };
-  const sharedMediaTools = [
+  const sharedMediaTools = engine === "codex" ? [
+    call("media_understand_audios", "理解工程内声音的语音、语气、音乐、环境声与声音事件；不提供精确逐词时间。", {
+      items: z.array(z.object({ path: z.string().min(1).max(500), prompt: z.string().max(4_000).optional() })).min(1).max(8),
+    }, (input) => understandDirectorAudios(run.userId, projectId, run.mediaModelRef, input as { items: Array<{ path: string; prompt?: string }> })),
+    call("media_sample_video", "读取工程视频：overview 生成整片联系表，frames 按时间或均匀抽帧；返回工程内缓存图片路径，可直接用原生看图工具打开。", {
+      path: z.string().min(1).max(500), mode: z.enum(["overview", "frames"]), count: z.number().int().min(1).max(16).optional(), timesSeconds: z.array(z.number().min(0)).min(1).max(16).optional(),
+    }, (input) => sampleDirectorVideo(run.userId, projectId, input as { path: string; mode: "overview" | "frames"; count?: number; timesSeconds?: number[] })),
+  ] : [
     call(
       "media_understand_images",
       "使用管理员配置的媒体理解模型分析一组图片。适合描述、比较、识别可见文字、检查风格或质量；同组图片共享上下文。",
@@ -247,13 +265,13 @@ export function buildAgentMcpServer(
   ];
 
   if (scene.id === "director")
-    return createSdkMcpServer({
+    return registeredTools({
       name: "infinite_canvas",
       tools: [
         ...sharedMediaTools,
         call(
           "director_validate",
-          "检查当前文件工程或指定相对目录的结构、Frontmatter、引用和媒体依赖；只诊断，不自动修改文件。",
+          "检查当前文件工程或指定相对目录的结构、Frontmatter、引用和媒体依赖；校验会更新索引，不改创作正文，也不代表画面或叙事质量验收通过。",
           { scope: z.string().max(500).optional() },
           (input) => validateDirectorProject(run.userId, projectId, String((input as { scope?: string }).scope || "")),
         ),
@@ -561,13 +579,17 @@ export function buildAgentMcpServer(
         call(
           "director_validate_video_segments",
           "只读校验最多 100 个视频段的来源节拍、时长守恒、故事板 Shot 结构、素材、H3 英文视觉描述、结构化对白和声景是否可生成；不创建任务、不消费额度。",
-          { segmentIds: z.array(z.string().min(1)).min(1).max(100) },
+          { ...(engine === "codex" ? {} : { segmentIds: z.array(z.string().min(1)).min(1).max(100).optional() }), segmentPaths: z.array(z.string().min(1)).min(1).max(100).optional() },
           (input) => {
-            const value = input as { segmentIds: string[] };
-            return value.segmentIds.map((segmentId) => {
+            reconcileDirectorProjectFiles(run.userId, projectId);
+            assertDirectorProjectValid(run.userId, projectId);
+            const value = input as { segmentIds?: string[]; segmentPaths?: string[] };
+            const ids = value.segmentPaths?.map((path) => resolveDirectorEntityReference(run.userId, projectId, path, ["video-segment"]).id) || value.segmentIds;
+            if (!ids?.length) throw new Error("请提供 segmentPaths");
+            return ids.map((segmentId) => {
               const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
               const preflight = getDirectorVideoSegmentPreflight(run.userId, segmentId);
-              return { segmentId, title: segment.title, revision: segment.revision, ready: preflight.blockedReasons.length === 0, blockedReasons: preflight.blockedReasons, warnings: preflight.warnings, route: preflight.route };
+              return { segmentId, title: segment.title, revision: segment.revision, ready: preflight.blockedReasons.length === 0, blockedReasons: preflight.blockedReasons, warnings: preflight.warnings, route: preflight.route, capabilities: preflight.capabilities, nativeWindow: preflight.nativeWindow, durationLimits: { minSeconds: 4, maxSeconds: preflight.capabilities.nativeState && (segment.payload as Record<string, unknown>).boundary === "continue" ? 340 / 24 : 15 }, usesStoryboardStartGuide: Boolean(preflight.storyboardStartGuide), referenceBudget: { selected: preflight.videoSelected.map(({ name, purpose }) => ({ name, purpose })), omitted: preflight.videoOmitted.map(({ name, purpose }) => ({ name, purpose })) }, previewAudioPolicy: preflight.previewAudioPolicy };
             });
           },
         ),
@@ -625,9 +647,8 @@ export function buildAgentMcpServer(
           "director_generate_video_segment",
           "读取视频段工程目录并锁定当前故事板快照，默认以完整故事板和素材参考生成带原生声音的视频段；连续段自动继承上一段尾部音视频。优先传 segmentPath。",
           {
-            segmentPath: z.string().min(1).optional(),
-            segmentId: z.string().min(1).optional(),
-            revision: z.number().int().positive().optional(),
+            segmentPath: engine === "codex" ? z.string().min(1) : z.string().min(1).optional(),
+            ...(engine === "codex" ? {} : { segmentId: z.string().min(1).optional(), revision: z.number().int().positive().optional() }),
             model: z.string().optional(),
             qualityPreset: z.enum(["preview", "final"]).default("preview"),
           },
@@ -772,19 +793,19 @@ export function buildAgentMcpServer(
           },
         ),
         call(
-          "director_generate_asset",
-          "按素材工程目录中的提示词、输入媒体与目标哈希生成主形象、指定变体或声音。",
+          engine === "codex" ? "director_generate_sound" : "director_generate_asset",
+          engine === "codex" ? "按素材工程目录中的声音提示词与目标哈希生成声音；图片使用 Codex 原生生图。" : "按素材工程目录中的提示词、输入媒体与目标哈希生成主形象、指定变体或声音。",
           {
             assetPath: z.string().min(1),
-            target: z.enum(["primary-visual", "variant-visual", "sound"]),
-            variantId: z.string().min(1).max(128).optional(),
+            ...(engine === "codex" ? {} : { target: z.enum(["primary-visual", "variant-visual", "sound"]), variantId: z.string().min(1).max(128).optional() }),
             expectedHash: z.string().min(1),
           },
           (input) => {
             const value = input as { assetPath: string; target: "primary-visual" | "variant-visual" | "sound"; variantId?: string; expectedHash: string };
+            reconcileDirectorProjectFiles(run.userId, projectId);
             const assetId = resolveDirectorEntityReference(run.userId, projectId, value.assetPath, ["character", "scene", "prop"]).id;
             requireDirectorMediaStage(run.userId, projectId);
-            return createDirectorAssetGeneration(run.userId, assetId, value);
+            return createDirectorAssetGeneration(run.userId, assetId, engine === "codex" ? { assetPath: value.assetPath, expectedHash: value.expectedHash, target: "sound" } : value);
           },
         ),
         call(
@@ -952,8 +973,8 @@ export function buildAgentMcpServer(
         call(
           "director_list_models",
           "列出已启用且能力匹配的生成模型。",
-          canvasToolSchemas.generation_list_models.shape,
-          (input) =>
+          engine === "codex" ? { kind: z.enum(["audio", "video"]).optional() } : canvasToolSchemas.generation_list_models.shape,
+          (input) => engine === "codex" ? directorMediaModels(input as { kind?: "audio" | "video" }) :
             generationModels(
               input as z.infer<typeof canvasToolSchemas.generation_list_models>,
             ),
@@ -961,25 +982,25 @@ export function buildAgentMcpServer(
         call(
           "director_get_generation_status",
           "查询本导演项目的生成任务状态。",
-          canvasToolSchemas.generation_get_status.shape,
-          (input) =>
-            generationStatus(
-              run.userId,
-              input as z.infer<typeof canvasToolSchemas.generation_get_status>,
-              projectId,
-            ),
+          directorTaskQuery.shape,
+          (input) => getDirectorGenerationTasks(run.userId, projectId, input),
         ),
         call(
           "director_list_renders",
-          "列出本导演项目的成片合成任务。",
-          {},
-          () => listDirectorRenders(run.userId, projectId),
+          "分页查询本项目成片任务，或按 id 查询单个任务；只返回状态、进度、警告和工程产物路径。",
+          directorTaskQuery.shape,
+          (input) => getDirectorRenderTasks(run.userId, projectId, input),
         ),
         call(
           "director_start_render",
-          "以当前时间线 revision 发起完整 MP4 合成。",
-          { timelineRevision: z.number().int().positive() },
-          (input) => createDirectorRender(run.userId, projectId, input),
+          "校验工程并以当前文件时间线发起完整 MP4 合成；成功后归档到 renders/。",
+          { timelineRevision: z.number().int().positive().optional() },
+          (input) => {
+            reconcileDirectorProjectFiles(run.userId, projectId);
+            assertDirectorProjectValid(run.userId, projectId);
+            const state = getDirectorState(run.userId, projectId);
+            return createDirectorRender(run.userId, projectId, { timelineRevision: (input as { timelineRevision?: number }).timelineRevision ?? state.timeline.revision });
+          },
         ),
         call(
           "director_cancel_render",
@@ -993,10 +1014,12 @@ export function buildAgentMcpServer(
         ),
         call(
           "director_retry_render",
-          "重试本导演项目失败或取消的成片任务。",
+          "重试失败或取消的成片任务；仅允许原时间线 revision，使用该时间线当前有效媒体。时间线改变后请新建合成任务。",
           { renderId: z.string().min(1) },
           (input) => {
             const value = input as { renderId: string };
+            reconcileDirectorProjectFiles(run.userId, projectId);
+            assertDirectorProjectValid(run.userId, projectId);
             assertDirectorRender(run.userId, projectId, value.renderId);
             return retryDirectorRender(run.userId, value.renderId);
           },
@@ -1050,7 +1073,7 @@ export function buildAgentMcpServer(
       ],
     });
 
-  return createSdkMcpServer({
+  return registeredTools({
     name: "infinite_canvas",
     tools: [
       ...sharedMediaTools,
@@ -1715,11 +1738,7 @@ function assertDirectorRender(
   projectId: string,
   renderId: string,
 ) {
-  if (
-    !listDirectorRenders(userId, projectId).some(
-      (render) => render.id === renderId,
-    )
-  )
+  if (!db.prepare("SELECT 1 FROM director_renders WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, renderId))
     throw mcpError(
       404,
       "DIRECTOR_RENDER_NOT_FOUND",

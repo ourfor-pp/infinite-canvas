@@ -24,3 +24,15 @@
 ## 官方样片文件检查
 
 已下载官方 `h3-en-v2-video-006-1785473655612.mp4`，ffprobe 显示2560×1440、24fps、15.084秒并含音轨。1fps抽帧可见唱片、剪影、文字与分屏片头排版；属于图形化片头参考，不能用于证明自然表演、口型或长续接质量。输出尺寸本身也不能证明原生生成分辨率。原文件及抽帧存于 `.tmp/h3-community-research/showcases/`。
+
+## 人物表演与写实候选补充
+
+[公开试镜表演测试](https://www.reddit.com/r/StableDiffusion/comments/1vxp4bz/minimax_h3_acting_test/)的作者公开首段提示，并说明使用人物图片及两个声音参考。可借鉴的是将倾听、短暂停顿、眼神先于转头、呼吸与回应写成可观察动作。作者自述近景有塑料感，评论同时肯定表演细节、批评声音；音频问题归因存在争议，不能据此认定是加速 LoRA 导致。尚未审看完整原片，不将评论当成质量通过。
+
+[Coffee 制作说明](https://www.reddit.com/r/StableDiffusion/comments/1w8q481/coffee_trying_to_get_cinematic_edits_out_of/)披露低分辨率选种、放大、面部修复、多种 LoRA 与声音参考复用。作者明确没有对动作 LoRA 做开关对照。因此该成片只能证明组合流程的作者实践，不能分配每个模块的贡献，也不能把后期修复效果算作原生生成能力。
+
+优先新增单变量候选为 [fal 人物写实 LoRA](https://huggingface.co/fal/MiniMax-H3-Realism-People-LoRA)：作者提供 19 组同提示同种子开关对照，声明支持 T2V/I2V/Ref2V，触发词为 `r34l1sm`，rank 32，训练 1500 步。作者建议强度 1.0，较轻干预为 0.6–0.8。以上是作者说明；本机量化基座、PDD 八步及原生续接均未验证。比较时两侧使用相同触发词，保留官方六段提示结构，不能同时加入调色、动作和面部修复后声称写实 LoRA 单独改善。
+
+[Better Human Motion 作者页](https://huggingface.co/vpakarinen/better-human-motion-h3-lora)只注明 T2V/I2V、强度 0.4–0.8、15–30 步。当前不优先加入 Ref2VA 八步链路；需要独立证明适配及实际改善。下一次人物写实测试先用既有对白场景、参考、种子和尺寸建立基础配对，再决定是否继续测 PDD 组合与续接。加载不同 LoRA 后必须新建续接状态，不能把旧运行时绑定状态直接复用为新配方状态。
+
+该候选已核对作者仓库 revision `039cc8579d7aa357a882d7f4111b25da4f72dccc`，来源记录为 `media-executor/examples/h3-evaluation/realism-people-source.json`；权重已从 ModelScope 同仓固定 revision `4497aef76812f46bef00dab61d07ff23f25f0777` 下载到 SSD 并通过双源 SHA-256 校验，仅链接隔离运行时。208 个 BF16 张量均属注意力投影；隔离加载节点已识别文件，但尚未证明全部增量应用或生成质量。

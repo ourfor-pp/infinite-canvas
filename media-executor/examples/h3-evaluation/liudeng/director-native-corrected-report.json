@@ -1,0 +1,193 @@
+{
+  "scope": "Two real Director generations with corrected reference geometry, native continuation, project refresh and final export",
+  "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "recipe": "base20-preview-480p",
+  "runs": [
+    {
+      "segmentId": "lamp-0",
+      "generationId": "td08ft1Ll3vo_UPGph2qJ",
+      "promptId": "579ef23a-59d2-45ab-a6ba-f1a3979b03ee",
+      "executionSeconds": 127.232,
+      "frames": 192,
+      "newSeconds": 8,
+      "seeds": {
+        "9": {
+          "noise_seed": 8517197894835789
+        }
+      },
+      "nativeAudioFileId": "director-189bfd26415db61a1c5d4dc8ed9e5dbc"
+    },
+    {
+      "segmentId": "lamp-1",
+      "generationId": "iAAN5f6Hd2H2ajoXQ9N4e",
+      "promptId": "5a5ac084-cb7d-48a3-bc07-3fa0e80806f8",
+      "executionSeconds": 169.823,
+      "frames": 379,
+      "newSeconds": 7.791666666666667,
+      "seeds": {
+        "9": {
+          "noise_seed": 7918574603042629
+        }
+      },
+      "nativeAudioFileId": "director-bb8ece18adbc4c13f0008356e2f22e7a"
+    }
+  ],
+  "executionSeconds": 297.055,
+  "seconds": 15.791666666666666,
+  "probe": {
+    "programs": [],
+    "streams": [
+      {
+        "codec_type": "video",
+        "width": 1920,
+        "height": 1080,
+        "r_frame_rate": "24/1",
+        "duration": "15.791667",
+        "nb_read_frames": "379"
+      },
+      {
+        "codec_type": "audio",
+        "channels": 2,
+        "r_frame_rate": "0/0",
+        "duration": "15.791000",
+        "nb_read_frames": "741"
+      }
+    ]
+  },
+  "playbackPlan": {
+    "timelineRevision": 5,
+    "segments": [
+      {
+        "segmentId": "lamp-0",
+        "revision": 6,
+        "fileId": "OHfKw2-kOTJ62tX1MS0gx",
+        "trimIn": 0,
+        "duration": 8
+      },
+      {
+        "segmentId": "lamp-1",
+        "revision": 7,
+        "fileId": "OHfKw2-kOTJ62tX1MS0gx",
+        "trimIn": 8,
+        "duration": 7.791666666666667
+      }
+    ]
+  },
+  "render": {
+    "id": "oTq_APocNawWDJJy7WyJ7",
+    "projectId": "h3-native-corrected",
+    "status": "succeeded",
+    "payload": {
+      "timelineRevision": 5,
+      "segmentIds": [
+        "lamp-0",
+        "lamp-1"
+      ],
+      "duration": 15.791666666666668,
+      "warnings": [
+        "时间线包含 2 个快速预览片段"
+      ]
+    },
+    "outputFileId": "TWe6lrqPsvvo7khVR4GFG",
+    "outputPath": "renders/oTq_APocNawWDJJy7WyJ7/final.mp4",
+    "metadataPath": "renders/oTq_APocNawWDJJy7WyJ7/render.json",
+    "error": null,
+    "progress": 1,
+    "createdAt": "2026-09-11T03:46:52.035Z",
+    "updatedAt": "2026-09-11T03:46:54.601Z"
+  },
+  "audio": {
+    "first": {
+      "samples": 768000,
+      "peak": 0.11711812764406204,
+      "rms": 0.003290974678521919,
+      "allZero": false,
+      "peakDbfs": -18.627517585063373
+    },
+    "cumulative": {
+      "samples": 1517568,
+      "peak": 0.11660730838775635,
+      "rms": 0.002409873826506284,
+      "allZero": false,
+      "peakDbfs": -18.66548458450634
+    },
+    "final": {
+      "samples": 1517568,
+      "peak": 0.116610087454319,
+      "rms": 0.0024082081856386804,
+      "allZero": false,
+      "peakDbfs": -18.66527757880358
+    },
+    "finalToCumulativeRmsRatio": 0.9993088265247404
+  },
+  "qualifiedSeconds": 0,
+  "perceptualAcceptance": false,
+  "limitations": [
+    "Native 864x480, ordinary 1920x1080 resize.",
+    "Different duration and random seeds from earlier four-segment run: not a controlled speed or quality comparison.",
+    "Complete motion and listening acceptance remain pending.",
+    "Overview still shows slight reframing and a cup moving near the end despite the stationary-object instruction.",
+    "Boundary frame difference remains elevated versus nearby frames; exact latent prefix does not prove a perceptually invisible seam."
+  ],
+  "seamMetrics": {
+    "metric": "432x240 RGB inter-frame mean absolute difference",
+    "frames": 379,
+    "median": 0.4030478298664093,
+    "boundaryFrame": 192,
+    "boundaryDifference": 0.909011721611023,
+    "boundaryPercentile": 82.8042328042328,
+    "neighbors": [
+      0.5082433223724365,
+      0.38156184554100037,
+      0.36993634700775146,
+      0.909011721611023,
+      0.3038580119609833,
+      0.15336933732032776,
+      0.1771894246339798
+    ],
+    "perceptualAcceptance": false,
+    "latentPrefix": {
+      "audio": {
+        "firstShape": [
+          1,
+          32,
+          2,
+          320
+        ],
+        "cumulativeShape": [
+          1,
+          32,
+          2,
+          632
+        ],
+        "exactPrefix": true
+      },
+      "video": {
+        "firstShape": [
+          1,
+          24,
+          57,
+          30,
+          54
+        ],
+        "cumulativeShape": [
+          1,
+          24,
+          112,
+          30,
+          54
+        ],
+        "exactPrefix": true
+      }
+    }
+  },
+  "runtimeIdentity": {
+    "ready": true,
+    "schemaVersion": 1,
+    "modelId": "minimax-h3-ref2va-local",
+    "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61",
+    "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+    "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+    "implementationRevision": "fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61"
+  }
+}

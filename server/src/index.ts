@@ -1,3 +1,4 @@
+import { setDirectorSyncEmitter } from "./director-sync.js";
 import { chmodSync, existsSync, lstatSync, unlinkSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { WebSocket as WebSocketClient, WebSocketServer, type WebSocket } from "ws";
@@ -47,6 +48,11 @@ server.on("upgrade", (request, socket, head) => {
         });
         client.send(JSON.stringify({ type: "connected" }));
     });
+});
+
+setDirectorSyncEmitter((userId, event) => {
+    const message = JSON.stringify(event);
+    clients.get(userId)?.forEach((client) => { if (client.readyState === WebSocketClient.OPEN) client.send(message); });
 });
 
 setGenerationEmitter((userId, type, data) => {

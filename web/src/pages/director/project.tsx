@@ -1,6 +1,11 @@
+import { readDirectorQuery } from "@/services/director-queries";
+import { DirectorMedia } from "./components/director-media";
+import { currentDirectorPreviewItems, directorMediaUrl, useDeferredDirectorValue, useDirectorResourceVersion } from "./use-director-sync";
+import { directorSync } from "@/stores/use-director-store";
+import type { DirectorResource } from "@/types/director-sync";
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { App, Button, ConfigProvider, Drawer, Dropdown, Image as AntImage, Input, Progress as AntProgress, Select, Spin, Tag, Tooltip } from "antd";
+import { App, Button, ConfigProvider, Drawer, Dropdown, Image as AntImage, Input, Modal, Progress as AntProgress, Select, Spin, Tag, Tooltip } from "antd";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
     Activity,
@@ -89,7 +94,15 @@ function formatDirectorDuration(seconds: number) {
     return minutes ? `${minutes} 分${remaining ? ` ${remaining} 秒` : ""}` : `${remaining} 秒`;
 }
 
-const assetFileUrl = (fileId: string, revision: number) => serverApiUrl(`/files/${fileId}/content?revision=${revision}`);
+const EMPTY_ASSETS: CreativeAsset[] = [];
+const EMPTY_STYLES: VisualStyle[] = [];
+const EMPTY_GENERATIONS: ServerGeneration[] = [];
+const EMPTY_RENDERS: DirectorRender[] = [];
+const PAGE_RESOURCES: Record<DirectorSection, DirectorResource[]> = {
+    overview: ["sources", "validation", "story", "script", "segments", "timeline"], story: ["story", "sources"], script: ["script", "sources"], style: ["direction"],
+    assets: ["assets", "segments"], storyboard: ["segments", "timeline", "validation"], studio: ["segments", "timeline", "renders"],
+};
+const assetFileUrl = (fileId: string, revision: number) => directorMediaUrl(fileId, revision);
 
 export default function DirectorProjectPage() {
     const { id = "", section = "overview" } = useParams();
@@ -98,63 +111,26 @@ export default function DirectorProjectPage() {
     const { message } = App.useApp();
     const state = useDirectorStore((store) => store.states[id]);
     const loadState = useDirectorStore((store) => store.loadState);
-    const [assets, setAssets] = useState<CreativeAsset[]>([]);
-    const [styles, setStyles] = useState<VisualStyle[]>([]);
-    const [generations, setGenerations] = useState<ServerGeneration[]>([]);
-    const [loading, setLoading] = useState(true);
+    const projectData = useDirectorStore((store) => store.data[id]);
+    const assets = projectData?.assets || EMPTY_ASSETS;
+    const styles = projectData?.styles || EMPTY_STYLES;
+    const generations = projectData?.generations || EMPTY_GENERATIONS;
+    const loading = !projectData?.ready;
     const [agentCollapsed, setAgentCollapsed] = useState(false);
     const openPanel = useAgentStore((store) => store.openPanel);
     const agentFocusRequest = useAgentStore((store) => store.focusRequests[id]);
     useEffect(() => { if (agentFocusRequest) setAgentCollapsed(false); }, [agentFocusRequest]);
 
-    const refresh = async () => {
-        const [, nextAssets, nextStyles, nextGenerations] = await Promise.all([loadState(id), serverApi.creativeAssets(id), serverApi.visualStyles(id), serverApi.generations()]);
-        setAssets(nextAssets);
-        setStyles(nextStyles);
-        setGenerations(nextGenerations);
-    };
+    const refresh = async () => { await loadState(id); };
     useEffect(() => {
-        let active = true;
         openPanel(id);
-        Promise.all([loadState(id), serverApi.creativeAssets(id), serverApi.visualStyles(id), serverApi.generations()])
-            .then(([, nextAssets, nextStyles, nextGenerations]) => {
-                if (!active) return;
-                setAssets(nextAssets);
-                setStyles(nextStyles);
-                setGenerations(nextGenerations);
-            })
-            .catch((error) => message.error(error instanceof Error ? error.message : "导演项目加载失败"))
-            .finally(() => active && setLoading(false));
-        return () => {
-            active = false;
-        };
-    }, [id, loadState, message, openPanel]);
-    const applyGeneration = (generation: ServerGeneration) => setGenerations((current) => [generation, ...current.filter((item) => item.id !== generation.id)].slice(0, 100));
+        return useDirectorStore.getState().retainProject(id, ["project", "assets", "direction", "generations", "media", ...PAGE_RESOURCES[active]]);
+    }, [id, active, openPanel]);
     useEffect(() => {
-        const update = (event: Event) => {
-            const detail = (event as CustomEvent<{ projectId: string }>).detail;
-            if (detail.projectId === id) void loadState(id);
-        };
-        const refreshAssets = (event: Event) => {
-            const detail = (event as CustomEvent<{ projectId: string }>).detail;
-            if (detail.projectId === id)
-                void Promise.all([serverApi.creativeAssets(id), serverApi.visualStyles(id)]).then(([nextAssets, nextStyles]) => {
-                    setAssets(nextAssets);
-                    setStyles(nextStyles);
-                });
-        };
-        const updateGeneration = (event: Event) => applyGeneration((event as CustomEvent<ServerGeneration>).detail);
-        window.addEventListener("infinite-canvas:director-updated", update);
-        window.addEventListener("infinite-canvas:creative-asset-updated", refreshAssets);
-        window.addEventListener("infinite-canvas:visual-style-updated", refreshAssets);
-        window.addEventListener("infinite-canvas:generation-updated", updateGeneration);
-        return () => {
-            window.removeEventListener("infinite-canvas:director-updated", update);
-            window.removeEventListener("infinite-canvas:creative-asset-updated", refreshAssets);
-            window.removeEventListener("infinite-canvas:visual-style-updated", refreshAssets);
-            window.removeEventListener("infinite-canvas:generation-updated", updateGeneration);
-        };
-    }, [id, loadState]);
+        if (projectData?.deleted) { message.info("当前导演项目已删除"); navigate("/director", { replace: true }); }
+    }, [id, projectData?.deleted, message, navigate]);
+    const applyGeneration = () => { void directorSync.refresh(id, ["generations"]).catch(() => undefined); };
+    if (loading && projectData?.error) return <div className="director-light grid h-full place-items-center"><div role="alert" className="text-center text-sm text-slate-500">{projectData.error}<button type="button" className="ml-3 text-blue-600" onClick={() => void refresh().catch(() => undefined)}>重试</button></div></div>;
 
     if (loading || !state)
         return (
@@ -164,9 +140,10 @@ export default function DirectorProjectPage() {
         );
     return (
         <ConfigProvider theme={directorAntTheme}>
-            <main className="director-light flex h-dvh min-w-0 bg-white text-slate-950">
+            <main key={id} className="director-light flex h-dvh min-w-0 bg-white text-slate-950">
                 {!agentCollapsed ? <AgentPanel projectId={id} themeMode="light" /> : null}
                 <div className="flex min-w-0 flex-1 flex-col bg-white">
+                    {projectData?.error ? <div role="alert" className="flex shrink-0 items-center justify-center gap-3 px-3 py-1 text-xs text-rose-600">{projectData.error}<button type="button" onClick={() => void refresh().catch(() => undefined)}>重试同步</button></div> : null}
                     <header className="flex h-11 shrink-0 items-stretch border-b border-black/10 bg-white px-5">
                         <nav className="flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto" aria-label="导演台功能">
                             {sections.map((item) => {
@@ -325,12 +302,11 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
     const { message } = App.useApp();
     const navigate = useNavigate();
     const importRef = useRef<HTMLInputElement>(null);
-    const [validation, setValidation] = useState<DirectorValidation | null>(null);
+    const validation = useDirectorStore((store) => store.data[state.workspace.projectId]?.validation);
     const [projectBusy, setProjectBusy] = useState<"validate" | "export" | "import" | "">("");
-    useEffect(() => { void directorApi.validation(state.workspace.projectId).then(setValidation).catch(() => undefined); }, [state.workspace.projectId, state.workspace.updatedAt]);
     const runValidation = async () => {
         setProjectBusy("validate");
-        try { const result = await directorApi.validate(state.workspace.projectId); setValidation(result); message.success(result.valid ? "工程规范检查通过" : `发现 ${result.diagnostics.length} 项问题`); }
+        try { const result = await directorApi.validate(state.workspace.projectId); await directorSync.refresh(state.workspace.projectId, ["validation"]); message.success(result.valid ? "工程规范检查通过" : `发现 ${result.diagnostics.length} 项问题`); }
         catch (error) { message.error(error instanceof Error ? error.message : "工程检查失败"); }
         finally { setProjectBusy(""); }
     };
@@ -481,11 +457,13 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
     const fileRef = useRef<HTMLInputElement>(null);
     const source = state.sources[0];
     const document = state.documents.find((item) => item.kind === kind)!;
+    const documentVersion = useDirectorResourceVersion(projectId, kind);
     const [logicalDocument, setLogicalDocument] = useState<DirectorLogicalDocument>();
     const [selectedPartPath, setSelectedPartPath] = useState("");
     const selectedPartPathRef = useRef(selectedPartPath);
     selectedPartPathRef.current = selectedPartPath;
     const [partContent, setPartContent] = useState("");
+    const [externalChanged, setExternalChanged] = useState(false);
     const [documentLoading, setDocumentLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [editing, setEditing] = useState(false);
@@ -496,19 +474,26 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
     const dirty = Boolean(selectedPart && partContent !== selectedPart.content);
     const dirtyRef = useRef(dirty);
     dirtyRef.current = dirty;
+    const selectedPartRef = useRef(selectedPart);
+    selectedPartRef.current = selectedPart;
     useEffect(() => {
         let active = true;
-        setDocumentLoading(true);
-        void directorApi.logicalDocument(projectId, kind).then((next) => {
-            if (!active || dirtyRef.current) return;
+        setDocumentLoading(!logicalDocument);
+        void readDirectorQuery(projectId, kind, ["document"], () => directorApi.logicalDocument(projectId, kind)).then((next) => {
+            if (!active) return;
+            if (dirtyRef.current) {
+                setExternalChanged(next.parts.find((part) => part.path === selectedPartPathRef.current)?.hash !== selectedPartRef.current?.hash);
+                return;
+            }
+            setExternalChanged(false);
             const nextPath = next.parts.some((part) => part.path === selectedPartPathRef.current) ? selectedPartPathRef.current : (next.parts.find((part) => !part.index) || next.parts[0])?.path || "";
             setLogicalDocument(next);
             setSelectedPartPath(nextPath);
             setPartContent(next.parts.find((part) => part.path === nextPath)?.content || "");
-            setActiveOutline(0);
+            if (nextPath !== selectedPartPathRef.current) setActiveOutline(0);
         }).catch((error) => active && message.error(error instanceof Error ? error.message : "文档读取失败")).finally(() => active && setDocumentLoading(false));
         return () => { active = false; };
-    }, [document.revision, kind, projectId]);
+    }, [documentVersion, kind, projectId]);
     useEffect(() => {
         if (selectedPart) setPartContent(selectedPart.content);
     }, [selectedPart?.hash, selectedPart?.path]);
@@ -560,6 +545,7 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
             setLogicalDocument(next);
             const savedPart = next.parts.find((part) => part.path === selectedPart.path);
             if (savedPart) setPartContent(savedPart.content);
+            setExternalChanged(false);
             await onRefresh();
             message.success(`${selectedPart.name}已保存`);
         } catch (error) {
@@ -592,6 +578,7 @@ function Writing({ projectId, kind, state, onRefresh }: { projectId: string; kin
                         {contentLength.toLocaleString()} 字 · {sectionCount} {kind === "script" ? "场" : "章"}{screenplayDuration ? ` · 预计 ${formatDirectorDuration(screenplayDuration)}` : ""}
                     </span>
                     {dirty ? <span className="text-[11px] text-blue-600">未保存</span> : null}
+                    {externalChanged ? <span role="status" className="text-xs text-amber-700">工程文件已被外部修改，当前草稿已保留；请复制草稿后重新载入核对。</span> : null}
                     {kind === "story" && source ? (
                         <span className="hidden min-w-0 items-center gap-2 text-xs text-slate-400 md:flex">
                             <span className="h-3 w-px bg-slate-200" />
@@ -705,11 +692,15 @@ function AssetGallery({ projectId, state, assets, generations, agentCollapsed, o
     const [detailTab, setDetailTab] = useState<AssetDetailTab>("dossier");
     const [search, setSearch] = useState("");
     const [previewMediaId, setPreviewMediaId] = useState("");
+    const mediaVersion = useDirectorResourceVersion(projectId, "media");
     const navigate = useNavigate();
     const previewItems = useMemo(() => assets.flatMap((asset) => asset.payload.variants
         .filter((item) => item.kind === "image")
-        .map((item) => ({ id: `${asset.id}:${item.id}`, url: assetFileUrl(item.fileId, asset.revision), alt: `${asset.name} · ${item.label || "素材图片"}` } satisfies WorkspaceImagePreviewItem))), [assets]);
+        .map((item) => ({ id: `${asset.id}:${item.id}`, url: assetFileUrl(item.fileId, asset.revision), alt: `${asset.name} · ${item.label || "素材图片"}` } satisfies WorkspaceImagePreviewItem))), [assets, mediaVersion]);
     const previewIndex = previewMediaId ? previewItems.findIndex((item) => item.id === previewMediaId) : -1;
+    useEffect(() => {
+        if (detailAssetId && !assets.some((asset) => asset.id === detailAssetId)) { setDetailAssetId(""); message.info("当前素材已删除，详情已关闭"); }
+    }, [assets, detailAssetId, message]);
     const counts = { character: assets.filter((item) => item.kind === "character").length, scene: assets.filter((item) => item.kind === "scene").length, prop: assets.filter((item) => item.kind === "prop").length };
     const action = async (asset: CreativeAsset, kind: "regenerate" | "copy" | "delete", mediaKind: "image" | "audio" = "image") => {
         setBusyId(asset.id);
@@ -830,24 +821,28 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
     const [rulesHash, setRulesHash] = useState("");
     const [rulesEditorVersion, setRulesEditorVersion] = useState(0);
     const [rulesSaveBlocked, setRulesSaveBlocked] = useState("");
+    const [externalChanges, setExternalChanges] = useState({ style: false, rules: false });
     const [rulesLoading, setRulesLoading] = useState(true);
     const [editingRules, setEditingRules] = useState(false);
+    const directionVersion = useDirectorResourceVersion(projectId, "direction");
     const styleDirtyRef = useRef(false);
     const rulesDirtyRef = useRef(false);
     const uploadRef = useRef<HTMLInputElement>(null);
     const style = styles.find((item) => item.id === selectedId);
-    const previewUrl = style?.references.board && !style.boardStale ? serverApiUrl(`/director/projects/${projectId}/direction/style-board?v=${style.revision}`) : "";
+    const previewUrl = style?.references.board && !style.boardStale ? serverApiUrl(`/director/projects/${projectId}/direction/style-board?v=${directionVersion}`) : "";
     const styleDirty = styleDocument !== savedStyleDocument;
     const rulesDirty = rules !== savedRules;
-    useEffect(() => { styleDirtyRef.current = styleDirty; }, [styleDirty]);
-    useEffect(() => { rulesDirtyRef.current = rulesDirty; }, [rulesDirty]);
+    styleDirtyRef.current = styleDirty;
+    rulesDirtyRef.current = rulesDirty;
     useEffect(() => { void serverApi.visualStyleTemplates().then(setTemplates); }, []);
     useEffect(() => { setSelectedId(activeStyleId || styles[0]?.id || ""); }, [activeStyleId, styles[0]?.id]);
     useEffect(() => {
         let canceled = false;
-        setStyleLoading(true);
-        void directorApi.file(projectId, visualStylePath).then((file) => {
-            if (canceled || styleDirtyRef.current || file.hash === styleHash) return;
+        setStyleLoading(!styleHash);
+        void readDirectorQuery(projectId, "direction", [visualStylePath], () => directorApi.file(projectId, visualStylePath)).then((file) => {
+            if (canceled || file.hash === styleHash) return;
+            if (styleDirtyRef.current) { setExternalChanges((current) => ({ ...current, style: true })); return; }
+            setExternalChanges((current) => ({ ...current, style: false }));
             const document = splitMarkdownFrontmatter(file.content);
             const normalized = normalizeVisualStyleMarkdown(document.body);
             setStyleFrontmatter(document.frontmatter);
@@ -860,13 +855,15 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
             if (!canceled) message.error(error instanceof Error ? error.message : "视觉风格读取失败");
         }).finally(() => { if (!canceled) setStyleLoading(false); });
         return () => { canceled = true; };
-    }, [projectId, workspace.revision, style?.revision, message]);
+    }, [projectId, directionVersion, message]);
     useEffect(() => {
         let canceled = false;
-        setRulesLoading(true);
-        void directorApi.file(projectId, directingRulesPath).then((file) => {
-            if (canceled || rulesDirtyRef.current) return;
+        setRulesLoading(!rulesHash);
+        void readDirectorQuery(projectId, "direction", [directingRulesPath], () => directorApi.file(projectId, directingRulesPath)).then((file) => {
+            if (canceled) return;
             if (file.hash === rulesHash) return;
+            if (rulesDirtyRef.current) { setExternalChanges((current) => ({ ...current, rules: true })); return; }
+            setExternalChanges((current) => ({ ...current, rules: false }));
             const document = splitMarkdownFrontmatter(file.content);
             const normalized = normalizeDirectingRulesMarkdown(document.body);
             setRulesFrontmatter(document.frontmatter);
@@ -879,7 +876,7 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
             if (!canceled) message.error(error instanceof Error ? error.message : "导演规则读取失败");
         }).finally(() => { if (!canceled) setRulesLoading(false); });
         return () => { canceled = true; };
-    }, [projectId, workspace.revision, message]);
+    }, [projectId, directionVersion, message]);
     const run = async (label: string, action: () => Promise<unknown>) => {
         setBusy(label);
         try { await action(); await onRefresh(); message.success("导演方案已更新"); }
@@ -912,10 +909,10 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
         }
     };
     useEffect(() => {
-        if (!styleDirty || styleLoading || busy || styleSaveBlocked === styleDocument) return;
+        if (!styleDirty || styleLoading || busy || externalChanges.style || styleSaveBlocked === styleDocument) return;
         const timer = window.setTimeout(() => void saveStyleDocument(), 600);
         return () => window.clearTimeout(timer);
-    }, [projectId, styleDocument, styleDirty, styleLoading, styleHash, styleFrontmatter, styleSaveBlocked, busy]);
+    }, [projectId, styleDocument, styleDirty, styleLoading, styleHash, styleFrontmatter, styleSaveBlocked, busy, externalChanges.style]);
     const saveRules = async () => {
         setBusy("save");
         try {
@@ -932,12 +929,13 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
         }
     };
     useEffect(() => {
-        if (!rulesDirty || rulesLoading || busy || rulesSaveBlocked === rules) return;
+        if (!rulesDirty || rulesLoading || busy || externalChanges.rules || rulesSaveBlocked === rules) return;
         const timer = window.setTimeout(() => void saveRules(), 600);
         return () => window.clearTimeout(timer);
-    }, [projectId, rules, rulesDirty, rulesLoading, rulesHash, rulesFrontmatter, rulesSaveBlocked, busy]);
+    }, [projectId, rules, rulesDirty, rulesLoading, rulesHash, rulesFrontmatter, rulesSaveBlocked, busy, externalChanges.rules]);
     return (
         <div className="director-treatment-page">
+            {externalChanges.style || externalChanges.rules ? <p role="status" className="px-6 py-2 text-xs text-amber-700">工程文件已被外部修改，草稿已保留并暂停自动保存；请复制草稿后重新载入核对。</p> : null}
             <div className="director-treatment-workspace">
                 <section className="director-treatment-style">
                     <div className="director-treatment-section-title">
@@ -1028,21 +1026,32 @@ type AssetDetailTab = "dossier" | "primary" | "sound" | "usages" | `variant:${st
 
 function AssetDetailDialog({ asset, initialTab = "dossier", segment, onUse, generations, leftInset, onRefresh, onClose, onAgent, onNewVariant, onLocate }: { asset?: CreativeAsset; initialTab?: AssetDetailTab; segment?: DirectorVideoSegment; onUse?: (variantId?: string) => Promise<void>; generations: ServerGeneration[]; leftInset: number; onRefresh: () => Promise<void>; onClose: () => void; onAgent: (path?: string) => void; onNewVariant: (path?: string) => void; onLocate: (segmentId: string) => void }) {
     const { message, modal } = App.useApp();
-    const [detail, setDetail] = useState<DirectorAssetDetail>();
+    const [loadedDetail, setLoadedDetail] = useState<DirectorAssetDetail>();
+    const detail = loadedDetail?.assetId === asset?.id ? loadedDetail : undefined;
+    const [detailError, setDetailError] = useState("");
+    const assetsVersion = useDirectorResourceVersion(asset?.projectId || "", "assets");
+    const segmentsVersion = useDirectorResourceVersion(asset?.projectId || "", "segments");
+    const assetIdRef = useRef(asset?.id);
+    assetIdRef.current = asset?.id;
     const [tab, setTab] = useState<AssetDetailTab>("dossier");
     const [busy, setBusy] = useState(false);
     const [preview, setPreview] = useState<{ items: WorkspaceImagePreviewItem[]; activeIndex: number } | null>(null);
-    const assetGenerationVersion = useMemo(() => generations.filter((generation) => {
-        return generationAssetId(generation) === asset?.id;
-    }).map((generation) => `${generation.id}:${generation.status}:${generation.progress}:${generation.updatedAt}`).join("|"), [asset?.id, generations]);
-    const reload = async () => {
+    const reload = async (force = false) => {
         if (!asset) return;
-        const value = await directorApi.assetDetail(asset.id);
-        setDetail(value);
-        if (tab.startsWith("variant:") && !value.variants.some((item) => `variant:${item.variantId}` === tab)) setTab("primary");
+        const value = await readDirectorQuery(asset.projectId, "assets", ["detail", asset.id], () => directorApi.assetDetail(asset.id), force);
+        if (assetIdRef.current === value.assetId) { setLoadedDetail(value); setDetailError(""); }
     };
-    useEffect(() => { if (!asset) { setDetail(undefined); return; } setTab(initialTab); void reload().catch((error) => message.error(error instanceof Error ? error.message : "素材详情加载失败")); }, [asset?.id, initialTab]);
-    useEffect(() => { if (asset && detail && (assetGenerationVersion || asset.revision !== detail.revision)) void reload(); }, [asset?.revision, assetGenerationVersion]);
+    const setDetail = (_value: DirectorAssetDetail) => { void reload(true).catch((error) => setDetailError(error instanceof Error ? error.message : "素材详情加载失败")); };
+    useEffect(() => { setTab(initialTab); }, [asset?.id, initialTab]);
+    useEffect(() => {
+        if (!asset) return;
+        let active = true;
+        void readDirectorQuery(asset.projectId, "assets", ["detail", asset.id], () => directorApi.assetDetail(asset.id)).then((value) => {
+            if (active) { setLoadedDetail(value); setDetailError(""); }
+        }).catch((error) => active && setDetailError(error instanceof Error ? error.message : "素材详情加载失败"));
+        return () => { active = false; };
+    }, [asset?.id, assetsVersion, segmentsVersion]);
+    useEffect(() => { if (detail && tab.startsWith("variant:") && !detail.variants.some((item) => `variant:${item.variantId}` === tab)) setTab("primary"); }, [detail, tab]);
     useEffect(() => {
         if (!asset) return;
         const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -1087,6 +1096,7 @@ function AssetDetailDialog({ asset, initialTab = "dossier", segment, onUse, gene
                 {tab.startsWith("variant:") ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "delete", danger: true, icon: <Trash2 className="size-3.5" />, label: "移到回收站" }], onClick: () => modal.confirm({ title: "移除这个生产变体？", content: "文件会移入项目 .trash，可恢复。", okText: "移除", okButtonProps: { danger: true }, cancelText: "取消", onOk: async () => { if (!detail) return; setDetail(await directorApi.deleteAssetVariant(asset.id, tab.slice(8))); setTab("primary"); } }) }}><button type="button" aria-label="变体操作" className="mb-2 ml-auto grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"><MoreHorizontal className="size-4" /></button></Dropdown> : null}
             </nav>
             <div className="min-h-0 flex-1 bg-white">
+                {detailError ? <div role="alert" className="px-5 py-2 text-xs text-rose-600">{detailError}<button type="button" className="ml-3" onClick={() => void reload(true).catch(() => undefined)}>重试</button></div> : null}
                 {!detail ? <div className="grid size-full place-items-center"><Spin /></div> : tab === "dossier" ? <ScrollArea className="h-full"><article className="director-markdown mx-auto max-w-4xl px-10 py-8"><Streamdown mode="static">{detail.dossier.content || `# ${asset.name}\n\n等待 Agent 补充素材档案。`}</Streamdown></article></ScrollArea>
                     : visual ? <AssetVisualTab asset={asset} workspace={visual} segment={segment} busy={busy} onGenerate={() => void generate(visual.kind === "variant" ? "variant-visual" : "primary-visual")} onAddInput={(file) => void addInput(file, visual.kind === "variant" ? "variant-visual" : "primary-visual")} onRemoveInput={async (inputId) => setDetail(await directorApi.removeAssetMediaInput(asset.id, inputId))} onPreview={openMedia} />
                     : tab === "sound" ? <AssetSoundTab asset={asset} detail={detail} busy={busy} onGenerate={() => void generate("sound")} onAddInput={(file) => void addInput(file, "sound")} onRemoveInput={async (inputId) => setDetail(await directorApi.removeAssetMediaInput(asset.id, inputId))} />
@@ -1094,7 +1104,7 @@ function AssetDetailDialog({ asset, initialTab = "dossier", segment, onUse, gene
             </div>
             {segment && onUse ? <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-slate-200 px-5 py-3"><span className="text-xs text-slate-500">素材自动保存在库中，使用后关联当前视频段</span><Button type="primary" loading={busy} disabled={!visual?.outputs.length} onClick={async () => { setBusy(true); try { await onUse(visual?.variantId); onClose(); } catch (error) { message.error(error instanceof Error ? error.message : "引用失败"); } finally { setBusy(false); } }}>{asset.kind === "character" ? "使用此形象并返回" : "使用此素材并返回"}</Button></footer> : null}
         </section>
-        <WorkspaceImagePreviewLightbox items={preview?.items || []} activeIndex={preview?.activeIndex ?? null} onClose={() => setPreview(null)} onChangeIndex={(activeIndex) => setPreview((current) => current ? { ...current, activeIndex } : null)} />
+        <WorkspaceImagePreviewLightbox items={currentDirectorPreviewItems(preview?.items || [])} activeIndex={preview?.activeIndex ?? null} onClose={() => setPreview(null)} onChangeIndex={(activeIndex) => setPreview((current) => current ? { ...current, activeIndex } : null)} />
     </div>, document.body);
 }
 
@@ -1135,7 +1145,7 @@ function CopyPromptButton({ value }: { value: string }) { const copy = useCopyTe
 
 function AssetSoundTab({ asset, detail, busy, onGenerate, onAddInput, onRemoveInput }: { asset: CreativeAsset; detail: DirectorAssetDetail; busy: boolean; onGenerate: () => void; onAddInput: (file: File) => void; onRemoveInput: (id: string) => void }) {
     const sound = detail.sound;
-    return <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[58fr_42fr]"><section className="flex min-h-0 flex-col border-b border-slate-200 bg-slate-50 p-6 lg:border-b-0 lg:border-r"><div className="flex items-center justify-between"><div><h2 className="text-base font-semibold text-slate-950">{asset.kind === "character" ? "角色声音" : asset.kind === "scene" ? "环境声" : "道具音效"}</h2><p className="mt-1 text-xs text-slate-500">最多使用一个参考声音</p></div><Button type="primary" loading={busy} icon={<AudioLines className="size-3.5" />} onClick={onGenerate}>{sound.output ? "重新生成" : "生成声音"}</Button></div><div className="mt-10 rounded-lg border border-slate-200 bg-white p-5">{sound.output ? <audio className="w-full" controls src={serverApiUrl(`/files/${sound.output.fileId}/content`)} /> : <MediaPlaceholder icon={AudioLines} label="还没有声音结果" />}</div><div className="mt-5 flex items-center justify-between border-t border-slate-200 pt-5"><div><p className="text-xs font-medium text-slate-700">参考声音</p><p className="mt-1 text-[11px] text-slate-400">{sound.input?.name || "未添加"}</p></div>{sound.input ? <div className="flex items-center gap-2"><audio className="h-8 w-56" controls src={serverApiUrl(`/files/${sound.input.fileId}/content`)} /><button type="button" className="cursor-pointer p-2 text-slate-400 hover:text-rose-600" onClick={() => onRemoveInput(sound.input!.id)}><Trash2 className="size-4" /></button></div> : <label className="inline-flex cursor-pointer items-center gap-1 text-xs text-blue-600"><Upload className="size-3.5" />添加参考<input type="file" accept="audio/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onAddInput(file); }} /></label>}</div>{asset.kind === "character" && sound.sampleText ? <div className="mt-5 border-t border-slate-200 pt-5"><p className="text-xs font-medium text-slate-700">试听文本</p><p className="mt-2 text-sm leading-6 text-slate-600">{sound.sampleText}</p></div> : null}</section><section className="flex min-h-0 flex-col"><div className="flex h-12 items-center justify-between border-b border-slate-200 px-5"><h2 className="text-sm font-semibold text-slate-950">声音提示词</h2><CopyPromptButton value={sound.prompt} /></div><ScrollArea className="min-h-0 flex-1"><pre className="whitespace-pre-wrap break-words px-5 py-4 font-mono text-[12px] leading-6 text-slate-700">{sound.prompt || "等待 Agent 完成声音提示词。"}</pre></ScrollArea></section></div>;
+    return <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[58fr_42fr]"><section className="flex min-h-0 flex-col border-b border-slate-200 bg-slate-50 p-6 lg:border-b-0 lg:border-r"><div className="flex items-center justify-between"><div><h2 className="text-base font-semibold text-slate-950">{asset.kind === "character" ? "角色声音" : asset.kind === "scene" ? "环境声" : "道具音效"}</h2><p className="mt-1 text-xs text-slate-500">最多使用一个参考声音</p></div><Button type="primary" loading={busy} icon={<AudioLines className="size-3.5" />} onClick={onGenerate}>{sound.output ? "重新生成" : "生成声音"}</Button></div><div className="mt-10 rounded-lg border border-slate-200 bg-white p-5">{sound.output ? <DirectorMedia kind="audio" className="w-full" controls src={directorMediaUrl(sound.output.fileId)} /> : <MediaPlaceholder icon={AudioLines} label="还没有声音结果" />}</div><div className="mt-5 flex items-center justify-between border-t border-slate-200 pt-5"><div><p className="text-xs font-medium text-slate-700">参考声音</p><p className="mt-1 text-[11px] text-slate-400">{sound.input?.name || "未添加"}</p></div>{sound.input ? <div className="flex items-center gap-2"><DirectorMedia kind="audio" className="h-8 w-56" controls src={directorMediaUrl(sound.input.fileId)} /><button type="button" className="cursor-pointer p-2 text-slate-400 hover:text-rose-600" onClick={() => onRemoveInput(sound.input!.id)}><Trash2 className="size-4" /></button></div> : <label className="inline-flex cursor-pointer items-center gap-1 text-xs text-blue-600"><Upload className="size-3.5" />添加参考<input type="file" accept="audio/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onAddInput(file); }} /></label>}</div>{asset.kind === "character" && sound.sampleText ? <div className="mt-5 border-t border-slate-200 pt-5"><p className="text-xs font-medium text-slate-700">试听文本</p><p className="mt-2 text-sm leading-6 text-slate-600">{sound.sampleText}</p></div> : null}</section><section className="flex min-h-0 flex-col"><div className="flex h-12 items-center justify-between border-b border-slate-200 px-5"><h2 className="text-sm font-semibold text-slate-950">声音提示词</h2><CopyPromptButton value={sound.prompt} /></div><ScrollArea className="min-h-0 flex-1"><pre className="whitespace-pre-wrap break-words px-5 py-4 font-mono text-[12px] leading-6 text-slate-700">{sound.prompt || "等待 Agent 完成声音提示词。"}</pre></ScrollArea></section></div>;
 }
 
 function AssetUsagesTab({ detail, onLocate }: { detail: DirectorAssetDetail; onLocate: (id: string) => void }) {
@@ -1191,6 +1201,9 @@ function SegmentMaterials({ segment, assets, generations, preflight, leftInset, 
     const [detailId, setDetailId] = useState("");
     const [busy, setBusy] = useState(false);
     const [preview, setPreview] = useState<WorkspaceImagePreviewItem>();
+    useEffect(() => {
+        if (detailId && !assets.some((asset) => asset.id === detailId)) { setDetailId(""); message.info("当前素材已删除，详情已关闭"); }
+    }, [assets, detailId, message]);
     const refs = segmentAssetRefs(segment);
     const detailAsset = assets.find((asset) => asset.id === detailId);
     const candidates = [...(preflight?.selected || []), ...(preflight?.omitted || [])];
@@ -1209,7 +1222,7 @@ function SegmentMaterials({ segment, assets, generations, preflight, leftInset, 
         if (!picker || !name.trim()) return;
         setBusy(true);
         try {
-            const asset = createdAsset || await serverApi.createCreativeAsset(segment.projectId, { kind: picker.kind, name: name.trim(), payload: { description: description.trim() } });
+            const asset = (createdAsset && assets.find((item) => item.id === createdAsset.id)) || await serverApi.createCreativeAsset(segment.projectId, { kind: picker.kind, name: name.trim(), payload: { description: description.trim() } });
             setCreatedAsset(asset);
             await bind(asset, undefined, picker.replaceAssetId);
             setPicker(undefined);
@@ -1237,8 +1250,6 @@ function SegmentMaterials({ segment, assets, generations, preflight, leftInset, 
                 </div>
             </article>;
         })}</div> : <p className="py-5 text-xs leading-6 text-slate-500">先规划这段发生什么、镜头如何表达，再添加需要保持一致的素材。</p>}
-        <div className="mt-3 flex flex-wrap items-center gap-1">{assetKinds.map((kind) => <Button key={kind} type="text" size="small" icon={<Plus className="size-3.5" />} onClick={() => openPicker(kind)}>添加{assetKindLabels[kind]}需求</Button>)}</div>
-        <p className="mt-2 text-[11px] leading-5 text-slate-400">无需保持一致的背景细节可直接写入分镜，不必单独制作素材。</p>
         {preflight?.assetBlockedReasons?.length ? <p className="mt-2 text-[11px] text-rose-600">{preflight.assetBlockedReasons.join("；")}</p> : null}
         <Drawer title={picker?.create ? `为本段创建${assetKindLabels[picker.kind]}` : `从素材库选择${picker ? assetKindLabels[picker.kind] : ""}`} open={Boolean(picker)} onClose={() => { if (!busy) setPicker(undefined); }} size={480}>
             <p className="mb-4 text-xs text-slate-500">用于「{segment.title}」</p>
@@ -1249,13 +1260,14 @@ function SegmentMaterials({ segment, assets, generations, preflight, leftInset, 
             </>}
         </Drawer>
         <AssetDetailDialog asset={detailAsset} initialTab={detailAsset && segmentAssetRef(segment, detailAsset.kind, detailAsset.id)?.variantId ? `variant:${segmentAssetRef(segment, detailAsset.kind, detailAsset.id)!.variantId}` : "primary"} segment={segment} onUse={async (variantId) => { if (detailAsset) await bind(detailAsset, variantId); }} generations={generations} leftInset={leftInset} onRefresh={onRefresh} onClose={() => setDetailId("")} onAgent={(path) => { if (detailAsset) planAsset(detailAsset, path); }} onNewVariant={(path) => { if (detailAsset) planAsset(detailAsset, path, true); }} onLocate={(id) => { if (id === segment.id) setDetailId(""); else { window.localStorage.setItem(storyboardUiKey(segment.projectId), JSON.stringify({ ...readStoryboardUi(segment.projectId), selectedId: id })); window.dispatchEvent(new CustomEvent("director-locate-segment", { detail: { projectId: segment.projectId, segmentId: id } })); setDetailId(""); } }} />
-        <WorkspaceImagePreviewLightbox items={preview ? [preview] : []} activeIndex={preview ? 0 : null} onClose={() => setPreview(undefined)} onChangeIndex={() => undefined} />
+        <WorkspaceImagePreviewLightbox items={currentDirectorPreviewItems(preview ? [preview] : [])} activeIndex={preview ? 0 : null} onClose={() => setPreview(undefined)} onChangeIndex={() => undefined} />
     </section>;
 }
 
 function Storyboard({ projectId, state, assets, generations, agentCollapsed, onRefresh }: { projectId: string; state: DirectorState; assets: CreativeAsset[]; generations: ServerGeneration[]; agentCollapsed: boolean; onRefresh: () => Promise<void> }) {
     const agentWidth = useAgentStore((store) => store.width);
-    const [promptSegment, setPromptSegment] = useState<DirectorVideoSegment>();
+    const [promptSegmentId, setPromptSegmentId] = useState("");
+    const promptSegment = state.videoSegments.find((segment) => segment.id === promptSegmentId);
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
     const orderedSegments = useMemo(() => orderDirectorSegments(state.videoSegments, state.sequences), [state.sequences, state.videoSegments]);
@@ -1272,13 +1284,14 @@ function Storyboard({ projectId, state, assets, generations, agentCollapsed, onR
     const selected = orderedSegments.find((segment) => segment.id === selectedId) || orderedSegments[0];
     const mode = selected ? modes[selected.id] || "storyboard" : "storyboard";
     const [preflight, setPreflight] = useState<DirectorVideoSegmentPreflight>();
+    const segmentsVersion = useDirectorResourceVersion(projectId, "segments");
     useEffect(() => {
-        if (!selected) return setPreflight(undefined);
-        let active = true;
         setPreflight(undefined);
-        void directorApi.videoSegmentPreflight(selected.id).then((value) => active && setPreflight(value)).catch(() => active && setPreflight(undefined));
+        if (!selected) return;
+        let active = true;
+        void readDirectorQuery(projectId, "segments", ["preflight", selected.id], () => directorApi.videoSegmentPreflight(selected.id)).then((value) => active && setPreflight(value)).catch(() => active && setPreflight(undefined));
         return () => { active = false; };
-    }, [selected?.id, selected?.revision, assets]);
+    }, [selected?.id, segmentsVersion]);
     useEffect(() => {
         if (typeof window === "undefined") return;
         window.localStorage.setItem(storyboardUiKey(projectId), JSON.stringify({ selectedId: selected?.id || "", modes }));
@@ -1312,10 +1325,10 @@ function Storyboard({ projectId, state, assets, generations, agentCollapsed, onR
     };
     return (
         <div className="grid h-full min-h-0 w-full min-w-0 grid-rows-[minmax(0,1fr)_180px] overflow-hidden bg-slate-50">
-            {selected ? <StoryboardWorkspace segment={selected} sequence={state.sequences.find((item) => item.id === selected.sequenceId)} mode={mode} preflight={preflight} busy={busy === selected.id} onMode={(value) => setModes((current) => ({ ...current, [selected.id]: value }))} onAgent={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: selected.id, title: selected.title, subtitle: "视频段与故事板" })} onPreview={(items, activeIndex) => setPreview({ items, activeIndex })} onGenerateBoard={() => void generateBoard(selected)} onGenerateVideo={(preset) => void generateVideo(selected, preset)} onPrompt={() => setPromptSegment(selected)} materials={<SegmentMaterials key={selected.id} segment={selected} preflight={preflight} assets={assets} generations={generations} leftInset={agentCollapsed ? 0 : agentWidth + 1} onRefresh={onRefresh} />} /> : <EmptyPanel icon={Clapperboard} title="还没有视频段" description="让 Agent 根据剧本规划 4–15 秒视频段。" />}
+            {selected ? <StoryboardWorkspace segment={selected} sequence={state.sequences.find((item) => item.id === selected.sequenceId)} mode={mode} preflight={preflight} busy={busy === selected.id} onMode={(value) => setModes((current) => ({ ...current, [selected.id]: value }))} onAgent={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: selected.id, title: selected.title, subtitle: "视频段与故事板" })} onPreview={(items, activeIndex) => setPreview({ items, activeIndex })} onGenerateBoard={() => void generateBoard(selected)} onGenerateVideo={(preset) => void generateVideo(selected, preset)} onPrompt={() => setPromptSegmentId(selected.id)} materials={<SegmentMaterials key={selected.id} segment={selected} preflight={preflight} assets={assets} generations={generations} leftInset={agentCollapsed ? 0 : agentWidth + 1} onRefresh={onRefresh} />} /> : <EmptyPanel icon={Clapperboard} title="还没有视频段" description="让 Agent 根据剧本规划 4–15 秒视频段。" />}
             <SegmentFilmstrip segments={orderedSegments} selectedId={selected?.id || ""} busy={busy === "batch"} onSelect={setSelectedId} onBatch={() => void batchGenerate()} />
-            <StoryboardPromptDrawer segment={promptSegment} onClose={() => setPromptSegment(undefined)} onAgent={() => { if (promptSegment) prepareSegmentTask(promptSegment, "请检查并修订当前视频段的故事板提示词，保持剧情意图和显式素材引用，不自动生成媒体。"); setPromptSegment(undefined); }} />
-            <WorkspaceImagePreviewLightbox items={preview?.items || []} activeIndex={preview?.activeIndex ?? null} onClose={() => setPreview(null)} onChangeIndex={(activeIndex) => setPreview((current) => current ? { ...current, activeIndex } : null)} />
+            <StoryboardPromptDrawer segment={promptSegment} onClose={() => setPromptSegmentId("")} onAgent={() => { if (promptSegment) prepareSegmentTask(promptSegment, "请检查并修订当前视频段的故事板提示词，保持剧情意图和显式素材引用，不自动生成媒体。"); setPromptSegmentId(""); }} />
+            <WorkspaceImagePreviewLightbox items={currentDirectorPreviewItems(preview?.items || [])} activeIndex={preview?.activeIndex ?? null} onClose={() => setPreview(null)} onChangeIndex={(activeIndex) => setPreview((current) => current ? { ...current, activeIndex } : null)} />
         </div>
     );
 }
@@ -1370,8 +1383,8 @@ function StoryboardMediaStage({ segment, materials, onPrompt, mode, preflight, b
     const blocked = preflight?.blockedReasons || [];
     const inputCount = selected.length + (mode === "video" && sheet?.imageFileId ? 1 : 0);
     const inputPreviewItems = [
-        ...(mode === "video" && sheet?.imageFileId ? [{ id: `storyboard-${sheet.imageFileId}`, url: serverApiUrl(`/files/${sheet.imageFileId}/content`), alt: `${segment.title} · 完整故事板` }] : []),
-        ...selected.map((item, index) => ({ id: `input-${index}-${item.fileId}`, url: serverApiUrl(`/files/${item.fileId}/content`), alt: item.name || item.purpose })),
+        ...(mode === "video" && sheet?.imageFileId ? [{ id: `storyboard-${sheet.imageFileId}`, url: directorMediaUrl(sheet.imageFileId), alt: `${segment.title} · 完整故事板` }] : []),
+        ...selected.map((item, index) => ({ id: `input-${index}-${item.fileId}`, url: directorMediaUrl(item.fileId), alt: item.name || item.purpose })),
     ];
     const inputOffset = mode === "video" && sheet?.imageFileId ? 1 : 0;
     return (
@@ -1389,7 +1402,7 @@ function StoryboardMediaStage({ segment, materials, onPrompt, mode, preflight, b
             </div>
             <div className={`min-h-0 flex-1 ${mode === "storyboard" ? "thin-scrollbar overflow-auto" : "flex flex-col overflow-hidden"}`}>
             <div data-testid="director-storyboard-sheet" className={`relative min-h-0 flex-1 ${mode === "storyboard" ? "min-h-48 bg-white p-4" : "overflow-hidden bg-slate-950"}`}>
-                {mode === "video" ? segment.payload.videoFileId ? <video key={segment.payload.videoFileId} controls className="absolute inset-0 size-full bg-slate-950 object-contain" src={serverApiUrl(`/files/${segment.payload.videoFileId}/content`)} /> : <MediaPlaceholder icon={Video} label="当前视频段还没有视频，先生成快速预览" /> : isTransition ? <div className="grid w-full grid-cols-2 gap-px bg-slate-300">{([preflight?.transitionInputs?.firstFrameFileId, preflight?.transitionInputs?.lastFrameFileId] as const).map((fileId, index) => fileId ? <img key={fileId} draggable={false} className="w-full bg-slate-100 object-contain" src={serverApiUrl(`/files/${fileId}/content`)} /> : <div key={index} className="aspect-video"><MediaPlaceholder label={index ? "等待后段实际首帧" : "等待前段实际尾帧"} /></div>)}</div> : sheet?.imageFileId ? <img draggable={false} aria-label="放大查看完整故事板" className="block h-auto w-full cursor-zoom-in" src={serverApiUrl(`/files/${sheet.imageFileId}/content`)} onClick={() => onPreview([{ id: `storyboard-${sheet.imageFileId}`, url: serverApiUrl(`/files/${sheet.imageFileId}/content`), alt: `${segment.title} · 故事板` }], 0)} /> : <MediaPlaceholder label="当前视频段还没有故事板" />}
+                {mode === "video" ? segment.payload.videoFileId ? <DirectorMedia mediaKey={segment.id} controls className="absolute inset-0 size-full bg-slate-950 object-contain" src={directorMediaUrl(segment.payload.videoFileId)} /> : <MediaPlaceholder icon={Video} label="当前视频段还没有视频，先生成快速预览" /> : isTransition ? <div className="grid w-full grid-cols-2 gap-px bg-slate-300">{([preflight?.transitionInputs?.firstFrameFileId, preflight?.transitionInputs?.lastFrameFileId] as const).map((fileId, index) => fileId ? <img key={fileId} draggable={false} className="w-full bg-slate-100 object-contain" src={directorMediaUrl(fileId)} /> : <div key={index} className="aspect-video"><MediaPlaceholder label={index ? "等待后段实际首帧" : "等待前段实际尾帧"} /></div>)}</div> : sheet?.imageFileId ? <img draggable={false} aria-label="放大查看完整故事板" className="block h-auto w-full cursor-zoom-in" src={directorMediaUrl(sheet.imageFileId)} onClick={() => onPreview([{ id: `storyboard-${sheet.imageFileId}`, url: directorMediaUrl(sheet.imageFileId), alt: `${segment.title} · 故事板` }], 0)} /> : <MediaPlaceholder label="当前视频段还没有故事板" />}
                 {busy ? <div className="director-asset-loading absolute inset-0 grid place-items-center bg-white/55"><Loader2 className="size-7 animate-spin text-blue-600" /></div> : null}
             </div>
             {mode === "storyboard" ? <>{segment.payload.storyboardStale ? <p className="px-4 text-xs text-slate-500">故事板待更新：剧情或素材引用已变化</p> : null}{materials}</> : null}
@@ -1435,7 +1448,7 @@ function StoryboardInspector({ segment, mode, preflight }: { segment: DirectorVi
 }
 
 function ReferenceThumb({ fileId, label, title, onPreview }: { fileId: string; label: string; title?: string; onPreview: () => void }) {
-    return <Tooltip title={`查看${title || label}大图`}><button type="button" aria-label={`查看${title || label}大图`} className="w-16 shrink-0 text-left" onClick={onPreview}><img className="h-10 w-full border border-slate-200 bg-slate-50 object-cover transition hover:border-blue-400" src={serverApiUrl(`/files/${fileId}/content`)} /><p className="mt-1 truncate text-[10px] text-slate-500">{label}</p></button></Tooltip>;
+    return <Tooltip title={`查看${title || label}大图`}><button type="button" aria-label={`查看${title || label}大图`} className="w-16 shrink-0 text-left" onClick={onPreview}><img className="h-10 w-full border border-slate-200 bg-slate-50 object-cover transition hover:border-blue-400" src={directorMediaUrl(fileId)} /><p className="mt-1 truncate text-[10px] text-slate-500">{label}</p></button></Tooltip>;
 }
 
 function SegmentFilmstrip({ segments, selectedId, busy, onSelect, onBatch }: { segments: DirectorVideoSegment[]; selectedId: string; busy: boolean; onSelect: (id: string) => void; onBatch: () => void }) {
@@ -1446,7 +1459,7 @@ function SegmentFilmstrip({ segments, selectedId, busy, onSelect, onBatch }: { s
                 {segments.map((segment, index) => {
                     const sheet = segment.payload.storyboardSheet;
                     const imageFileId = sheet?.imageFileId || segment.payload.actualFirstFrameFileId || segment.payload.actualLastFrameFileId;
-                    return <button key={segment.id} type="button" data-testid="director-segment-filmstrip-item" aria-current={selectedId === segment.id ? "true" : undefined} className={`group w-44 shrink-0 overflow-hidden border text-left transition ${selectedId === segment.id ? "border-blue-600 ring-1 ring-blue-600" : "border-slate-200 hover:border-blue-300"}`} onClick={() => onSelect(segment.id)}><div className="relative h-[72px] bg-slate-100">{imageFileId ? <img className="size-full object-cover" src={serverApiUrl(`/files/${imageFileId}/content`)} /> : segment.payload.videoFileId ? <video muted preload="metadata" className="size-full object-cover" src={serverApiUrl(`/files/${segment.payload.videoFileId}/content`)} /> : <div className="grid size-full place-items-center"><Clapperboard className="size-5 text-slate-300" /></div>}<span className="absolute left-1.5 top-1.5 bg-slate-950/75 px-1.5 py-0.5 font-mono text-[9px] text-white">{String(index + 1).padStart(2, "0")}</span><span className="absolute bottom-1.5 right-1.5 bg-slate-950/75 px-1.5 py-0.5 text-[9px] text-white">{segment.payload.durationSeconds || 4}s</span></div><div className="px-2 py-2"><p className="truncate text-[11px] font-medium text-slate-800">{segment.title}</p></div></button>;
+                    return <button key={segment.id} type="button" data-testid="director-segment-filmstrip-item" aria-current={selectedId === segment.id ? "true" : undefined} className={`group w-44 shrink-0 overflow-hidden border text-left transition ${selectedId === segment.id ? "border-blue-600 ring-1 ring-blue-600" : "border-slate-200 hover:border-blue-300"}`} onClick={() => onSelect(segment.id)}><div className="relative h-[72px] bg-slate-100">{imageFileId ? <img className="size-full object-cover" src={directorMediaUrl(imageFileId)} /> : segment.payload.videoFileId ? <video muted preload="metadata" className="size-full object-cover" src={directorMediaUrl(segment.payload.videoFileId)} /> : <div className="grid size-full place-items-center"><Clapperboard className="size-5 text-slate-300" /></div>}<span className="absolute left-1.5 top-1.5 bg-slate-950/75 px-1.5 py-0.5 font-mono text-[9px] text-white">{String(index + 1).padStart(2, "0")}</span><span className="absolute bottom-1.5 right-1.5 bg-slate-950/75 px-1.5 py-0.5 text-[9px] text-white">{segment.payload.durationSeconds || 4}s</span></div><div className="px-2 py-2"><p className="truncate text-[11px] font-medium text-slate-800">{segment.title}</p></div></button>;
                 })}
             </div>
         </section>
@@ -1457,7 +1470,12 @@ function VideoSegmentCard({ segment, busy, onAgent, onPrompt, onGenerateBoard, o
     const { message } = App.useApp();
     const [preflight, setPreflight] = useState<DirectorVideoSegmentPreflight>();
     const [layoutBusy, setLayoutBusy] = useState(false);
-    useEffect(() => { void directorApi.videoSegmentPreflight(segment.id).then(setPreflight).catch(() => setPreflight(undefined)); }, [segment.id, segment.revision]);
+    const segmentsVersion = useDirectorResourceVersion(segment.projectId, "segments");
+    useEffect(() => {
+        let active = true;
+        void readDirectorQuery(segment.projectId, "segments", ["preflight", segment.id], () => directorApi.videoSegmentPreflight(segment.id)).then((value) => active && setPreflight(value)).catch(() => active && setPreflight(undefined));
+        return () => { active = false; };
+    }, [segment.id, segmentsVersion]);
     const sheet = segment.payload.storyboardSheet;
     const isTransition = segment.payload.generationIntent === "transition";
     const recommendedFrames = (segment.payload.durationSeconds || 4) <= 6 ? 4 : (segment.payload.durationSeconds || 4) <= 10 ? 6 : 9;
@@ -1480,8 +1498,8 @@ function VideoSegmentCard({ segment, busy, onAgent, onPrompt, onGenerateBoard, o
             </header>
             {segment.payload.videoFileId ? <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 bg-slate-50 px-5 py-2 text-[11px] text-slate-500"><span className={segment.payload.videoQualityPreset === "final" ? "text-blue-700" : "text-slate-700"}>{segment.payload.videoQualityPreset === "final" ? "最终成片" : "快速预览"}</span><span>{segment.payload.videoNativeResolution || "768p"}</span><span>{(segment.payload.h3Mode || preflight?.route.mode || "ref2va").toUpperCase()}</span>{segment.payload.videoGenerationDurationMs ? <span>生成耗时 {Math.max(1, Math.round(segment.payload.videoGenerationDurationMs / 1000))} 秒</span> : null}</div> : null}
             <div className="grid border-t border-slate-200 lg:grid-cols-[1fr_280px]">
-                <div data-testid="director-storyboard-sheet" className="relative overflow-hidden bg-slate-100" style={{ aspectRatio: sheetAspect }}>{isTransition ? <div className="grid size-full grid-cols-2 gap-px bg-slate-300">{([preflight?.transitionInputs?.firstFrameFileId, preflight?.transitionInputs?.lastFrameFileId] as const).map((fileId, index) => fileId ? <div key={fileId} className="relative bg-slate-100"><img draggable={false} src={serverApiUrl(`/files/${fileId}/content`)} className="pointer-events-none size-full select-none object-contain" /><span className="absolute bottom-3 left-3 bg-slate-950/75 px-2 py-1 text-[10px] text-white">{index ? "后段实际首帧" : "前段实际尾帧"}</span></div> : <div key={index} className="grid place-items-center text-xs text-slate-400">{index ? "等待后段首帧" : "等待前段尾帧"}</div>)}</div> : sheet?.imageFileId ? <img draggable={false} src={serverApiUrl(`/files/${sheet.imageFileId}/content`)} className="pointer-events-none size-full select-none object-contain" /> : <div className="grid size-full place-items-center text-slate-400"><ImageIcon className="size-10" /></div>}{!isTransition && sheet?.review?.status === "pending" ? <div className="director-asset-loading pointer-events-none absolute inset-0 grid place-items-center"><Loader2 className="size-6 animate-spin text-blue-600" /></div> : null}{!isTransition ? <span className="pointer-events-none absolute bottom-3 left-3 bg-slate-950/75 px-2 py-1 text-[10px] text-white">完整故事板 · {sheet?.frames.length || recommendedFrames} 格 · {shotCount} 个 Shot</span> : null}</div>
-                <aside className="border-l border-slate-200 p-4"><p className="text-xs font-medium text-slate-900">本次视频输入</p><div className="mt-3 grid grid-cols-3 gap-2">{!isTransition && sheet?.imageFileId ? <Tooltip title="完整故事板 · Shot 顺序与构图参考"><div><img className="aspect-square w-full object-cover" src={serverApiUrl(`/files/${sheet.imageFileId}/content`)} /><p className="mt-1 truncate text-[10px] font-medium text-blue-700">完整故事板</p></div></Tooltip> : null}{preflight?.videoSelected?.map((item) => <Tooltip key={item.fileId} title={`${item.purpose} · ${item.name}`}><div><img className="aspect-square w-full object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /><p className="mt-1 truncate text-[10px] text-slate-500">{item.purpose}</p></div></Tooltip>)}</div>{preflight?.videoOmitted?.length ? <p className="mt-3 text-[11px] text-rose-600">未采用 {preflight.videoOmitted.length} 项：{preflight.videoOmitted.map((item) => item.name).join("、")}</p> : null}{preflight?.blockedReasons?.map((reason) => <p key={reason} className="mt-2 text-[11px] text-rose-600">{reason} · {isTransition ? "请先准备相邻视频段" : "交给 Agent 修订"}</p>)}{preflight?.warnings?.map((warning) => <p key={warning} className="mt-2 text-[11px] text-amber-600">{warning}</p>)}<div className="mt-4 border-t border-slate-200 pt-3 text-[11px] leading-5 text-slate-500"><strong className="text-slate-700">{isTransition ? "专用首尾帧过渡" : "整板参考生成"}</strong><br />{preflight?.route.reason}<br /><span className="text-slate-400">{isTransition ? "只用于有意设计的视觉过渡，不替代普通切镜" : "完整故事板作为一个参考文件，不裁格、不设置画格锚点"}</span><span className="mt-1 block">快速预览：480p · {isTransition ? "Turbo 可用时启用" : "基础配方"}</span><span className="block">最终成片：768p · 基础模型</span>{segment.payload.boundary === "continue" ? <span className="mt-1 block text-blue-700">连续段将继承上一段最后 22 帧及原声</span> : null}</div></aside>
+                <div data-testid="director-storyboard-sheet" className="relative overflow-hidden bg-slate-100" style={{ aspectRatio: sheetAspect }}>{isTransition ? <div className="grid size-full grid-cols-2 gap-px bg-slate-300">{([preflight?.transitionInputs?.firstFrameFileId, preflight?.transitionInputs?.lastFrameFileId] as const).map((fileId, index) => fileId ? <div key={fileId} className="relative bg-slate-100"><img draggable={false} src={directorMediaUrl(fileId)} className="pointer-events-none size-full select-none object-contain" /><span className="absolute bottom-3 left-3 bg-slate-950/75 px-2 py-1 text-[10px] text-white">{index ? "后段实际首帧" : "前段实际尾帧"}</span></div> : <div key={index} className="grid place-items-center text-xs text-slate-400">{index ? "等待后段首帧" : "等待前段尾帧"}</div>)}</div> : sheet?.imageFileId ? <img draggable={false} src={directorMediaUrl(sheet.imageFileId)} className="pointer-events-none size-full select-none object-contain" /> : <div className="grid size-full place-items-center text-slate-400"><ImageIcon className="size-10" /></div>}{!isTransition && sheet?.review?.status === "pending" ? <div className="director-asset-loading pointer-events-none absolute inset-0 grid place-items-center"><Loader2 className="size-6 animate-spin text-blue-600" /></div> : null}{!isTransition ? <span className="pointer-events-none absolute bottom-3 left-3 bg-slate-950/75 px-2 py-1 text-[10px] text-white">完整故事板 · {sheet?.frames.length || recommendedFrames} 格 · {shotCount} 个 Shot</span> : null}</div>
+                <aside className="border-l border-slate-200 p-4"><p className="text-xs font-medium text-slate-900">本次视频输入</p><div className="mt-3 grid grid-cols-3 gap-2">{!isTransition && sheet?.imageFileId ? <Tooltip title="完整故事板 · Shot 顺序与构图参考"><div><img className="aspect-square w-full object-cover" src={directorMediaUrl(sheet.imageFileId)} /><p className="mt-1 truncate text-[10px] font-medium text-blue-700">完整故事板</p></div></Tooltip> : null}{preflight?.videoSelected?.map((item) => <Tooltip key={item.fileId} title={`${item.purpose} · ${item.name}`}><div><img className="aspect-square w-full object-cover" src={directorMediaUrl(item.fileId)} /><p className="mt-1 truncate text-[10px] text-slate-500">{item.purpose}</p></div></Tooltip>)}</div>{preflight?.videoOmitted?.length ? <p className="mt-3 text-[11px] text-rose-600">未采用 {preflight.videoOmitted.length} 项：{preflight.videoOmitted.map((item) => item.name).join("、")}</p> : null}{preflight?.blockedReasons?.map((reason) => <p key={reason} className="mt-2 text-[11px] text-rose-600">{reason} · {isTransition ? "请先准备相邻视频段" : "交给 Agent 修订"}</p>)}{preflight?.warnings?.map((warning) => <p key={warning} className="mt-2 text-[11px] text-amber-600">{warning}</p>)}<div className="mt-4 border-t border-slate-200 pt-3 text-[11px] leading-5 text-slate-500"><strong className="text-slate-700">{isTransition ? "专用首尾帧过渡" : "整板参考生成"}</strong><br />{preflight?.route.reason}<br /><span className="text-slate-400">{isTransition ? "只用于有意设计的视觉过渡，不替代普通切镜" : "完整故事板作为一个参考文件，不裁格、不设置画格锚点"}</span><span className="mt-1 block">快速预览：480p · {isTransition ? "Turbo 可用时启用" : "基础配方"}</span><span className="block">最终成片：768p · 基础模型</span>{segment.payload.boundary === "continue" ? <span className="mt-1 block text-blue-700">连续段将继承上一段最后 22 帧及原声</span> : null}</div></aside>
             </div>
         </article>
     );
@@ -1517,7 +1535,7 @@ function PromptText({ value, empty }: { value: string; empty: string }) {
 }
 
 function PromptReferences({ title, items }: { title: string; items: Array<{ fileId: string; label: string }> }) {
-    return <div><p className="text-xs font-medium text-slate-900">{title}</p><div className="mt-3 flex gap-2 overflow-x-auto">{items.map((item, index) => <div key={`${item.fileId}-${index}`} className="w-20 shrink-0"><img className="aspect-square w-full border border-slate-200 bg-slate-50 object-cover" src={serverApiUrl(`/files/${item.fileId}/content`)} /><p className="mt-1 truncate text-[10px] text-slate-500">{item.label}</p></div>)}</div></div>;
+    return <div><p className="text-xs font-medium text-slate-900">{title}</p><div className="mt-3 flex gap-2 overflow-x-auto">{items.map((item, index) => <div key={`${item.fileId}-${index}`} className="w-20 shrink-0"><img className="aspect-square w-full border border-slate-200 bg-slate-50 object-cover" src={directorMediaUrl(item.fileId)} /><p className="mt-1 truncate text-[10px] text-slate-500">{item.label}</p></div>)}</div></div>;
 }
 
 function generationReferences(generation?: ServerGeneration) {
@@ -1545,7 +1563,7 @@ function VideoSegmentList({ projectId, segments, sequences, onRefresh }: { proje
     return orderedSegments.length ? (
         <div className="mt-7 space-y-4">
             {orderedSegments.map((segment) => (
-                <article key={segment.id} className="grid overflow-hidden border border-slate-200 bg-white md:grid-cols-[280px_1fr]"><div className="aspect-video bg-slate-50">{segment.payload.videoFileId ? <video controls className="size-full object-cover" src={serverApiUrl(`/files/${segment.payload.videoFileId}/content`)} /> : segment.payload.storyboardSheet?.imageFileId ? <img className="size-full object-cover" src={serverApiUrl(`/files/${segment.payload.storyboardSheet.imageFileId}/content`)} /> : <div className="grid size-full place-items-center text-slate-300"><Video className="size-8" /></div>}</div><div className="p-5"><div className="flex justify-between gap-3"><div><div className="text-[10px] tracking-wider text-blue-600">{sequences.find((item) => item.id === segment.sequenceId)?.title} · SEG {segment.position + 1}</div><h2 className="mt-2 font-serif text-xl text-slate-950">{segment.title}</h2></div><FlatAction icon={Bot} label="Agent" onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: segment.id, title: segment.title, subtitle: "视频段" })} /></div><p className="mt-3 text-sm text-slate-500">{segment.payload.description || "等待补充视频段描述"}</p><div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-500"><span className="border border-slate-200 px-2 py-1">{segment.payload.durationSeconds}s</span><span className="border border-slate-200 px-2 py-1">{(segment.payload.h3Mode || "待路由").toUpperCase()}</span>{segment.payload.videoFileId ? <span className={segment.payload.videoQualityPreset === "final" ? "border border-blue-200 bg-blue-50 px-2 py-1 text-blue-700" : "border border-slate-200 px-2 py-1"}>{segment.payload.videoQualityPreset === "final" ? "成片" : "预览"} · {segment.payload.videoNativeResolution || "768p"}</span> : null}<span className="border border-slate-200 px-2 py-1">{segment.payload.nativeAudioStatus === "ready" ? "含模型原声" : "无模型原声"}</span>{segment.payload.videoStale ? <span className="border border-rose-200 px-2 py-1 text-rose-600">已过期</span> : null}</div></div></article>
+                <article key={segment.id} className="grid overflow-hidden border border-slate-200 bg-white md:grid-cols-[280px_1fr]"><div className="aspect-video bg-slate-50">{segment.payload.videoFileId ? <DirectorMedia mediaKey={segment.id} controls className="size-full object-cover" src={directorMediaUrl(segment.payload.videoFileId)} /> : segment.payload.storyboardSheet?.imageFileId ? <img className="size-full object-cover" src={directorMediaUrl(segment.payload.storyboardSheet.imageFileId)} /> : <div className="grid size-full place-items-center text-slate-300"><Video className="size-8" /></div>}</div><div className="p-5"><div className="flex justify-between gap-3"><div><div className="text-[10px] tracking-wider text-blue-600">{sequences.find((item) => item.id === segment.sequenceId)?.title} · SEG {segment.position + 1}</div><h2 className="mt-2 font-serif text-xl text-slate-950">{segment.title}</h2></div><FlatAction icon={Bot} label="Agent" onClick={() => prepare(projectId, { kind: "director", projectId, entityKind: "video-segment", entityId: segment.id, title: segment.title, subtitle: "视频段" })} /></div><p className="mt-3 text-sm text-slate-500">{segment.payload.description || "等待补充视频段描述"}</p><div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-500"><span className="border border-slate-200 px-2 py-1">{segment.payload.durationSeconds}s</span><span className="border border-slate-200 px-2 py-1">{(segment.payload.h3Mode || "待路由").toUpperCase()}</span>{segment.payload.videoFileId ? <span className={segment.payload.videoQualityPreset === "final" ? "border border-blue-200 bg-blue-50 px-2 py-1 text-blue-700" : "border border-slate-200 px-2 py-1"}>{segment.payload.videoQualityPreset === "final" ? "成片" : "预览"} · {segment.payload.videoNativeResolution || "768p"}</span> : null}<span className="border border-slate-200 px-2 py-1">{segment.payload.nativeAudioStatus === "ready" ? "含模型原声" : "无模型原声"}</span>{segment.payload.videoStale ? <span className="border border-rose-200 px-2 py-1 text-rose-600">已过期</span> : null}</div></div></article>
             ))}
         </div>
     ) : (
@@ -1558,26 +1576,28 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
     const prepare = useAgentStore((store) => store.prepareComposer);
     const order = useMemo(() => state.timeline.payload.segmentOrder?.length ? state.timeline.payload.segmentOrder : state.videoSegments.map((item) => item.id), [state.timeline.payload.segmentOrder, state.videoSegments]);
     const shots = useMemo(() => order.map((id) => state.videoSegments.find((item) => item.id === id)).filter(Boolean) as DirectorVideoSegment[], [order, state.videoSegments]);
+    const playbackVersion = useDirectorResourceVersion(projectId, "timeline");
+    const playbackKey = `${projectId}:${playbackVersion}:${state.timeline.revision}:${shots.map((shot) => `${shot.id}:${shot.revision}`).join(",")}`;
+    const [playback, setPlayback] = useState<{ key: string; plan?: Awaited<ReturnType<typeof directorApi.playbackPlan>>; error?: string }>();
+    useEffect(() => {
+        let active = true;
+        void readDirectorQuery(projectId, "timeline", ["playback"], () => directorApi.playbackPlan(projectId)).then((plan) => { if (active) setPlayback({ key: playbackKey, plan }); }).catch((error) => { if (active) setPlayback({ key: playbackKey, error: error instanceof Error ? error.message : "预览来源读取失败" }); });
+        return () => { active = false; };
+    }, [projectId, playbackKey]);
+    const playbackSources = playback?.plan?.segments;
+    const continuousAdvance = useRef(false);
     const videoRef = useRef<HTMLVideoElement>(null);
     const monitorRef = useRef<HTMLDivElement>(null);
     const pendingSeekRef = useRef(0);
     const [playing, setPlaying] = useState(false);
-    const [currentShotIndex, setCurrentShotIndex] = useState(() => shots.findIndex((shot) => Boolean(shot.payload.videoFileId)));
+    const [currentShotId, setCurrentShotId] = useState(() => shots.find((shot) => Boolean(shot.payload.videoFileId))?.id || "");
+    const currentShotIndex = shots.findIndex((shot) => shot.id === currentShotId);
     const [currentShotTime, setCurrentShotTime] = useState(0);
     const [muted, setMuted] = useState(false);
     const [dragged, setDragged] = useState("");
     const [rendering, setRendering] = useState(false);
-    const [renders, setRenders] = useState<DirectorRender[]>([]);
-    useEffect(() => {
-        let active = true;
-        const load = () => void directorApi.renders(projectId).then((items) => active && setRenders(items));
-        load();
-        const timer = window.setInterval(load, 2000);
-        return () => {
-            active = false;
-            window.clearInterval(timer);
-        };
-    }, [projectId]);
+    const renders = useDirectorStore((store) => store.data[projectId]?.renders) || EMPTY_RENDERS;
+    const [previewRenderId, setPreviewRenderId] = useState("");
     const saveOrder = async (next: string[]) => {
         try {
             await directorApi.updateTimeline(projectId, { revision: state.timeline.revision, payload: { ...state.timeline.payload, segmentOrder: next } });
@@ -1593,49 +1613,67 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
         setDragged("");
         void saveOrder(next);
     };
+    const previousPlaybackIdentity = useRef("");
     const missingVideos = shots.filter((shot) => !shot.payload.videoFileId).length;
     const currentShot = currentShotIndex >= 0 ? shots[currentShotIndex] : undefined;
     const nextShot = currentShotIndex >= 0 ? shots[currentShotIndex + 1] : undefined;
+    const latestSource = playbackSources?.find((source) => source.segmentId === currentShot?.id);
+    const deferredSource = useDeferredDirectorValue(currentShotId, latestSource && { ...latestSource, url: directorMediaUrl(latestSource.fileId) }, playing);
+    const currentSource = deferredSource.value;
+    const nextSource = playbackSources?.find((source) => source.segmentId === nextShot?.id);
+    const mediaDuration = (shot: DirectorVideoSegment) => shot.payload.videoFileId && shot.payload.videoDurationSeconds ? shot.payload.videoDurationSeconds : shot.payload.durationSeconds || 4;
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video || !currentSource) return;
+        const identity = `${currentShotId}:${currentSource.fileId}`;
+        if (!continuousAdvance.current) video.currentTime = previousPlaybackIdentity.current === identity ? Math.max(currentSource.trimIn, Math.min(video.currentTime, currentSource.trimIn + currentSource.duration)) : currentSource.trimIn + pendingSeekRef.current;
+        previousPlaybackIdentity.current = identity;
+        continuousAdvance.current = false;
+    }, [currentShotId, currentSource?.fileId, currentSource?.trimIn]);
+
     const playableCount = shots.length - missingVideos;
     useEffect(() => {
         if (currentShot?.payload.videoFileId) return;
-        setCurrentShotIndex(shots.findIndex((shot) => Boolean(shot.payload.videoFileId)));
+        setCurrentShotId(shots.find((shot) => Boolean(shot.payload.videoFileId))?.id || "");
         setCurrentShotTime(0);
         setPlaying(false);
     }, [currentShot?.id, currentShot?.payload.videoFileId, shots]);
     useEffect(() => {
         const video = videoRef.current;
         if (!video) return;
-        if (playing) void video.play().catch(() => setPlaying(false));
+        if (playing && currentSource?.fileId) void video.play().catch(() => setPlaying(false));
         else video.pause();
-    }, [playing, currentShotIndex]);
+    }, [playing, currentShotId, currentSource?.fileId]);
     const moveToPlayable = (direction: 1 | -1) => {
         let index = currentShotIndex + direction;
         while (index >= 0 && index < shots.length && !shots[index].payload.videoFileId) index += direction;
         if (index < 0 || index >= shots.length) return false;
+        continuousAdvance.current = false;
         pendingSeekRef.current = 0;
-        setCurrentShotIndex(index);
+        setCurrentShotId(shots[index]?.id || "");
         setCurrentShotTime(0);
         return true;
     };
     const selectShot = (index: number) => {
         if (!shots[index].payload.videoFileId) return message.warning("这个视频段还没有可播放视频");
+        continuousAdvance.current = false;
         pendingSeekRef.current = 0;
-        setCurrentShotIndex(index);
+        setCurrentShotId(shots[index]?.id || "");
         setCurrentShotTime(0);
     };
     const advanceAfterEnd = () => {
         const index = currentShotIndex + 1;
         if (index >= shots.length || !shots[index].payload.videoFileId) return setPlaying(false);
+        continuousAdvance.current = Boolean(currentSource && nextSource && currentSource.fileId === nextSource.fileId && Math.abs(currentSource.trimIn + currentSource.duration - nextSource.trimIn) < 1e-6);
         pendingSeekRef.current = 0;
-        setCurrentShotIndex(index);
+        setCurrentShotId(shots[index]?.id || "");
         setCurrentShotTime(0);
     };
     const submitRender = async () => {
         setRendering(true);
         try {
             const created = await directorApi.createRender(projectId, state.timeline.revision);
-            setRenders((items) => [created, ...items]);
+            await directorSync.refresh(projectId, ["renders"]);
             message.success("成片已进入持久化合成队列，可刷新页面继续查看");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "创建合成任务失败");
@@ -1648,14 +1686,14 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
         if (!previews) return void submitRender();
         modal.confirm({ title: "时间线仍包含快速预览", content: `当前有 ${previews} 个预览片段（480p 或兼容预览配方）。可以导出，但不建议作为最终成片。`, okText: "仍然导出", cancelText: "返回替换成片", onOk: submitRender });
     };
-    const totalDuration = shots.reduce((sum, shot) => sum + (shot.payload.durationSeconds || 4), 0);
-    const elapsedBeforeCurrent = shots.slice(0, Math.max(0, currentShotIndex)).reduce((sum, shot) => sum + (shot.payload.durationSeconds || 4), 0);
+    const totalDuration = shots.reduce((sum, shot) => sum + mediaDuration(shot), 0);
+    const elapsedBeforeCurrent = shots.slice(0, Math.max(0, currentShotIndex)).reduce((sum, shot) => sum + mediaDuration(shot), 0);
     const currentTimelineTime = Math.min(totalDuration, elapsedBeforeCurrent + currentShotTime);
     const timelineWidth = Math.max(1000, 160 + totalDuration * 16);
     const seekTimeline = (seconds: number) => {
         let elapsed = 0;
         for (let index = 0; index < shots.length; index += 1) {
-            const duration = shots[index].payload.durationSeconds || 4;
+            const duration = mediaDuration(shots[index]);
             if (seconds <= elapsed + duration || index === shots.length - 1) {
                 if (!shots[index].payload.videoFileId) {
                     setPlaying(false);
@@ -1663,10 +1701,11 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
                     return;
                 }
                 const offset = Math.max(0, Math.min(duration, seconds - elapsed));
+                continuousAdvance.current = false;
                 pendingSeekRef.current = offset;
-                setCurrentShotIndex(index);
+                setCurrentShotId(shots[index]?.id || "");
                 setCurrentShotTime(offset);
-                if (index === currentShotIndex && videoRef.current) videoRef.current.currentTime = offset;
+                if (index === currentShotIndex && videoRef.current) videoRef.current.currentTime = (currentSource?.trimIn || 0) + offset;
                 return;
             }
             elapsed += duration;
@@ -1716,9 +1755,10 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
                         <Progress percent={Math.round(renders[0].progress * 100)} showInfo={false} size="small" />
                     </div>
                     {renders[0].status === "succeeded" && renders[0].outputFileId ? (
-                        <a className="text-blue-600" href={serverApiUrl(`/files/${renders[0].outputFileId}/content`)} download>
-                            下载 MP4
-                        </a>
+                        <>
+                            <button className="inline-flex items-center gap-1 text-blue-600" onClick={() => { videoRef.current?.pause(); setPlaying(false); setPreviewRenderId(renders[0].outputFileId!); }}><Play className="size-3.5" />播放成片</button>
+                            <a className="text-blue-600" href={directorMediaUrl(renders[0].outputFileId)} download>下载 MP4</a>
+                        </>
                     ) : renders[0].status === "failed" || renders[0].status === "canceled" ? (
                         <Button size="small" onClick={() => void directorApi.retryRender(renders[0].id)}>
                             重试
@@ -1730,14 +1770,18 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
                     )}
                 </div>
             ) : null}
+            <Modal title="成片审片" open={Boolean(previewRenderId)} onCancel={() => setPreviewRenderId("")} footer={null} width={960} centered destroyOnHidden>
+                {previewRenderId ? <DirectorMedia mediaKey={previewRenderId} aria-label="完整混音成片" src={directorMediaUrl(previewRenderId)} controls autoPlay playsInline className="max-h-[75vh] w-full" /> : null}
+            </Modal>
             <section data-testid="director-program-monitor" className="border-b border-slate-200 bg-white px-5 py-6 lg:px-8">
                 <div ref={monitorRef} data-testid="director-program-frame" className="director-program-surface relative mx-auto aspect-video w-full max-w-[800px] overflow-hidden">
-                    {currentShot?.payload.videoFileId ? <video ref={videoRef} muted={muted} preload="auto" className="size-full object-contain" src={serverApiUrl(`/files/${currentShot.payload.videoFileId}/content`)} playsInline onLoadedMetadata={(event) => { event.currentTarget.currentTime = Math.min(pendingSeekRef.current, event.currentTarget.duration || pendingSeekRef.current); if (playing) void event.currentTarget.play().catch(() => setPlaying(false)); }} onTimeUpdate={(event) => setCurrentShotTime(event.currentTarget.currentTime)} onEnded={advanceAfterEnd} /> : <div className="grid size-full place-items-center text-center text-slate-400"><div><Video className="mx-auto size-10" /><p className="mt-3 text-sm">暂无可连续播放的视频段</p><p className="mt-1 text-xs text-slate-500">生成视频后会自动按时间线顺序播放</p></div></div>}
+                    {currentShot?.payload.videoFileId && currentSource?.fileId ? <video ref={videoRef} muted={muted} preload="auto" className="size-full object-contain" src={currentSource.url} playsInline onLoadedMetadata={(event) => { event.currentTarget.currentTime = Math.min(currentSource!.trimIn + pendingSeekRef.current, event.currentTarget.duration || currentSource!.trimIn + pendingSeekRef.current); if (playing) void event.currentTarget.play().catch(() => setPlaying(false)); }} onTimeUpdate={(event) => { const localTime = event.currentTarget.currentTime - currentSource!.trimIn; setCurrentShotTime(Math.max(0, Math.min(currentSource!.duration, localTime))); if (playing && localTime >= currentSource!.duration) advanceAfterEnd(); }} onEnded={advanceAfterEnd} /> : <div className="grid size-full place-items-center text-center text-slate-400"><div><Video className="mx-auto size-10" /><p className="mt-3 text-sm">{playback?.key === playbackKey && playback.error ? playback.error : !playbackSources ? "正在核对预览来源" : "暂无可连续播放的视频段"}</p><p className="mt-1 text-xs text-slate-500">生成视频后会自动按时间线顺序播放</p></div></div>}
+                    {deferredSource.pending ? <span role="status" className="absolute right-3 top-12 rounded bg-white/90 px-2 py-1 text-xs text-blue-700">媒体已更新，暂停后切换到新版本</span> : null}
                     {currentShot ? <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent px-4 py-3 text-xs text-white"><span>{String(currentShotIndex + 1).padStart(2, "0")} · {currentShot.title}</span><span>{currentShot.payload.videoQualityPreset === "final" ? "最终成片" : "快速预览"} · {currentShot.payload.videoNativeResolution || "768p"}</span></div> : null}
                     <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-4 pb-3 pt-10 text-white">
-                        <button aria-label="上一个可播放片段" className="director-program-control grid size-8 shrink-0 place-items-center" disabled={!playableCount} onClick={() => { setPlaying(false); void moveToPlayable(-1); }}><SkipBack className="size-4" /></button>
-                        <button aria-label={playing ? "暂停连续预览" : "播放连续预览"} className="director-program-control-primary grid size-10 shrink-0 place-items-center rounded-full" disabled={!playableCount} onClick={() => setPlaying((value) => !value)}>{playing ? <Pause className="size-4" /> : <Play className="ml-0.5 size-4" />}</button>
-                        <button aria-label="下一个可播放片段" className="director-program-control grid size-8 shrink-0 place-items-center" disabled={!playableCount} onClick={() => { setPlaying(false); void moveToPlayable(1); }}><SkipForward className="size-4" /></button>
+                        <button aria-label="上一个可播放片段" className="director-program-control grid size-8 shrink-0 place-items-center" disabled={!playableCount || !currentSource?.fileId} onClick={() => { setPlaying(false); void moveToPlayable(-1); }}><SkipBack className="size-4" /></button>
+                        <button aria-label={playing ? "暂停连续预览" : "播放连续预览"} className="director-program-control-primary grid size-10 shrink-0 place-items-center rounded-full" disabled={!playableCount || !currentSource?.fileId} onClick={() => setPlaying((value) => !value)}>{playing ? <Pause className="size-4" /> : <Play className="ml-0.5 size-4" />}</button>
+                        <button aria-label="下一个可播放片段" className="director-program-control grid size-8 shrink-0 place-items-center" disabled={!playableCount || !currentSource?.fileId} onClick={() => { setPlaying(false); void moveToPlayable(1); }}><SkipForward className="size-4" /></button>
                         <span className="ml-1 shrink-0 font-mono text-xs text-slate-100">{formatTimecode(currentTimelineTime)} / {formatTime(totalDuration)}</span>
                         <input aria-label="全片播放进度" className="mx-2 h-1 min-w-20 flex-1 cursor-pointer accent-blue-600" type="range" min={0} max={Math.max(1, totalDuration)} step={1 / 24} value={currentTimelineTime} onChange={(event) => seekTimeline(Number(event.target.value))} />
                         <button aria-label={muted ? "开启声音" : "静音"} className="director-program-control grid size-8 shrink-0 place-items-center" onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}</button>
@@ -1779,18 +1823,18 @@ function Studio({ projectId, state, onRefresh }: { projectId: string; state: Dir
                                         onDragOver={(event) => event.preventDefault()}
                                         onDrop={() => drop(shot.id)}
                                         onClick={() => selectShot(index)}
-                                        style={{ width: Math.max(96, (shot.payload.durationSeconds || 4) * 16) }}
+                                        style={{ width: Math.max(96, mediaDuration(shot) * 16) }}
                                         className={`relative shrink-0 cursor-grab border ${currentShotIndex === index ? "z-10 border-blue-600 ring-1 ring-blue-600" : shot.payload.videoStale ? "border-orange-400" : "border-slate-300"} ${shot.payload.videoFileId ? "bg-white" : "border-dashed bg-slate-50"}`}
                                     >
                                         <div className="relative h-16 bg-slate-100">
                                             {shot.payload.videoFileId ? (
-                                                <video muted src={serverApiUrl(`/files/${shot.payload.videoFileId}/content`)} className="size-full object-cover" />
+                                                <video muted src={directorMediaUrl(shot.payload.videoFileId)} className="size-full object-cover" />
                                             ) : (
                                                 <div className="grid size-full place-items-center text-[10px] text-slate-400">
                                                     缺少视频
                                                 </div>
                                             )}
-                                            <span className="absolute bottom-1 right-1 bg-slate-950/75 px-1 font-mono text-[10px] text-white">{shot.payload.durationSeconds || 4}s</span>
+                                            <span className="absolute bottom-1 right-1 bg-slate-950/75 px-1 font-mono text-[10px] text-white">{Number(mediaDuration(shot).toFixed(3))}s</span>
                                             <span className="absolute left-1 top-1 bg-slate-950/75 px-1.5 py-0.5 font-mono text-[10px] text-white">{String(index + 1).padStart(2, "0")}</span>
                                         </div>
                                         <div className="truncate px-3 py-2 text-xs text-slate-600">{shot.title}</div>

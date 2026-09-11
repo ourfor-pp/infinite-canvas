@@ -1,0 +1,349 @@
+{
+  "scope": "four real Director HTTP generations, playback plan, and final render through independent application database and isolated ComfyUI",
+  "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "recipe": "base20-preview-480p",
+  "nativeDimensions": [
+    864,
+    480
+  ],
+  "export": "ordinary 1920x1080 resize, not native 1080p or AI upscaling",
+  "runs": [
+    {
+      "segmentId": "lamp-0",
+      "generationId": "G18d76wIcNyWq_tl8_kgR",
+      "promptId": "d26829ab-bd94-45d3-a8e9-bd2c9695cdbc",
+      "executionSeconds": 78.289,
+      "newSeconds": 5.166666666666667,
+      "cumulativeFrames": 124,
+      "cumulativeBinding": {
+        "fileId": "oUKCa6eiBckumyDCQdMy5",
+        "sha256": "f01f0471fd8a6295bedab0ee0221c512df1c2a2855eb73ade6b92964520d0131",
+        "generationId": "G18d76wIcNyWq_tl8_kgR",
+        "stateSha256": "f4718538eef7b6f8c5f2494b676e83b9580b49fe2f36b630f576ce89a6451c57",
+        "frames": 124
+      },
+      "stateBinding": {
+        "projectId": "h3-native-four",
+        "segmentId": "lamp-0",
+        "generationId": "G18d76wIcNyWq_tl8_kgR",
+        "videoFileId": "dW9wXZJolsLLpMFW2witR",
+        "fileId": "ohsr_QqeWAFB6k5O_pPVe",
+        "videoSha256": "19783ad417bb3622cb411108ebadd7c737f6cd7dee0832f7b23abaa7b5b47c81",
+        "stateSha256": "f4718538eef7b6f8c5f2494b676e83b9580b49fe2f36b630f576ce89a6451c57",
+        "context": {
+          "schemaVersion": 1,
+          "fps": 24,
+          "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61",
+          "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+          "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+          "sourceId": "h3-native-four/lamp-0/4ecw3JgFBYEALfGNXo8oo",
+          "width": 864,
+          "height": 480,
+          "frames": 124
+        }
+      }
+    },
+    {
+      "segmentId": "lamp-1",
+      "generationId": "rl5LjAPnBaYcfst4vyP4K",
+      "promptId": "cbaace48-3d38-4854-b746-b8954b21c0d2",
+      "executionSeconds": 110.415,
+      "newSeconds": 4.958333333333333,
+      "cumulativeFrames": 243,
+      "cumulativeBinding": {
+        "fileId": "mBaix-2GCF74QMY-1Cmdz",
+        "sha256": "180a214fba883d497356afc45996b132d5b1c64c5398af0765324921e49a0c4b",
+        "generationId": "rl5LjAPnBaYcfst4vyP4K",
+        "stateSha256": "fd6cd7536ceeefe7a2b510cb45c0bafcb422b6f871739ba693b32bb0805e5dce",
+        "frames": 243
+      },
+      "stateBinding": {
+        "projectId": "h3-native-four",
+        "segmentId": "lamp-1",
+        "generationId": "rl5LjAPnBaYcfst4vyP4K",
+        "videoFileId": "Jx-G7k2yluIXwxZAsDKPX",
+        "fileId": "Tc5OG97986LmRGf9O0vIM",
+        "videoSha256": "a94307087c3a3b0e080f7916699e09448d5ef88a4e2ecdd449ae710ae2a9436c",
+        "stateSha256": "fd6cd7536ceeefe7a2b510cb45c0bafcb422b6f871739ba693b32bb0805e5dce",
+        "context": {
+          "schemaVersion": 1,
+          "fps": 24,
+          "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61",
+          "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+          "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+          "sourceId": "h3-native-four/lamp-1/sP9wvpKFJ95PKb2CpzOvF",
+          "width": 864,
+          "height": 480,
+          "frames": 243
+        }
+      }
+    },
+    {
+      "segmentId": "lamp-2",
+      "generationId": "DZpIup6Q8WFoLOxaHRvoF",
+      "promptId": "c49acda5-317c-4efb-b926-6cd9b30d0c24",
+      "executionSeconds": 120.494,
+      "newSeconds": 4.958333333333333,
+      "cumulativeFrames": 362,
+      "cumulativeBinding": {
+        "fileId": "edDV9Sw87L4HEV0LQsAB3",
+        "sha256": "1d285c5e2e5be9e9ce5ebd89368f81dd94cdde094e5dac90baa87aec7fc9c5fe",
+        "generationId": "DZpIup6Q8WFoLOxaHRvoF",
+        "stateSha256": "4a6828b8d965ae1a1a74a619a12722158bf2a81594e5a562800daf8523a42256",
+        "frames": 362
+      },
+      "stateBinding": {
+        "projectId": "h3-native-four",
+        "segmentId": "lamp-2",
+        "generationId": "DZpIup6Q8WFoLOxaHRvoF",
+        "videoFileId": "bir-_ogH833yrkLHWN4cf",
+        "fileId": "BgPX0wMY8lpNrEMh5uu1s",
+        "videoSha256": "2ea4c5a402730ebc29c205aeb5cb4490a4290801c37ba7080044250b30ef606d",
+        "stateSha256": "4a6828b8d965ae1a1a74a619a12722158bf2a81594e5a562800daf8523a42256",
+        "context": {
+          "schemaVersion": 1,
+          "fps": 24,
+          "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61",
+          "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+          "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+          "sourceId": "h3-native-four/lamp-2/ExzaQ7ak5Kjvc-ygvOugc",
+          "width": 864,
+          "height": 480,
+          "frames": 362
+        }
+      }
+    },
+    {
+      "segmentId": "lamp-3",
+      "generationId": "qUr5eR5_Y5wFZnfUqdExs",
+      "promptId": "366d5a1c-2002-4843-ab92-62442c54eecf",
+      "executionSeconds": 129.386,
+      "newSeconds": 4.958333333333333,
+      "cumulativeFrames": 481,
+      "cumulativeBinding": {
+        "fileId": "RKxMxO8Xcs05l9psAazXd",
+        "sha256": "078ffc3e83fa559b735df0d482d1fc5b9f0256903d3ace9770aba1579859a921",
+        "generationId": "qUr5eR5_Y5wFZnfUqdExs",
+        "stateSha256": "55d73bba9eb8a872f271da10c849acad82579523e7e63c19cab9a4e06594f5fc",
+        "frames": 481
+      },
+      "stateBinding": {
+        "projectId": "h3-native-four",
+        "segmentId": "lamp-3",
+        "generationId": "qUr5eR5_Y5wFZnfUqdExs",
+        "videoFileId": "U0GefS1QZLvM0ou0Kr745",
+        "fileId": "4ZT1Vw0bHV6mYHLWmGvOf",
+        "videoSha256": "0cc40623586ede9320dad1c9298e3fdda5ffbb3d714b62d2eec60cc3a85e054b",
+        "stateSha256": "55d73bba9eb8a872f271da10c849acad82579523e7e63c19cab9a4e06594f5fc",
+        "context": {
+          "schemaVersion": 1,
+          "fps": 24,
+          "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61",
+          "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+          "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+          "sourceId": "h3-native-four/lamp-3/pt7rz47P-bAE-MTFGYqa1",
+          "width": 864,
+          "height": 480,
+          "frames": 481
+        }
+      }
+    }
+  ],
+  "executionSeconds": 438.58399999999995,
+  "seconds": 20.041666666666668,
+  "qualifiedSeconds": 0,
+  "playbackPlan": {
+    "timelineRevision": 9,
+    "segments": [
+      {
+        "segmentId": "lamp-0",
+        "revision": 5,
+        "fileId": "RKxMxO8Xcs05l9psAazXd",
+        "trimIn": 0,
+        "duration": 5.166666666666667
+      },
+      {
+        "segmentId": "lamp-1",
+        "revision": 6,
+        "fileId": "RKxMxO8Xcs05l9psAazXd",
+        "trimIn": 5.166666666666667,
+        "duration": 4.958333333333333
+      },
+      {
+        "segmentId": "lamp-2",
+        "revision": 6,
+        "fileId": "RKxMxO8Xcs05l9psAazXd",
+        "trimIn": 10.125,
+        "duration": 4.958333333333333
+      },
+      {
+        "segmentId": "lamp-3",
+        "revision": 6,
+        "fileId": "RKxMxO8Xcs05l9psAazXd",
+        "trimIn": 15.083333333333334,
+        "duration": 4.958333333333333
+      }
+    ]
+  },
+  "render": {
+    "id": "PSsPaYUIUBcwQ3xmo_6dR",
+    "projectId": "h3-native-four",
+    "status": "succeeded",
+    "payload": {
+      "timelineRevision": 9,
+      "segmentIds": [
+        "lamp-0",
+        "lamp-1",
+        "lamp-2",
+        "lamp-3"
+      ],
+      "duration": 20.041666666666664,
+      "warnings": [
+        "时间线没有声音，将导出静音 AAC 轨",
+        "时间线包含 4 个快速预览片段"
+      ]
+    },
+    "outputFileId": "18fDXoao_EHvWv74P79Lv",
+    "error": null,
+    "progress": 1,
+    "createdAt": "2026-09-11T03:12:07.422Z",
+    "updatedAt": "2026-09-11T03:12:10.751Z"
+  },
+  "probe": {
+    "programs": [],
+    "streams": [
+      {
+        "codec_type": "video",
+        "width": 1920,
+        "height": 1080,
+        "r_frame_rate": "24/1",
+        "duration": "20.043294",
+        "nb_read_frames": "481"
+      },
+      {
+        "codec_type": "audio",
+        "r_frame_rate": "0/0",
+        "duration": "20.041000",
+        "nb_read_frames": "940"
+      }
+    ]
+  },
+  "perceptualAcceptance": false,
+  "asr": {
+    ".": {
+      "language": "Chinese",
+      "text": "嗯。",
+      "time_stamps": {
+        "items": [
+          {
+            "text": "嗯",
+            "start_time": 0.0,
+            "end_time": 0.0
+          }
+        ]
+      }
+    }
+  },
+  "seamMetrics": {
+    "metric": "432x240 decoded RGB mean absolute inter-frame difference",
+    "median": 0.4096145033836365,
+    "seams": [
+      {
+        "frame": 124,
+        "seconds": 5.166666666666667,
+        "difference": 1.047071099281311,
+        "percentile": 91.45833333333333,
+        "before": [
+          0.5245466828346252,
+          0.2048739641904831,
+          0.4795331656932831
+        ],
+        "after": [
+          0.1738586723804474,
+          0.08582819253206253,
+          0.32129308581352234
+        ]
+      },
+      {
+        "frame": 243,
+        "seconds": 10.125,
+        "difference": 0.8764628171920776,
+        "percentile": 88.33333333333333,
+        "before": [
+          0.19535107910633087,
+          0.44529321789741516,
+          0.3206629455089569
+        ],
+        "after": [
+          0.15137924253940582,
+          0.23870563507080078,
+          0.19761446118354797
+        ]
+      },
+      {
+        "frame": 362,
+        "seconds": 15.083333333333334,
+        "difference": 0.8250707387924194,
+        "percentile": 87.29166666666667,
+        "before": [
+          0.16408821940422058,
+          0.4203124940395355,
+          0.322083979845047
+        ],
+        "after": [
+          0.11316872388124466,
+          0.22411265969276428,
+          0.11697852611541748
+        ]
+      }
+    ],
+    "acceptance": false,
+    "note": "Frame difference is a diagnostic, not full motion or listening acceptance."
+  },
+  "limitations": [
+    "Full motion and listening remain unaccepted.",
+    "Framing drifts despite locked-camera prompt.",
+    "Seam differences remain above the neighborhood; cumulative decoding fixes stale VAE tails but does not guarantee perfect generation continuity.",
+    "Repeated listening gestures are technical continuation material, not final short-drama pacing."
+  ],
+  "audioAudit": {
+    "silenceControl": {
+      "silence.wav": {
+        "language": "Chinese",
+        "text": "嗯。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "嗯",
+              "start_time": 0.0,
+              "end_time": 0.0
+            }
+          ]
+        }
+      },
+      "final.wav": {
+        "language": "Chinese",
+        "text": "嗯。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "嗯",
+              "start_time": 0.0,
+              "end_time": 0.0
+            }
+          ]
+        }
+      }
+    },
+    "exportedPcmAllZero": true,
+    "interpretation": "ASR returned the same zero-duration utterance on all-zero control and all-zero export; this is not evidence of unintended speech from H3. The old export did not preserve generated model audio.",
+    "causes": [
+      "Automatically added native clips were not persisted to the authoritative timeline file.",
+      "Equivalent project media copies received different file IDs, preventing cumulative native audio selection.",
+      "Empty explicit segment order placed automatically added clips at zero rather than narrative offsets."
+    ],
+    "codeVerification": "Two real HTTP/SQLite/FFmpeg regressions passed, including refresh persistence, narrative order, and nonzero cumulative audio.",
+    "oldProjectReexport": "Not completed: current contract rejects legacy empty frame dialogue fields; fixture-only cleanup then invalidated source state. Original storyboard files restored. No new model generation submitted.",
+    "perceptualAcceptance": false
+  }
+}

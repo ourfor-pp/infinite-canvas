@@ -1,0 +1,56 @@
+{
+  "status": "staged-and-verified-awaiting-explicit-deployment-approval",
+  "stagedRuntime": "/home/cec/.local/share/infinite-media-executor/h3-runtimes/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171-native-688f86b4359d",
+  "unchangedFormalRuntime": "/home/cec/.local/share/infinite-media-executor/h3-runtimes/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171",
+  "communitySource": {
+    "repository": "ttulttul/ComfyUI-Minimax-H3-Continuation",
+    "revision": "e1768d5fdfc6f9519d2090dcf78458c2d9625f80"
+  },
+  "sourceFiles": {
+    "media-executor/experiments/h3-state/test_state.py": "788f94c34faad0aea4b505d66b280563bc26286649442c56c9cc53c2aad62720",
+    "media-executor/experiments/h3-state/__init__.py": "2cf52d769fe1d125d4028d5f7225e875f72e8d4cc15257f894045939ce816db2",
+    "media-executor/experiments/h3-state/runtime.py": "950a90e3eca05db23fae48058c45c6c2e17b45e987c1e05f69a7bf77a482163d",
+    "media-executor/experiments/h3-state/state.py": "99a0fd3099f18f627fe97450db4f408aaf60c7cb9abb3d3ea764ad12a99b74cb",
+    ".tmp/h3-lab/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171/custom_nodes/h3-continuation-e1768d5/__init__.py": "e1c32080a60a238dda14a8a7284010835523e88a7b54ee69dedb5c30b1877132",
+    ".tmp/h3-lab/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171/custom_nodes/h3-continuation-e1768d5/continuation_nodes.py": "5ee5fe396ff60c3901989fc52278957011f9de5192811ce012b7a8678018d17b"
+  },
+  "runtimeIdentity": {
+    "ready": true,
+    "schemaVersion": 1,
+    "modelId": "minimax-h3-ref2va-local",
+    "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+    "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+    "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+    "implementationRevision": "ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13"
+  },
+  "decodeVerification": {
+    "reference": {
+      "v:0": "SHA256=88106e87745b233b4dd4ea2f898c89eedfb31ff8cd014d69c1f8c4f846dc70e0",
+      "a:0": "SHA256=e20261ad83d29a759144b1364ce7e87ce9846952367c99576c4056300443bcc4"
+    },
+    "staging": {
+      "v:0": "SHA256=88106e87745b233b4dd4ea2f898c89eedfb31ff8cd014d69c1f8c4f846dc70e0",
+      "a:0": "SHA256=e20261ad83d29a759144b1364ce7e87ce9846952367c99576c4056300443bcc4"
+    },
+    "exactDecodedVideoAndAudio": true
+  },
+  "decodeHistoryPromptId": "5b2720b2-7327-4d17-9bcc-57b1f3c66e42",
+  "executorTests": {
+    "passed": 8,
+    "hostLog": ".tmp/h3-evaluation/formal-native-deployment/executor-tests.log",
+    "sandboxRun": "hung; host control passed; task-owned sandbox process terminated"
+  },
+  "stagingFirstFailure": "Recursive models exclusion removed Python modules; corrected to root-only runtime-data exclusions and staged startup passed.",
+  "formalSwitched": false,
+  "formalComfyPidAfter": 2569515,
+  "formalExecutorPidAfter": 2571479,
+  "temporary8192Stopped": true,
+  "approvalReview": {
+    "rejectedAction": "Stop/switch formal8189, replace runtime link and restart executor",
+    "reason": "Service interruption and persistent environment changes; reviewer requires explicit approval for formal deployment."
+  },
+  "switchScript": ".tmp/h3-evaluation/formal-native-deployment/switch.py",
+  "rollbackRuntime": "/home/cec/.local/share/infinite-media-executor/h3-runtimes/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171",
+  "requiresBeforeSwitch": "Restart the verified staging instance for the switch script idle checks; recheck all queues before switching.",
+  "fullFilmQualityAccepted": false
+}

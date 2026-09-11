@@ -1,0 +1,169 @@
+{
+  "scope": "one fixed-seed matched 8-second whole-storyboard Ref2VA comparison; not a multi-seed acceptance result",
+  "base": {
+    "recipe": "base20",
+    "promptId": "cd48fe91-2cb1-4f63-a06e-b42da9f77503",
+    "executionSeconds": 125.067,
+    "peakTotalGpuUsedMiB": 29632,
+    "seed": 8517197894835789,
+    "frames": 192,
+    "width": 864,
+    "height": 480,
+    "runtimeIdentity": {
+      "ready": true,
+      "schemaVersion": 1,
+      "modelId": "minimax-h3-ref2va-local",
+      "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+      "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "implementationRevision": "ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13"
+    },
+    "gpuCacheUnloadedBeforeSubmission": true,
+    "qualityAccepted": false
+  },
+  "pdd": {
+    "recipe": "pdd8",
+    "promptId": "3a0dc479-4840-4907-8fda-f214c8a99eef",
+    "executionSeconds": 77.869,
+    "peakTotalGpuUsedMiB": 31426,
+    "seed": 8517197894835789,
+    "frames": 192,
+    "width": 864,
+    "height": 480,
+    "runtimeIdentity": {
+      "ready": true,
+      "schemaVersion": 1,
+      "modelId": "minimax-h3-ref2va-local",
+      "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+      "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "implementationRevision": "ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13"
+    },
+    "gpuCacheUnloadedBeforeSubmission": true,
+    "qualityAccepted": false
+  },
+  "executionSpeedup": 1.6061205357716164,
+  "differentGraphNodeIds": [
+    "10",
+    "14",
+    "15",
+    "16",
+    "7",
+    "70",
+    "8",
+    "h3_cumulative"
+  ],
+  "sameConditioningNode": true,
+  "promptSha256": "3d3f79eb2e81a40d0a88047b5d2fc5277fbce8e7795d499dbc1169c854fa0f1e",
+  "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "gpuMeasurement": "Total GPU memory sampled every three seconds; includes other processes and may miss short peaks.",
+  "quality": {
+    "pddAccepted": false,
+    "pddObservedFailures": [
+      "Unrequested person enters at approximately 2 seconds.",
+      "Video becomes a visible 2x2 panel composition by 4 seconds."
+    ],
+    "baseFullPerceptualAcceptance": false,
+    "qualifiedSeconds": 0
+  },
+  "motion": {
+    "base20": {
+      "frames": 192,
+      "initialBackgroundCorners": 23,
+      "validFrames": 191,
+      "maxTranslationPixels": 4.8514176053287095,
+      "maxScaleDeviation": 0.0031280205944933526,
+      "last": {
+        "frame": 191,
+        "inliers": 14,
+        "scale": 1.0005780848166421,
+        "translationPixels": 4.484506220653603
+      },
+      "samples": [
+        {
+          "frame": 1,
+          "inliers": 22,
+          "scale": 1.0000805821488243,
+          "translationPixels": 0.041796383346738984
+        },
+        {
+          "frame": 25,
+          "inliers": 15,
+          "scale": 0.9995676287446593,
+          "translationPixels": 0.026038966385348278
+        },
+        {
+          "frame": 49,
+          "inliers": 14,
+          "scale": 0.9997095606603162,
+          "translationPixels": 0.6873390456054782
+        },
+        {
+          "frame": 73,
+          "inliers": 11,
+          "scale": 1.0002442779674687,
+          "translationPixels": 2.2477277899276373
+        },
+        {
+          "frame": 97,
+          "inliers": 14,
+          "scale": 0.9999634768077796,
+          "translationPixels": 2.460920073874276
+        },
+        {
+          "frame": 121,
+          "inliers": 15,
+          "scale": 0.9999052014861693,
+          "translationPixels": 2.34008427489423
+        },
+        {
+          "frame": 145,
+          "inliers": 15,
+          "scale": 1.0001079855035742,
+          "translationPixels": 4.069842668118273
+        },
+        {
+          "frame": 169,
+          "inliers": 14,
+          "scale": 1.000485970393355,
+          "translationPixels": 4.590990922312485
+        }
+      ]
+    },
+    "pdd8": {
+      "frames": 192,
+      "initialBackgroundCorners": 20,
+      "validFrames": 49,
+      "maxTranslationPixels": 2.9582894005014246,
+      "maxScaleDeviation": 0.0010949597913576525,
+      "last": {
+        "frame": 49,
+        "inliers": 8,
+        "scale": 1.0001304192087899,
+        "translationPixels": 2.9582894005014246
+      },
+      "samples": [
+        {
+          "frame": 1,
+          "inliers": 20,
+          "scale": 0.9999814607218204,
+          "translationPixels": 0.03379006596781897
+        },
+        {
+          "frame": 25,
+          "inliers": 11,
+          "scale": 1.0001360449081425,
+          "translationPixels": 0.2941279696275107
+        },
+        {
+          "frame": 49,
+          "inliers": 8,
+          "scale": 1.0001304192087899,
+          "translationPixels": 2.9582894005014246
+        }
+      ]
+    },
+    "method": "First-frame background corner tracking in left doorway and upper-right wall; forward-backward optical-flow error <1px and affine RANSAC with >=8 inliers. Diagnostic only; does not certify camera stability, object identity, acting, or audio."
+  },
+  "motionInterpretation": "PDD tracking valid for only 49 of 191 transitions; its lower numeric drift is not evidence of better camera stability."
+}

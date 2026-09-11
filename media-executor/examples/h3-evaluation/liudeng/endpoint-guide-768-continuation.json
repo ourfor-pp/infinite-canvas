@@ -1,0 +1,114 @@
+{
+  "scope": "One native768p PDD chain with endpoint guides; not a base/PDD continuation speed comparison.",
+  "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "promptSha256": "874f91f030e16b234f681a6c9dff0d448e10cf39998d56d072fcf93c8eec1969",
+  "source": {
+    "recipe": "pdd8",
+    "promptId": "0680f1be-b02d-4746-a0e5-5fe2f32162fc",
+    "executionSeconds": 219.419,
+    "peakTotalGpuUsedMiB": 30426,
+    "seed": 8517197894835789,
+    "frames": 192,
+    "width": 1376,
+    "height": 768,
+    "runtimeIdentity": {
+      "ready": true,
+      "schemaVersion": 1,
+      "modelId": "minimax-h3-ref2va-local",
+      "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+      "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "implementationRevision": "ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13"
+    },
+    "gpuCacheUnloadedBeforeSubmission": true,
+    "qualityAccepted": false
+  },
+  "continuation": {
+    "recipe": "pdd8",
+    "promptId": "60cbc3bf-c7dd-4d1a-9406-99f52b2db860",
+    "executionSeconds": 303.031,
+    "peakTotalGpuUsedMiB": 30544,
+    "seed": 7001105001387935,
+    "frames": 379,
+    "width": 1376,
+    "height": 768,
+    "runtimeIdentity": {
+      "ready": true,
+      "schemaVersion": 1,
+      "modelId": "minimax-h3-ref2va-local",
+      "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+      "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "implementationRevision": "ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13"
+    },
+    "gpuCacheUnloadedBeforeSubmission": true,
+    "qualityAccepted": false
+  },
+  "sourceStateSha256": "e4e61c69a4ce1761e08d3381bd9075dc076c084b307c584683e98e7cb0eeb517",
+  "outputStateSha256": "5da11d7e714e8fc8d1eddfd5d6adf651d156a6550422c0e7c6d7fd14932d3b4c",
+  "latentPrefix": {
+    "audio": {
+      "before": [
+        1,
+        32,
+        2,
+        320
+      ],
+      "after": [
+        1,
+        32,
+        2,
+        632
+      ],
+      "exact": true
+    },
+    "video": {
+      "before": [
+        1,
+        24,
+        57,
+        48,
+        86
+      ],
+      "after": [
+        1,
+        24,
+        112,
+        48,
+        86
+      ],
+      "exact": true
+    }
+  },
+  "video": {
+    "frames": 379,
+    "width": 1376,
+    "height": 768,
+    "fps": 24,
+    "seconds": 15.791666666666666
+  },
+  "seam": {
+    "frame": 192,
+    "mae": 0.7304301857948303,
+    "medianFrameMAE": 0.7919158339500427,
+    "percentile": 45.767195767195766
+  },
+  "audio": {
+    "samples": 1011712,
+    "rms": 0.003105500519874393,
+    "peak": 0.14973655343055725,
+    "listeningAccepted": false
+  },
+  "qualityAccepted": false,
+  "qualifiedFilmSeconds": 0,
+  "visualReview": {
+    "method": "1fps whole cumulative contact sheet",
+    "findings": [
+      "Single full-frame composition in sampled images.",
+      "Father releases the lamp and returns attention toward the doorway.",
+      "Both hand movement and later framing still require full-speed review."
+    ],
+    "fullMotionAccepted": false
+  },
+  "totalRecordedChainExecutionSeconds": 522.45
+}

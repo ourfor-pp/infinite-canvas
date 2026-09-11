@@ -34,6 +34,14 @@ CREATE TABLE IF NOT EXISTS projects (
   PRIMARY KEY (id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_projects_user_updated ON projects(user_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS director_sync_versions (
+  needs_reconcile INTEGER NOT NULL DEFAULT 0,
+  diagnostics TEXT NOT NULL DEFAULT '[]',
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, project_id)
+);
 CREATE TABLE IF NOT EXISTS assets (
   id TEXT NOT NULL,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -261,7 +269,9 @@ applyVersionTwentyTwo();
 applyVersionTwentyThree();
 applyVersionTwentyFour();
 applyVersionTwentyFive();
-ensureAgentMetadata(3, 2);
+applyVersionTwentySix();
+applyVersionTwentySeven();
+ensureAgentMetadata(4, 2);
 
 function applyVersionTwo() {
     if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=2").get()) return;
@@ -1000,6 +1010,40 @@ function applyVersionTwentyFive() {
     })();
 }
 
+function applyVersionTwentySix() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=26").get()) return;
+    createAgentStorageMigrationBackup(3, 2, "agent-codex-v1");
+    db.transaction(() => {
+        db.exec(`
+            ALTER TABLE agent_sessions ADD COLUMN engine TEXT NOT NULL DEFAULT 'builtin' CHECK(engine IN ('builtin','codex'));
+            ALTER TABLE agent_sessions ADD COLUMN codex_thread_id TEXT;
+            ALTER TABLE agent_runs ADD COLUMN codex_turn_id TEXT;
+            CREATE TABLE codex_settings (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL);
+            CREATE TABLE agent_tool_requests (
+                session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+                run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+                request_key TEXT NOT NULL, tool_name TEXT NOT NULL, input_hash TEXT NOT NULL,
+                status TEXT NOT NULL, result TEXT,
+                PRIMARY KEY(session_id, run_id, request_key)
+            );
+            UPDATE agent_metadata SET protocol_version=4 WHERE id=1;
+        `);
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(26, ?)").run(new Date().toISOString());
+    })();
+}
+
+function applyVersionTwentySeven() {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=27").get()) return;
+    createAgentStorageMigrationBackup(4, 2, "agent-codex-model-options-v1");
+    db.transaction(() => {
+        db.exec(`
+            ALTER TABLE agent_sessions ADD COLUMN codex_options TEXT NOT NULL DEFAULT '{}';
+            ALTER TABLE agent_queued_messages ADD COLUMN codex_options TEXT;
+        `);
+        db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES(27, ?)").run(new Date().toISOString());
+    })();
+}
+
 function ensureAgentMetadata(protocolVersion = 2, storageVersion = 2) {
     const now = new Date().toISOString();
     db.prepare("INSERT OR IGNORE INTO agent_metadata(id, protocol_version, storage_version, updated_at) VALUES(1, ?, ?, ?)").run(protocolVersion, storageVersion, now);
@@ -1012,20 +1056,20 @@ function prepareAgentMetadata() {
     const legacy = columns.some((column) => column.name === "owner_type");
     db.prepare("INSERT OR IGNORE INTO agent_metadata(id, protocol_version, storage_version, updated_at) VALUES(1, ?, ?, ?)").run(legacy ? 1 : 2, legacy ? 1 : 2, new Date().toISOString());
     const row = db.prepare("SELECT protocol_version, storage_version FROM agent_metadata WHERE id=1").get() as { protocol_version: number; storage_version: number };
-    if (![[1, 1], [2, 2], [3, 2]].some(([protocol, storage]) => row.protocol_version === protocol && row.storage_version === storage)) throw new Error(`不支持的 Agent 数据版本：protocol=${row.protocol_version}, storage=${row.storage_version}`);
+    if (![[1, 1], [2, 2], [3, 2], [4, 2]].some(([protocol, storage]) => row.protocol_version === protocol && row.storage_version === storage)) throw new Error(`不支持的 Agent 数据版本：protocol=${row.protocol_version}, storage=${row.storage_version}`);
     if (legacy !== (row.storage_version === 1)) throw new Error("Agent 表结构与存储版本冲突，拒绝自动覆盖");
 }
 
-type MigrationManifest = { format: "infinite-canvas-agent-migration"; version: 1; sourceProtocol: 1; sourceStorage: 1; sourceDatabaseSha256: string; files: Array<{ path: string; bytes: number; sha256: string }> };
+type MigrationManifest = { format: "infinite-canvas-agent-migration"; version: 1; sourceProtocol: number; sourceStorage: number; sourceDatabaseSha256: string; files: Array<{ path: string; bytes: number; sha256: string }> };
 
-function createAgentStorageMigrationBackup() {
-    const root = resolve(config.dataDir, "migration-backups", "agent-storage-v1-to-v2");
+function createAgentStorageMigrationBackup(sourceProtocol = 1, sourceStorage = 1, name = "agent-storage-v1-to-v2") {
+    const root = resolve(config.dataDir, "migration-backups", name);
     const manifestPath = resolve(root, "manifest.json");
     db.pragma("wal_checkpoint(TRUNCATE)");
     if (existsSync(root)) {
         if (!existsSync(manifestPath)) throw new Error("Agent 存储迁移备份目录已存在但缺少清单，拒绝覆盖");
         const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as MigrationManifest;
-        if (manifest.format !== "infinite-canvas-agent-migration" || manifest.version !== 1 || manifest.sourceProtocol !== 1 || manifest.sourceStorage !== 1) throw new Error("Agent 存储迁移备份清单版本未知，拒绝覆盖");
+        if (manifest.format !== "infinite-canvas-agent-migration" || manifest.version !== 1 || manifest.sourceProtocol !== sourceProtocol || manifest.sourceStorage !== sourceStorage) throw new Error("Agent 存储迁移备份清单版本未知，拒绝覆盖");
         validateMigrationFiles(root, manifest.files);
         if (manifest.sourceDatabaseSha256 !== sha256(config.databasePath)) throw new Error("Agent 存储迁移备份与当前数据库冲突，拒绝覆盖");
         return;
@@ -1036,7 +1080,7 @@ function createAgentStorageMigrationBackup() {
     copyFileSync(config.databasePath, resolve(building, "app.db"));
     copyTree(config.agentRoot, resolve(building, "agent"));
     const files = walkFiles(building).map((path) => fileManifest(building, path));
-    writeFileSync(resolve(building, "manifest.json"), JSON.stringify({ format: "infinite-canvas-agent-migration", version: 1, sourceProtocol: 1, sourceStorage: 1, sourceDatabaseSha256: sha256(resolve(building, "app.db")), files } satisfies MigrationManifest, null, 2));
+    writeFileSync(resolve(building, "manifest.json"), JSON.stringify({ format: "infinite-canvas-agent-migration", version: 1, sourceProtocol, sourceStorage, sourceDatabaseSha256: sha256(resolve(building, "app.db")), files } satisfies MigrationManifest, null, 2));
     renameSync(building, root);
 }
 

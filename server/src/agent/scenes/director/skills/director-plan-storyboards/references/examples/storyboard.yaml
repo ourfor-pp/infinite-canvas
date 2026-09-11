@@ -1,0 +1,52 @@
+version: 1
+segmentId: segment-001
+layout: 2x2
+frames:
+  - id: frame-001
+    shotNumber: 1
+    timeSeconds: 0
+    kind: shot-start
+    description: 雨夜空站台尽头的一扇木门。
+    action: The door is closed.
+    cameraAngle: 平视远景
+    cameraMove: 固定
+    h3Visual: A fixed wide shot frames the wooden door at the end of the empty wet
+      platform. The door is closed.
+    dialogues: []
+    sound: Steady rainfall and wind; the wooden hinge creaks as the door moves.
+  - id: frame-002
+    shotNumber: 1
+    timeSeconds: 2
+    kind: keyframe
+    description: 雨夜空站台尽头的一扇木门。
+    action: The door begins to move inward.
+    cameraAngle: 平视远景
+    cameraMove: 固定
+    h3Visual: A fixed wide shot frames the wooden door at the end of the empty wet
+      platform. The door begins to move inward.
+    dialogues: []
+    sound: Steady rainfall and wind; the wooden hinge creaks as the door moves.
+  - id: frame-003
+    shotNumber: 1
+    timeSeconds: 4
+    kind: keyframe
+    description: 雨夜空站台尽头的一扇木门。
+    action: The door swings farther inward.
+    cameraAngle: 平视远景
+    cameraMove: 固定
+    h3Visual: A fixed wide shot frames the wooden door at the end of the empty wet
+      platform. The door swings farther inward.
+    dialogues: []
+    sound: Steady rainfall and wind; the wooden hinge creaks as the door moves.
+  - id: frame-004
+    shotNumber: 1
+    timeSeconds: 6
+    kind: shot-end
+    description: 雨夜空站台尽头的一扇木门。
+    action: The door rests half open, revealing an empty room.
+    cameraAngle: 平视远景
+    cameraMove: 固定
+    h3Visual: A fixed wide shot frames the wooden door at the end of the empty wet
+      platform. The door rests half open, revealing an empty room.
+    dialogues: []
+    sound: Steady rainfall and wind; the wooden hinge creaks as the door moves.

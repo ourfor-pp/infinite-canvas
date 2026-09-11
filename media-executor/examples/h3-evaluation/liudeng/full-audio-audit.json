@@ -1,0 +1,314 @@
+{
+  "sourceSha256": "787d785e03f92aba5becad326e8b361adcbd7e30557e70246dd69d5cc053d31e",
+  "qwen": {
+    "sourceSha256": "787d785e03f92aba5becad326e8b361adcbd7e30557e70246dd69d5cc053d31e",
+    "device": "cpu",
+    "expectedText": "还没睡？这灯，刚修好。",
+    "results": {
+      "full": {
+        "offsetSeconds": 0.0,
+        "transcription": {
+          "language": "Chinese",
+          "text": "还没睡。这灯刚修好。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "还",
+                "start_time": 25.52,
+                "end_time": 25.76
+              },
+              {
+                "text": "没",
+                "start_time": 25.76,
+                "end_time": 25.84
+              },
+              {
+                "text": "睡",
+                "start_time": 25.84,
+                "end_time": 26.24
+              },
+              {
+                "text": "这",
+                "start_time": 29.76,
+                "end_time": 29.92
+              },
+              {
+                "text": "灯",
+                "start_time": 29.92,
+                "end_time": 30.32
+              },
+              {
+                "text": "刚",
+                "start_time": 30.88,
+                "end_time": 31.04
+              },
+              {
+                "text": "修",
+                "start_time": 31.04,
+                "end_time": 31.2
+              },
+              {
+                "text": "好",
+                "start_time": 33.04,
+                "end_time": 33.04
+              }
+            ]
+          }
+        }
+      },
+      "arrival": {
+        "offsetSeconds": 0.0,
+        "transcription": {
+          "language": "Chinese",
+          "text": "嗯。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "嗯",
+                "start_time": 5.12,
+                "end_time": 5.2
+              }
+            ]
+          }
+        }
+      },
+      "lamp": {
+        "offsetSeconds": 8.041666666666666,
+        "transcription": {
+          "language": "",
+          "text": "",
+          "time_stamps": null
+        }
+      },
+      "dialogue": {
+        "offsetSeconds": 23.833333333333332,
+        "transcription": {
+          "language": "Chinese",
+          "text": "还没睡。这灯刚修好。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "还",
+                "start_time": 1.68,
+                "end_time": 1.92
+              },
+              {
+                "text": "没",
+                "start_time": 1.92,
+                "end_time": 2.0
+              },
+              {
+                "text": "睡",
+                "start_time": 2.0,
+                "end_time": 2.32
+              },
+              {
+                "text": "这",
+                "start_time": 5.92,
+                "end_time": 6.08
+              },
+              {
+                "text": "灯",
+                "start_time": 6.16,
+                "end_time": 6.48
+              },
+              {
+                "text": "刚",
+                "start_time": 7.04,
+                "end_time": 7.2
+              },
+              {
+                "text": "修",
+                "start_time": 7.2,
+                "end_time": 7.36
+              },
+              {
+                "text": "好",
+                "start_time": 7.36,
+                "end_time": 7.52
+              }
+            ]
+          }
+        }
+      },
+      "cup": {
+        "offsetSeconds": 33.958333333333336,
+        "transcription": {
+          "language": "Chinese",
+          "text": "嗯。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "嗯",
+                "start_time": 0.0,
+                "end_time": 0.48
+              }
+            ]
+          }
+        }
+      },
+      "silence": {
+        "offsetSeconds": 0.0,
+        "transcription": {
+          "language": "Chinese",
+          "text": "嗯。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "嗯",
+                "start_time": 0.0,
+                "end_time": 0.0
+              }
+            ]
+          }
+        }
+      }
+    },
+    "audioAccepted": false,
+    "scope": "Whole mixed master plus cropped regions and silent control. ASR can hallucinate on non-speech, so extra text requires independent verification."
+  },
+  "independentCrosscheck": {
+    "models": {
+      "SenseVoiceSmall": "Revision:master,CreatedAt:1727321787",
+      "FSMN-VAD": "Revision:master,CreatedAt:1707184291"
+    },
+    "results": [
+      {
+        "run": "audit-arrival",
+        "vad": [
+          {
+            "key": "audit-arrival",
+            "value": []
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "audit-arrival",
+            "text": "<|en|><|EMO_UNKNOWN|><|Speech|><|withitn|>."
+          }
+        ],
+        "cleanText": "."
+      },
+      {
+        "run": "audit-cup",
+        "vad": [
+          {
+            "key": "audit-cup",
+            "value": []
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "audit-cup",
+            "text": "<|en|><|EMO_UNKNOWN|><|BGM|><|withitn|>The."
+          }
+        ],
+        "cleanText": "The."
+      },
+      {
+        "run": "audit-dialogue",
+        "vad": [
+          {
+            "key": "audit-dialogue",
+            "value": [
+              [
+                1440,
+                2740
+              ],
+              [
+                5660,
+                7930
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "audit-dialogue",
+            "text": "<|zh|><|NEUTRAL|><|BGM|><|withitn|>还没睡，这灯刚修好。"
+          }
+        ],
+        "cleanText": "还没睡，这灯刚修好。"
+      },
+      {
+        "run": "audit-full",
+        "vad": [
+          {
+            "key": "audit-full",
+            "value": [
+              [
+                25270,
+                26560
+              ],
+              [
+                29500,
+                31770
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "audit-full",
+            "text": "<|zh|><|SAD|><|BGM|><|withitn|>还没睡这灯刚修好，。"
+          }
+        ],
+        "cleanText": "还没睡这灯刚修好，。"
+      },
+      {
+        "run": "audit-lamp",
+        "vad": [
+          {
+            "key": "audit-lamp",
+            "value": []
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "audit-lamp",
+            "text": "<|nospeech|><|EMO_UNKNOWN|><|Event_UNK|><|withitn|>."
+          }
+        ],
+        "cleanText": "."
+      },
+      {
+        "run": "audit-silence",
+        "vad": [
+          {
+            "key": "audit-silence",
+            "value": []
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "audit-silence",
+            "text": "<|en|><|EMO_UNKNOWN|><|Event_UNK|><|withitn|>."
+          }
+        ],
+        "cleanText": "."
+      }
+    ]
+  },
+  "conclusion": {
+    "wholeMasterExpectedTextMatchesAcrossTwoRecognizers": true,
+    "fullMasterVadMilliseconds": [
+      [
+        25270,
+        26560
+      ],
+      [
+        29500,
+        31770
+      ]
+    ],
+    "extraSpeechConfirmed": false,
+    "nonSpeechCaveat": "Qwen emits 嗯 on silent control and non-dialogue crops; SenseVoice emits The on cup crop while VAD finds no speech. These are not proof of actual extra voices.",
+    "alignmentCaveat": "Whole-master Qwen forced alignment gives a zero-duration final 好 at 33.04s; cropped dialogue aligns it at 7.36–7.52s relative to 23.833333s. Do not use full-master forced alignment as lip-sync ground truth.",
+    "audioAccepted": false,
+    "pending": [
+      "Full listening assessment",
+      "Speaker identity and natural delivery",
+      "Lip synchronization"
+    ]
+  }
+}

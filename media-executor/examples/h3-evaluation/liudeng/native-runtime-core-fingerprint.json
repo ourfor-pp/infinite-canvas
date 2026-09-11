@@ -1,0 +1,49 @@
+{
+  "before": {
+    "ready": true,
+    "schemaVersion": 1,
+    "modelId": "minimax-h3-ref2va-local",
+    "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61",
+    "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+    "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+    "implementationRevision": "fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61"
+  },
+  "after": {
+    "ready": true,
+    "schemaVersion": 1,
+    "modelId": "minimax-h3-ref2va-local",
+    "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13",
+    "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+    "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+    "implementationRevision": "ddcb8fb01af4d6073e8024ba8f9186bcb9fb4c6c9dd5c98db9f035b89b3c0a13"
+  },
+  "stateTestsPassed": 12,
+  "oldStateRejection": {
+    "promptId": "21b9174c-12e2-4d18-83e9-927be915738d",
+    "status": "error",
+    "noSampler": true
+  },
+  "restartDecode": {
+    "promptId": "e9512ca1-a39f-4387-8e25-fbf638d264d3",
+    "status": "success",
+    "executionSeconds": 61.169,
+    "frames": 192,
+    "matchingDecodedVideoFrames": 192,
+    "allDecodedVideoFramesMatch": true,
+    "decodedAudioPcmMatch": true,
+    "noSampler": true
+  },
+  "formalDeployment": false,
+  "sameSeedBaseReproduction": {
+    "audio": {
+      "exact": true,
+      "maxAbsoluteDifference": 0.0
+    },
+    "video": {
+      "exact": true,
+      "maxAbsoluteDifference": 0.0
+    }
+  },
+  "executorTestsPassed": 8,
+  "workflowAndMediaPlanTestsPassed": 17
+}

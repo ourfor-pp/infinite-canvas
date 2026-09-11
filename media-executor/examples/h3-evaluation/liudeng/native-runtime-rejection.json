@@ -1,0 +1,106 @@
+{
+  "promptId": "747e8199-e401-4b3c-a5de-d21ce00a27c6",
+  "graph": {
+    "80": {
+      "class_type": "H3LoadContinuationState",
+      "inputs": {
+        "state_name": "025c863d4dc77ba0899c18b53a57b9e19f6b445cf8481a5e33fdbdd2dc7e3ff1.safetensors",
+        "expected_context": "{\"audioVaeRevision\": \"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\", \"fps\": 24, \"frames\": 362, \"height\": 768, \"modelRevision\": \"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c\", \"schemaVersion\": 1, \"sourceId\": \"liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5:extend1:a6103d3b2d947612f487c4bcedc6bc1b18fe7b04495f4a0b610f69a25494c323\", \"videoVaeRevision\": \"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\", \"width\": 1376}"
+      }
+    },
+    "70": {
+      "class_type": "H3SaveContinuationState",
+      "inputs": {
+        "latent": [
+          "80",
+          0
+        ],
+        "context": "{\"audioVaeRevision\": \"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\", \"fps\": 24, \"frames\": 362, \"height\": 768, \"modelRevision\": \"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c\", \"schemaVersion\": 1, \"sourceId\": \"liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5:extend1:a6103d3b2d947612f487c4bcedc6bc1b18fe7b04495f4a0b610f69a25494c323\", \"videoVaeRevision\": \"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\", \"width\": 1376}"
+      }
+    }
+  },
+  "expected": "old model/pipeline state rejected before sampling",
+  "history": {
+    "prompt": [
+      0,
+      "747e8199-e401-4b3c-a5de-d21ce00a27c6",
+      {
+        "80": {
+          "class_type": "H3LoadContinuationState",
+          "inputs": {
+            "state_name": "025c863d4dc77ba0899c18b53a57b9e19f6b445cf8481a5e33fdbdd2dc7e3ff1.safetensors",
+            "expected_context": "{\"audioVaeRevision\": \"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\", \"fps\": 24, \"frames\": 362, \"height\": 768, \"modelRevision\": \"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c\", \"schemaVersion\": 1, \"sourceId\": \"liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5:extend1:a6103d3b2d947612f487c4bcedc6bc1b18fe7b04495f4a0b610f69a25494c323\", \"videoVaeRevision\": \"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\", \"width\": 1376}"
+          }
+        },
+        "70": {
+          "class_type": "H3SaveContinuationState",
+          "inputs": {
+            "latent": [
+              "80",
+              0
+            ],
+            "context": "{\"audioVaeRevision\": \"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\", \"fps\": 24, \"frames\": 362, \"height\": 768, \"modelRevision\": \"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c\", \"schemaVersion\": 1, \"sourceId\": \"liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5:extend1:a6103d3b2d947612f487c4bcedc6bc1b18fe7b04495f4a0b610f69a25494c323\", \"videoVaeRevision\": \"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\", \"width\": 1376}"
+          }
+        }
+      },
+      {
+        "create_time": 1789093001866
+      },
+      [
+        "70"
+      ]
+    ],
+    "outputs": {},
+    "status": {
+      "status_str": "error",
+      "completed": false,
+      "messages": [
+        [
+          "execution_start",
+          {
+            "prompt_id": "747e8199-e401-4b3c-a5de-d21ce00a27c6",
+            "timestamp": 1789093001866
+          }
+        ],
+        [
+          "execution_cached",
+          {
+            "nodes": [],
+            "prompt_id": "747e8199-e401-4b3c-a5de-d21ce00a27c6",
+            "timestamp": 1789093001866
+          }
+        ],
+        [
+          "execution_error",
+          {
+            "prompt_id": "747e8199-e401-4b3c-a5de-d21ce00a27c6",
+            "node_id": "80",
+            "node_type": "H3LoadContinuationState",
+            "executed": [],
+            "exception_message": "H3 state context does not match the active runtime\n",
+            "exception_type": "ValueError",
+            "traceback": [
+              "  File \"/home/cec/infinite-canvas/.tmp/h3-lab/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171/execution.py\", line 545, in execute\n    output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)\n                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
+              "  File \"/home/cec/infinite-canvas/.tmp/h3-lab/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171/execution.py\", line 344, in get_output_data\n    return_values = await _async_map_node_over_list(prompt_id, unique_id, obj, input_data_all, obj.FUNCTION, allow_interrupt=True, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
+              "  File \"/home/cec/infinite-canvas/.tmp/h3-lab/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171/execution.py\", line 318, in _async_map_node_over_list\n    await process_inputs(input_dict, i)\n",
+              "  File \"/home/cec/infinite-canvas/.tmp/h3-lab/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171/execution.py\", line 306, in process_inputs\n    result = f(**inputs)\n             ^^^^^^^^^^^\n",
+              "  File \"/home/cec/infinite-canvas/.tmp/h3-lab/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171/custom_nodes/infinite_h3_state/__init__.py\", line 46, in load\n    _verify_runtime(json.loads(expected_context))\n",
+              "  File \"/home/cec/infinite-canvas/.tmp/h3-lab/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171/custom_nodes/infinite_h3_state/__init__.py\", line 113, in _verify_runtime\n    raise ValueError('H3 state context does not match the active runtime')\n"
+            ],
+            "current_inputs": {
+              "state_name": [
+                "025c863d4dc77ba0899c18b53a57b9e19f6b445cf8481a5e33fdbdd2dc7e3ff1.safetensors"
+              ],
+              "expected_context": [
+                "{\"audioVaeRevision\": \"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\", \"fps\": 24, \"frames\": 362, \"height\": 768, \"modelRevision\": \"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c\", \"schemaVersion\": 1, \"sourceId\": \"liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5:extend1:a6103d3b2d947612f487c4bcedc6bc1b18fe7b04495f4a0b610f69a25494c323\", \"videoVaeRevision\": \"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\", \"width\": 1376}"
+              ]
+            },
+            "current_outputs": [],
+            "timestamp": 1789093001868
+          }
+        ]
+      ]
+    },
+    "meta": {}
+  }
+}

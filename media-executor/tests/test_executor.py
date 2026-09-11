@@ -167,3 +167,26 @@ def test_health_rejects_unavailable_queue(tmp_path, monkeypatch):
         response = client.get("/health", headers={"Authorization": "Bearer secret"})
         assert response.status_code == 503
         assert response.json()["detail"] == "Media job queue is unavailable"
+
+
+def test_h3_identity_requires_all_nodes_and_ready_fingerprint(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_EXECUTOR_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MEDIA_EXECUTOR_DISABLE_WORKER", "1")
+    monkeypatch.setenv("MEDIA_EXECUTOR_DISABLE_RUNTIME_HEALTH", "1")
+    import media_executor.app as module
+    module = importlib.reload(module)
+    module.init_db()
+    info = {name: {} for name in ["H3SaveContinuationState", "H3LoadContinuationState", "H3NewAVSegment", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "MiniMaxH3AppendContinuation"]}
+    identity = {"ready": False}
+    class FakeClient:
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def get(self, url):
+            return httpx.Response(200, json=info if url.endswith('/object_info') else identity)
+    monkeypatch.setattr(module.httpx, "Client", lambda **_: FakeClient())
+    assert module.health()["h3Runtime"] is None
+    assert module.health()["comfyFeatures"]["nativeState"] is True
+    identity.update(ready=True, modelRevision="verified-model")
+    assert module.health()["h3Runtime"] == identity
+    del info["H3NewAVSegment"]
+    assert module.health()["h3Runtime"] is None

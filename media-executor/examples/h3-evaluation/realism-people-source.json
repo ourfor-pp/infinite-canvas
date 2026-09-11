@@ -1,0 +1,317 @@
+{
+  "id": "fal/MiniMax-H3-Realism-People-LoRA",
+  "sha": "039cc8579d7aa357a882d7f4111b25da4f72dccc",
+  "lastModified": "2026-08-12T20:46:37.000Z",
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "before-after-comparison.mp4"
+    },
+    {
+      "rfilename": "h3-realism-people-t2v-i2v-r2v.safetensors"
+    }
+  ],
+  "installed": true,
+  "localQualityAccepted": false,
+  "nextComparison": "Same official-structure prompt with trigger present on both sides, reference, seed and dimensions; base vs adapter before PDD combination.",
+  "installation": {
+    "sourceUrl": "https://modelscope.cn/models/fal/MiniMax-H3-Realism-People-LoRA/resolve/4497aef76812f46bef00dab61d07ff23f25f0777/h3-realism-people-t2v-i2v-r2v.safetensors",
+    "revision": "4497aef76812f46bef00dab61d07ff23f25f0777",
+    "huggingFaceRevision": "039cc8579d7aa357a882d7f4111b25da4f72dccc",
+    "sha256": "acc529601d2da117fb81179e76c56e488a3beab1171659d305f04fa3655b787e",
+    "size": 131229656,
+    "ssdPath": "/home/cec/.local/share/infinite-media-executor/models/H3-Experiments/fal-realism-people/4497aef76812f46bef00dab61d07ff23f25f0777/h3-realism-people-t2v-i2v-r2v.safetensors",
+    "isolatedLink": "/home/cec/infinite-canvas/.tmp/h3-lab/ComfyUI-40c4fcdf513a4523e39d54a9d391908af8df8171/models/loras/h3-realism-people-t2v-i2v-r2v.safetensors",
+    "formalRuntimeChanged": false,
+    "qualityAccepted": false
+  },
+  "preflight": {
+    "tensorCount": 208,
+    "dtypeCounts": {
+      "BF16": 208
+    },
+    "sampleKeys": [
+      "diffusion_model.blocks.0.attn.out_proj.lora_A.weight",
+      "diffusion_model.blocks.0.attn.out_proj.lora_B.weight",
+      "diffusion_model.blocks.0.attn.qkv_proj.lora_A.weight",
+      "diffusion_model.blocks.0.attn.qkv_proj.lora_B.weight",
+      "diffusion_model.blocks.1.attn.out_proj.lora_A.weight",
+      "diffusion_model.blocks.1.attn.out_proj.lora_B.weight"
+    ],
+    "allAttentionProjectionKeys": true,
+    "nodeAvailable": true,
+    "listedInIsolatedRuntime": true,
+    "sha256": "acc529601d2da117fb81179e76c56e488a3beab1171659d305f04fa3655b787e",
+    "scope": "Header and node catalog only; no actual tensor application or generation verified."
+  },
+  "pairedExperiment": {
+    "status": "completed-not-adopted",
+    "basePromptId": "119c913f-5a7c-4b31-ba79-ecd9e3490f78",
+    "sourceCase": "liudeng/c-pdd8-768p-first-guide",
+    "steps": 20,
+    "width": 1376,
+    "height": 768,
+    "frames": 243,
+    "seed": 271828,
+    "promptSha256": "a8440ec32705d7e816d1cfb2a3b777cb5d03ba2f4f181b573a7efc2802035e21",
+    "triggerPresentBothSides": true,
+    "adapterStrength": 1.0,
+    "savedContinuationState": false,
+    "qualityAccepted": false,
+    "baseRetryPromptId": "028632ea-55ce-4c45-9594-c5adda087dfa",
+    "baseResult": {
+      "recipe": "base20-retry1",
+      "promptId": "028632ea-55ce-4c45-9594-c5adda087dfa",
+      "executionSeconds": 667.117,
+      "peakTotalGpuUsedMiB": 30070,
+      "promptSha256": "a8440ec32705d7e816d1cfb2a3b777cb5d03ba2f4f181b573a7efc2802035e21",
+      "frames": 243,
+      "width": 1376,
+      "height": 768,
+      "qualityAccepted": false,
+      "continuationStateCreated": false
+    },
+    "adapterPromptId": "a53d71af-e0b1-46fc-83ca-5696030226e0",
+    "runtimeAttachedPatches": 104,
+    "baseOverviewReview": "1fps overview retains a single full-frame view of father and daughter, no visible storyboard grid. Full motion, audio and lip acceptance pending.",
+    "adapterResult": {
+      "recipe": "realism20",
+      "promptId": "a53d71af-e0b1-46fc-83ca-5696030226e0",
+      "executionSeconds": 672.282,
+      "peakTotalGpuUsedMiB": 30028,
+      "promptSha256": "a8440ec32705d7e816d1cfb2a3b777cb5d03ba2f4f181b573a7efc2802035e21",
+      "frames": 243,
+      "width": 1376,
+      "height": 768,
+      "qualityAccepted": false,
+      "continuationStateCreated": false
+    },
+    "asr": {
+      "base20-retry1": {
+        "language": "Chinese",
+        "text": "还没睡。这灯刚修好。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "还",
+              "start_time": 1.68,
+              "end_time": 1.84
+            },
+            {
+              "text": "没",
+              "start_time": 1.84,
+              "end_time": 2.0
+            },
+            {
+              "text": "睡",
+              "start_time": 2.0,
+              "end_time": 2.32
+            },
+            {
+              "text": "这",
+              "start_time": 5.92,
+              "end_time": 6.08
+            },
+            {
+              "text": "灯",
+              "start_time": 6.08,
+              "end_time": 6.48
+            },
+            {
+              "text": "刚",
+              "start_time": 7.28,
+              "end_time": 7.44
+            },
+            {
+              "text": "修",
+              "start_time": 7.44,
+              "end_time": 7.68
+            },
+            {
+              "text": "好",
+              "start_time": 7.68,
+              "end_time": 8.0
+            }
+          ]
+        }
+      },
+      "realism20": {
+        "language": "Chinese",
+        "text": "还没睡。这灯刚修好。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "还",
+              "start_time": 3.04,
+              "end_time": 3.28
+            },
+            {
+              "text": "没",
+              "start_time": 3.28,
+              "end_time": 3.44
+            },
+            {
+              "text": "睡",
+              "start_time": 3.44,
+              "end_time": 3.84
+            },
+            {
+              "text": "这",
+              "start_time": 6.48,
+              "end_time": 6.64
+            },
+            {
+              "text": "灯",
+              "start_time": 6.72,
+              "end_time": 7.2
+            },
+            {
+              "text": "刚",
+              "start_time": 8.16,
+              "end_time": 8.32
+            },
+            {
+              "text": "修",
+              "start_time": 8.32,
+              "end_time": 8.56
+            },
+            {
+              "text": "好",
+              "start_time": 8.56,
+              "end_time": 8.96
+            }
+          ]
+        }
+      }
+    },
+    "media": {
+      "results": [
+        {
+          "recipe": "base20-retry1",
+          "sha256": "a8b65cec6b7a9fe89e18feeb4b8f1e382aeb1f94ed18e76e13e67355d9c0c27f",
+          "streams": [
+            {
+              "codec_type": "video",
+              "codec_name": "h264",
+              "width": 1376,
+              "height": 768,
+              "nb_frames": "243",
+              "duration": "10.125000",
+              "sample_rate": null,
+              "channels": null
+            },
+            {
+              "codec_type": "audio",
+              "codec_name": "aac",
+              "width": null,
+              "height": null,
+              "nb_frames": "318",
+              "duration": "10.125000",
+              "sample_rate": "32000",
+              "channels": 2
+            }
+          ],
+          "audioRms": 0.05491618439555168,
+          "audioPeak": 0.8072274923324585,
+          "qualityAccepted": false
+        },
+        {
+          "recipe": "realism20",
+          "sha256": "23c1f65de4d5dba1479c60665b32ae413de72b745463b5a634c9dafe7f32a0c0",
+          "streams": [
+            {
+              "codec_type": "video",
+              "codec_name": "h264",
+              "width": 1376,
+              "height": 768,
+              "nb_frames": "243",
+              "duration": "10.125000",
+              "sample_rate": null,
+              "channels": null
+            },
+            {
+              "codec_type": "audio",
+              "codec_name": "aac",
+              "width": null,
+              "height": null,
+              "nb_frames": "318",
+              "duration": "10.125000",
+              "sample_rate": "32000",
+              "channels": 2
+            }
+          ],
+          "audioRms": 0.10001831501722336,
+          "audioPeak": 1.0310816764831543,
+          "qualityAccepted": false
+        }
+      ],
+      "comparison": "Silent side-by-side: base left, realism LoRA right. Original audio retained in each source MP4.",
+      "scope": "Media validity and statistics only; not acting, lip sync or listening acceptance."
+    },
+    "sourceLoudness": {
+      "base20-retry1": {
+        "input_i": "-20.73",
+        "input_tp": "-4.84",
+        "input_lra": "7.10",
+        "input_thresh": "-36.57",
+        "output_i": "-13.98",
+        "output_tp": "-1.00",
+        "output_lra": "2.80",
+        "output_thresh": "-30.07",
+        "normalization_type": "dynamic",
+        "target_offset": "-2.02"
+      },
+      "realism20": {
+        "input_i": "-15.38",
+        "input_tp": "-2.60",
+        "input_lra": "4.00",
+        "input_thresh": "-30.97",
+        "output_i": "-15.76",
+        "output_tp": "-2.32",
+        "output_lra": "3.20",
+        "output_thresh": "-28.67",
+        "normalization_type": "dynamic",
+        "target_offset": "-0.24"
+      }
+    },
+    "decision": "Do not adopt strength 1.0: 1fps overview shows push-in and lamp cropping despite fixed-camera prompt; ASR dialogue is complete but later than base and requested timing. No perceptual quality acceptance or PDD combination claim."
+  },
+  "shapeCheck": {
+    "pairedProjections": 104,
+    "missingBaseKeys": [],
+    "shapeMismatches": [],
+    "ranks": [
+      32
+    ],
+    "scope": "Safetensors header shapes only. Does not prove quantized numerical application, output quality or audio preservation."
+  },
+  "interruptedAttempt": {
+    "promptId": "119c913f-5a7c-4b31-ba79-ecd9e3490f78",
+    "status": "runtime-process-missing",
+    "observedSteps": 7,
+    "totalSteps": 20,
+    "lastLoggedSamplingSeconds": 218,
+    "executionSeconds": null,
+    "resultAvailable": false,
+    "cause": "Unproven; runtime log ends without exception, process no longer present and port refuses connection.",
+    "retryRequiresNewAttempt": true
+  },
+  "pairControl": {
+    "differences": [
+      "/14/inputs/filename_prefix",
+      "/15/inputs/model",
+      "/40"
+    ],
+    "promptSha256": "a8440ec32705d7e816d1cfb2a3b777cb5d03ba2f4f181b573a7efc2802035e21",
+    "referenceSha256": "93e5db2c76685b5aefd69054993534ec02c8f28f7cbbf04d69657f9d4250ad61",
+    "seed": 271828,
+    "baseSteps": 20,
+    "adapterStrength": 1.0,
+    "scope": "Actual submitted graphs differ only in LoRA application and output destination. Does not prove perceived quality or repeatability."
+  }
+}

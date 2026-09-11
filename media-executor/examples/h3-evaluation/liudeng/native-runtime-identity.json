@@ -1,0 +1,13 @@
+{
+  "status": 200,
+  "elapsedSeconds": 0.0029808105900883675,
+  "body": {
+    "ready": true,
+    "schemaVersion": 1,
+    "modelId": "minimax-h3-ref2va-local",
+    "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779:pipeline:fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61",
+    "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+    "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+    "implementationRevision": "fb0d40134c97ac1afa040cbdeae93dbde84b997813d022c4762fe11febe93d61"
+  }
+}

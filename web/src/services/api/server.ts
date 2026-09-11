@@ -1,3 +1,4 @@
+import type { DirectorProjectChanged } from "@/types/director-sync";
 import type { CreativeAsset } from "@/types/creative-asset";
 import type { VisualStyle, VisualStyleTemplate } from "@/types/visual-style";
 
@@ -200,7 +201,7 @@ export function serverFileIdFromUrl(source: string) {
     }
 }
 
-export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void, onProject?: (project: Record<string, unknown>) => void, onCreativeAsset?: (asset: CreativeAsset | { id: string; projectId: string; deleted: true }) => void, onVisualStyle?: (style: VisualStyle | { id: string; projectId: string; deleted: true }) => void, onDirector?: (entity: { type: string; projectId: string; data: unknown }) => void) {
+export function subscribeServerEvents(onGeneration: (generation: ServerGeneration) => void, onDelta?: (value: { id: string; delta: string }) => void, onProject?: (project: Record<string, unknown>) => void, onCreativeAsset?: (asset: CreativeAsset | { id: string; projectId: string; deleted: true }) => void, onVisualStyle?: (style: VisualStyle | { id: string; projectId: string; deleted: true }) => void, onDirector?: (entity: { type: string; projectId: string; data: unknown }) => void, onDirectorChange?: (event: DirectorProjectChanged) => void, onConnected?: () => void) {
     let socket: WebSocket | null = null;
     let retryTimer = 0;
     let stopped = false;
@@ -210,6 +211,8 @@ export function subscribeServerEvents(onGeneration: (generation: ServerGeneratio
         socket.addEventListener("message", (event) => {
             try {
                 const message = JSON.parse(event.data) as { type?: string; data?: ServerGeneration | { id: string; delta: string } | Record<string, unknown> };
+                if (message.type === "connected") onConnected?.();
+                if (message.type === "director.project.changed") onDirectorChange?.(message as DirectorProjectChanged);
                 if (message.type === "generation.updated" && message.data) onGeneration(message.data as ServerGeneration);
                 if (message.type === "generation.delta" && message.data) onDelta?.(message.data as { id: string; delta: string });
                 if (message.type === "project.updated" && message.data) onProject?.(message.data as Record<string, unknown>);

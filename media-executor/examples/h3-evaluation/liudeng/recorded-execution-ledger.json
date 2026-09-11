@@ -1,0 +1,422 @@
+{
+  "roots": [
+    ".tmp/h3-evaluation/liudeng",
+    ".tmp/h3-evaluation/director-native-api",
+    ".tmp/h3-evaluation/director-native-four",
+    ".tmp/h3-evaluation/director-native-corrected",
+    ".tmp/h3-evaluation/director-native-portable",
+    ".tmp/h3-evaluation/runtime-core-fingerprint",
+    ".tmp/h3-evaluation/endpoint-guide-pair",
+    ".tmp/h3-evaluation/endpoint-guide-768-pair",
+    ".tmp/h3-evaluation/endpoint-guide-768-continuation",
+    ".tmp/h3-evaluation/endpoint-guide-768-match-cut"
+  ],
+  "runs": [
+    {
+      "promptId": "4f4ddba0-f3b5-4944-bcd1-85c187dd534e",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 125.649,
+      "startedAtMilliseconds": 1789084397872,
+      "endedAtMilliseconds": 1789084523521,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/a1-pdd8-768p/report.json"
+      ]
+    },
+    {
+      "promptId": "079de363-2711-4756-b075-978bd2d608a2",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 268.598,
+      "startedAtMilliseconds": 1789084584021,
+      "endedAtMilliseconds": 1789084852619,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/a1-base20-768p/report.json"
+      ]
+    },
+    {
+      "promptId": "980bbb73-0376-4d91-98f9-0153bba552b1",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 127.073,
+      "startedAtMilliseconds": 1789084856582,
+      "endedAtMilliseconds": 1789084983655,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/a1-pdd8-768p-fullframe/report.json"
+      ]
+    },
+    {
+      "promptId": "5b45b74e-e625-4e15-950f-caa66c389281",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 119.044,
+      "startedAtMilliseconds": 1789085034432,
+      "endedAtMilliseconds": 1789085153476,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/a1-pdd8-768p-two-refs/report.json",
+        ".tmp/h3-evaluation/liudeng/audio-check/a1-two-refs/report.json"
+      ]
+    },
+    {
+      "promptId": "6370f8e7-3212-42c7-832c-d44adf379fdc",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 118.454,
+      "startedAtMilliseconds": 1789085214315,
+      "endedAtMilliseconds": 1789085332769,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/audio-check/b-two-refs/report.json",
+        ".tmp/h3-evaluation/liudeng/b-pdd8-768p-two-refs/report.json"
+      ]
+    },
+    {
+      "promptId": "b6b54940-d1aa-432f-8375-78dbf7ee0f58",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 594.707,
+      "startedAtMilliseconds": 1789085675754,
+      "endedAtMilliseconds": 1789086270461,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/a-pdd8-768p-native-481frames/report.json",
+        ".tmp/h3-evaluation/liudeng/audio-check/a-native-20s/report.json"
+      ]
+    },
+    {
+      "promptId": "5691d163-bfa4-4648-924b-cea771097547",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 315.475,
+      "startedAtMilliseconds": 1789086287675,
+      "endedAtMilliseconds": 1789086603150,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/audio-dialogue/c/report.json",
+        ".tmp/h3-evaluation/liudeng/c-pdd8-768p-dialogue/report.json"
+      ]
+    },
+    {
+      "promptId": "7df46688-41d0-4162-913c-450f7edf0bf7",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 292.345,
+      "startedAtMilliseconds": 1789086655250,
+      "endedAtMilliseconds": 1789086947595,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/audio-ending/d/report.json",
+        ".tmp/h3-evaluation/liudeng/d-pdd8-768p-cup/report.json"
+      ]
+    },
+    {
+      "promptId": "71bb56d1-972d-4e65-a034-74e889d01230",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 290.422,
+      "startedAtMilliseconds": 1789086987842,
+      "endedAtMilliseconds": 1789087278264,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/c-pdd8-768p-storyboard-only/report.json"
+      ]
+    },
+    {
+      "promptId": "b16eccd6-4fec-4fc6-b8fb-4f1f0a58d2ca",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 295.917,
+      "startedAtMilliseconds": 1789087524551,
+      "endedAtMilliseconds": 1789087820468,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/audio-guided/c/report.json",
+        ".tmp/h3-evaluation/liudeng/c-pdd8-768p-first-guide/report.json"
+      ]
+    },
+    {
+      "promptId": "6838206d-c847-4b38-bcae-1e39554e69e4",
+      "category": "state-or-decode",
+      "status": "success",
+      "executionSeconds": 34.909,
+      "startedAtMilliseconds": 1789087969031,
+      "endedAtMilliseconds": 1789088003940,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/c-state-redecode/report.json"
+      ]
+    },
+    {
+      "promptId": "6365d171-ca59-4d95-804e-5086e93dabe2",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 189.117,
+      "startedAtMilliseconds": 1789088079990,
+      "endedAtMilliseconds": 1789088269107,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/c-state-continued/report.json"
+      ]
+    },
+    {
+      "promptId": "bbeb682f-e247-41b0-8823-0742a35d3186",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 659.67,
+      "startedAtMilliseconds": 1789089724347,
+      "endedAtMilliseconds": 1789090384017,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/c-production-guide/history.json",
+        ".tmp/h3-evaluation/liudeng/c-production-guide/report.json"
+      ]
+    },
+    {
+      "promptId": "b5b58b2f-c2da-4d14-9e8e-3e375483d1de",
+      "category": "state-or-decode",
+      "status": "success",
+      "executionSeconds": 42.497,
+      "startedAtMilliseconds": 1789090565105,
+      "endedAtMilliseconds": 1789090607602,
+      "sources": [
+        ".tmp/h3-evaluation/liudeng/c-state-new-segment/history.json",
+        ".tmp/h3-evaluation/liudeng/c-state-new-segment/report.json"
+      ]
+    },
+    {
+      "promptId": "0978a3fa-c003-4782-8e08-ba1b679fcd5f",
+      "category": "state-or-decode",
+      "status": "success",
+      "executionSeconds": 20.993,
+      "startedAtMilliseconds": 1789094498313,
+      "endedAtMilliseconds": 1789094519306,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-api/cumulative-decode/history.json"
+      ]
+    },
+    {
+      "promptId": "5e8b52c1-d6f2-49f9-9954-0ab720d63464",
+      "category": "state-or-decode",
+      "status": "success",
+      "executionSeconds": 34.678,
+      "startedAtMilliseconds": 1789094600389,
+      "endedAtMilliseconds": 1789094635067,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-api/lossless-decode/history.json"
+      ]
+    },
+    {
+      "promptId": "61c32769-6a2e-4024-9b15-e740e42e41d5",
+      "category": "state-or-decode",
+      "status": "success",
+      "executionSeconds": 0.591,
+      "startedAtMilliseconds": 1789094822368,
+      "endedAtMilliseconds": 1789094822959,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-api/lossless-audio/history.json"
+      ]
+    },
+    {
+      "promptId": "fae156e6-e52d-4590-8279-d536abc7bfd2",
+      "category": "state-or-decode",
+      "status": "success",
+      "executionSeconds": 23.986,
+      "startedAtMilliseconds": 1789094975695,
+      "endedAtMilliseconds": 1789094999681,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-api/cumulative-output-contract/history.json"
+      ]
+    },
+    {
+      "promptId": "d26829ab-bd94-45d3-a8e9-bd2c9695cdbc",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 78.289,
+      "startedAtMilliseconds": 1789095813919,
+      "endedAtMilliseconds": 1789095892208,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-four/lamp-0/history.json"
+      ]
+    },
+    {
+      "promptId": "cbaace48-3d38-4854-b746-b8954b21c0d2",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 110.415,
+      "startedAtMilliseconds": 1789095899800,
+      "endedAtMilliseconds": 1789096010215,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-four/lamp-1/history.json"
+      ]
+    },
+    {
+      "promptId": "c49acda5-317c-4efb-b926-6cd9b30d0c24",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 120.494,
+      "startedAtMilliseconds": 1789096015824,
+      "endedAtMilliseconds": 1789096136318,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-four/lamp-2/history.json"
+      ]
+    },
+    {
+      "promptId": "366d5a1c-2002-4843-ab92-62442c54eecf",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 129.386,
+      "startedAtMilliseconds": 1789096141999,
+      "endedAtMilliseconds": 1789096271385,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-four/lamp-3/history.json"
+      ]
+    },
+    {
+      "promptId": "579ef23a-59d2-45ab-a6ba-f1a3979b03ee",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 127.232,
+      "startedAtMilliseconds": 1789098077266,
+      "endedAtMilliseconds": 1789098204498,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-corrected/lamp-0/history.json"
+      ]
+    },
+    {
+      "promptId": "5a5ac084-cb7d-48a3-bc07-3fa0e80806f8",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 169.823,
+      "startedAtMilliseconds": 1789098208163,
+      "endedAtMilliseconds": 1789098377986,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-corrected/lamp-1/history.json"
+      ]
+    },
+    {
+      "promptId": "21b9174c-12e2-4d18-83e9-927be915738d",
+      "category": "state-or-decode",
+      "status": "error",
+      "executionSeconds": 0.014,
+      "startedAtMilliseconds": 1789099115664,
+      "endedAtMilliseconds": 1789099115678,
+      "sources": [
+        ".tmp/h3-evaluation/runtime-core-fingerprint/rejection-history.json"
+      ]
+    },
+    {
+      "promptId": "cd48fe91-2cb1-4f63-a06e-b42da9f77503",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 125.067,
+      "startedAtMilliseconds": 1789099291777,
+      "endedAtMilliseconds": 1789099416844,
+      "sources": [
+        ".tmp/h3-evaluation/runtime-core-fingerprint/base20/history.json"
+      ]
+    },
+    {
+      "promptId": "3a0dc479-4840-4907-8fda-f214c8a99eef",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 77.869,
+      "startedAtMilliseconds": 1789099419034,
+      "endedAtMilliseconds": 1789099496903,
+      "sources": [
+        ".tmp/h3-evaluation/runtime-core-fingerprint/pdd8/history.json"
+      ]
+    },
+    {
+      "promptId": "e9512ca1-a39f-4387-8e25-fbf638d264d3",
+      "category": "state-or-decode",
+      "status": "success",
+      "executionSeconds": 61.169,
+      "startedAtMilliseconds": 1789099709063,
+      "endedAtMilliseconds": 1789099770232,
+      "sources": [
+        ".tmp/h3-evaluation/runtime-core-fingerprint/restart-history.json"
+      ]
+    },
+    {
+      "promptId": "08fc4c73-bcb9-47a9-a7ef-8b111c58b9e8",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 166.244,
+      "startedAtMilliseconds": 1789101131836,
+      "endedAtMilliseconds": 1789101298080,
+      "sources": [
+        ".tmp/h3-evaluation/director-native-portable/current/history.json"
+      ]
+    },
+    {
+      "promptId": "c68869a2-b5ef-499a-a63c-6ec37bb8c42f",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 73.902,
+      "startedAtMilliseconds": 1789102163141,
+      "endedAtMilliseconds": 1789102237043,
+      "sources": [
+        ".tmp/h3-evaluation/endpoint-guide-pair/pdd8/history.json"
+      ]
+    },
+    {
+      "promptId": "b81a39b4-762f-4174-996d-391071fcc1ed",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 130.371,
+      "startedAtMilliseconds": 1789102239048,
+      "endedAtMilliseconds": 1789102369419,
+      "sources": [
+        ".tmp/h3-evaluation/endpoint-guide-pair/base20/history.json"
+      ]
+    },
+    {
+      "promptId": "0680f1be-b02d-4746-a0e5-5fe2f32162fc",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 219.419,
+      "startedAtMilliseconds": 1789102856944,
+      "endedAtMilliseconds": 1789103076363,
+      "sources": [
+        ".tmp/h3-evaluation/endpoint-guide-768-pair/pdd8/history.json"
+      ]
+    },
+    {
+      "promptId": "771897a7-615b-4f8c-a508-c80cc1686c5f",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 479.152,
+      "startedAtMilliseconds": 1789103078346,
+      "endedAtMilliseconds": 1789103557498,
+      "sources": [
+        ".tmp/h3-evaluation/endpoint-guide-768-pair/base20/history.json"
+      ]
+    },
+    {
+      "promptId": "60cbc3bf-c7dd-4d1a-9406-99f52b2db860",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 303.031,
+      "startedAtMilliseconds": 1789104315630,
+      "endedAtMilliseconds": 1789104618661,
+      "sources": [
+        ".tmp/h3-evaluation/endpoint-guide-768-continuation/pdd8/history.json"
+      ]
+    },
+    {
+      "promptId": "4151136c-408d-4c78-bcdb-dfe9ab9503cb",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 302.075,
+      "startedAtMilliseconds": 1789105379347,
+      "endedAtMilliseconds": 1789105681422,
+      "sources": [
+        ".tmp/h3-evaluation/endpoint-guide-768-match-cut/pdd8/history.json"
+      ]
+    }
+  ],
+  "uniqueTasks": 35,
+  "duplicateCopiesExcluded": 8,
+  "recordedExecutionSeconds": 6228.077,
+  "missingTimingTasks": 0,
+  "failedTasks": 1,
+  "qualifiedFilmSeconds": null,
+  "endToEndCost": null,
+  "limitations": [
+    "Only histories present under the explicit roots are counted; this is not all project work.",
+    "Importing or copying an existing task does not count as another inference.",
+    "Pre-submission failures without Comfy task IDs, image generation, music, review, queueing and pricing are outside this ledger.",
+    "No quality acceptance or end-to-end speedup is inferred from task success."
+  ]
+}

@@ -1,9 +1,11 @@
+import type { DirectorResource, DirectorSyncSnapshot } from "@/types/director-sync";
 import { serverRequest, uploadServerFile, type CreativeAssetGenerationPreview, type ServerGeneration } from "./server";
-import type { DirectorAssetDetail, DirectorDocument, DirectorLogicalDocument, DirectorProject, DirectorRender, DirectorScreenplayBreakdown, DirectorSequence, DirectorSource, DirectorState, DirectorTimeline, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
+import type { DirectorPlaybackPlan, DirectorAssetDetail, DirectorDocument, DirectorLogicalDocument, DirectorProject, DirectorRender, DirectorScreenplayBreakdown, DirectorSequence, DirectorSource, DirectorState, DirectorTimeline, DirectorValidation, DirectorVideoSegment, DirectorVideoSegmentPreflight, DirectorWorkspace, H3QualityPreset } from "@/types/director";
 import { serverApiUrl } from "./server";
 
 const enc = encodeURIComponent;
 export const directorApi = {
+    sync: (projectId: string, resources: DirectorResource[], refresh = false) => serverRequest<DirectorSyncSnapshot>(`/director/projects/${enc(projectId)}/sync?resources=${resources.join(",")}${refresh ? "&refresh=1" : ""}`),
     projects: () => serverRequest<DirectorProject[]>("/projects?kind=director"),
     createProject: (title: string, id: string) => serverRequest<DirectorProject>("/projects", { method: "POST", body: JSON.stringify({ id, kind: "director", title }) }),
     project: (id: string) => serverRequest<DirectorProject>(`/projects/${enc(id)}`),
@@ -44,6 +46,7 @@ export const directorApi = {
     generateStoryboard: (id: string, revision: number) => serverRequest<Record<string, unknown>>(`/director/video-segments/${enc(id)}/storyboard/generate`, { method: "POST", body: JSON.stringify({ revision }) }),
     generateVideoSegment: (id: string, revision: number, qualityPreset: H3QualityPreset) => serverRequest<Record<string, unknown>>(`/director/video-segments/${enc(id)}/generate`, { method: "POST", body: JSON.stringify({ revision, qualityPreset }) }),
     deleteVideoSegment: (id: string) => serverRequest(`/director/video-segments/${enc(id)}`, { method: "DELETE" }),
+    playbackPlan: (projectId: string) => serverRequest<DirectorPlaybackPlan>(`/director/projects/${enc(projectId)}/playback-plan`),
     updateTimeline: (projectId: string, value: Pick<DirectorTimeline, "revision" | "payload">) => serverRequest<DirectorTimeline>(`/director/projects/${enc(projectId)}/timeline`, { method: "PUT", body: JSON.stringify(value) }),
     renders: (projectId: string) => serverRequest<DirectorRender[]>(`/director/projects/${enc(projectId)}/renders`),
     createRender: (projectId: string, timelineRevision: number) => serverRequest<DirectorRender>(`/director/projects/${enc(projectId)}/renders`, { method: "POST", body: JSON.stringify({ timelineRevision }) }),

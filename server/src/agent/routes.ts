@@ -1,5 +1,6 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
+import { readCodexStatus, saveCodexSettings, startCodexLogin, logoutCodex, testCodexConnection } from "./codex/settings.js";
 import { requireAdmin } from "../auth.js";
 import {
     cancelRunByAdmin,
@@ -19,6 +20,8 @@ import {
     respondClientAction,
     saveAgentSettings,
     sendMessage,
+    getSessionCodexModels,
+    updateSessionCodexOptions,
     steerQueuedMessage,
     retryQueuedMessage,
     deleteQueuedMessage,
@@ -33,18 +36,20 @@ export const agentAdminRouter = Router();
 
 agentRouter.get("/config", route(() => {
     const settings = getAgentSettings();
-    return { ready: settings.ready, modelName: settings.modelName || "", providerName: settings.providerName || "", protocolVersion: 3, storageVersion: 2 };
+    return { ready: settings.ready, modelName: settings.modelName || "", providerName: settings.providerName || "", protocolVersion: 4, storageVersion: 2 };
 }));
-agentRouter.get("/projects/:projectId/capabilities", route((req) => getAgentCapabilities(req.user.id, routeParam(req, "projectId"))));
+agentRouter.get("/projects/:projectId/capabilities", asyncRoute((req) => getAgentCapabilities(req.user.id, routeParam(req, "projectId"))));
 agentRouter.get("/projects/:projectId/references", route((req) => listAgentReferences(req.user.id, routeParam(req, "projectId"), { q: req.query.q === undefined ? undefined : String(req.query.q), limit: optionalPositiveInt(req.query.limit) })));
 agentRouter.get("/projects/:projectId/conversation", route((req) => getConversation(req.user.id, routeParam(req, "projectId"), optionalId(req.query.sessionId))));
+agentRouter.get("/sessions/:id/codex-models", asyncRoute((req) => getSessionCodexModels(req.user.id, routeParam(req, "id"))));
+agentRouter.put("/sessions/:id/codex-options", asyncRoute((req) => updateSessionCodexOptions(req.user.id, routeParam(req, "id"), req.body)));
 agentRouter.get("/sessions/:id/events", route((req) => getSessionEvents(req.user.id, routeParam(req, "id"), optionalPositiveInt(req.query.beforeSeq), optionalPositiveInt(req.query.limit))));
 agentRouter.get("/sessions/:id/turn-index", route((req) => getTurnIndex(req.user.id, routeParam(req, "id"))));
 agentRouter.get("/sessions/:id/queued-messages", route((req) => listQueuedMessages(req.user.id, routeParam(req, "id"))));
 agentRouter.post("/sessions/:id/queued-messages/:messageId/steer", asyncRoute((req) => steerQueuedMessage(req.user.id, routeParam(req, "id"), routeParam(req, "messageId"))));
 agentRouter.post("/sessions/:id/queued-messages/:messageId/retry", route((req) => retryQueuedMessage(req.user.id, routeParam(req, "id"), routeParam(req, "messageId"))));
 agentRouter.delete("/sessions/:id/queued-messages/:messageId", route((req) => deleteQueuedMessage(req.user.id, routeParam(req, "id"), routeParam(req, "messageId"))));
-agentRouter.post("/projects/:projectId/sessions", route((req) => createSession(req.user.id, routeParam(req, "projectId"), String(req.body?.title || "新对话")), 201));
+agentRouter.post("/projects/:projectId/sessions", route((req) => createSession(req.user.id, routeParam(req, "projectId"), String(req.body?.title || "新对话"), z.enum(["builtin", "codex"]).default("builtin").parse(req.body?.engine)), 201));
 agentRouter.post("/projects/:projectId/messages", asyncRoute((req) => sendMessage(req.user.id, routeParam(req, "projectId"), req.body), 202));
 agentRouter.get("/projects/:projectId/stream", (req, res, next) => {
     try {
@@ -76,6 +81,12 @@ agentRouter.delete("/sessions/:id", route((req) => deleteSession(req.user.id, ro
 agentRouter.post("/sessions/:id/cancel", asyncRoute((req) => cancelSession(req.user.id, routeParam(req, "id"))));
 agentRouter.post("/sessions/:id/approval", route((req) => respondDecision(req.user.id, routeParam(req, "id"), z.object({ decision: z.enum(["approved", "rejected"]), scope: z.enum(["once", "session", "project"]).optional(), comment: z.string().max(20_000).optional(), answers: z.record(z.string(), z.string()).optional(), proposalEdits: z.unknown().optional() }).parse(req.body))));
 agentRouter.post("/sessions/:id/client-result", route((req) => respondClientAction(req.user.id, routeParam(req, "id"), z.object({ actionId: z.string(), ok: z.boolean(), data: z.unknown().optional(), error: z.string().max(2000).optional() }).parse(req.body))));
+
+agentAdminRouter.get("/ai/codex", requireAdmin, asyncRoute(() => readCodexStatus()));
+agentAdminRouter.put("/ai/codex", requireAdmin, route((req) => saveCodexSettings(req.body)));
+agentAdminRouter.post("/ai/codex/login", requireAdmin, asyncRoute(() => startCodexLogin()));
+agentAdminRouter.post("/ai/codex/logout", requireAdmin, asyncRoute(() => logoutCodex()));
+agentAdminRouter.post("/ai/codex/test", requireAdmin, asyncRoute(() => testCodexConnection()));
 
 agentAdminRouter.get("/ai/agent", requireAdmin, route(() => getAgentSettings()));
 agentAdminRouter.put("/ai/agent", requireAdmin, route((req) => saveAgentSettings(req.body)));

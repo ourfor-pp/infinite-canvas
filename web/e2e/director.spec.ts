@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const now = new Date().toISOString();
 const state = {
@@ -127,6 +131,7 @@ async function mockApi(page: Page, directorState: typeof state = state) {
         const path = url.pathname.replace(/^\/api/, "");
         let data: unknown = [];
         if (path === "/director/projects/director-e2e") data = directorState;
+        else if (path === "/director/projects/director-e2e/playback-plan") data = { timelineRevision: directorState.timeline.revision, segments: directorState.videoSegments.map((segment) => ({ segmentId: segment.id, revision: segment.revision, fileId: segment.payload.videoFileId, trimIn: 0, duration: segment.payload.durationSeconds })) };
         else if (path === "/director/projects/director-e2e/validation") data = { valid: true, diagnostics: [], checkedAt: now };
         else if (path === "/director/projects/director-e2e/logical-documents/story") data = { kind: "story", revision: 2, content: directorState.documents[0].content, parts: [{ path: "story/index.md", id: "story", name: "故事", order: 0, content: directorState.documents[0].content, hash: "story-hash", revision: 2, index: true }] };
         else if (path === "/director/projects/director-e2e/logical-documents/script") data = { kind: "script", revision: 2, content: directorState.documents[1].content, parts: [{ path: "screenplay/index.md", id: "script", name: "剧本", order: 0, content: directorState.documents[1].content, hash: "script-hash", revision: 2, index: true }] };
@@ -141,7 +146,7 @@ async function mockApi(page: Page, directorState: typeof state = state) {
         else if (path === "/director/assets/asset-1/generation-preview") data = { prompt: assetDetail.primaryVisual.prompt, references: [{ fileId: "wardrobe-image", kind: "image", label: "风衣参考", purpose: "reference_input", source: "input" }], model: { name: "测试图片模型" }, params: { size: "2560x1440" } };
         else if (path === "/director/assets/asset-1/generate" && request.method() === "POST") data = { id: "generation-1", status: "queued", kind: "image", progress: 0, modelId: "gpt-image-2", request: { params: { __directorAssetTarget: request.postDataJSON() } }, createdAt: now, updatedAt: now };
         else if (path === "/projects/director-e2e/visual-styles") data = [style];
-        else if (path === "/agent/config") data = { ready: true, modelName: "Director Agent", providerName: "Test", protocolVersion: 3, storageVersion: 2 };
+        else if (path === "/agent/config") data = { ready: true, modelName: "Director Agent", providerName: "Test", protocolVersion: 4, storageVersion: 2 };
         else if (path === "/agent/projects/director-e2e/capabilities")
             data = {
                 sceneId: "director",
@@ -410,6 +415,64 @@ test("总播放器切换到连续视频段后保持播放", async ({ page }) => 
     await page.getByTestId("director-program-frame").locator("video").dispatchEvent("ended");
     await expect(page.getByText(/当前片段 02\/2 · 站台追逐/)).toBeVisible();
     await expect(page.getByRole("button", { name: "暂停连续预览" })).toBeVisible();
+});
+
+test("累计视频真实播放跨段不回零，时间线使用实际媒体时长", async ({ page }) => {
+    const directory = mkdtempSync(join(tmpdir(), "h3-playback-"));
+    const videoPath = join(directory, "cumulative.mp4");
+    try {
+        execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=160x90:r=24", "-f", "lavfi", "-i", "anullsrc=r=32000:cl=stereo", "-frames:v", "243", "-t", "10.125", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", videoPath]);
+        const directorState = structuredClone(state);
+        Object.assign(directorState.videoSegments[0].payload, { durationSeconds: 5, videoDurationSeconds: 124 / 24 });
+        const second = { ...structuredClone(directorState.videoSegments[0]), id: "segment-2", title: "灯旁续段", position: 1 };
+        Object.assign(second.payload, { videoFileId: "video-2", videoDurationSeconds: 119 / 24 });
+        directorState.videoSegments.push(second);
+        directorState.timeline.payload.segmentOrder = ["segment-1", "segment-2"];
+        await mockApi(page, directorState);
+        await page.route("**/api/director/projects/director-e2e/playback-plan", (route) => route.fulfill({ json: { data: { timelineRevision: 1, segments: [
+            { segmentId: "segment-1", revision: 1, fileId: "cumulative-real", trimIn: 0, duration: 124 / 24 },
+            { segmentId: "segment-2", revision: 1, fileId: "cumulative-real", trimIn: 124 / 24, duration: 119 / 24 },
+        ] } } }));
+        await page.route("**/api/director/projects/director-e2e/renders", (route) => route.fulfill({ json: { data: [{ id: "render-preview", projectId: "director-e2e", status: "succeeded", progress: 1, outputFileId: "cumulative-real" }] } }));
+        const videoBytes = readFileSync(videoPath);
+        await page.route("**/api/files/cumulative-real/content", (route) => {
+            const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers().range || "");
+            const start = Number(range?.[1] || 0), end = range?.[2] ? Math.min(Number(range[2]), videoBytes.length - 1) : videoBytes.length - 1;
+            return route.fulfill({ status: range ? 206 : 200, contentType: "video/mp4", body: videoBytes.subarray(start, end + 1), headers: { "Accept-Ranges": "bytes", "Content-Length": String(end - start + 1), ...(range ? { "Content-Range": `bytes ${start}-${end}/${videoBytes.length}` } : {}) } });
+        });
+        await page.goto("/__director-test.html");
+        await page.getByRole("button", { name: "视频创作台", exact: true }).click();
+        const video = page.getByTestId("director-program-frame").locator("video");
+        await expect(video).toHaveAttribute("src", /cumulative-real/);
+        await expect(page.getByRole("slider", { name: "全片播放进度" })).toHaveAttribute("max", "10.125");
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.readyState)).toBeGreaterThanOrEqual(2);
+        await page.getByRole("button", { name: "播放连续预览" }).click();
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) => !element.paused)).toBe(true);
+        await video.evaluate((element: HTMLVideoElement) => { element.currentTime = 5.05; });
+        await expect(page.getByText(/当前片段 02\/2 · 灯旁续段/)).toBeVisible();
+        expect(await video.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThan(124 / 24);
+        await expect(page.getByRole("button", { name: "暂停连续预览" })).toBeVisible();
+        await page.getByRole("button", { name: "暂停连续预览" }).click();
+        await page.getByRole("button", { name: "上一个可播放片段" }).click();
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeLessThan(0.1);
+        await page.getByRole("button", { name: "下一个可播放片段" }).click();
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeCloseTo(124 / 24, 2);
+        await page.getByRole("button", { name: "播放连续预览" }).click();
+        await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false);
+        await page.getByRole("button", { name: "播放成片", exact: true }).click();
+        const film = page.getByLabel("完整混音成片", { exact: true });
+        await expect(film).toHaveAttribute("src", /cumulative-real/);
+        await expect.poll(() => film.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false);
+        expect(await video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(true);
+        await page.keyboard.press("Escape");
+        await expect(film).toHaveCount(0);
+        expect(await video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(true);
+        await page.getByRole("button", { name: "播放成片", exact: true }).click();
+        await expect(film).toBeVisible();
+        await expect.poll(() => film.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeLessThan(2);
+        await page.keyboard.press("Escape");
+        await expect(film).toHaveCount(0);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 async function mockWorkflow(page: Page) {

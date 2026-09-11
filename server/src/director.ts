@@ -1,3 +1,5 @@
+import { markDirectorProjectChanged, type DirectorResource } from "./director-sync.js";
+import { screenplayScene, screenplayReviewIssue } from "./director-file-contract.js";
 import { h3AudioReferencesInput } from "./h3-prompt.js";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
@@ -42,19 +44,6 @@ const workspacePatch = z.object({
     }).partial().optional(),
 });
 const documentPatch = z.object({ revision: z.number().int().positive(), content: z.string().max(20_000_000).optional() });
-const screenplayBeat = z.object({ id: id, summary: z.string().trim().min(1).max(2_000), estimatedSeconds: z.number().int().min(1).max(3_600) });
-const screenplayScene = z.object({
-    id, heading: z.string().trim().min(1).max(500), title: z.string().trim().min(1).max(300),
-    location: z.string().trim().min(1).max(300), timeOfDay: z.string().trim().min(1).max(100),
-    interiorExterior: z.enum(["interior", "exterior", "mixed"]), characterNames: z.array(z.string().trim().min(1).max(200)).max(100),
-    propNames: z.array(z.string().trim().min(1).max(200)).max(100), openingState: z.string().max(2_000), endingState: z.string().max(2_000),
-    dramaticTurn: z.string().max(2_000), requiredDialogue: z.array(z.string().trim().min(1).max(2_000)).max(100),
-    beats: z.array(screenplayBeat).min(1).max(100), estimatedSeconds: z.number().int().min(1).max(86_400),
-});
-const screenplayReviewIssue = z.object({
-    type: z.enum(["duration", "repetition", "causality", "scene_function", "coverage"]),
-    sceneIds: z.array(id).max(100), summary: z.string().trim().min(1).max(2_000), suggestion: z.string().trim().min(1).max(2_000),
-});
 const screenplayBreakdownPatch = z.object({
     revision: z.number().int().positive(), scriptRevision: z.number().int().positive(),
     scenes: z.array(screenplayScene).max(1_000), reviewIssues: z.array(screenplayReviewIssue).max(500),
@@ -84,6 +73,30 @@ export function getDirectorState(userId: string, projectId: string) {
         ORDER BY sequence.position, shot.position, shot.created_at`).all(userId, projectId) as ShotRow[];
     const timeline = db.prepare("SELECT * FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
     return { activeStyleId: activeStyleId(userId, projectId), workspace: workspaceResponse(workspace), documents: documents.map(documentResponse), screenplayBreakdown: screenplayBreakdownResponse(screenplayBreakdown, documents.find((item) => item.kind === "script")?.revision || 0), sources: sources.map(sourceResponse), sequences: sequences.map(sequenceResponse), videoSegments: shots.map(videoSegmentResponse), timeline: timelineResponse(timeline) };
+}
+
+// Resource projections keep an asset/task update from re-reading large story bodies.
+export function getDirectorStateProjection(userId: string, projectId: string, resources: readonly DirectorResource[]): Partial<ReturnType<typeof getDirectorState>> {
+    const state: Partial<ReturnType<typeof getDirectorState>> = {};
+    if (resources.includes("project") || resources.includes("direction")) {
+        state.workspace = workspaceResponse(db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow);
+        state.activeStyleId = activeStyleId(userId, projectId);
+    }
+    const kinds = (["story", "script"] as const).filter((kind) => resources.includes(kind));
+    if (kinds.length) state.documents = (db.prepare(`SELECT * FROM director_documents WHERE user_id=? AND project_id=? AND kind IN (${kinds.map(() => "?").join(",")}) ORDER BY kind`).all(userId, projectId, ...kinds) as DocumentRow[]).map(documentResponse);
+    if (resources.includes("script")) {
+        const row = db.prepare("SELECT * FROM director_screenplay_breakdowns WHERE user_id=? AND project_id=?").get(userId, projectId) as ScreenplayBreakdownRow;
+        const script = db.prepare("SELECT revision FROM director_documents WHERE user_id=? AND project_id=? AND kind='script'").get(userId, projectId) as { revision: number };
+        state.screenplayBreakdown = screenplayBreakdownResponse(row, script.revision);
+    }
+    if (resources.includes("sources")) state.sources = (db.prepare("SELECT * FROM director_sources WHERE user_id=? AND project_id=? ORDER BY updated_at DESC").all(userId, projectId) as SourceRow[]).map(sourceResponse);
+    if (resources.includes("segments")) {
+        state.sequences = (db.prepare("SELECT * FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position,created_at").all(userId, projectId) as SequenceRow[]).map(sequenceResponse);
+        state.videoSegments = (db.prepare(`SELECT shot.* FROM director_shots shot JOIN director_sequences sequence ON sequence.id=shot.sequence_id
+            WHERE shot.user_id=? AND shot.project_id=? ORDER BY sequence.position,shot.position,shot.created_at`).all(userId, projectId) as ShotRow[]).map(videoSegmentResponse);
+    }
+    if (resources.includes("timeline")) state.timeline = timelineResponse(db.prepare("SELECT * FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow);
+    return state;
 }
 
 export function getDirectorAgentOverview(userId: string, projectId: string) {
@@ -666,6 +679,12 @@ export const createDirectorVideoSegment = createDirectorShot;
 export const updateDirectorVideoSegment = updateDirectorShot;
 export const deleteDirectorVideoSegment = deleteDirectorShot;
 function chunkResponse(row: Record<string, unknown>) { return { id: row.id, sourceId: row.source_id, ordinal: row.ordinal, heading: row.heading, content: row.content, summary: row.summary, status: row.status, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
-function publish(userId: string, type: string, projectId: string, data: unknown) { emitDirectorUpdate(userId, { type, projectId, data }); return data; }
+function publish(userId: string, type: string, projectId: string, data: unknown) {
+    const resources: DirectorResource[] = type === "workspace" ? ["project", "direction", "validation"]
+        : type === "document.story" ? ["story", "validation"] : type === "document.script" || type === "screenplay-breakdown" ? ["script", "segments", "validation"]
+        : type === "source" ? ["sources", "validation"] : type === "timeline" ? ["timeline"] : ["segments", "timeline", "validation"];
+    markDirectorProjectChanged(userId, projectId, resources);
+    emitDirectorUpdate(userId, { type, projectId, data }); return data;
+}
 function conflict(name: string, current: unknown): never { throw directorError(409, "DIRECTOR_CONFLICT", `${name}已在其他页面更新`, { current }); }
 function directorError(statusCode: number, code: string, message: string, details?: unknown) { return Object.assign(new Error(message), { status: statusCode, code, details }); }

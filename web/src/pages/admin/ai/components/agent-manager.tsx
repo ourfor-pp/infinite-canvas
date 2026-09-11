@@ -4,6 +4,7 @@ import { Bot, RefreshCw, Wifi } from "lucide-react";
 import { useEffect } from "react";
 
 import { agentApi } from "@/services/api/agent";
+import { CodexManager } from "./codex-manager";
 import { serverApi } from "@/services/api/server";
 
 export function AgentManager() {
@@ -27,6 +28,7 @@ export function AgentManager() {
     });
 
     return <section className="space-y-5">
+        <CodexManager />
         <div className="max-w-2xl rounded-xl border border-stone-200 bg-background p-5 dark:border-stone-800">
             <div className="mb-4 flex items-center gap-2"><Bot className="size-4" /><h3 className="font-semibold">运行配置</h3>{settings?.ready ? <Tag color="green">Agent 可用</Tag> : <Tag color="orange">Agent 待配置</Tag>}{settings?.mediaReady ? <Tag color="blue">媒体理解可用</Tag> : <Tag>媒体理解未配置</Tag>}{settings?.ready ? <Tag>工具搜索 {settings.toolSearchMode}</Tag> : null}</div>
             <Form form={form} layout="vertical">

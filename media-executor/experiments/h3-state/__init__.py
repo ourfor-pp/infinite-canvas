@@ -20,6 +20,7 @@ class H3SaveContinuationState:
     CATEGORY = 'experimental/H3 continuation'
 
     def save(self, latent, context):
+        _verify_runtime(json.loads(context))
         if set(latent) != {'samples'} or not isinstance(latent['samples'], NestedTensor):
             raise ValueError('Only completed native H3 AV samples are supported')
         if len(latent['samples'].tensors) != 2:
@@ -42,6 +43,7 @@ class H3LoadContinuationState:
     CATEGORY = 'experimental/H3 continuation'
 
     def load(self, state_name, expected_context):
+        _verify_runtime(json.loads(expected_context))
         root = Path(folder_paths.get_input_directory()).resolve()
         if Path(state_name).name != state_name or not state_name.endswith('.safetensors'):
             raise ValueError('State must be a filename inside the input directory')
@@ -74,3 +76,57 @@ class H3NewAVSegment:
 NODE_CLASS_MAPPINGS = {'H3SaveContinuationState': H3SaveContinuationState,
                        'H3LoadContinuationState': H3LoadContinuationState,
                        'H3NewAVSegment': H3NewAVSegment}
+
+# Normal ComfyUI extension route. No node or framework implementation is patched.
+import asyncio
+import inspect
+from aiohttp import web
+from server import PromptServer
+from . import runtime
+
+_identity_task = None
+_initial_identity = None
+_NATIVE_NODES = ('H3SaveContinuationState', 'H3LoadContinuationState', 'H3NewAVSegment',
+                 'MiniMaxH3GuidedContinuationWindow', 'MiniMaxH3LatentTailGuide', 'MiniMaxH3AppendContinuation')
+
+
+def _runtime_identity():
+    global _initial_identity
+    import nodes
+    if any(name not in nodes.NODE_CLASS_MAPPINGS for name in _NATIVE_NODES):
+        raise ValueError('Native H3 node set is incomplete')
+    implementations = [__file__, state.__file__, runtime.__file__, inspect.getfile(NestedTensor), inspect.getfile(nodes.NODE_CLASS_MAPPINGS["MiniMaxH3ReferenceToVideo"]), folder_paths.get_full_path_or_raise("text_encoders", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors")]
+    implementations += [inspect.getfile(nodes.NODE_CLASS_MAPPINGS[name]) for name in _NATIVE_NODES]
+    implementations += runtime.comfy_sources(Path(folder_paths.__file__).parent / 'comfy')
+    identity = runtime.identify(
+        folder_paths.get_full_path_or_raise('diffusion_models', 'minimax_h3_ref2va_pruned_int8_convrot.safetensors'),
+        folder_paths.get_full_path_or_raise('vae', 'minimax_h3_video_vae_fp16.safetensors'),
+        folder_paths.get_full_path_or_raise('vae', 'minimax_h3_audio_vae_fp32.safetensors'), implementations)
+    if _initial_identity is not None and identity != _initial_identity:
+        raise ValueError('Runtime files changed; restart ComfyUI before generating')
+    _initial_identity = identity
+    return identity
+
+
+def _verify_runtime(context):
+    identity = _runtime_identity()
+    if any(context.get(key) != identity[key] for key in ('modelRevision', 'videoVaeRevision', 'audioVaeRevision')):
+        raise ValueError('H3 state context does not match the active runtime')
+
+
+@PromptServer.instance.routes.get('/h3/runtime')
+async def h3_runtime_identity(request):
+    global _identity_task
+    if _identity_task is None:
+        _identity_task = asyncio.create_task(asyncio.to_thread(_runtime_identity))
+        return web.json_response({'ready': False}, status=202)
+    if not _identity_task.done():
+        return web.json_response({'ready': False}, status=202)
+    try:
+        _identity_task.result()
+        # Check current file identities on every response; unchanged hashes are cached.
+        current = await asyncio.to_thread(_runtime_identity)
+    except Exception:
+        _identity_task = None
+        return web.json_response({'ready': False, 'error': 'H3 runtime identity unavailable'}, status=503)
+    return web.json_response({'ready': True, **current})

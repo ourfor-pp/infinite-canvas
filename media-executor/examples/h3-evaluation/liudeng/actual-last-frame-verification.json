@@ -1,0 +1,20 @@
+{
+  "source": ".tmp/h3-evaluation/endpoint-guide-768-match-cut/pdd8/cumulative.mp4",
+  "sourceSha256": "8817f25292c9e67b19c4708b5a59a8a707528d8c5f55029617625c3e5573b072",
+  "frames": 379,
+  "expectedFrameIndex": 378,
+  "hashes": {
+    "old": "c4886bf894bbb9e63cd6bcd1764d694aa86219db5ab58a98ba030e15b6f59b6e",
+    "fixed": "c1b53b0e07f33aa8fd7ed64f75916a72cd4c56cda25d3019d260c1e841749afb",
+    "reference": "c1b53b0e07f33aa8fd7ed64f75916a72cd4c56cda25d3019d260c1e841749afb"
+  },
+  "fixedMatchesTrueLastFrame": true,
+  "oldMatchesTrueLastFrame": false,
+  "regressionBefore": "failed: final white frame was replaced by earlier blue frame",
+  "regressionAfter": {
+    "passed": 2,
+    "log": ".tmp/h3-evaluation/last-frame-after.log"
+  },
+  "serverTypecheck": "passed",
+  "scope": "Extraction after24fps normalization; native latent generation and film quality acceptance unchanged."
+}

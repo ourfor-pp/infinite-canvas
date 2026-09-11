@@ -37,6 +37,7 @@ export type CreativeAssetVariant = {
     fileId: string;
     label: string;
     prompt: string;
+    contentVersion?: string;
     generationId?: string;
     usage?: string;
     transcript?: string;

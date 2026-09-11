@@ -123,6 +123,22 @@ describe("Agent 助手回合", () => {
         await act(async () => root.unmount()); holder.remove();
     });
 
+    it("Codex 启动和工具完成后的空档使用通用状态，原生看图时显示真实活动", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const started = { sessionId: "session-1", seq: 2, runId: "run-1", kind: "run_state" as const, payload: { state: "running", content: "Codex 已开始处理" }, createdAt: new Date().toISOString() };
+        const tool = { ...started, seq: 3, kind: "tool_call" as const, payload: { toolId: "view-1", toolName: "查看图片", input: "primary.png" } };
+        const result = { ...started, seq: 4, kind: "tool_result" as const, payload: { toolId: "view-1", toolName: "查看图片", output: "primary.png" } };
+        for (const [events, text] of [
+            [[started], "模型正在处理中…"],
+            [[started, tool], "查看图片执行中"],
+            [[started, { ...tool, result }], "模型正在处理中…"],
+        ] as const) {
+            await act(async () => root.render(<AssistantRound events={[...events]} theme={canvasThemes.light} status="running" />));
+            expect(holder.querySelector(".agent-status-pill")?.textContent).toBe(text);
+        }
+        await act(async () => root.unmount()); holder.remove();
+    });
+
     it("运行中用最近思考替代瞬时启动状态", async () => {
         const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
         const events = [
@@ -144,6 +160,32 @@ describe("Agent 助手回合", () => {
         expect(button).not.toBeNull();
         expect(button?.className).toContain("agent-status-pill-button");
         expect(button?.getAttribute("title")).toBeNull();
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("工具步骤合并前置思考，耗时只在展开卡片中显示，详情可独立收起", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const base = { sessionId: "session-1", runId: "run-1", createdAt: "2026-09-11T00:00:00.000Z" };
+        const result = { ...base, seq: 5, kind: "tool_result" as const, payload: { toolId: "tool-1", output: "读取成功", finishedAt: "2026-09-11T00:00:02.000Z" } };
+        const events = [
+            { ...base, seq: 2, kind: "thinking" as const, payload: { text: "核对人物" } },
+            { ...base, seq: 3, kind: "thinking" as const, payload: { text: "检查参考图" } },
+            { ...base, seq: 4, kind: "tool_call" as const, payload: { toolId: "tool-1", toolName: "读取文件", input: { path: "character.md" } }, result },
+        ];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="completed" />));
+        await act(async () => (holder.querySelector(".agent-process-toggle") as HTMLButtonElement).click());
+        expect(holder.querySelectorAll(".agent-process-step-toggle")).toHaveLength(1);
+        const step = holder.querySelector(".agent-process-step-toggle") as HTMLButtonElement;
+        expect(step.textContent).toContain("#1 · 已思考 · 读取文件");
+        expect(step.textContent).not.toContain("2秒");
+        expect(step.firstElementChild?.tagName.toLowerCase()).toBe("svg");
+        await act(async () => step.click());
+        expect(holder.textContent).toContain("完成 · 2秒");
+        expect(holder.textContent).toContain("输入参数");
+        expect(holder.textContent).toContain("输出内容");
+        await act(async () => (holder.querySelector('[aria-label="收起工具内容"]') as HTMLButtonElement).click());
+        expect(holder.textContent).not.toContain("输入参数");
+        expect(step.getAttribute("aria-expanded")).toBe("true");
         await act(async () => root.unmount()); holder.remove();
     });
 
@@ -227,8 +269,11 @@ describe("Agent 助手回合", () => {
         const artifact = (seq: number) => ({ sessionId: "session-1", seq, runId: "run-1", kind: "artifact" as const, payload: { fileId: "file-1", title: "故事板", mimeType: "image/png", url: "/files/file-1/content" }, createdAt: new Date().toISOString() });
         await act(async () => root.render(<AssistantRound events={[artifact(2), artifact(3)]} theme={canvasThemes.light} status="completed" />));
         expect(holder.querySelectorAll("img[alt='故事板']")).toHaveLength(1);
+        expect(holder.querySelector("img[alt='故事板']")?.getAttribute("src")).toBe("/api/files/file-1/content");
         expect(holder.querySelector("img[alt='故事板']")?.className).toContain("object-contain");
         expect(holder.querySelector("img[alt='故事板']")?.className).not.toContain("object-cover");
+        expect(holder.textContent).not.toContain("故事板");
+        expect(holder.querySelector("a[download]")).not.toBeNull();
         await act(async () => root.unmount()); holder.remove();
     });
 });
@@ -263,6 +308,43 @@ describe("Agent 实时回合归属", () => {
         expect(holder.textContent).toContain("故事已完成");
         expect(holder.textContent).toContain("继续写剧本");
         expect(holder.textContent).not.toContain("Agent 执行完成");
+        expect(holder.querySelectorAll(".agent-status-pill")).toHaveLength(1);
+        expect(holder.querySelector(".agent-status-pill")?.textContent).toBe("模型正在处理中…");
+        expect(holder.querySelectorAll(".agent-assistant-round")[0].querySelector(".agent-status-pill")).toBeNull();
+        await act(async () => root.unmount()); holder.remove();
+    });
+});
+
+
+describe("Agent 提交消息即时反馈", () => {
+    it("首条消息立即显示发送中，SSE 先确认时去重并切换到真实回合", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const pending = { sessionId: "session-1", seq: -1, runId: null, kind: "user_text" as const, payload: { clientMessageId: "message-1", text: "修订吧" }, createdAt: new Date().toISOString() };
+        const props = { loading: false, theme: canvasThemes.light, canLoadEarlier: false, loadingEarlier: false, onLoadEarlier: () => {}, onSuggestion: () => {} };
+        await act(async () => root.render(<AgentConversationFlow {...props} events={[]} pendingMessage={pending} status="idle" />));
+        expect(holder.querySelectorAll(".agent-user-bubble")).toHaveLength(1);
+        expect(holder.querySelector(".agent-status-pill")?.textContent).toBe("正在发送…");
+        const accepted = { ...pending, seq: 1, runId: "run-1" };
+        await act(async () => root.render(<AgentConversationFlow {...props} events={[accepted]} pendingMessage={pending} status="running" currentRunId="run-1" />));
+        expect(holder.querySelectorAll(".agent-user-bubble")).toHaveLength(1);
+        expect(holder.querySelectorAll(".agent-status-pill")).toHaveLength(1);
+        expect(holder.querySelector(".agent-status-pill")?.textContent).toBe("模型正在处理中…");
+        const started = { ...accepted, seq: 2, kind: "run_state" as const, payload: { state: "running", content: "Codex 已开始处理" } };
+        await act(async () => root.render(<AgentConversationFlow {...props} events={[accepted, started]} status="running" currentRunId="run-1" />));
+        expect(holder.querySelectorAll(".agent-status-pill")).toHaveLength(1);
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("发送失败撤回临时显示，不把新状态绑定到其他回合", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const old = { sessionId: "session-1", seq: 1, runId: "run-old", kind: "assistant_text" as const, payload: { text: "上轮结果" }, createdAt: new Date().toISOString() };
+        const pending = { ...old, seq: -1, runId: null, kind: "user_text" as const, payload: { clientMessageId: "pending-1", text: "新请求" } };
+        const props = { loading: false, theme: canvasThemes.light, canLoadEarlier: false, loadingEarlier: false, onLoadEarlier: () => {}, onSuggestion: () => {} };
+        await act(async () => root.render(<AgentConversationFlow {...props} events={[old]} pendingMessage={pending} status="completed" />));
+        expect(holder.querySelectorAll(".agent-assistant-round")[0].querySelector(".agent-status-pill")).toBeNull();
+        await act(async () => root.render(<AgentConversationFlow {...props} events={[old]} status="completed" />));
+        expect(holder.textContent).toContain("上轮结果");
+        expect(holder.textContent).not.toContain("新请求");
         expect(holder.querySelector(".agent-status-pill")).toBeNull();
         await act(async () => root.unmount()); holder.remove();
     });

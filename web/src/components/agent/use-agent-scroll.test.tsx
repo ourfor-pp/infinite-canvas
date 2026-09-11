@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import { useAgentScroll } from "./use-agent-scroll";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom does not implement the browser scrolling API used by initial RAF callbacks.
+Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value(this: HTMLElement, options: ScrollToOptions) { this.scrollTop = options.top ?? this.scrollTop; } });
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver;
 
 function Harness() {

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import matter from "gray-matter";
 import { config } from "../config.js";
 
 export type BuiltInAgentSkill = {
@@ -22,10 +23,10 @@ export function getBuiltInAgentSkill(id: string) {
     return metadata;
 }
 
-export function syncBuiltInAgentSkills(workspace: string, skillIds: readonly string[]) {
+export function syncBuiltInAgentSkills(workspace: string, skillIds: readonly string[], engine: "builtin" | "codex" = "builtin") {
     const skills = selectSkills(skillIds);
-    const targetRoot = resolve(workspace, ".claude", "skills");
-    const digest = createHash("sha256");
+    const targetRoot = resolve(workspace, engine === "codex" ? ".agents" : ".claude", "skills");
+    const digest = createHash("sha256").update(engine).update("skill-sync-v2");
     skills.forEach((skill) => { digest.update(skill.id); hashDirectory(digest, skill.directory); });
     const hash = digest.digest("hex");
     const result = () => ({ skills: skills.map((skill) => skill.id), allowedTools: resolveAllowedTools(skills, targetRoot) });
@@ -36,6 +37,10 @@ export function syncBuiltInAgentSkills(workspace: string, skillIds: readonly str
     mkdirSync(temporary, { recursive: true });
     for (const skill of skills) {
         cpSync(skill.directory, resolve(temporary, skill.id), { recursive: true, force: true, dereference: true });
+        if (engine === "codex") {
+            const path = resolve(temporary, skill.id, "SKILL.md");
+            writeFileSync(path, codexSkillContent(readFileSync(path, "utf8")), "utf8");
+        }
     }
     writeFileSync(resolve(temporary, ".content-hash"), hash, "utf8");
     try {
@@ -134,4 +139,11 @@ function parseSkillMetadata(source: string): BuiltInAgentSkill {
 function unquote(value: string) {
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1);
     return value;
+}
+
+export function codexSkillContent(source: string) {
+    const parsed = matter(source);
+    delete parsed.data["allowed-tools"];
+    const body = parsed.content.replace(/\b(?:Read|Write|Edit|Glob|Grep|LS)\b/g, "工程文件工具");
+    return matter.stringify(body, parsed.data);
 }

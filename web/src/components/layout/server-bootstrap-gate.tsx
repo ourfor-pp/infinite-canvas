@@ -1,3 +1,4 @@
+import { useDirectorStore } from "@/stores/use-director-store";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { App, Button, Modal, Result, Spin } from "antd";
@@ -73,7 +74,9 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
         };
     }, [message, modal]);
 
-    useEffect(() => subscribeServerEvents(
+    useEffect(() => {
+        const restore = () => { if (document.visibilityState !== "hidden") useDirectorStore.getState().reconnect(); };
+        const unsubscribe = subscribeServerEvents(
         (generation) => {
             useCreativeAssetStore.getState().applyGeneration(generation);
             window.dispatchEvent(new CustomEvent("infinite-canvas:generation-updated", { detail: generation }));
@@ -93,7 +96,13 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
             window.dispatchEvent(new CustomEvent("infinite-canvas:visual-style-updated", { detail: style }));
         },
         (entity) => window.dispatchEvent(new CustomEvent("infinite-canvas:director-updated", { detail: entity })),
-    ), []);
+        (event) => useDirectorStore.getState().projectChanged(event),
+        restore,
+        );
+        document.addEventListener("visibilitychange", restore);
+        window.addEventListener("online", restore);
+        return () => { unsubscribe(); document.removeEventListener("visibilitychange", restore); window.removeEventListener("online", restore); };
+    }, []);
 
     const migrate = async () => {
         if (!legacy) return;
