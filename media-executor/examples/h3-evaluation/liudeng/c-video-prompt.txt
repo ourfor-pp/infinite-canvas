@@ -1,0 +1,34 @@
+subject_definitions:
+<Picture 1> is the complete chronological four-frame storyboard for [Shot 1], read top-left, top-right, bottom-left, bottom-right.
+<Subject 1> is the adult daughter in <Picture 2>, with a dark chin-length bob, blue-gray jacket and off-white shirt.
+<Subject 2> is the father in <Picture 3>, with short gray hair, a broad face, brown cardigan and pale blue shirt.
+<Subject 3> is the worn table, two off-white cups and warm lit lamp in <Picture 1>.
+
+summary:
+[reference generation] Generate a single continuous 10.125-second live-action family-drama dialogue shot. Use <Picture 1> as successive moments of one camera view, keeping the two identities distinct and letting only the current speaker move their lips.
+
+retention_analysis:
+<Picture 1>: fully_preserved - preserve action order and spatial relationships; exclude gutters and sheet layout from the video.
+<Subject 1> (appears in [Shot 1]): fully_preserved - facial identity, hair, wardrobe and suitcase ownership.
+<Subject 2> (appears in [Shot 1]): fully_preserved - facial identity, age, hair and clothing.
+<Subject 3> (appears in [Shot 1]): fully_preserved - fixed object count, positions and illumination.
+
+detailed_description:
+The target video has realistic skin texture and subdued practical lighting, with a restrained naturalistic performance.
+[Shot 1] A stationary eye-level medium-wide camera frames the daughter at screen-left in the doorway and the seated father at center-right beside the table. Both faces remain visible in three-quarter view. The cool corridor behind her meets warm light from the cream-shade lamp on the far right. One light gray suitcase stands upright beside her right leg; her right hand rests on its extended handle. The father keeps his right hand beside the nearer cup and his left hand near the lamp base. Exactly two off-white cups rest on the tabletop. The complete rectangular screen always contains one uninterrupted camera view, with no split screen, collage, studio background or duplicate person.
+
+From 00:00.000 to 00:01.800, the daughter settles at the inside edge of the doorway without pulling the suitcase farther into the room. Her weight shifts gently onto both feet. The father finishes his small touch at the lamp base and notices her presence. The lamp stays steadily lit. His shoulders remain relaxed; he does not stand up. She looks at his face, with fatigue visible in her posture rather than exaggerated brows or tears.
+
+Between 00:01.800 and 00:03.200, <Subject 1> (S1) asks softly in an ordinary adult female Mandarin voice, slightly breathy but clearly articulated, <d>[Chinese] 还没睡？</d> Her mouth forms the words once, then closes. The father listens with his mouth closed, lifting his gaze toward her. Her hand stays on the suitcase handle throughout the line.
+
+From 00:03.200 to 00:04.700, hold the silence. The father glances briefly at the lamp, as if finding a small practical explanation for waiting up. His left hand remains on the tabletop near its base. The daughter watches him without smiling broadly or moving her lips. Their eyelines meet naturally across the small distance.
+
+Between 00:04.700 and 00:07.400, <Subject 2> (S2) answers in a low, gently textured older male Mandarin voice, with a short natural pause after the first two words, <d>[Chinese] 这灯，刚修好。</d> He says this once at a conversational volume. The daughter remains silent, listening. His jaw movement belongs only to his own line.
+
+From 00:07.400 to 00:10.125, both mouths are closed. Her gaze lowers toward the second cup and her shoulders soften slightly. His gaze returns to her, with only a faint change around the eyes. Keep both cups, lamp, chair and suitcase stationary; let the held silence finish the shot without a cut or camera push.
+
+overall_soundscape:
+Quiet indoor room tone, faint cloth movement and distant corridor ambience. Exactly the two specified dialogue lines, with distinct speakers and natural room reverberation. No narration, additional words, humming or audience sounds.
+
+non_diegetic_music:
+N/A

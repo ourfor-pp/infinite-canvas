@@ -10,7 +10,7 @@ import type { GenerationRow } from "./generation-service.js";
 import { createGeneration } from "./generation-service.js";
 import { getAiGlobalSettings, listModelDefaults, resolveSelectableModel, type AiModelDefinition } from "./provider-service.js";
 import { getMediaExecutorCatalog } from "./media-executor-settings.js";
-import { alignH3Frames, h3Recipe, type H3QualityPreset } from "./comfy-workflows.js";
+import { alignH3Frames, h3Recipe, type H3QualityPreset, type H3TemporalGuide } from "./comfy-workflows.js";
 import { compileH3Prompt, h3AudioPromptReferences, h3AudioReferencesInput, isH3TurboAudioSafe, validateH3PromptPlan, validateStoryboardNarrativePlan, type H3DialogueCue, type H3ReferenceDefinition } from "./h3-prompt.js";
 import { recommendedStoryboardFrameCount, storyboardLayout, type DirectorStoryboardLayout } from "./director.js";
 import { assertDirectorProjectValid, getDirectorAssetReferenceImage, syncDirectorVideoSegmentFile } from "./director-workspace.js";
@@ -55,8 +55,9 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     const continuationId = String(payload.continuationFromSegmentId || payload.continuationFromShotId || "");
     const previous = payload.boundary === "continue" && continuationId ? db.prepare("SELECT payload FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(continuationId, userId, shot.project_id) as { payload: string } | undefined : undefined;
     const priorPayload = previous ? parseJson<Record<string, unknown>>(previous.payload, {}) : {};
-    const preflight = getDirectorVideoSegmentPreflight(userId, shotId);
+    const preflight = getDirectorVideoSegmentPreflight(userId, shotId, Boolean(model.supportsTemporalGuides));
     if (preflight.blockedReasons.length) throw renderError(409, "DIRECTOR_H3_PROMPT_INVALID", preflight.blockedReasons.join("；"), preflight);
+    const temporalGuides: H3TemporalGuide[] = [];
     if (route.mode === "ref2va") {
         references.push({ fileId: String(sheet.imageFileId), kind: "image", role: "reference" });
         preflight.videoSelected.forEach((item) => references.push({ fileId: item.fileId, kind: "image", role: "reference" }));
@@ -65,6 +66,11 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
             references.push({ fileId: await extractContinuationTail(userId, shotId, String(priorPayload.videoFileId)), kind: "video", role: "continuation" });
         }
         h3AudioReferencesInput.parse(payload.audioReferences).forEach(({ fileId }) => references.push({ fileId, kind: "audio", role: "reference" }));
+        if (preflight.storyboardStartGuide) {
+            const fileId = await extractStoryboardStartGuide(userId, shotId, String(sheet.imageFileId), sheet.layout);
+            references.push({ fileId, kind: "image", role: "reference" });
+            temporalGuides.push({ fileId, frameIndex: 0 });
+        }
     } else {
         const firstFrame = transitionFrame(userId, shot.project_id, String(payload.transitionFromSegmentId || ""), "actualLastFrameFileId");
         const lastFrame = transitionFrame(userId, shot.project_id, String(payload.transitionToSegmentId || ""), "actualFirstFrameFileId");
@@ -85,16 +91,16 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     const turboEligible = isH3TurboAudioSafe(payload, sheet);
     const recipe = h3Recipe(route.mode, value.qualityPreset, Boolean(model.turboPreview) && turboEligible);
     const alignment = alignH3Frames(Number(payload.durationSeconds || 4));
-    const generation = createGeneration(userId, { kind: "video", model: modelRef, prompt, references, params: { seconds: Number(payload.durationSeconds || 4), ratio: workspace.aspect_ratio, resolution: recipe.resolution, qualityPreset: value.qualityPreset, turboAvailable: recipe.turbo, frameAlignment: alignment, __directorSegment: { projectId: shot.project_id, segmentId: shotId, revision: shot.revision, storyboardRevision: sheet.revision, mode: route.mode, reason: route.reason, qualityPreset: value.qualityPreset, recipe, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", dependencies: payload.dependencies } } });
+    const generation = createGeneration(userId, { kind: "video", model: modelRef, prompt, references, params: { seconds: Number(payload.durationSeconds || 4), ratio: workspace.aspect_ratio, resolution: recipe.resolution, qualityPreset: value.qualityPreset, turboAvailable: recipe.turbo, frameAlignment: alignment, temporalGuides, __directorSegment: { projectId: shot.project_id, segmentId: shotId, revision: shot.revision, storyboardRevision: sheet.revision, mode: route.mode, reason: route.reason, qualityPreset: value.qualityPreset, recipe, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", dependencies: payload.dependencies } } });
     const { h3ModeOverride: _h3ModeOverride, firstFrameFileId: _firstFrameFileId, lastFrameFileId: _lastFrameFileId, ...cleanPayload } = payload;
-    const nextPayload = { ...cleanPayload, h3Mode: route.mode, h3ModeReason: route.reason, h3PromptSnapshot: { mode: route.mode, qualityPreset: value.qualityPreset, recipe, alignment, prompt, references, storyboardRevision: sheet.revision }, videoGenerationId: generation.id, videoStale: false };
+    const nextPayload = { ...cleanPayload, h3Mode: route.mode, h3ModeReason: route.reason, h3PromptSnapshot: { mode: route.mode, qualityPreset: value.qualityPreset, recipe, alignment, prompt, references, temporalGuides, storyboardStartGuide: preflight.storyboardStartGuide, storyboardRevision: sheet.revision }, videoGenerationId: generation.id, videoStale: false };
     db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(nextPayload), new Date().toISOString(), shotId, userId);
     syncDirectorVideoSegmentFile(userId, shot.project_id, shotId);
     emitRender(userId, { type: "video-segment", projectId: shot.project_id, data: { id: shotId, revision: shot.revision + 1, payload: nextPayload } });
     return generation;
 }
 
-export function getDirectorVideoSegmentPreflight(userId: string, segmentId: string) {
+export function getDirectorVideoSegmentPreflight(userId: string, segmentId: string, supportsTemporalGuides = getMediaExecutorCatalog().comfyFeatures.temporalGuides) {
     const segment = segmentRow(userId, segmentId);
     const payload = parseJson<Record<string, unknown>>(segment.payload, {});
     const style = activeStyle(userId, segment.project_id);
@@ -103,7 +109,10 @@ export function getDirectorVideoSegmentPreflight(userId: string, segmentId: stri
     const sheet = asSheet(payload.storyboardSheet);
     const route = resolveH3Route(payload, sheet);
     const auxiliaryFiles = (payload.boundary === "continue" ? 1 : 0) + (Array.isArray(payload.audioReferences) ? payload.audioReferences.length : 0);
-    const videoBudget = route.mode === "ref2va" ? Math.max(0, Math.min(8, 11 - auxiliaryFiles)) : 0;
+    const storyboardStartGuide = route.mode === "ref2va" && payload.boundary !== "continue" && supportsTemporalGuides
+        ? { sourceFileId: sheet?.imageFileId, layout: sheet?.layout, frameIndex: 0 } : undefined;
+    const guideFiles = Number(Boolean(storyboardStartGuide));
+    const videoBudget = route.mode === "ref2va" ? Math.max(0, Math.min(8 - guideFiles, 11 - auxiliaryFiles - guideFiles)) : 0;
     const videoSelected = candidates.slice(0, videoBudget);
     const assetBlockedReasons = route.mode === "fl2va" ? transitionBlockedReasons(userId, segment.project_id, payload) : missing;
     const promptValidation = route.mode === "ref2va" ? validateH3PromptPlan(payload, sheet, videoSelected.filter((item) => item.purpose === "主角色" || item.purpose === "出镜角色").map((item) => String(item.assetId || "")).filter(Boolean)) : { blockedReasons: [], warnings: [] };
@@ -116,7 +125,7 @@ export function getDirectorVideoSegmentPreflight(userId: string, segmentId: stri
     if (route.mode === "fl2va" && auxiliaryFiles) promptValidation.blockedReasons.push("首尾帧过渡不支持独立音频参考或参考视频");
     const turboPreview = route.mode === "fl2va" && getMediaExecutorCatalog().comfyFeatures.turboPreview;
     const transitionInputs = route.mode === "fl2va" ? { firstFrameFileId: transitionFrame(userId, segment.project_id, String(payload.transitionFromSegmentId || ""), "actualLastFrameFileId") || undefined, lastFrameFileId: transitionFrame(userId, segment.project_id, String(payload.transitionToSegmentId || ""), "actualFirstFrameFileId") || undefined } : undefined;
-    return { storyboardFileId: sheet?.imageFileId, transitionInputs, selected, omitted: candidates.slice(6), videoSelected, videoOmitted: candidates.slice(videoBudget), assetBlockedReasons, promptValidation, blockedReasons: [...assetBlockedReasons, ...promptValidation.blockedReasons], warnings: promptValidation.warnings, route, capabilities: { turboPreview }, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", recipes: { preview: h3Recipe(route.mode, "preview", turboPreview && turboEligible), final: h3Recipe(route.mode, "final", false) }, frameAlignment: alignH3Frames(Number(payload.durationSeconds || 4)) };
+    return { storyboardStartGuide, storyboardFileId: sheet?.imageFileId, transitionInputs, selected, omitted: candidates.slice(6), videoSelected, videoOmitted: candidates.slice(videoBudget), assetBlockedReasons, promptValidation, blockedReasons: [...assetBlockedReasons, ...promptValidation.blockedReasons], warnings: promptValidation.warnings, route, capabilities: { turboPreview }, previewAudioPolicy: turboEligible ? "turbo" : "base-for-planned-audio", recipes: { preview: h3Recipe(route.mode, "preview", turboPreview && turboEligible), final: h3Recipe(route.mode, "final", false) }, frameAlignment: alignH3Frames(Number(payload.durationSeconds || 4)) };
 }
 
 export function createDirectorStoryboardGeneration(userId: string, segmentId: string, input: unknown) {
@@ -534,6 +543,21 @@ export function compileDirectorStoryboardPrompt(title: string, payload: Record<s
     ].join("\n\n");
 }
 function storyboardImageSize(layout: DirectorStoryboardLayout) { return layout === "3x3" ? "2304x1296" : layout === "3x2" ? "2304x864" : "2048x1152"; }
+export async function extractDirectorStoryboardOpeningFrame(sourcePath: string, outputPath: string, layout: DirectorStoryboardLayout) {
+    const columns = layout === "2x2" ? 2 : 3;
+    const rows = layout === "3x3" ? 3 : 2;
+    await ffmpeg(["-y", "-i", sourcePath, "-vf", `crop=floor(iw/${columns})-4:floor(ih/${rows})-4:1:1`, "-frames:v", "1", outputPath]);
+}
+async function extractStoryboardStartGuide(userId: string, segmentId: string, sourceFileId: string, layout: DirectorStoryboardLayout) {
+    const source = getStoredFile(userId, sourceFileId);
+    if (!source) throw renderError(409, "DIRECTOR_STORYBOARD_FILE_MISSING", "故事板图片不存在，请重新生成整张故事板");
+    const directory = await mkdtemp(join(tmpdir(), "director-storyboard-guide-"));
+    try {
+        const output = join(directory, "opening.png");
+        await extractDirectorStoryboardOpeningFrame(source.path, output, layout);
+        return storeLocalFile(userId, output, `${segmentId}-storyboard-opening.png`, "image/png").id;
+    } finally { await rm(directory, { recursive: true, force: true }); }
+}
 async function extractContinuationTail(userId: string, segmentId: string, videoFileId: string) {
     const source = getStoredFile(userId, videoFileId);
     if (!source) throw renderError(409, "DIRECTOR_CONTINUATION_VIDEO_MISSING", "上一视频段的实际成片不存在，请先重新生成上一段");

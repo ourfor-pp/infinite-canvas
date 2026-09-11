@@ -1,0 +1,105 @@
+{
+  "model": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-0.6B/snapshots/deba00eb976b8daf9805ffd5d0fdcd7cafbb21b2",
+  "aligner": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ForcedAligner-0.6B/snapshots/1c85775dfe71a2a90e6aeea682c6eb9df3d8848b",
+  "device": "cpu",
+  "timingToleranceSeconds": 0.25,
+  "note": "ASR and forced alignment are auxiliary evidence, not listening or lip-sync acceptance.",
+  "results": [
+    {
+      "run": "c",
+      "recipe": {
+        "id": "liudeng-c-pdd8-768p-first-guide",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 8,
+        "width": 1376,
+        "height": 768,
+        "frames": 243,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "liudeng-c",
+        "promptSha256": "42f682455d4ccce84250afdb11b4533dd30c2bd7b4edb599a31fb5f71e309c90",
+        "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+        "singleVariable": "Add native frame-zero image guide cropped from top-left cell, retaining complete storyboard reference and unchanged text",
+        "stateContext": {
+          "schemaVersion": 1,
+          "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c",
+          "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+          "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+          "sourceId": "liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5",
+          "width": 1376,
+          "height": 768,
+          "frames": 243,
+          "fps": 24
+        },
+        "stateSaveExperiment": true
+      },
+      "videoSha256": "8daa64c6f31d76f1d4daaecb88daf414ad518b61b748f0f7c820c63807625254",
+      "expectedText": "还没睡？这灯，刚修好。",
+      "expectedSpeechWindow": [
+        1.8,
+        7.4
+      ],
+      "transcription": {
+        "language": "Chinese",
+        "text": "还没睡。这灯刚修好。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "还",
+              "start_time": 1.68,
+              "end_time": 1.92
+            },
+            {
+              "text": "没",
+              "start_time": 1.92,
+              "end_time": 2.0
+            },
+            {
+              "text": "睡",
+              "start_time": 2.0,
+              "end_time": 2.32
+            },
+            {
+              "text": "这",
+              "start_time": 5.92,
+              "end_time": 6.08
+            },
+            {
+              "text": "灯",
+              "start_time": 6.08,
+              "end_time": 6.48
+            },
+            {
+              "text": "刚",
+              "start_time": 7.04,
+              "end_time": 7.2
+            },
+            {
+              "text": "修",
+              "start_time": 7.2,
+              "end_time": 7.36
+            },
+            {
+              "text": "好",
+              "start_time": 7.36,
+              "end_time": 7.76
+            }
+          ]
+        }
+      },
+      "actualSpeechWindow": [
+        1.68,
+        7.76
+      ],
+      "transcriptMatches": true,
+      "speechBoundaryErrorsSeconds": [
+        -0.12,
+        0.36
+      ],
+      "speechWithinWindow": false,
+      "speechWindowMatches": false,
+      "audioAccepted": false
+    }
+  ]
+}

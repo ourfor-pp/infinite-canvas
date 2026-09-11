@@ -1,0 +1,15 @@
+{
+  "sourcePromptId": "b16eccd6-4fec-4fc6-b8fb-4f1f0a58d2ca",
+  "sourceLocator": {
+    "filename": "9ef0463d5b0641419b0bf01d246f6ba9.safetensors",
+    "subfolder": "h3-state",
+    "type": "output"
+  },
+  "uploaded": {
+    "name": "9ef0463d5b0641419b0bf01d246f6ba9.safetensors",
+    "subfolder": "",
+    "type": "input"
+  },
+  "sha256": "881a6e554b428e36901f50c09be604df9e9b014d136f300e497c102ecd6a3897",
+  "bytes": 28637136
+}

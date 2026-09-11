@@ -1,0 +1,197 @@
+{
+  "assets": [
+    {
+      "id": "daughter-identity",
+      "path": ".tmp/h3-evaluation/liudeng/daughter-identity/primary.png",
+      "sha256": "9e3686a12eae65d76f94f23178b8e373879cac3fcf66ecf72a28af719c6038ca"
+    },
+    {
+      "id": "father-identity",
+      "path": ".tmp/h3-evaluation/liudeng/father-identity/primary.png",
+      "sha256": "5f6824c9e84207977d29b87703659f5ff5346beda45fa48a30d4d5c75ec02135"
+    },
+    {
+      "id": "entry-scene",
+      "path": ".tmp/h3-evaluation/liudeng/entry-scene/primary.png",
+      "sha256": "ae688d71b8ba330d9efaf0b530f1bd12b7daa3d54fb6eed5affb324e949d74d7"
+    },
+    {
+      "id": "a1-storyboard",
+      "path": ".tmp/h3-evaluation/liudeng/a1-storyboard/primary.png",
+      "sha256": "bbbbbece47ddf2c755a7ba812bdb3d7c9c219cc900c9c3ff3eb8c0eb6f11ab74"
+    },
+    {
+      "id": "b-storyboard",
+      "path": ".tmp/h3-evaluation/liudeng/b-storyboard/primary.png",
+      "sha256": "9b21da964c1fd306aa1d8c0d19668da6b9eadfe4ff4e9f7d5d889424247f2f08"
+    },
+    {
+      "id": "c-storyboard",
+      "path": ".tmp/h3-evaluation/liudeng/c-storyboard/primary.png",
+      "sha256": "93e5db2c76685b5aefd69054993534ec02c8f28f7cbbf04d69657f9d4250ad61"
+    },
+    {
+      "id": "d-storyboard",
+      "path": ".tmp/h3-evaluation/liudeng/d-storyboard/primary.png",
+      "sha256": "f2d8af13b62c1def46a950a7d04b692a70d25f41021f360ec2070cae45259d82",
+      "inspection": "Father visibly uses right hand despite requested left; video prompt must match actual board. Cup handle on offered cup not clearly visible; prop fidelity requires checking."
+    }
+  ],
+  "imageGenerator": "built-in imagegen",
+  "imageFilesStoredLocally": true,
+  "officialVideoPromptSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "runs": [
+    {
+      "id": "a1-pdd8-768p",
+      "seconds": 128.222,
+      "peakTotalGpuMiB": [
+        30976
+      ],
+      "videoSha256": "c905964d4c9261f97468bcb25f8dc8195b37439709e64ec112db9e3ad0e0198b",
+      "resolution": [
+        1376,
+        768
+      ],
+      "frames": 124,
+      "accepted": false,
+      "rejection": "Two simultaneous side-by-side views throughout inspected frames; violates full-frame single shot."
+    },
+    {
+      "id": "a1-base20-768p",
+      "seconds": 271.076,
+      "peakTotalGpuMiB": [
+        30896
+      ],
+      "videoSha256": "9a4adab6cd4000276a77b939db3f2ecfa5dc1d64b3a29073d0f571ac5f02a386",
+      "resolution": [
+        1376,
+        768
+      ],
+      "frames": 124,
+      "accepted": false,
+      "rejection": "Same two simultaneous camera views as PDD. Not specific to accelerated recipe."
+    },
+    {
+      "id": "a1-pdd8-768p-fullframe",
+      "seconds": 129.941,
+      "peakTotalGpuMiB": [
+        30698
+      ],
+      "videoSha256": "7ee2fa4d96e4db34a75b3acce84e17aed53e6967a9cf99d94d7e69c4029a3ea2",
+      "resolution": [
+        1376,
+        768
+      ],
+      "frames": 124,
+      "accepted": false,
+      "rejection": "Explicit reference-role and full-frame prompt still yields two simultaneous views; prompt-only intervention unsuccessful."
+    },
+    {
+      "id": "a1-pdd8-768p-two-refs",
+      "seconds": 121.417,
+      "peakTotalGpuMiB": [
+        28184
+      ],
+      "videoSha256": "db833b7f48011f04984fee4cfdd95f0bba6fdb6602d5edc21c6028f307018ec1",
+      "resolution": [
+        1376,
+        768
+      ],
+      "frames": 124,
+      "accepted": false,
+      "fullFrameLayoutPassed": true,
+      "pending": "Full motion/audio acceptance"
+    },
+    {
+      "id": "b-pdd8-768p-two-refs",
+      "seconds": 119.572,
+      "peakTotalGpuMiB": [
+        29700
+      ],
+      "videoSha256": "256d38113f57bdd022586191a39bb0c3c4c5a2ad6c10f72db500fdb4859cb044",
+      "resolution": [
+        1376,
+        768
+      ],
+      "frames": 124,
+      "fullFrameLayoutPassed": true,
+      "accepted": false,
+      "inspection": "2 fps overview: single camera view, gaze toward doorway followed by left arm reaching lamp; no obvious cup relocation in sampled frames.",
+      "pending": [
+        "Continuous movement and finger anatomy review",
+        "Listening and audio crosscheck"
+      ]
+    },
+    {
+      "id": "a-pdd8-768p-native-481frames",
+      "accepted": false,
+      "executionSeconds": 594.707,
+      "decodedFrames": 481,
+      "inspection": "Viewed 1fps full overview and six adjacent frames at each seam. No obvious position reset or split screen; character stops outside doorway. Final left-hand door contact not clearly established at overview scale.",
+      "pending": [
+        "Full motion and hand anatomy",
+        "Full listening and audio continuity",
+        "Character face continuity outside rear view"
+      ],
+      "peakTotalGpuMiB": null,
+      "monitorInterrupted": true,
+      "videoSha256": "3fbf158dd3d2c4c87e0c3757d3b1415027d15d17e12c38c72d3ccc101ca3c6cc"
+    },
+    {
+      "id": "c-pdd8-768p-dialogue",
+      "seconds": 317.663,
+      "peakTotalGpuMiB": [
+        30398
+      ],
+      "accepted": false,
+      "rejection": "Multi-view collage in all 1fps overview samples. Complete storyboard plus two identity sheets did not yield full-frame shot."
+    },
+    {
+      "id": "d-pdd8-768p-cup",
+      "seconds": 293.616,
+      "peakTotalGpuMiB": [
+        29954
+      ],
+      "accepted": false,
+      "fullFrameLayoutPassed": true,
+      "inspection": "1fps overview shows one full-frame view, father right hand slides cup leftward, daughter left hand stops it, father withdraws; two cups remain visible.",
+      "pending": [
+        "Full hand/cup contact motion",
+        "Cross-shot cup handle and position continuity",
+        "Listening"
+      ]
+    },
+    {
+      "id": "c-pdd8-768p-storyboard-only",
+      "executionSeconds": 290.422,
+      "peakTotalGpuMiB": null,
+      "accepted": false,
+      "rejection": "Complete 2x2 storyboard layout persists throughout 1fps overview; removing supplementary identity references did not fix this two-person sample."
+    },
+    {
+      "id": "c-pdd8-768p-first-guide",
+      "seconds": 298.543,
+      "peakTotalGpuMiB": [
+        30224
+      ],
+      "accepted": false,
+      "fullFrameLayoutPassed": true,
+      "pending": "Full motion, dialogue, lip-sync and cross-shot identity/props review",
+      "stateBytes": 28637136
+    },
+    {
+      "id": "c-state-continued",
+      "seconds": 190.34,
+      "frames": 362,
+      "accepted": false,
+      "crossTaskStateLoaded": true,
+      "latentPrefixExactlyPreserved": true,
+      "pending": "Full movement and listening; new-content quality"
+    }
+  ],
+  "pending": [
+    "A1 and B full movement and listening review",
+    "A1 ASR disagreement: Qwen 嗯 / SenseVoice I / VAD empty; speech not confirmed",
+    "Final character/voice/motion/continuation/music acceptance"
+  ]
+}

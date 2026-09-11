@@ -1,0 +1,33 @@
+{
+  "cases": [
+    "speech-first",
+    "pool-voiceover"
+  ],
+  "seeds": [
+    314159,
+    271828,
+    161803
+  ],
+  "recipes": [
+    "base",
+    "lightx2v-ref8",
+    "pdd-ref8"
+  ],
+  "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "comfyRevision": "40c4fcdf513a4523e39d54a9d391908af8df8171",
+  "newRuns": 12,
+  "reusedRuns": 6,
+  "promptFixture": "../second-batch/cases.json",
+  "acceptance": {
+    "dialogue": "Exact words once in every tested case and seed, independently checked with Qwen and SenseVoice/VAD; disagreements require review",
+    "speed": "At least 1.5x paired median end-to-end speed versus base",
+    "timing": "Report +/-0.25s boundary and containment separately; no claim of hard timeline compliance if either fails",
+    "visual": "Review sampled frames for identity, physical continuity, planned action and static-camera constraints; full playback and lip-sync remain separate acceptance",
+    "default": "Do not promote if confirmed dialogue/visual failures occur or necessary acceptance remains unresolved"
+  },
+  "limits": [
+    "Three seeds are a stress test, not a population failure-rate estimate",
+    "Only two short single-speaker Ref2VA scenes; no claim for multi-speaker, long clips or storyboard references",
+    "314159 runs predate the live-service upgrade; isolated runtime and weights are unchanged, but idle GPU use differs by about 282MiB"
+  ]
+}

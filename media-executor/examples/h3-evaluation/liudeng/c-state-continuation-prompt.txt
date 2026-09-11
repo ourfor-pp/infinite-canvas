@@ -1,0 +1,32 @@
+subject_definitions:
+<Picture 1> is the complete storyboard of the preceding dialogue, used only to preserve the established people, wardrobe, room and props.
+<Subject 1> is the daughter standing at screen-left in <Picture 1>, wearing a blue-gray jacket and holding the upright suitcase with her right hand.
+<Subject 2> is the father seated at screen-right in <Picture 1>, wearing a brown cardigan beside the warm lit lamp.
+<Subject 3> is the worn table and its two off-white cups in <Picture 1>.
+
+summary:
+[video continuation + reference generation] Extend the supplied native audiovisual temporal context through one continuous 5.875-second window, including the existing 0.917-second overlap. The conversation has finished; continue the quiet moment without repeating speech or replaying storyboard events.
+
+retention_analysis:
+<Picture 1>: partially_preserved - retain identities, room and props; discard grid layout and earlier dialogue action sequence.
+<Subject 1> (appears in [Shot 1]): fully_preserved - identity, wardrobe, posture and right-hand suitcase ownership.
+<Subject 2> (appears in [Shot 1]): fully_preserved - identity, wardrobe and seated position.
+<Subject 3> (appears in [Shot 1]): fully_preserved - object count, shapes and tabletop positions.
+
+detailed_description:
+The target video continues the same realistic family-drama image, with natural skin, restrained gestures and stable practical illumination.
+[Shot 1] Resume the exact camera view, bodily positions and ongoing movement in the supplied temporal context. The daughter remains at screen-left near the doorway; the father is seated at screen-right by the table. Their clothing and facial features retain the shapes already visible. The camera stays at its current eye level on the same side of the table, without a new establishing view, reverse angle, push-in or change in lens. One full-frame view fills the screen at every instant. Do not display the reference sheet's cells or borders.
+
+From 00:00.000 to 00:00.917, preserve and complete the current overlapping motion. Do not restart the woman's entrance or the father's glance at the lamp. No one begins another line of dialogue. The room tone continues at the same low level, and any residual natural decay from earlier movement settles gently rather than stopping abruptly.
+
+From 00:00.917 to 00:02.500, the daughter's eyes lower slowly toward the second cup on the table. Her head follows by only a few degrees. Her right fingers maintain their relaxed contact with the extended suitcase handle; the suitcase stays upright on its wheels in its current place. Her left hand hangs beside her blue-gray sleeve. She remains standing at the doorway, with her feet planted and her shoulders easing slightly. Her lips stay closed, without an exaggerated smile or tears.
+
+From 00:02.500 to 00:04.000, the father notices the direction of her gaze and looks briefly at the cup. Keep his torso supported by the same chair. His right hand shifts a few centimeters along the tabletop toward the nearer cup, then comes to rest beside it without moving it. His left forearm remains relaxed on the far side of the table. His fingers keep a natural shape, resting against solid wood. Both cups retain their sizes, rims and handles; neither slides or lifts.
+
+From 00:04.000 through 00:05.875, hold this shared quiet attention. The daughter looks toward the table; the father lifts his eyes slightly toward her. Both mouths remain closed. The lamp does not flicker, the corridor remains cool, and the tabletop shadows keep the same direction. End in the same uninterrupted view, with only breathing-scale movement in their shoulders and cloth.
+
+overall_soundscape:
+Continue low room tone and subtle cloth sounds at the existing level. No speech, repeated dialogue, singing, humming or voiceover. No exaggerated breath or artificial impact.
+
+non_diegetic_music:
+N/A

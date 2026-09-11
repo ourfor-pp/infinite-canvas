@@ -1,0 +1,20 @@
+[
+  {
+    "path": ".tmp/h3-evaluation/liudeng/music/music.wav",
+    "sampleRate": 48000,
+    "channels": 2,
+    "seconds": 20.0,
+    "peakDbfs": -0.9998544876801003,
+    "rmsDbfs": -18.68275111526422,
+    "clippedSamples": 0
+  },
+  {
+    "path": ".tmp/h3-evaluation/liudeng/review/stems/mix.wav",
+    "sampleRate": 48000,
+    "channels": 2,
+    "seconds": 45.458333333333336,
+    "peakDbfs": -8.473841019627343,
+    "rmsDbfs": -36.50319180707064,
+    "clippedSamples": 0
+  }
+]

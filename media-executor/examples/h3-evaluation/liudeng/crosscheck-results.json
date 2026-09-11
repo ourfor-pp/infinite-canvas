@@ -1,0 +1,56 @@
+{
+  "models": {
+    "SenseVoiceSmall": "Revision:master,CreatedAt:1727321787",
+    "FSMN-VAD": "Revision:master,CreatedAt:1707184291"
+  },
+  "results": [
+    {
+      "run": "a-native-20s",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": []
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|en|><|EMO_UNKNOWN|><|Speech|><|withitn|>."
+        }
+      ],
+      "cleanText": "."
+    },
+    {
+      "run": "a1-two-refs",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": []
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|en|><|EMO_UNKNOWN|><|Speech|><|withitn|>I."
+        }
+      ],
+      "cleanText": "I."
+    },
+    {
+      "run": "b-two-refs",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": []
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|yue|><|NEUTRAL|><|Speech|><|withitn|>。"
+        }
+      ],
+      "cleanText": "。"
+    }
+  ]
+}

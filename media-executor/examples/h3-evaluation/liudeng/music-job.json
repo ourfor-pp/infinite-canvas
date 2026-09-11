@@ -1,0 +1,43 @@
+{
+  "jobId": "h3-liudeng-ending-v1",
+  "request": {
+    "operation": "generate",
+    "prompt": "Instrumental intimate family-drama ending cue, sparse felt piano, very soft low cello sustaining warm simple harmony, slow 62 BPM, four gently spaced piano notes with natural room decay, tender and restrained, no melodramatic swell, no percussion, no vocals, no choir, no humming, no dramatic rise, quiet unresolved opening resolving gently at the end. Leave silence between phrases.",
+    "params": {
+      "lyrics": "[Instrumental]",
+      "seconds": 20,
+      "steps": 50,
+      "cfgScale": 7,
+      "shift": 1
+    },
+    "references": [],
+    "id": "h3-liudeng-ending-v1",
+    "model": "ace-step-v15-xl-sft-local",
+    "mode": "music"
+  },
+  "status": "succeeded",
+  "formalUnit": "arcreel-comfyui-8189.service",
+  "labPid": 2553885,
+  "elapsedSeconds": 324.088,
+  "job": {
+    "id": "h3-liudeng-ending-v1",
+    "status": "succeeded",
+    "progress": 1.0,
+    "result": {
+      "files": [
+        {
+          "name": "music.wav",
+          "mimeType": "audio/wav"
+        }
+      ]
+    },
+    "error": null
+  },
+  "artifacts": [
+    {
+      "path": "/home/cec/infinite-canvas/.tmp/h3-evaluation/liudeng/music/music.wav",
+      "sha256": "bb3075fca8400698eb1c0bf4301a3a38d74838d8a9342b07262aca631f441c13"
+    }
+  ],
+  "formalRestored": true
+}

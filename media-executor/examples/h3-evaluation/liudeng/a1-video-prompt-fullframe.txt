@@ -1,0 +1,35 @@
+subject_definitions:
+<Picture 1> is one chronological storyboard sheet for [Shot 1]: top-left is 00:00.000, top-right is 00:01.700, bottom-left is 00:03.400, bottom-right is 00:05.167. These are successive times, not simultaneous views.
+<Picture 2> is an identity sheet showing multiple views of the same single woman.
+<Picture 3> is a location sheet; use only its left corridor view for the single camera position in [Shot 1].
+<Subject 1> is the adult woman in <Picture 2>; retain her facial structure, chin-length dark bob, blue-gray jacket, off-white shirt, dark trousers and charcoal shoes.
+<Subject 2> is the light gray hard-shell rolling suitcase shown in <Picture 1>; retain its shape, extended handle and upright four-wheel rolling posture.
+<Subject 3> is the corridor and warm half-open walnut doorway in the left view of <Picture 3>.
+
+summary:
+[reference generation] Generate one continuous 5.167-second live-action shot of the woman walking slowly along the corridor toward the warm doorway. <Picture 1> is a four-frame storyboard of successive moments of this single shot. Expand each moment into normal full-frame video; the sheet layout is not part of the scene.
+
+retention_analysis:
+<Picture 1>: preserve chronological action and camera-side continuity; never preserve gutters, panel borders or collage layout.
+<Picture 2>: preserve the single woman's identity and clothing; discard the studio background and multi-view layout.
+<Picture 3>: preserve the corridor appearance from its left view; discard the side-by-side layout.
+<Subject 1> (appears in [Shot 1]): fully_preserved - identity, body proportions, hairstyle and complete wardrobe.
+<Subject 2> (appears in [Shot 1]): fully_preserved - suitcase appearance and right-hand ownership.
+<Subject 3> (appears in [Shot 1]): fully_preserved - corridor proportions, floor, doorway and practical lighting.
+
+detailed_description:
+At every moment, exactly one uninterrupted camera view fills the entire rectangular screen, showing one woman and one suitcase. Render a normal full-frame video, never a grid or split screen.
+The target video has a restrained live-action family-drama style with natural surface texture, believable skin and soft practical lighting.
+[Shot 1] A chest-height camera follows <Subject 1> from behind and slightly to her left. The medium-wide composition includes her head, shoes and the wheels of <Subject 2>. The short corridor of <Subject 3> recedes toward the same half-open dark walnut door. Cool ceiling light falls across the slightly worn pale walls and gray terrazzo floor. Warm light from the room beyond makes a small amber patch near the threshold. The room remains distant enough to leave several steps of walking space.
+
+From 00:00.000 to 00:01.700, she takes two small unhurried steps forward. Her right hand grips the extended suitcase handle naturally, and the suitcase rolls behind her right side in an upright posture on four wheels. The wheels stay in contact with the floor. Her left hand hangs loosely beside her jacket. Each planted shoe bears her weight before the other foot swings forward. The camera moves at her pace without changing its viewing side or focal length.
+
+From 00:01.700 to 00:03.400, she continues toward the warm doorway. The suitcase maintains its distance behind her right leg, its rigid handle transmitting her movement. The jacket hem shifts subtly with each step. Her shoulders gradually relax, and her chin turns a little toward the warm light. The camera follows smoothly, preserving the corridor's straight lines and the scale of the doorway.
+
+From 00:03.400 to 00:05.167, her pace slows slightly but the walking action continues. She remains outside and several steps away from the threshold when the shot ends. Her lips remain closed, and her expression is conveyed by posture rather than a conspicuous head turn. Soft footsteps and the fine irregular rattle of the suitcase wheels continue into the ending. The next segment can carry forward this unfinished movement.
+
+overall_soundscape:
+Quiet late-night corridor ambience with small natural reverberation, gentle alternating footsteps and a light rolling-wheel rattle that follows the visible suitcase. No speech, singing or voiceover.
+
+non_diegetic_music:
+N/A

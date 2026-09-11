@@ -1,0 +1,147 @@
+{
+  "model": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-0.6B/snapshots/deba00eb976b8daf9805ffd5d0fdcd7cafbb21b2",
+  "aligner": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ForcedAligner-0.6B/snapshots/1c85775dfe71a2a90e6aeea682c6eb9df3d8848b",
+  "device": "cpu",
+  "timingToleranceSeconds": 0.25,
+  "note": "ASR and forced alignment are auxiliary evidence, not listening or lip-sync acceptance.",
+  "results": [
+    {
+      "run": "a-native-20s",
+      "recipe": {
+        "id": "liudeng-a-pdd8-768p-native-481frames",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 8,
+        "width": 1376,
+        "height": 768,
+        "frames": 481,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "liudeng-a1",
+        "initialFrames": 124,
+        "extensions": 3,
+        "extensionFrames": 119,
+        "overlapFrames": 22,
+        "continuationNodeRevision": "e1768d5fdfc6f9519d2090dcf78458c2d9625f80",
+        "continuationPromptSha256": [
+          "69b03c69659593bbe08af219c5638e603324bcec13a223b45e1a039e38b6978a",
+          "fa03593301fa0e730b867c3c4c84ea17484cc948c3ee91d7e5a374981585dc5f",
+          "a0d7ec2716027149b1ac8cda41f5bfca44cec94eea2a52090c9c1421af9a4460"
+        ],
+        "promptSha256": "0f84588985afee00254617cc2ea0fa4c5928860b6b8682cda3aefc9436342fa5",
+        "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+        "qualityAccepted": false
+      },
+      "videoSha256": "3fbf158dd3d2c4c87e0c3757d3b1415027d15d17e12c38c72d3ccc101ca3c6cc",
+      "expectedText": "",
+      "expectedSpeechWindow": null,
+      "transcription": {
+        "language": "Chinese",
+        "text": "嗯。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "嗯",
+              "start_time": 15.04,
+              "end_time": 15.04
+            }
+          ]
+        }
+      },
+      "actualSpeechWindow": [
+        15.04,
+        15.04
+      ],
+      "transcriptMatches": false,
+      "speechBoundaryErrorsSeconds": null,
+      "speechWithinWindow": null,
+      "speechWindowMatches": null,
+      "audioAccepted": false
+    },
+    {
+      "run": "a1-two-refs",
+      "recipe": {
+        "id": "liudeng-a1-pdd8-768p-two-refs",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 8,
+        "width": 1376,
+        "height": 768,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "liudeng-a1",
+        "promptSha256": "0f84588985afee00254617cc2ea0fa4c5928860b6b8682cda3aefc9436342fa5",
+        "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+        "singleVariable": "Remove supplementary two-view scene reference and its declarations; keep complete storyboard and character identity sheet"
+      },
+      "videoSha256": "db833b7f48011f04984fee4cfdd95f0bba6fdb6602d5edc21c6028f307018ec1",
+      "expectedText": "",
+      "expectedSpeechWindow": null,
+      "transcription": {
+        "language": "Chinese",
+        "text": "嗯。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "嗯",
+              "start_time": 0.0,
+              "end_time": 0.08
+            }
+          ]
+        }
+      },
+      "actualSpeechWindow": [
+        0.0,
+        0.08
+      ],
+      "transcriptMatches": false,
+      "speechBoundaryErrorsSeconds": null,
+      "speechWithinWindow": null,
+      "speechWindowMatches": null,
+      "audioAccepted": false
+    },
+    {
+      "run": "b-two-refs",
+      "recipe": {
+        "id": "liudeng-b-pdd8-768p-two-refs",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 8,
+        "width": 1376,
+        "height": 768,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "liudeng-b",
+        "promptSha256": "5d182e7b06a96fee8c625ef9fdea72846a688308f00490e7f86e6b3527b59fae",
+        "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438"
+      },
+      "videoSha256": "256d38113f57bdd022586191a39bb0c3c4c5a2ad6c10f72db500fdb4859cb044",
+      "expectedText": "",
+      "expectedSpeechWindow": null,
+      "transcription": {
+        "language": "Chinese",
+        "text": "嗯。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "嗯",
+              "start_time": 4.72,
+              "end_time": 4.72
+            }
+          ]
+        }
+      },
+      "actualSpeechWindow": [
+        4.72,
+        4.72
+      ],
+      "transcriptMatches": false,
+      "speechBoundaryErrorsSeconds": null,
+      "speechWithinWindow": null,
+      "speechWindowMatches": null,
+      "audioAccepted": false
+    }
+  ]
+}

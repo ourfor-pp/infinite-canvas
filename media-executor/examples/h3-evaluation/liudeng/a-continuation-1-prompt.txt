@@ -1,0 +1,28 @@
+subject_definitions:
+<Picture 1> is the complete storyboard sheet establishing the earlier approach, corridor geometry and suitcase appearance.
+<Subject 1> is the adult woman in <Picture 2>, retaining her dark bob, blue-gray jacket and dark trousers.
+<Subject 2> is the upright light gray suitcase in <Picture 1>.
+
+summary:
+[video continuation + reference generation] Continue the existing audiovisual temporal context as one uninterrupted 5.875-second window, including its 0.917-second overlap. Extend the woman's quiet hesitation at the doorway without replaying her approach.
+
+retention_analysis:
+<Picture 1>: partially_preserved - retain setting and appearance; discard sheet layout and the earlier walking timeline.
+<Subject 1> (appears in [Shot 1]): fully_preserved - identity, wardrobe and body proportions.
+<Subject 2> (appears in [Shot 1]): fully_preserved - shape, wheel count and right-hand ownership.
+
+detailed_description:
+The target video continues the same restrained live-action family-drama shot, with realistic cloth movement and consistent practical illumination.
+[Shot 1] Begin at the exact ongoing position and movement established by the supplied temporal context. One chest-height camera views the adult woman from behind and slightly to her left. Her chin-length dark bob, blue-gray jacket, off-white shirt, dark trousers and charcoal shoes retain the same shape, scale and materials. One light gray upright four-wheel suitcase remains beside her right leg. Her right hand grips its rigid extended handle. Preserve the current spacing between hand, handle, suitcase and leg; the handle does not bend, grow or pass through her hand. The same cool corridor leads to the same half-open walnut door and warm light beyond. Wall edges, floor pattern and doorway proportions stay stable as the shot develops.
+
+The opening 00:00.000–00:00.917 is the existing temporal overlap. Continue its current motion naturally; new action develops from 00:00.917 through 00:05.875. Do not restart from the first storyboard cell. The complete storyboard remains a source for the established corridor and wardrobe, not instructions to replay the earlier approach. Exactly one full-frame camera view fills the screen throughout, with one woman, one suitcase and one doorway. No sheet borders, split views, studio backgrounds or duplicate figures appear.
+
+Keep weight transfer small and physically grounded. Planted soles stay against the terrazzo until a deliberate step lifts them. The suitcase wheels retain their contact with the floor and stop when her hand stops pulling. The jacket follows her torso with a little natural fabric lag. Camera movement, if any, decelerates with her body rather than drifting independently. The warm patch near the threshold and cool corridor light maintain their intensity and direction. Her mouth remains closed; small changes in posture carry the hesitation without exaggerated facial acting.
+
+She completes her current step and takes at most one further small step toward the doorway, then stops outside it. Her right hand slows the suitcase until all four wheels rest on the floor. The camera gently comes to rest with her, without passing her shoulder. She keeps her left hand lowered, looking toward the warm gap in the door. End with both feet planted and the suitcase still.
+
+overall_soundscape:
+Continue the quiet corridor room tone and small natural reverberation from the temporal context. Footsteps and wheel rattle occur only while visible movement warrants them; these sounds stop as she settles. Subtle jacket rustle accompanies the arm movement. No speech, singing, humming or voiceover.
+
+non_diegetic_music:
+N/A

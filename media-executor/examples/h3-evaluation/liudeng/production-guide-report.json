@@ -1,0 +1,513 @@
+{
+  "recipe": {
+    "id": "c-production-guide",
+    "category": "production-pipeline-validation",
+    "mode": "ref2va",
+    "steps": 20,
+    "frames": 243,
+    "width": 1344,
+    "height": 768,
+    "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438"
+  },
+  "history": {
+    "prompt": [
+      0,
+      "bbeb682f-e247-41b0-8823-0742a35d3186",
+      {
+        "1": {
+          "class_type": "UNETLoader",
+          "inputs": {
+            "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+            "weight_dtype": "default"
+          }
+        },
+        "2": {
+          "class_type": "CLIPLoader",
+          "inputs": {
+            "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+            "type": "minimax",
+            "device": "default"
+          }
+        },
+        "3": {
+          "class_type": "VAELoader",
+          "inputs": {
+            "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+          }
+        },
+        "4": {
+          "class_type": "VAELoader",
+          "inputs": {
+            "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+          }
+        },
+        "5": {
+          "class_type": "MiniMaxH3ReferenceToVideo",
+          "inputs": {
+            "clip": [
+              "2",
+              0
+            ],
+            "vae": [
+              "3",
+              0
+            ],
+            "prompt": "subject_definitions:\n<Picture 1> is the complete chronological four-frame storyboard for [Shot 1], read top-left, top-right, bottom-left, bottom-right.\n<Subject 1> is the adult daughter at screen-left in <Picture 1>, with a dark chin-length bob, blue-gray jacket and off-white shirt.\n<Subject 2> is the father seated at screen-right in <Picture 1>, with short gray hair, a broad face, brown cardigan and pale blue shirt.\n<Subject 3> is the worn table, two off-white cups and warm lit lamp in <Picture 1>.\n\nsummary:\n[reference generation] Generate a single continuous 10.125-second live-action family-drama dialogue shot. Use <Picture 1> as successive moments of one camera view, keeping the two identities distinct and letting only the current speaker move their lips.\n\nretention_analysis:\n<Picture 1>: fully_preserved - preserve action order and spatial relationships; exclude gutters and sheet layout from the video.\n<Subject 1> (appears in [Shot 1]): fully_preserved - facial identity, hair, wardrobe and suitcase ownership.\n<Subject 2> (appears in [Shot 1]): fully_preserved - facial identity, age, hair and clothing.\n<Subject 3> (appears in [Shot 1]): fully_preserved - fixed object count, positions and illumination.\n\ndetailed_description:\nThe target video has realistic skin texture and subdued practical lighting, with a restrained naturalistic performance.\n[Shot 1] A stationary eye-level medium-wide camera frames the daughter at screen-left in the doorway and the seated father at center-right beside the table. Both faces remain visible in three-quarter view. The cool corridor behind her meets warm light from the cream-shade lamp on the far right. One light gray suitcase stands upright beside her right leg; her right hand rests on its extended handle. The father keeps his right hand beside the nearer cup and his left hand near the lamp base. Exactly two off-white cups rest on the tabletop. The complete rectangular screen always contains one uninterrupted camera view, with no split screen, collage, studio background or duplicate person.\n\nFrom 00:00.000 to 00:01.800, the daughter settles at the inside edge of the doorway without pulling the suitcase farther into the room. Her weight shifts gently onto both feet. The father finishes his small touch at the lamp base and notices her presence. The lamp stays steadily lit. His shoulders remain relaxed; he does not stand up. She looks at his face, with fatigue visible in her posture rather than exaggerated brows or tears.\n\nBetween 00:01.800 and 00:03.200, <Subject 1> (S1) asks softly in an ordinary adult female Mandarin voice, slightly breathy but clearly articulated, <d>[Chinese] \u8fd8\u6ca1\u7761\uff1f</d> Her mouth forms the words once, then closes. The father listens with his mouth closed, lifting his gaze toward her. Her hand stays on the suitcase handle throughout the line.\n\nFrom 00:03.200 to 00:04.700, hold the silence. The father glances briefly at the lamp, as if finding a small practical explanation for waiting up. His left hand remains on the tabletop near its base. The daughter watches him without smiling broadly or moving her lips. Their eyelines meet naturally across the small distance.\n\nBetween 00:04.700 and 00:07.400, <Subject 2> (S2) answers in a low, gently textured older male Mandarin voice, with a short natural pause after the first two words, <d>[Chinese] \u8fd9\u706f\uff0c\u521a\u4fee\u597d\u3002</d> He says this once at a conversational volume. The daughter remains silent, listening. His jaw movement belongs only to his own line.\n\nFrom 00:07.400 to 00:10.125, both mouths are closed. Her gaze lowers toward the second cup and her shoulders soften slightly. His gaze returns to her, with only a faint change around the eyes. Keep both cups, lamp, chair and suitcase stationary; let the held silence finish the shot without a cut or camera push.\n\noverall_soundscape:\nQuiet indoor room tone, faint cloth movement and distant corridor ambience. Exactly the two specified dialogue lines, with distinct speakers and natural room reverberation. No narration, additional words, humming or audience sounds.\n\nnon_diegetic_music:\nN/A",
+            "width": 1344,
+            "height": 768,
+            "length": 243,
+            "audio_vae": [
+              "4",
+              0
+            ],
+            "ref_image_size": "max",
+            "ref_images.ref_image_0": [
+              "21",
+              0
+            ]
+          }
+        },
+        "6": {
+          "class_type": "BasicGuider",
+          "inputs": {
+            "model": [
+              "15",
+              0
+            ],
+            "conditioning": [
+              "102",
+              0
+            ]
+          }
+        },
+        "7": {
+          "class_type": "KSamplerSelect",
+          "inputs": {
+            "sampler_name": "res_multistep"
+          }
+        },
+        "8": {
+          "class_type": "BasicScheduler",
+          "inputs": {
+            "model": [
+              "15",
+              0
+            ],
+            "scheduler": "beta",
+            "steps": 20,
+            "denoise": 1.0
+          }
+        },
+        "9": {
+          "class_type": "RandomNoise",
+          "inputs": {
+            "noise_seed": 271828
+          }
+        },
+        "10": {
+          "class_type": "SamplerCustomAdvanced",
+          "inputs": {
+            "noise": [
+              "9",
+              0
+            ],
+            "guider": [
+              "6",
+              0
+            ],
+            "sampler": [
+              "7",
+              0
+            ],
+            "sigmas": [
+              "8",
+              0
+            ],
+            "latent_image": [
+              "5",
+              1
+            ]
+          }
+        },
+        "11": {
+          "class_type": "VAEDecode",
+          "inputs": {
+            "samples": [
+              "10",
+              0
+            ],
+            "vae": [
+              "3",
+              0
+            ]
+          }
+        },
+        "12": {
+          "class_type": "VAEDecodeAudio",
+          "inputs": {
+            "samples": [
+              "10",
+              0
+            ],
+            "vae": [
+              "4",
+              0
+            ]
+          }
+        },
+        "13": {
+          "class_type": "CreateVideo",
+          "inputs": {
+            "images": [
+              "11",
+              0
+            ],
+            "audio": [
+              "12",
+              0
+            ],
+            "fps": 24.0,
+            "bit_depth": 8
+          }
+        },
+        "14": {
+          "class_type": "SaveVideo",
+          "inputs": {
+            "video": [
+              "13",
+              0
+            ],
+            "filename_prefix": "H3-Liudeng/production-guide",
+            "format": "auto",
+            "codec": "auto"
+          }
+        },
+        "15": {
+          "class_type": "PathchSageAttentionKJ",
+          "inputs": {
+            "model": [
+              "1",
+              0
+            ],
+            "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+            "allow_compile": false
+          }
+        },
+        "21": {
+          "class_type": "LoadImage",
+          "inputs": {
+            "image": "liudeng-production-21.png"
+          }
+        },
+        "100": {
+          "class_type": "LoadImage",
+          "inputs": {
+            "image": "liudeng-production-100.png"
+          }
+        },
+        "102": {
+          "class_type": "MiniMaxH3AddGuide",
+          "inputs": {
+            "positive": [
+              "5",
+              0
+            ],
+            "latent": [
+              "5",
+              1
+            ],
+            "vae": [
+              "3",
+              0
+            ],
+            "audio_vae": [
+              "4",
+              0
+            ],
+            "frame_idx": 0,
+            "image": [
+              "100",
+              0
+            ]
+          }
+        }
+      },
+      {
+        "client_id": "h3-production-guide-validation",
+        "create_time": 1789089724347
+      },
+      [
+        "14"
+      ]
+    ],
+    "outputs": {
+      "14": {
+        "images": [
+          {
+            "filename": "production-guide_00001_.mp4",
+            "subfolder": "H3-Liudeng",
+            "type": "output"
+          }
+        ],
+        "animated": [
+          true
+        ]
+      }
+    },
+    "status": {
+      "status_str": "success",
+      "completed": true,
+      "messages": [
+        [
+          "execution_start",
+          {
+            "prompt_id": "bbeb682f-e247-41b0-8823-0742a35d3186",
+            "timestamp": 1789089724347
+          }
+        ],
+        [
+          "execution_cached",
+          {
+            "nodes": [],
+            "prompt_id": "bbeb682f-e247-41b0-8823-0742a35d3186",
+            "timestamp": 1789089724351
+          }
+        ],
+        [
+          "execution_success",
+          {
+            "prompt_id": "bbeb682f-e247-41b0-8823-0742a35d3186",
+            "timestamp": 1789090384017
+          }
+        ]
+      ]
+    },
+    "meta": {
+      "14": {
+        "node_id": "14",
+        "display_node": "14",
+        "parent_node": null,
+        "real_node_id": "14"
+      }
+    }
+  },
+  "submission": {
+    "submittedAt": 1789089724.348904,
+    "response": {
+      "prompt_id": "bbeb682f-e247-41b0-8823-0742a35d3186",
+      "number": 0,
+      "node_errors": {}
+    }
+  },
+  "seconds": null,
+  "qualityAccepted": false,
+  "audioAccepted": false,
+  "artifacts": [
+    {
+      "path": "/home/cec/infinite-canvas/.tmp/h3-evaluation/liudeng/c-production-guide/output-0.mp4",
+      "sha256": "b9af4aae322f54419490d6b0d70fb5f1eeb01efd3839e0adfba74eacfccdf6cd",
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "High",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "width": 1344,
+            "height": 768,
+            "coded_width": 1344,
+            "coded_height": 768,
+            "closed_captions": 0,
+            "has_b_frames": 2,
+            "pix_fmt": "yuv420p",
+            "level": 32,
+            "color_range": "tv",
+            "color_space": "bt709",
+            "color_transfer": "iec61966-2-1",
+            "color_primaries": "bt709",
+            "chroma_location": "left",
+            "refs": 4,
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "r_frame_rate": "24/1",
+            "avg_frame_rate": "24/1",
+            "time_base": "1/12288",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 124416,
+            "duration": "10.125000",
+            "bit_rate": "1282184",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "243",
+            "nb_read_frames": "243",
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0
+            },
+            "tags": {
+              "language": "und",
+              "handler_name": "VideoHandler",
+              "vendor_id": "[0][0][0][0]"
+            }
+          },
+          {
+            "index": 1,
+            "codec_name": "aac",
+            "codec_long_name": "AAC (Advanced Audio Coding)",
+            "profile": "LC",
+            "codec_type": "audio",
+            "codec_tag_string": "mp4a",
+            "codec_tag": "0x6134706d",
+            "sample_fmt": "fltp",
+            "sample_rate": "32000",
+            "channels": 2,
+            "channel_layout": "stereo",
+            "bits_per_sample": 0,
+            "r_frame_rate": "0/0",
+            "avg_frame_rate": "0/0",
+            "time_base": "1/32000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 324000,
+            "duration": "10.125000",
+            "bit_rate": "130639",
+            "nb_frames": "318",
+            "nb_read_frames": "317",
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0
+            },
+            "tags": {
+              "language": "und",
+              "handler_name": "SoundHandler",
+              "vendor_id": "[0][0][0][0]"
+            }
+          }
+        ],
+        "format": {
+          "filename": "/home/cec/infinite-canvas/.tmp/h3-evaluation/liudeng/c-production-guide/output-0.mp4",
+          "nb_streams": 2,
+          "nb_programs": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "10.125000",
+          "size": "1804573",
+          "bit_rate": "1425835",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "prompt": "{\"1\": {\"class_type\": \"UNETLoader\", \"inputs\": {\"unet_name\": \"minimax_h3_ref2va_pruned_int8_convrot.safetensors\", \"weight_dtype\": \"default\"}}, \"2\": {\"class_type\": \"CLIPLoader\", \"inputs\": {\"clip_name\": \"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors\", \"type\": \"minimax\", \"device\": \"default\"}}, \"3\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"minimax_h3_video_vae_fp16.safetensors\"}}, \"4\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"minimax_h3_audio_vae_fp32.safetensors\"}}, \"5\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Picture 1> is the complete chronological four-frame storyboard for [Shot 1], read top-left, top-right, bottom-left, bottom-right.\\n<Subject 1> is the adult daughter at screen-left in <Picture 1>, with a dark chin-length bob, blue-gray jacket and off-white shirt.\\n<Subject 2> is the father seated at screen-right in <Picture 1>, with short gray hair, a broad face, brown cardigan and pale blue shirt.\\n<Subject 3> is the worn table, two off-white cups and warm lit lamp in <Picture 1>.\\n\\nsummary:\\n[reference generation] Generate a single continuous 10.125-second live-action family-drama dialogue shot. Use <Picture 1> as successive moments of one camera view, keeping the two identities distinct and letting only the current speaker move their lips.\\n\\nretention_analysis:\\n<Picture 1>: fully_preserved - preserve action order and spatial relationships; exclude gutters and sheet layout from the video.\\n<Subject 1> (appears in [Shot 1]): fully_preserved - facial identity, hair, wardrobe and suitcase ownership.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - facial identity, age, hair and clothing.\\n<Subject 3> (appears in [Shot 1]): fully_preserved - fixed object count, positions and illumination.\\n\\ndetailed_description:\\nThe target video has realistic skin texture and subdued practical lighting, with a restrained naturalistic performance.\\n[Shot 1] A stationary eye-level medium-wide camera frames the daughter at screen-left in the doorway and the seated father at center-right beside the table. Both faces remain visible in three-quarter view. The cool corridor behind her meets warm light from the cream-shade lamp on the far right. One light gray suitcase stands upright beside her right leg; her right hand rests on its extended handle. The father keeps his right hand beside the nearer cup and his left hand near the lamp base. Exactly two off-white cups rest on the tabletop. The complete rectangular screen always contains one uninterrupted camera view, with no split screen, collage, studio background or duplicate person.\\n\\nFrom 00:00.000 to 00:01.800, the daughter settles at the inside edge of the doorway without pulling the suitcase farther into the room. Her weight shifts gently onto both feet. The father finishes his small touch at the lamp base and notices her presence. The lamp stays steadily lit. His shoulders remain relaxed; he does not stand up. She looks at his face, with fatigue visible in her posture rather than exaggerated brows or tears.\\n\\nBetween 00:01.800 and 00:03.200, <Subject 1> (S1) asks softly in an ordinary adult female Mandarin voice, slightly breathy but clearly articulated, <d>[Chinese] \\u8fd8\\u6ca1\\u7761\\uff1f</d> Her mouth forms the words once, then closes. The father listens with his mouth closed, lifting his gaze toward her. Her hand stays on the suitcase handle throughout the line.\\n\\nFrom 00:03.200 to 00:04.700, hold the silence. The father glances briefly at the lamp, as if finding a small practical explanation for waiting up. His left hand remains on the tabletop near its base. The daughter watches him without smiling broadly or moving her lips. Their eyelines meet naturally across the small distance.\\n\\nBetween 00:04.700 and 00:07.400, <Subject 2> (S2) answers in a low, gently textured older male Mandarin voice, with a short natural pause after the first two words, <d>[Chinese] \\u8fd9\\u706f\\uff0c\\u521a\\u4fee\\u597d\\u3002</d> He says this once at a conversational volume. The daughter remains silent, listening. His jaw movement belongs only to his own line.\\n\\nFrom 00:07.400 to 00:10.125, both mouths are closed. Her gaze lowers toward the second cup and her shoulders soften slightly. His gaze returns to her, with only a faint change around the eyes. Keep both cups, lamp, chair and suitcase stationary; let the held silence finish the shot without a cut or camera push.\\n\\noverall_soundscape:\\nQuiet indoor room tone, faint cloth movement and distant corridor ambience. Exactly the two specified dialogue lines, with distinct speakers and natural room reverberation. No narration, additional words, humming or audience sounds.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 1344, \"height\": 768, \"length\": 243, \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"max\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"6\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"102\", 0]}}, \"7\": {\"class_type\": \"KSamplerSelect\", \"inputs\": {\"sampler_name\": \"res_multistep\"}}, \"8\": {\"class_type\": \"BasicScheduler\", \"inputs\": {\"model\": [\"15\", 0], \"scheduler\": \"beta\", \"steps\": 20, \"denoise\": 1.0}}, \"9\": {\"class_type\": \"RandomNoise\", \"inputs\": {\"noise_seed\": 271828}}, \"10\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"6\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"8\", 0], \"latent_image\": [\"5\", 1]}}, \"11\": {\"class_type\": \"VAEDecode\", \"inputs\": {\"samples\": [\"10\", 0], \"vae\": [\"3\", 0]}}, \"12\": {\"class_type\": \"VAEDecodeAudio\", \"inputs\": {\"samples\": [\"10\", 0], \"vae\": [\"4\", 0]}}, \"13\": {\"class_type\": \"CreateVideo\", \"inputs\": {\"images\": [\"11\", 0], \"audio\": [\"12\", 0], \"fps\": 24.0, \"bit_depth\": 8}}, \"14\": {\"class_type\": \"SaveVideo\", \"inputs\": {\"video\": [\"13\", 0], \"filename_prefix\": \"H3-Liudeng/production-guide\", \"format\": \"auto\", \"codec\": \"auto\"}}, \"15\": {\"class_type\": \"PathchSageAttentionKJ\", \"inputs\": {\"model\": [\"1\", 0], \"sage_attention\": \"sageattn_qk_int8_pv_fp16_cuda\", \"allow_compile\": false}}, \"21\": {\"class_type\": \"LoadImage\", \"inputs\": {\"image\": \"liudeng-production-21.png\"}, \"is_changed\": [\"93e5db2c76685b5aefd69054993534ec02c8f28f7cbbf04d69657f9d4250ad61\"]}, \"100\": {\"class_type\": \"LoadImage\", \"inputs\": {\"image\": \"liudeng-production-100.png\"}, \"is_changed\": [\"586f434b7a7d048e521d0395f3007069e54152f95671a48eba636ff665c890e5\"]}, \"102\": {\"class_type\": \"MiniMaxH3AddGuide\", \"inputs\": {\"positive\": [\"5\", 0], \"latent\": [\"5\", 1], \"vae\": [\"3\", 0], \"audio_vae\": [\"4\", 0], \"frame_idx\": 0, \"image\": [\"100\", 0]}}}",
+            "encoder": "Lavf62.12.102"
+          }
+        }
+      }
+    }
+  ],
+  "gpuPeakTotalUsedMiB": null,
+  "note": "Polling is intermittent; no precise wall or peak VRAM measurement. Crop and workflow builder are production code, but Director API entry remains untested.",
+  "visualReview": {
+    "method": "1 fps contact sheet, not full-motion acceptance",
+    "storyboardGridObserved": false,
+    "fixedCameraPassed": false,
+    "openingPositionRetentionPassed": false,
+    "accepted": false,
+    "reason": "Daughter crosses to screen right and camera reframes, contrary to fixed camera and doorway blocking. Empty contact-sheet cells are layout placeholders, not black video frames."
+  },
+  "asr": {
+    ".": {
+      "language": "Chinese",
+      "text": "\u8fd8\u6ca1\u7761\u3002\u8fd9\u706f\u521a\u4fee\u597d\u3002",
+      "time_stamps": {
+        "items": [
+          {
+            "text": "\u8fd8",
+            "start_time": 3.04,
+            "end_time": 3.2
+          },
+          {
+            "text": "\u6ca1",
+            "start_time": 3.2,
+            "end_time": 3.36
+          },
+          {
+            "text": "\u7761",
+            "start_time": 3.36,
+            "end_time": 3.76
+          },
+          {
+            "text": "\u8fd9",
+            "start_time": 5.12,
+            "end_time": 5.28
+          },
+          {
+            "text": "\u706f",
+            "start_time": 5.28,
+            "end_time": 5.76
+          },
+          {
+            "text": "\u521a",
+            "start_time": 6.72,
+            "end_time": 6.88
+          },
+          {
+            "text": "\u4fee",
+            "start_time": 6.88,
+            "end_time": 7.12
+          },
+          {
+            "text": "\u597d",
+            "start_time": 7.12,
+            "end_time": 7.52
+          }
+        ]
+      }
+    }
+  },
+  "asrReview": {
+    "textMatchesIgnoringPunctuation": true,
+    "daughterSeconds": [
+      3.04,
+      3.76
+    ],
+    "fatherSeconds": [
+      5.12,
+      7.52
+    ],
+    "daughterPlannedSeconds": [
+      1.8,
+      3.2
+    ],
+    "fatherPlannedSeconds": [
+      4.7,
+      7.4
+    ],
+    "preciseTimingAccepted": false,
+    "phonemeAndListeningAccepted": false
+  }
+}

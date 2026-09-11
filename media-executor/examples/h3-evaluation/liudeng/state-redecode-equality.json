@@ -1,0 +1,47 @@
+{
+  "original": ".tmp/h3-evaluation/liudeng/c-pdd8-768p-first-guide/output-0.mp4",
+  "redecoded": ".tmp/h3-evaluation/liudeng/c-state-redecode/output-0.mp4",
+  "originalHashes": {
+    "videoFrameHashesSha256": "a8c6de1ae487914e14bbdb9f881b4a5dcea8b080c8749467fd5c3ab7ed6dcddc",
+    "audioPcmHash": "SHA256=f41aec664809de241e11bb59bc2d31d2eaa2437a56235cc3107b924ba9dc0ab9",
+    "streams": [
+      {
+        "codec_type": "video",
+        "width": 1376,
+        "height": 768,
+        "duration": "10.125000",
+        "nb_frames": "243"
+      },
+      {
+        "codec_type": "audio",
+        "sample_rate": "32000",
+        "channels": 2,
+        "duration": "10.125000",
+        "nb_frames": "318"
+      }
+    ]
+  },
+  "redecodedHashes": {
+    "videoFrameHashesSha256": "a8c6de1ae487914e14bbdb9f881b4a5dcea8b080c8749467fd5c3ab7ed6dcddc",
+    "audioPcmHash": "SHA256=f41aec664809de241e11bb59bc2d31d2eaa2437a56235cc3107b924ba9dc0ab9",
+    "streams": [
+      {
+        "codec_type": "video",
+        "width": 1376,
+        "height": 768,
+        "duration": "10.125000",
+        "nb_frames": "243"
+      },
+      {
+        "codec_type": "audio",
+        "sample_rate": "32000",
+        "channels": 2,
+        "duration": "10.125000",
+        "nb_frames": "318"
+      }
+    ]
+  },
+  "videoFramesExactlyMatch": true,
+  "audioPcmExactlyMatches": true,
+  "note": "Decoded output equality tests state persistence, not perceptual quality or newly generated continuation."
+}

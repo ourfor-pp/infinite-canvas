@@ -1,0 +1,760 @@
+{
+  "status": "both_generated_full_audiovisual_acceptance_pending",
+  "base": {
+    "recipe": {
+      "id": "base20-native-tail-continuation",
+      "mode": "ref2va",
+      "seed": 271828,
+      "steps": 20,
+      "width": 960,
+      "height": 544,
+      "frames": 481,
+      "experimental": true,
+      "audioAccepted": false,
+      "caseId": "pool-voiceover",
+      "initialFrames": 124,
+      "extensions": 3,
+      "extensionFrames": 119,
+      "overlapFrames": 22,
+      "continuationNodeRevision": "e1768d5fdfc6f9519d2090dcf78458c2d9625f80",
+      "continuationPromptSha256": "4176cf05989d8d348af102e14736fe83e6b2eb27a455ce072b6c23b33ed08314"
+    },
+    "executionSeconds": 442.141,
+    "timingSource": "ComfyUI execution timestamps, excludes transfer; differs from uninterrupted benchmark wall clock",
+    "gpuPeakTotalUsedMiB": null,
+    "gpuPeakNote": "Original monitor terminated before completion; do not claim a full-run peak.",
+    "videoSha256": "367901615e4001cd61467a6ba2b2c2f11c4c63ce3829cb8dc0c051ec114647d2",
+    "inspection": {
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "High",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "width": 960,
+            "height": 544,
+            "coded_width": 960,
+            "coded_height": 544,
+            "closed_captions": 0,
+            "has_b_frames": 2,
+            "pix_fmt": "yuv420p",
+            "level": 31,
+            "color_range": "tv",
+            "color_space": "bt709",
+            "color_transfer": "iec61966-2-1",
+            "color_primaries": "bt709",
+            "chroma_location": "left",
+            "refs": 1,
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "r_frame_rate": "24/1",
+            "avg_frame_rate": "24/1",
+            "time_base": "1/12288",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 246272,
+            "duration": "20.041667",
+            "bit_rate": "3502012",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "481",
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0
+            },
+            "tags": {
+              "language": "und",
+              "handler_name": "VideoHandler",
+              "vendor_id": "[0][0][0][0]"
+            }
+          },
+          {
+            "index": 1,
+            "codec_name": "aac",
+            "codec_long_name": "AAC (Advanced Audio Coding)",
+            "profile": "LC",
+            "codec_type": "audio",
+            "codec_tag_string": "mp4a",
+            "codec_tag": "0x6134706d",
+            "sample_fmt": "fltp",
+            "sample_rate": "32000",
+            "channels": 2,
+            "channel_layout": "stereo",
+            "bits_per_sample": 0,
+            "r_frame_rate": "0/0",
+            "avg_frame_rate": "0/0",
+            "time_base": "1/32000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 641344,
+            "duration": "20.042000",
+            "bit_rate": "127996",
+            "nb_frames": "628",
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0
+            },
+            "tags": {
+              "language": "und",
+              "handler_name": "SoundHandler",
+              "vendor_id": "[0][0][0][0]"
+            }
+          }
+        ],
+        "format": {
+          "filename": ".tmp/h3-evaluation/continuation-native/base20-481frames/output-0.mp4",
+          "nb_streams": 2,
+          "nb_programs": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "20.042000",
+          "size": "9125874",
+          "bit_rate": "3642699",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "prompt": "{\"1\": {\"class_type\": \"UNETLoader\", \"inputs\": {\"unet_name\": \"minimax_h3_ref2va_pruned_int8_convrot.safetensors\", \"weight_dtype\": \"default\"}}, \"2\": {\"class_type\": \"CLIPLoader\", \"inputs\": {\"clip_name\": \"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors\", \"type\": \"minimax\", \"device\": \"default\"}}, \"3\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"minimax_h3_video_vae_fp16.safetensors\"}}, \"4\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"minimax_h3_audio_vae_fp32.safetensors\"}}, \"5\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Subject 1> is the swimmer partially visible amid splashes in <Picture 1>; retain one swimmer moving within one lane.\\n<Subject 2> is the turquoise pool and its blue-and-white lane ropes in <Picture 1>.\\n(S1) is an off-screen adult female narrator with a calm, clear Mandarin voice; she has no visible body in the target shot.\\n\\nsummary:\\n[reference generation] Create a 5.167-second single shot of the swimmer progressing toward screen-right with one short off-screen narration.\\n\\nretention_analysis:\\n<Subject 1> (appears in [Shot 1]): fully_preserved - a single swimmer and continuous swimming motion.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - turquoise water, parallel lane ropes and daylight reflections.\\n\\ndetailed_description:\\nThe target video has a natural live-action sports-observation style with bright daylight, realistic water motion and a fixed elevated camera.\\n[Shot 1] A wide view looks down obliquely across <Subject 2>. Parallel blue-and-white lane ropes run diagonally through the image and divide the turquoise water into regular lanes. <Subject 1> occupies the middle lane, partly hidden beneath a low burst of white splashing water. The image contains one swimmer. Keep the lane spacing, alternating rope colors and bright water surface consistent with the reference. Sunlight catches the small wave crests while deeper parts of the water appear slightly darker.\\n\\nBeginning at the first frame, the swimmer continues forward toward screen-right within the same lane. The body advances gradually with a steady front-crawl rhythm. Alternating arms disturb the surface near the swimmer rather than appearing as disconnected shapes elsewhere in the pool. Small splashes rise and fall around each stroke, and a narrow wake trails behind. The swimmer stays between the same two lane ropes throughout. The adjacent lanes remain empty, and their rope floats bob only gently as the wake reaches them.\\n\\nFrom 00:00.500 to 00:03.500, (S1), an off-screen adult female narrator with a clear, medium-pitched voice, says calmly in Mandarin: <d>[Chinese] \\u6162\\u6162\\u6765\\uff0c\\u4fdd\\u6301\\u547c\\u5438\\u3002</d> Her voice is close and intelligible, with a short natural pause at the comma. The narration comes from outside the visible scene and is not spoken by the swimmer. No speaking mouth, narrator, caption or title appears in the image. The swimmer maintains the same stroke rhythm throughout the sentence, with the head mostly low in the water.\\n\\nAs the line finishes, the swimmer has progressed a modest visible distance toward screen-right while remaining inside the camera frame. The next arm stroke lifts another brief splash that breaks into small droplets and falls back into the pool. Ripples expand outward and gently rock the nearby rope floats. Preserve physically continuous movement: the body neither jumps to another lane nor reverses direction, and the number of limbs does not change.\\n\\nThe camera holds the same elevated position until the final frame at 00:05.167. Natural water splashes continue after the voice ends. The bright reflections flicker on the moving surface, but the overall exposure, perspective and lane geometry stay stable. There is no cut, zoom, sudden acceleration or additional voice during the closing interval.\\n\\noverall_soundscape:\\nContinuous pool splashes and soft water wash follow the visible strokes. No crowd conversation, whistle or music.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 960, \"height\": 544, \"length\": 124, \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"match\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"6\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"5\", 0]}}, \"7\": {\"class_type\": \"KSamplerSelect\", \"inputs\": {\"sampler_name\": \"res_multistep\"}}, \"8\": {\"class_type\": \"BasicScheduler\", \"inputs\": {\"model\": [\"15\", 0], \"scheduler\": \"simple\", \"steps\": 20, \"denoise\": 1.0}}, \"9\": {\"class_type\": \"RandomNoise\", \"inputs\": {\"noise_seed\": 271828}}, \"10\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"6\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"8\", 0], \"latent_image\": [\"5\", 1]}}, \"11\": {\"class_type\": \"VAEDecode\", \"inputs\": {\"samples\": [\"65\", 0], \"vae\": [\"3\", 0]}}, \"12\": {\"class_type\": \"VAEDecodeAudio\", \"inputs\": {\"samples\": [\"65\", 0], \"vae\": [\"4\", 0]}}, \"13\": {\"class_type\": \"CreateVideo\", \"inputs\": {\"images\": [\"11\", 0], \"audio\": [\"12\", 0], \"fps\": 24.0, \"bit_depth\": 8}}, \"14\": {\"class_type\": \"SaveVideo\", \"inputs\": {\"video\": [\"13\", 0], \"filename_prefix\": \"H3-Evaluation/continuation-native/pool-base20-481frames\", \"format\": \"auto\", \"codec\": \"auto\"}}, \"15\": {\"class_type\": \"PathchSageAttentionKJ\", \"inputs\": {\"model\": [\"1\", 0], \"sage_attention\": \"sageattn_qk_int8_pv_fp16_cuda\", \"allow_compile\": false}}, \"21\": {\"class_type\": \"LoadImage\", \"inputs\": {\"image\": \"ref2va_test_5_3.jpg\"}}, \"40\": {\"class_type\": \"MiniMaxH3GuidedContinuationWindow\", \"inputs\": {\"previous_av_latent\": [\"10\", 0], \"overlap_frames\": 22, \"extension_frames\": 119}}, \"41\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Subject 1> is the adult swimmer in <Picture 1>; retain the same body proportions, dark swimwear and swimming direction.\\n<Subject 2> is the turquoise outdoor pool with parallel blue and white lane ropes in <Picture 1>.\\n\\nsummary:\\n[reference generation] Continue the same uninterrupted swimming shot for a 5.875-second generation window. The opening motion and sound continue directly from the supplied temporal context. The swimmer keeps swimming; the earlier spoken sentence is finished.\\n\\nretention_analysis:\\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, swimwear, scale and direction of travel.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - water color, lane arrangement, daylight and camera perspective.\\n\\ndetailed_description:\\nThe target video has a live-action outdoor sports photography style with natural daylight, clear turquoise water and realistic water reflections.\\n[Shot 1] This is the continuation of one existing shot, with no new establishing view. At 00:00.000 the swimmer occupies the position and phase of the stroke established by the supplied motion context. The camera retains the existing height, angle, focal length and movement. Parallel lane ropes extend diagonally across the view. Their blue and white sections keep the same scale and spacing. Daylight highlights ripple across the surface while the deeper water remains turquoise.\\n\\nDuring 00:00.000 to 00:00.917, carry forward the existing motion naturally. The swimmer completes the stroke already in progress instead of beginning a new demonstration. A raised arm continues its forward recovery and enters the water ahead of the head. The other arm pulls underwater while the legs sustain small alternating kicks. The body remains elongated within its lane, and the head turns only briefly for a breath before returning toward the water.\\n\\nFrom 00:00.917 to 00:03.500, successive strokes propel the swimmer in the established direction. Each hand enters cleanly ahead of the shoulder, making a small splash that breaks into droplets and merges into the wake. The shoulders rotate gently with each stroke. The swimmer's body advances steadily relative to the lane markers. The existing camera behavior continues smoothly without a sudden zoom, reset or change of viewing side.\\n\\nFrom 00:03.500 to 00:05.875, maintain the same pace and continuous alternating arm cycle. Small waves trail behind the swimmer and spread toward the lane ropes. Ripples persist between strokes rather than returning to an earlier pattern. The shot ends while the swimmer is still in motion, ready to continue beyond this window. Only water splashes, breathing and distant pool ambience are audible; the previous spoken sentence has already ended.\\n\\noverall_soundscape:\\nContinuous outdoor pool ambience and close rhythmic splashes, preserving the level and acoustic space of the supplied audio context. No new speech occurs in this window.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 960, \"height\": 544, \"length\": [\"40\", 1], \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"match\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"42\": {\"class_type\": \"MiniMaxH3LatentTailGuide\", \"inputs\": {\"positive\": [\"41\", 0], \"previous_av_latent\": [\"10\", 0], \"target_av_latent\": [\"40\", 0], \"overlap_video_tokens\": [\"40\", 2], \"overlap_audio_tokens\": [\"40\", 3]}}, \"43\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"42\", 0]}}, \"44\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"43\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"8\", 0], \"latent_image\": [\"40\", 0]}}, \"45\": {\"class_type\": \"MiniMaxH3AppendContinuation\", \"inputs\": {\"previous_av_latent\": [\"10\", 0], \"sampled_window\": [\"44\", 0], \"overlap_video_tokens\": [\"40\", 2], \"overlap_audio_tokens\": [\"40\", 3], \"transition_video_tokens\": [\"40\", 4], \"transition_audio_tokens\": [\"40\", 5]}}, \"50\": {\"class_type\": \"MiniMaxH3GuidedContinuationWindow\", \"inputs\": {\"previous_av_latent\": [\"45\", 0], \"overlap_frames\": 22, \"extension_frames\": 119}}, \"51\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Subject 1> is the adult swimmer in <Picture 1>; retain the same body proportions, dark swimwear and swimming direction.\\n<Subject 2> is the turquoise outdoor pool with parallel blue and white lane ropes in <Picture 1>.\\n\\nsummary:\\n[reference generation] Continue the same uninterrupted swimming shot for a 5.875-second generation window. The opening motion and sound continue directly from the supplied temporal context. The swimmer keeps swimming; the earlier spoken sentence is finished.\\n\\nretention_analysis:\\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, swimwear, scale and direction of travel.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - water color, lane arrangement, daylight and camera perspective.\\n\\ndetailed_description:\\nThe target video has a live-action outdoor sports photography style with natural daylight, clear turquoise water and realistic water reflections.\\n[Shot 1] This is the continuation of one existing shot, with no new establishing view. At 00:00.000 the swimmer occupies the position and phase of the stroke established by the supplied motion context. The camera retains the existing height, angle, focal length and movement. Parallel lane ropes extend diagonally across the view. Their blue and white sections keep the same scale and spacing. Daylight highlights ripple across the surface while the deeper water remains turquoise.\\n\\nDuring 00:00.000 to 00:00.917, carry forward the existing motion naturally. The swimmer completes the stroke already in progress instead of beginning a new demonstration. A raised arm continues its forward recovery and enters the water ahead of the head. The other arm pulls underwater while the legs sustain small alternating kicks. The body remains elongated within its lane, and the head turns only briefly for a breath before returning toward the water.\\n\\nFrom 00:00.917 to 00:03.500, successive strokes propel the swimmer in the established direction. Each hand enters cleanly ahead of the shoulder, making a small splash that breaks into droplets and merges into the wake. The shoulders rotate gently with each stroke. The swimmer's body advances steadily relative to the lane markers. The existing camera behavior continues smoothly without a sudden zoom, reset or change of viewing side.\\n\\nFrom 00:03.500 to 00:05.875, maintain the same pace and continuous alternating arm cycle. Small waves trail behind the swimmer and spread toward the lane ropes. Ripples persist between strokes rather than returning to an earlier pattern. The shot ends while the swimmer is still in motion, ready to continue beyond this window. Only water splashes, breathing and distant pool ambience are audible; the previous spoken sentence has already ended.\\n\\noverall_soundscape:\\nContinuous outdoor pool ambience and close rhythmic splashes, preserving the level and acoustic space of the supplied audio context. No new speech occurs in this window.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 960, \"height\": 544, \"length\": [\"50\", 1], \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"match\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"52\": {\"class_type\": \"MiniMaxH3LatentTailGuide\", \"inputs\": {\"positive\": [\"51\", 0], \"previous_av_latent\": [\"45\", 0], \"target_av_latent\": [\"50\", 0], \"overlap_video_tokens\": [\"50\", 2], \"overlap_audio_tokens\": [\"50\", 3]}}, \"53\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"52\", 0]}}, \"54\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"53\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"8\", 0], \"latent_image\": [\"50\", 0]}}, \"55\": {\"class_type\": \"MiniMaxH3AppendContinuation\", \"inputs\": {\"previous_av_latent\": [\"45\", 0], \"sampled_window\": [\"54\", 0], \"overlap_video_tokens\": [\"50\", 2], \"overlap_audio_tokens\": [\"50\", 3], \"transition_video_tokens\": [\"50\", 4], \"transition_audio_tokens\": [\"50\", 5]}}, \"60\": {\"class_type\": \"MiniMaxH3GuidedContinuationWindow\", \"inputs\": {\"previous_av_latent\": [\"55\", 0], \"overlap_frames\": 22, \"extension_frames\": 119}}, \"61\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Subject 1> is the adult swimmer in <Picture 1>; retain the same body proportions, dark swimwear and swimming direction.\\n<Subject 2> is the turquoise outdoor pool with parallel blue and white lane ropes in <Picture 1>.\\n\\nsummary:\\n[reference generation] Continue the same uninterrupted swimming shot for a 5.875-second generation window. The opening motion and sound continue directly from the supplied temporal context. The swimmer keeps swimming; the earlier spoken sentence is finished.\\n\\nretention_analysis:\\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, swimwear, scale and direction of travel.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - water color, lane arrangement, daylight and camera perspective.\\n\\ndetailed_description:\\nThe target video has a live-action outdoor sports photography style with natural daylight, clear turquoise water and realistic water reflections.\\n[Shot 1] This is the continuation of one existing shot, with no new establishing view. At 00:00.000 the swimmer occupies the position and phase of the stroke established by the supplied motion context. The camera retains the existing height, angle, focal length and movement. Parallel lane ropes extend diagonally across the view. Their blue and white sections keep the same scale and spacing. Daylight highlights ripple across the surface while the deeper water remains turquoise.\\n\\nDuring 00:00.000 to 00:00.917, carry forward the existing motion naturally. The swimmer completes the stroke already in progress instead of beginning a new demonstration. A raised arm continues its forward recovery and enters the water ahead of the head. The other arm pulls underwater while the legs sustain small alternating kicks. The body remains elongated within its lane, and the head turns only briefly for a breath before returning toward the water.\\n\\nFrom 00:00.917 to 00:03.500, successive strokes propel the swimmer in the established direction. Each hand enters cleanly ahead of the shoulder, making a small splash that breaks into droplets and merges into the wake. The shoulders rotate gently with each stroke. The swimmer's body advances steadily relative to the lane markers. The existing camera behavior continues smoothly without a sudden zoom, reset or change of viewing side.\\n\\nFrom 00:03.500 to 00:05.875, maintain the same pace and continuous alternating arm cycle. Small waves trail behind the swimmer and spread toward the lane ropes. Ripples persist between strokes rather than returning to an earlier pattern. The shot ends while the swimmer is still in motion, ready to continue beyond this window. Only water splashes, breathing and distant pool ambience are audible; the previous spoken sentence has already ended.\\n\\noverall_soundscape:\\nContinuous outdoor pool ambience and close rhythmic splashes, preserving the level and acoustic space of the supplied audio context. No new speech occurs in this window.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 960, \"height\": 544, \"length\": [\"60\", 1], \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"match\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"62\": {\"class_type\": \"MiniMaxH3LatentTailGuide\", \"inputs\": {\"positive\": [\"61\", 0], \"previous_av_latent\": [\"55\", 0], \"target_av_latent\": [\"60\", 0], \"overlap_video_tokens\": [\"60\", 2], \"overlap_audio_tokens\": [\"60\", 3]}}, \"63\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"62\", 0]}}, \"64\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"63\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"8\", 0], \"latent_image\": [\"60\", 0]}}, \"65\": {\"class_type\": \"MiniMaxH3AppendContinuation\", \"inputs\": {\"previous_av_latent\": [\"55\", 0], \"sampled_window\": [\"64\", 0], \"overlap_video_tokens\": [\"60\", 2], \"overlap_audio_tokens\": [\"60\", 3], \"transition_video_tokens\": [\"60\", 4], \"transition_audio_tokens\": [\"60\", 5]}}}",
+            "encoder": "Lavf62.12.102"
+          }
+        }
+      },
+      "decodedFrames": 481,
+      "seams": [
+        {
+          "frame": 124,
+          "seconds": 5.166666666666667,
+          "meanAbsolutePixelDelta": 5.777749061584473,
+          "localDeltas": [
+            5.133246421813965,
+            4.453061580657959,
+            4.6766204833984375,
+            5.777749061584473,
+            5.315694332122803,
+            4.560115814208984,
+            4.709212779998779
+          ],
+          "sheetFrameNumbers": [
+            121,
+            122,
+            123,
+            124,
+            125,
+            126
+          ]
+        },
+        {
+          "frame": 243,
+          "seconds": 10.125,
+          "meanAbsolutePixelDelta": 5.569716453552246,
+          "localDeltas": [
+            5.055914402008057,
+            4.742071628570557,
+            4.8528876304626465,
+            5.569716453552246,
+            4.599421501159668,
+            4.484421253204346,
+            4.693367958068848
+          ],
+          "sheetFrameNumbers": [
+            240,
+            241,
+            242,
+            243,
+            244,
+            245
+          ]
+        },
+        {
+          "frame": 362,
+          "seconds": 15.083333333333334,
+          "meanAbsolutePixelDelta": 6.138067245483398,
+          "localDeltas": [
+            5.742233753204346,
+            5.1613311767578125,
+            5.364161014556885,
+            6.138067245483398,
+            5.67264461517334,
+            5.316689968109131,
+            5.333066940307617
+          ],
+          "sheetFrameNumbers": [
+            359,
+            360,
+            361,
+            362,
+            363,
+            364
+          ]
+        }
+      ],
+      "medianFrameDelta": 5.024965286254883,
+      "p95FrameDelta": 6.191658973693848,
+      "note": "Pixel differences only locate possible discontinuities; camera motion, splash and lighting also change pixels. Full audiovisual review remains required.",
+      "qualityAccepted": false
+    },
+    "asr": {
+      "model": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-0.6B/snapshots/deba00eb976b8daf9805ffd5d0fdcd7cafbb21b2",
+      "aligner": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ForcedAligner-0.6B/snapshots/1c85775dfe71a2a90e6aeea682c6eb9df3d8848b",
+      "device": "cpu",
+      "timingToleranceSeconds": 0.25,
+      "note": "ASR and forced alignment are auxiliary evidence, not listening or lip-sync acceptance.",
+      "results": [
+        {
+          "run": "base20-481frames",
+          "recipe": {
+            "id": "base20-native-tail-continuation",
+            "mode": "ref2va",
+            "seed": 271828,
+            "steps": 20,
+            "width": 960,
+            "height": 544,
+            "frames": 481,
+            "experimental": true,
+            "audioAccepted": false,
+            "caseId": "pool-voiceover",
+            "initialFrames": 124,
+            "extensions": 3,
+            "extensionFrames": 119,
+            "overlapFrames": 22,
+            "continuationNodeRevision": "e1768d5fdfc6f9519d2090dcf78458c2d9625f80",
+            "continuationPromptSha256": "4176cf05989d8d348af102e14736fe83e6b2eb27a455ce072b6c23b33ed08314"
+          },
+          "videoSha256": "367901615e4001cd61467a6ba2b2c2f11c4c63ce3829cb8dc0c051ec114647d2",
+          "expectedText": "慢慢来，保持呼吸。",
+          "expectedSpeechWindow": [
+            0.5,
+            3.5
+          ],
+          "transcription": {
+            "language": "Chinese",
+            "text": "慢慢来，保持呼吸。",
+            "time_stamps": {
+              "items": [
+                {
+                  "text": "慢",
+                  "start_time": 1.92,
+                  "end_time": 2.0
+                },
+                {
+                  "text": "慢",
+                  "start_time": 2.0,
+                  "end_time": 2.16
+                },
+                {
+                  "text": "来",
+                  "start_time": 2.16,
+                  "end_time": 2.48
+                },
+                {
+                  "text": "保",
+                  "start_time": 2.64,
+                  "end_time": 2.72
+                },
+                {
+                  "text": "持",
+                  "start_time": 2.72,
+                  "end_time": 2.88
+                },
+                {
+                  "text": "呼",
+                  "start_time": 2.88,
+                  "end_time": 3.04
+                },
+                {
+                  "text": "吸",
+                  "start_time": 3.04,
+                  "end_time": 3.36
+                }
+              ]
+            }
+          },
+          "actualSpeechWindow": [
+            1.92,
+            3.36
+          ],
+          "transcriptMatches": true,
+          "speechBoundaryErrorsSeconds": [
+            1.42,
+            -0.14
+          ],
+          "speechWithinWindow": true,
+          "speechWindowMatches": false,
+          "audioAccepted": false
+        }
+      ]
+    },
+    "visualObservation": "Viewed 1fps overview and all three six-frame seam sheets; no obvious hard scene cut or position reset at boundaries. Camera follows swimmer and reveals pool edge; original static-camera requirement is not satisfied. Full playback, anatomy and audio/lip-sync not accepted."
+  },
+  "defaultChanged": false,
+  "pdd": {
+    "recipe": {
+      "id": "pdd8-native-tail-continuation",
+      "mode": "ref2va",
+      "seed": 271828,
+      "steps": 8,
+      "width": 960,
+      "height": 544,
+      "frames": 481,
+      "experimental": true,
+      "audioAccepted": false,
+      "caseId": "pool-voiceover",
+      "initialFrames": 124,
+      "extensions": 3,
+      "extensionFrames": 119,
+      "overlapFrames": 22,
+      "continuationNodeRevision": "e1768d5fdfc6f9519d2090dcf78458c2d9625f80",
+      "continuationPromptSha256": "4176cf05989d8d348af102e14736fe83e6b2eb27a455ce072b6c23b33ed08314"
+    },
+    "executionSeconds": 221.856,
+    "benchmarkWallSeconds": 222.903,
+    "gpuPeakTotalUsedMiB": [
+      32066
+    ],
+    "videoSha256": "29282f61058b7a3fab9c1d3979acb09416029cf55f818e7c5e9d0241369852aa",
+    "inspection": {
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "High",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "width": 960,
+            "height": 544,
+            "coded_width": 960,
+            "coded_height": 544,
+            "closed_captions": 0,
+            "has_b_frames": 2,
+            "pix_fmt": "yuv420p",
+            "level": 31,
+            "color_range": "tv",
+            "color_space": "bt709",
+            "color_transfer": "iec61966-2-1",
+            "color_primaries": "bt709",
+            "chroma_location": "left",
+            "refs": 1,
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "r_frame_rate": "24/1",
+            "avg_frame_rate": "24/1",
+            "time_base": "1/12288",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 246272,
+            "duration": "20.041667",
+            "bit_rate": "3407065",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "481",
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0
+            },
+            "tags": {
+              "language": "und",
+              "handler_name": "VideoHandler",
+              "vendor_id": "[0][0][0][0]"
+            }
+          },
+          {
+            "index": 1,
+            "codec_name": "aac",
+            "codec_long_name": "AAC (Advanced Audio Coding)",
+            "profile": "LC",
+            "codec_type": "audio",
+            "codec_tag_string": "mp4a",
+            "codec_tag": "0x6134706d",
+            "sample_fmt": "fltp",
+            "sample_rate": "32000",
+            "channels": 2,
+            "channel_layout": "stereo",
+            "bits_per_sample": 0,
+            "r_frame_rate": "0/0",
+            "avg_frame_rate": "0/0",
+            "time_base": "1/32000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 641344,
+            "duration": "20.042000",
+            "bit_rate": "128441",
+            "nb_frames": "628",
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0
+            },
+            "tags": {
+              "language": "und",
+              "handler_name": "SoundHandler",
+              "vendor_id": "[0][0][0][0]"
+            }
+          }
+        ],
+        "format": {
+          "filename": ".tmp/h3-evaluation/continuation-native/pdd8-481frames/output-0.mp4",
+          "nb_streams": 2,
+          "nb_programs": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "20.042000",
+          "size": "8889239",
+          "bit_rate": "3548244",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "prompt": "{\"1\": {\"class_type\": \"UNETLoader\", \"inputs\": {\"unet_name\": \"minimax_h3_ref2va_pruned_int8_convrot.safetensors\", \"weight_dtype\": \"default\"}}, \"2\": {\"class_type\": \"CLIPLoader\", \"inputs\": {\"clip_name\": \"qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors\", \"type\": \"minimax\", \"device\": \"default\"}}, \"3\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"minimax_h3_video_vae_fp16.safetensors\"}}, \"4\": {\"class_type\": \"VAELoader\", \"inputs\": {\"vae_name\": \"minimax_h3_audio_vae_fp32.safetensors\"}}, \"5\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Subject 1> is the swimmer partially visible amid splashes in <Picture 1>; retain one swimmer moving within one lane.\\n<Subject 2> is the turquoise pool and its blue-and-white lane ropes in <Picture 1>.\\n(S1) is an off-screen adult female narrator with a calm, clear Mandarin voice; she has no visible body in the target shot.\\n\\nsummary:\\n[reference generation] Create a 5.167-second single shot of the swimmer progressing toward screen-right with one short off-screen narration.\\n\\nretention_analysis:\\n<Subject 1> (appears in [Shot 1]): fully_preserved - a single swimmer and continuous swimming motion.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - turquoise water, parallel lane ropes and daylight reflections.\\n\\ndetailed_description:\\nThe target video has a natural live-action sports-observation style with bright daylight, realistic water motion and a fixed elevated camera.\\n[Shot 1] A wide view looks down obliquely across <Subject 2>. Parallel blue-and-white lane ropes run diagonally through the image and divide the turquoise water into regular lanes. <Subject 1> occupies the middle lane, partly hidden beneath a low burst of white splashing water. The image contains one swimmer. Keep the lane spacing, alternating rope colors and bright water surface consistent with the reference. Sunlight catches the small wave crests while deeper parts of the water appear slightly darker.\\n\\nBeginning at the first frame, the swimmer continues forward toward screen-right within the same lane. The body advances gradually with a steady front-crawl rhythm. Alternating arms disturb the surface near the swimmer rather than appearing as disconnected shapes elsewhere in the pool. Small splashes rise and fall around each stroke, and a narrow wake trails behind. The swimmer stays between the same two lane ropes throughout. The adjacent lanes remain empty, and their rope floats bob only gently as the wake reaches them.\\n\\nFrom 00:00.500 to 00:03.500, (S1), an off-screen adult female narrator with a clear, medium-pitched voice, says calmly in Mandarin: <d>[Chinese] \\u6162\\u6162\\u6765\\uff0c\\u4fdd\\u6301\\u547c\\u5438\\u3002</d> Her voice is close and intelligible, with a short natural pause at the comma. The narration comes from outside the visible scene and is not spoken by the swimmer. No speaking mouth, narrator, caption or title appears in the image. The swimmer maintains the same stroke rhythm throughout the sentence, with the head mostly low in the water.\\n\\nAs the line finishes, the swimmer has progressed a modest visible distance toward screen-right while remaining inside the camera frame. The next arm stroke lifts another brief splash that breaks into small droplets and falls back into the pool. Ripples expand outward and gently rock the nearby rope floats. Preserve physically continuous movement: the body neither jumps to another lane nor reverses direction, and the number of limbs does not change.\\n\\nThe camera holds the same elevated position until the final frame at 00:05.167. Natural water splashes continue after the voice ends. The bright reflections flicker on the moving surface, but the overall exposure, perspective and lane geometry stay stable. There is no cut, zoom, sudden acceleration or additional voice during the closing interval.\\n\\noverall_soundscape:\\nContinuous pool splashes and soft water wash follow the visible strokes. No crowd conversation, whistle or music.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 960, \"height\": 544, \"length\": 124, \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"match\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"6\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"5\", 0]}}, \"7\": {\"class_type\": \"KSamplerSelect\", \"inputs\": {\"sampler_name\": \"euler\"}}, \"9\": {\"class_type\": \"RandomNoise\", \"inputs\": {\"noise_seed\": 271828}}, \"10\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"6\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"16\", 1], \"latent_image\": [\"5\", 1]}}, \"11\": {\"class_type\": \"VAEDecode\", \"inputs\": {\"samples\": [\"65\", 0], \"vae\": [\"3\", 0]}}, \"12\": {\"class_type\": \"VAEDecodeAudio\", \"inputs\": {\"samples\": [\"65\", 0], \"vae\": [\"4\", 0]}}, \"13\": {\"class_type\": \"CreateVideo\", \"inputs\": {\"images\": [\"11\", 0], \"audio\": [\"12\", 0], \"fps\": 24.0, \"bit_depth\": 8}}, \"14\": {\"class_type\": \"SaveVideo\", \"inputs\": {\"video\": [\"13\", 0], \"filename_prefix\": \"H3-Evaluation/continuation-native/pool-pdd8-481frames\", \"format\": \"auto\", \"codec\": \"auto\"}}, \"15\": {\"class_type\": \"PathchSageAttentionKJ\", \"inputs\": {\"model\": [\"16\", 0], \"sage_attention\": \"sageattn_qk_int8_pv_fp16_cuda\", \"allow_compile\": false}}, \"21\": {\"class_type\": \"LoadImage\", \"inputs\": {\"image\": \"ref2va_test_5_3.jpg\"}}, \"40\": {\"class_type\": \"MiniMaxH3GuidedContinuationWindow\", \"inputs\": {\"previous_av_latent\": [\"10\", 0], \"overlap_frames\": 22, \"extension_frames\": 119}}, \"41\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Subject 1> is the adult swimmer in <Picture 1>; retain the same body proportions, dark swimwear and swimming direction.\\n<Subject 2> is the turquoise outdoor pool with parallel blue and white lane ropes in <Picture 1>.\\n\\nsummary:\\n[reference generation] Continue the same uninterrupted swimming shot for a 5.875-second generation window. The opening motion and sound continue directly from the supplied temporal context. The swimmer keeps swimming; the earlier spoken sentence is finished.\\n\\nretention_analysis:\\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, swimwear, scale and direction of travel.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - water color, lane arrangement, daylight and camera perspective.\\n\\ndetailed_description:\\nThe target video has a live-action outdoor sports photography style with natural daylight, clear turquoise water and realistic water reflections.\\n[Shot 1] This is the continuation of one existing shot, with no new establishing view. At 00:00.000 the swimmer occupies the position and phase of the stroke established by the supplied motion context. The camera retains the existing height, angle, focal length and movement. Parallel lane ropes extend diagonally across the view. Their blue and white sections keep the same scale and spacing. Daylight highlights ripple across the surface while the deeper water remains turquoise.\\n\\nDuring 00:00.000 to 00:00.917, carry forward the existing motion naturally. The swimmer completes the stroke already in progress instead of beginning a new demonstration. A raised arm continues its forward recovery and enters the water ahead of the head. The other arm pulls underwater while the legs sustain small alternating kicks. The body remains elongated within its lane, and the head turns only briefly for a breath before returning toward the water.\\n\\nFrom 00:00.917 to 00:03.500, successive strokes propel the swimmer in the established direction. Each hand enters cleanly ahead of the shoulder, making a small splash that breaks into droplets and merges into the wake. The shoulders rotate gently with each stroke. The swimmer's body advances steadily relative to the lane markers. The existing camera behavior continues smoothly without a sudden zoom, reset or change of viewing side.\\n\\nFrom 00:03.500 to 00:05.875, maintain the same pace and continuous alternating arm cycle. Small waves trail behind the swimmer and spread toward the lane ropes. Ripples persist between strokes rather than returning to an earlier pattern. The shot ends while the swimmer is still in motion, ready to continue beyond this window. Only water splashes, breathing and distant pool ambience are audible; the previous spoken sentence has already ended.\\n\\noverall_soundscape:\\nContinuous outdoor pool ambience and close rhythmic splashes, preserving the level and acoustic space of the supplied audio context. No new speech occurs in this window.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 960, \"height\": 544, \"length\": [\"40\", 1], \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"match\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"42\": {\"class_type\": \"MiniMaxH3LatentTailGuide\", \"inputs\": {\"positive\": [\"41\", 0], \"previous_av_latent\": [\"10\", 0], \"target_av_latent\": [\"40\", 0], \"overlap_video_tokens\": [\"40\", 2], \"overlap_audio_tokens\": [\"40\", 3]}}, \"43\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"42\", 0]}}, \"44\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"43\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"16\", 1], \"latent_image\": [\"40\", 0]}}, \"45\": {\"class_type\": \"MiniMaxH3AppendContinuation\", \"inputs\": {\"previous_av_latent\": [\"10\", 0], \"sampled_window\": [\"44\", 0], \"overlap_video_tokens\": [\"40\", 2], \"overlap_audio_tokens\": [\"40\", 3], \"transition_video_tokens\": [\"40\", 4], \"transition_audio_tokens\": [\"40\", 5]}}, \"50\": {\"class_type\": \"MiniMaxH3GuidedContinuationWindow\", \"inputs\": {\"previous_av_latent\": [\"45\", 0], \"overlap_frames\": 22, \"extension_frames\": 119}}, \"51\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Subject 1> is the adult swimmer in <Picture 1>; retain the same body proportions, dark swimwear and swimming direction.\\n<Subject 2> is the turquoise outdoor pool with parallel blue and white lane ropes in <Picture 1>.\\n\\nsummary:\\n[reference generation] Continue the same uninterrupted swimming shot for a 5.875-second generation window. The opening motion and sound continue directly from the supplied temporal context. The swimmer keeps swimming; the earlier spoken sentence is finished.\\n\\nretention_analysis:\\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, swimwear, scale and direction of travel.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - water color, lane arrangement, daylight and camera perspective.\\n\\ndetailed_description:\\nThe target video has a live-action outdoor sports photography style with natural daylight, clear turquoise water and realistic water reflections.\\n[Shot 1] This is the continuation of one existing shot, with no new establishing view. At 00:00.000 the swimmer occupies the position and phase of the stroke established by the supplied motion context. The camera retains the existing height, angle, focal length and movement. Parallel lane ropes extend diagonally across the view. Their blue and white sections keep the same scale and spacing. Daylight highlights ripple across the surface while the deeper water remains turquoise.\\n\\nDuring 00:00.000 to 00:00.917, carry forward the existing motion naturally. The swimmer completes the stroke already in progress instead of beginning a new demonstration. A raised arm continues its forward recovery and enters the water ahead of the head. The other arm pulls underwater while the legs sustain small alternating kicks. The body remains elongated within its lane, and the head turns only briefly for a breath before returning toward the water.\\n\\nFrom 00:00.917 to 00:03.500, successive strokes propel the swimmer in the established direction. Each hand enters cleanly ahead of the shoulder, making a small splash that breaks into droplets and merges into the wake. The shoulders rotate gently with each stroke. The swimmer's body advances steadily relative to the lane markers. The existing camera behavior continues smoothly without a sudden zoom, reset or change of viewing side.\\n\\nFrom 00:03.500 to 00:05.875, maintain the same pace and continuous alternating arm cycle. Small waves trail behind the swimmer and spread toward the lane ropes. Ripples persist between strokes rather than returning to an earlier pattern. The shot ends while the swimmer is still in motion, ready to continue beyond this window. Only water splashes, breathing and distant pool ambience are audible; the previous spoken sentence has already ended.\\n\\noverall_soundscape:\\nContinuous outdoor pool ambience and close rhythmic splashes, preserving the level and acoustic space of the supplied audio context. No new speech occurs in this window.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 960, \"height\": 544, \"length\": [\"50\", 1], \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"match\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"52\": {\"class_type\": \"MiniMaxH3LatentTailGuide\", \"inputs\": {\"positive\": [\"51\", 0], \"previous_av_latent\": [\"45\", 0], \"target_av_latent\": [\"50\", 0], \"overlap_video_tokens\": [\"50\", 2], \"overlap_audio_tokens\": [\"50\", 3]}}, \"53\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"52\", 0]}}, \"54\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"53\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"16\", 1], \"latent_image\": [\"50\", 0]}}, \"55\": {\"class_type\": \"MiniMaxH3AppendContinuation\", \"inputs\": {\"previous_av_latent\": [\"45\", 0], \"sampled_window\": [\"54\", 0], \"overlap_video_tokens\": [\"50\", 2], \"overlap_audio_tokens\": [\"50\", 3], \"transition_video_tokens\": [\"50\", 4], \"transition_audio_tokens\": [\"50\", 5]}}, \"60\": {\"class_type\": \"MiniMaxH3GuidedContinuationWindow\", \"inputs\": {\"previous_av_latent\": [\"55\", 0], \"overlap_frames\": 22, \"extension_frames\": 119}}, \"61\": {\"class_type\": \"MiniMaxH3ReferenceToVideo\", \"inputs\": {\"clip\": [\"2\", 0], \"vae\": [\"3\", 0], \"prompt\": \"subject_definitions:\\n<Subject 1> is the adult swimmer in <Picture 1>; retain the same body proportions, dark swimwear and swimming direction.\\n<Subject 2> is the turquoise outdoor pool with parallel blue and white lane ropes in <Picture 1>.\\n\\nsummary:\\n[reference generation] Continue the same uninterrupted swimming shot for a 5.875-second generation window. The opening motion and sound continue directly from the supplied temporal context. The swimmer keeps swimming; the earlier spoken sentence is finished.\\n\\nretention_analysis:\\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, swimwear, scale and direction of travel.\\n<Subject 2> (appears in [Shot 1]): fully_preserved - water color, lane arrangement, daylight and camera perspective.\\n\\ndetailed_description:\\nThe target video has a live-action outdoor sports photography style with natural daylight, clear turquoise water and realistic water reflections.\\n[Shot 1] This is the continuation of one existing shot, with no new establishing view. At 00:00.000 the swimmer occupies the position and phase of the stroke established by the supplied motion context. The camera retains the existing height, angle, focal length and movement. Parallel lane ropes extend diagonally across the view. Their blue and white sections keep the same scale and spacing. Daylight highlights ripple across the surface while the deeper water remains turquoise.\\n\\nDuring 00:00.000 to 00:00.917, carry forward the existing motion naturally. The swimmer completes the stroke already in progress instead of beginning a new demonstration. A raised arm continues its forward recovery and enters the water ahead of the head. The other arm pulls underwater while the legs sustain small alternating kicks. The body remains elongated within its lane, and the head turns only briefly for a breath before returning toward the water.\\n\\nFrom 00:00.917 to 00:03.500, successive strokes propel the swimmer in the established direction. Each hand enters cleanly ahead of the shoulder, making a small splash that breaks into droplets and merges into the wake. The shoulders rotate gently with each stroke. The swimmer's body advances steadily relative to the lane markers. The existing camera behavior continues smoothly without a sudden zoom, reset or change of viewing side.\\n\\nFrom 00:03.500 to 00:05.875, maintain the same pace and continuous alternating arm cycle. Small waves trail behind the swimmer and spread toward the lane ropes. Ripples persist between strokes rather than returning to an earlier pattern. The shot ends while the swimmer is still in motion, ready to continue beyond this window. Only water splashes, breathing and distant pool ambience are audible; the previous spoken sentence has already ended.\\n\\noverall_soundscape:\\nContinuous outdoor pool ambience and close rhythmic splashes, preserving the level and acoustic space of the supplied audio context. No new speech occurs in this window.\\n\\nnon_diegetic_music:\\nN/A\", \"width\": 960, \"height\": 544, \"length\": [\"60\", 1], \"audio_vae\": [\"4\", 0], \"ref_image_size\": \"match\", \"ref_images.ref_image_0\": [\"21\", 0]}}, \"62\": {\"class_type\": \"MiniMaxH3LatentTailGuide\", \"inputs\": {\"positive\": [\"61\", 0], \"previous_av_latent\": [\"55\", 0], \"target_av_latent\": [\"60\", 0], \"overlap_video_tokens\": [\"60\", 2], \"overlap_audio_tokens\": [\"60\", 3]}}, \"63\": {\"class_type\": \"BasicGuider\", \"inputs\": {\"model\": [\"15\", 0], \"conditioning\": [\"62\", 0]}}, \"64\": {\"class_type\": \"SamplerCustomAdvanced\", \"inputs\": {\"noise\": [\"9\", 0], \"guider\": [\"63\", 0], \"sampler\": [\"7\", 0], \"sigmas\": [\"16\", 1], \"latent_image\": [\"60\", 0]}}, \"65\": {\"class_type\": \"MiniMaxH3AppendContinuation\", \"inputs\": {\"previous_av_latent\": [\"55\", 0], \"sampled_window\": [\"64\", 0], \"overlap_video_tokens\": [\"60\", 2], \"overlap_audio_tokens\": [\"60\", 3], \"transition_video_tokens\": [\"60\", 4], \"transition_audio_tokens\": [\"60\", 5]}}, \"16\": {\"class_type\": \"MiniMaxH3PDDAccApply\", \"inputs\": {\"model\": [\"1\", 0], \"pdd_file\": \"MiniMax-H3-Ref2VA-Acc-8Step.safetensors\", \"nfe\": \"8\", \"lora_strength\": 1.0, \"head_strength\": 1.0, \"on_off_grid\": \"error\", \"partition_check\": \"error\"}}}",
+            "encoder": "Lavf62.12.102"
+          }
+        }
+      },
+      "decodedFrames": 481,
+      "seams": [
+        {
+          "frame": 124,
+          "seconds": 5.166666666666667,
+          "meanAbsolutePixelDelta": 5.175069332122803,
+          "localDeltas": [
+            4.709791660308838,
+            4.199739456176758,
+            4.231389045715332,
+            5.175069332122803,
+            4.683252334594727,
+            3.9453704357147217,
+            4.142210483551025
+          ],
+          "sheetFrameNumbers": [
+            121,
+            122,
+            123,
+            124,
+            125,
+            126
+          ]
+        },
+        {
+          "frame": 243,
+          "seconds": 10.125,
+          "meanAbsolutePixelDelta": 5.3076043128967285,
+          "localDeltas": [
+            4.598784923553467,
+            4.448848247528076,
+            4.4343342781066895,
+            5.3076043128967285,
+            4.408593654632568,
+            4.25925350189209,
+            4.533524513244629
+          ],
+          "sheetFrameNumbers": [
+            240,
+            241,
+            242,
+            243,
+            244,
+            245
+          ]
+        },
+        {
+          "frame": 362,
+          "seconds": 15.083333333333334,
+          "meanAbsolutePixelDelta": 5.693912029266357,
+          "localDeltas": [
+            5.4458794593811035,
+            4.8533101081848145,
+            4.852169990539551,
+            5.693912029266357,
+            5.518645763397217,
+            4.839421272277832,
+            4.982413291931152
+          ],
+          "sheetFrameNumbers": [
+            359,
+            360,
+            361,
+            362,
+            363,
+            364
+          ]
+        }
+      ],
+      "medianFrameDelta": 4.920251846313477,
+      "p95FrameDelta": 5.821116924285889,
+      "note": "Pixel differences only locate possible discontinuities; camera motion, splash and lighting also change pixels. Full audiovisual review remains required.",
+      "qualityAccepted": false
+    },
+    "visualObservation": "Viewed full 1fps overview plus three seam contact sheets; no obvious hard cut or swimmer position reset at boundaries. Camera follows and background develops; static-camera requirement remains unmet. Full playback and anatomy not accepted."
+  },
+  "pairedExecutionSpeedup": 1.992918830232223,
+  "asr": {
+    "model": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-0.6B/snapshots/deba00eb976b8daf9805ffd5d0fdcd7cafbb21b2",
+    "aligner": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ForcedAligner-0.6B/snapshots/1c85775dfe71a2a90e6aeea682c6eb9df3d8848b",
+    "device": "cpu",
+    "timingToleranceSeconds": 0.25,
+    "note": "ASR and forced alignment are auxiliary evidence, not listening or lip-sync acceptance.",
+    "results": [
+      {
+        "run": "base20-481frames",
+        "recipe": {
+          "id": "base20-native-tail-continuation",
+          "mode": "ref2va",
+          "seed": 271828,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 481,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover",
+          "initialFrames": 124,
+          "extensions": 3,
+          "extensionFrames": 119,
+          "overlapFrames": 22,
+          "continuationNodeRevision": "e1768d5fdfc6f9519d2090dcf78458c2d9625f80",
+          "continuationPromptSha256": "4176cf05989d8d348af102e14736fe83e6b2eb27a455ce072b6c23b33ed08314"
+        },
+        "videoSha256": "367901615e4001cd61467a6ba2b2c2f11c4c63ce3829cb8dc0c051ec114647d2",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 1.92,
+                "end_time": 2.0
+              },
+              {
+                "text": "慢",
+                "start_time": 2.0,
+                "end_time": 2.16
+              },
+              {
+                "text": "来",
+                "start_time": 2.16,
+                "end_time": 2.48
+              },
+              {
+                "text": "保",
+                "start_time": 2.64,
+                "end_time": 2.72
+              },
+              {
+                "text": "持",
+                "start_time": 2.72,
+                "end_time": 2.88
+              },
+              {
+                "text": "呼",
+                "start_time": 2.88,
+                "end_time": 3.04
+              },
+              {
+                "text": "吸",
+                "start_time": 3.04,
+                "end_time": 3.36
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          1.92,
+          3.36
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          1.42,
+          -0.14
+        ],
+        "speechWithinWindow": true,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      {
+        "run": "pdd8-481frames",
+        "recipe": {
+          "id": "pdd8-native-tail-continuation",
+          "mode": "ref2va",
+          "seed": 271828,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 481,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover",
+          "initialFrames": 124,
+          "extensions": 3,
+          "extensionFrames": 119,
+          "overlapFrames": 22,
+          "continuationNodeRevision": "e1768d5fdfc6f9519d2090dcf78458c2d9625f80",
+          "continuationPromptSha256": "4176cf05989d8d348af102e14736fe83e6b2eb27a455ce072b6c23b33ed08314"
+        },
+        "videoSha256": "29282f61058b7a3fab9c1d3979acb09416029cf55f818e7c5e9d0241369852aa",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 1.92,
+                "end_time": 2.0
+              },
+              {
+                "text": "慢",
+                "start_time": 2.0,
+                "end_time": 2.16
+              },
+              {
+                "text": "来",
+                "start_time": 2.16,
+                "end_time": 2.4
+              },
+              {
+                "text": "保",
+                "start_time": 2.64,
+                "end_time": 2.72
+              },
+              {
+                "text": "持",
+                "start_time": 2.72,
+                "end_time": 2.88
+              },
+              {
+                "text": "呼",
+                "start_time": 2.88,
+                "end_time": 3.04
+              },
+              {
+                "text": "吸",
+                "start_time": 3.04,
+                "end_time": 3.36
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          1.92,
+          3.36
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          1.42,
+          -0.14
+        ],
+        "speechWithinWindow": true,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      }
+    ]
+  },
+  "independent": {
+    "models": {
+      "SenseVoiceSmall": "Revision:master,CreatedAt:1727321787",
+      "FSMN-VAD": "Revision:master,CreatedAt:1707184291"
+    },
+    "results": [
+      {
+        "run": "base20-481frames",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                1630,
+                3710
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      {
+        "run": "pdd8-481frames",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                1630,
+                3700
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      }
+    ]
+  }
+}

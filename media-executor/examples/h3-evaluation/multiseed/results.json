@@ -1,0 +1,2224 @@
+{
+  "summary": {
+    "base": {
+      "runs": 6,
+      "meanSeconds": 95.442,
+      "pairedMedianSpeedup": 1.0,
+      "bothTranscriptsMatch": 6,
+      "speechBoundaryMatches": 0,
+      "speechWithinWindow": 1
+    },
+    "lightx2v-ref8": {
+      "runs": 6,
+      "meanSeconds": 55.093,
+      "pairedMedianSpeedup": 1.743,
+      "bothTranscriptsMatch": 5,
+      "speechBoundaryMatches": 0,
+      "speechWithinWindow": 1
+    },
+    "pdd-ref8": {
+      "runs": 6,
+      "meanSeconds": 55.754,
+      "pairedMedianSpeedup": 1.712,
+      "bothTranscriptsMatch": 6,
+      "speechBoundaryMatches": 0,
+      "speechWithinWindow": 1
+    }
+  },
+  "defaultDecision": "Keep base default; LightX2V has a repeated-phrase counterexample, PDD remains experimental pending full audiovisual acceptance; timing unreliable in all three.",
+  "results": [
+    {
+      "batch": "second-batch",
+      "run": "pool-voiceover-base",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 95.426,
+      "gpuPeakTotalUsedMiB": [
+        30822
+      ],
+      "videoSha256": "adbff974f803a03317b881c191c0cbb14a60f1fcf5f2bd8ed924c2a5478d6c8f",
+      "qwen": {
+        "run": "pool-voiceover-base",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "adbff974f803a03317b881c191c0cbb14a60f1fcf5f2bd8ed924c2a5478d6c8f",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 0.16,
+                "end_time": 0.32
+              },
+              {
+                "text": "慢",
+                "start_time": 0.32,
+                "end_time": 0.48
+              },
+              {
+                "text": "来",
+                "start_time": 0.48,
+                "end_time": 0.8
+              },
+              {
+                "text": "保",
+                "start_time": 1.68,
+                "end_time": 1.84
+              },
+              {
+                "text": "持",
+                "start_time": 1.84,
+                "end_time": 2.08
+              },
+              {
+                "text": "呼",
+                "start_time": 2.08,
+                "end_time": 2.32
+              },
+              {
+                "text": "吸",
+                "start_time": 2.32,
+                "end_time": 2.72
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.16,
+          2.72
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          -0.34,
+          -0.78
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "pool-voiceover-base",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                0,
+                1210
+              ],
+              [
+                1490,
+                3010
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "second-batch",
+      "run": "pool-voiceover-pdd-ref8",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 56.742,
+      "gpuPeakTotalUsedMiB": [
+        31886
+      ],
+      "videoSha256": "1e3e1292cfb5b8426405e16fcc6265b8f0fc95ceda2499c5306c1572b1349061",
+      "qwen": {
+        "run": "pool-voiceover-pdd-ref8",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "1e3e1292cfb5b8426405e16fcc6265b8f0fc95ceda2499c5306c1572b1349061",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 0.16,
+                "end_time": 0.32
+              },
+              {
+                "text": "慢",
+                "start_time": 0.32,
+                "end_time": 0.56
+              },
+              {
+                "text": "来",
+                "start_time": 0.56,
+                "end_time": 0.8
+              },
+              {
+                "text": "保",
+                "start_time": 1.68,
+                "end_time": 1.84
+              },
+              {
+                "text": "持",
+                "start_time": 1.84,
+                "end_time": 2.08
+              },
+              {
+                "text": "呼",
+                "start_time": 2.08,
+                "end_time": 2.32
+              },
+              {
+                "text": "吸",
+                "start_time": 2.32,
+                "end_time": 2.72
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.16,
+          2.72
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          -0.34,
+          -0.78
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "pool-voiceover-pdd-ref8",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                0,
+                1280
+              ],
+              [
+                1560,
+                3000
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "second-batch",
+      "run": "speech-first-base",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 95.381,
+      "gpuPeakTotalUsedMiB": [
+        30790
+      ],
+      "videoSha256": "da263f0e174dbc9b976e3ede444645075bb3cf761973ec14016262943841620f",
+      "qwen": {
+        "run": "speech-first-base",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "da263f0e174dbc9b976e3ede444645075bb3cf761973ec14016262943841620f",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 1.04,
+                "end_time": 1.2
+              },
+              {
+                "text": "担",
+                "start_time": 1.2,
+                "end_time": 1.36
+              },
+              {
+                "text": "心",
+                "start_time": 1.44,
+                "end_time": 1.84
+              },
+              {
+                "text": "等",
+                "start_time": 2.16,
+                "end_time": 2.4
+              },
+              {
+                "text": "我",
+                "start_time": 2.4,
+                "end_time": 2.4
+              },
+              {
+                "text": "回",
+                "start_time": 2.4,
+                "end_time": 2.64
+              },
+              {
+                "text": "来",
+                "start_time": 2.64,
+                "end_time": 2.96
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          1.04,
+          2.96
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.79,
+          0.71
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "speech-first-base",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                760,
+                3330
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|SAD|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "second-batch",
+      "run": "speech-first-pdd-ref8",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 54.772,
+      "gpuPeakTotalUsedMiB": [
+        31822
+      ],
+      "videoSha256": "f0d25e67877212f43542ede1593c2007ba810fb155dadc907c12844ba0f9f023",
+      "qwen": {
+        "run": "speech-first-pdd-ref8",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "f0d25e67877212f43542ede1593c2007ba810fb155dadc907c12844ba0f9f023",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 1.04,
+                "end_time": 1.2
+              },
+              {
+                "text": "担",
+                "start_time": 1.2,
+                "end_time": 1.44
+              },
+              {
+                "text": "心",
+                "start_time": 1.44,
+                "end_time": 1.84
+              },
+              {
+                "text": "等",
+                "start_time": 2.16,
+                "end_time": 2.4
+              },
+              {
+                "text": "我",
+                "start_time": 2.4,
+                "end_time": 2.4
+              },
+              {
+                "text": "回",
+                "start_time": 2.4,
+                "end_time": 2.64
+              },
+              {
+                "text": "来",
+                "start_time": 2.64,
+                "end_time": 3.04
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          1.04,
+          3.04
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.79,
+          0.79
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "speech-first-pdd-ref8",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                740,
+                3270
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|SAD|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "ref8-v1",
+      "run": "pool-voiceover-lightx2v-ref8",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 56.762,
+      "gpuPeakTotalUsedMiB": [
+        31310
+      ],
+      "videoSha256": "f61ede8717cb7b79e8f53d141bfe2f9cb88a67cf8ecd4739613c27ecad4742c2",
+      "qwen": {
+        "run": "pool-voiceover-lightx2v-ref8",
+        "recipe": {
+          "id": "lightx2v-ref8",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "f61ede8717cb7b79e8f53d141bfe2f9cb88a67cf8ecd4739613c27ecad4742c2",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 0.16,
+                "end_time": 0.32
+              },
+              {
+                "text": "慢",
+                "start_time": 0.32,
+                "end_time": 0.48
+              },
+              {
+                "text": "来",
+                "start_time": 0.48,
+                "end_time": 0.88
+              },
+              {
+                "text": "保",
+                "start_time": 1.76,
+                "end_time": 1.92
+              },
+              {
+                "text": "持",
+                "start_time": 1.92,
+                "end_time": 2.08
+              },
+              {
+                "text": "呼",
+                "start_time": 2.08,
+                "end_time": 2.32
+              },
+              {
+                "text": "吸",
+                "start_time": 2.32,
+                "end_time": 2.72
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.16,
+          2.72
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          -0.34,
+          -0.78
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "pool-voiceover-lightx2v-ref8",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                0,
+                1280
+              ],
+              [
+                1560,
+                2950
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "ref8-v1",
+      "run": "speech-first-lightx2v-ref8",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 314159,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 54.774,
+      "gpuPeakTotalUsedMiB": [
+        31310
+      ],
+      "videoSha256": "7dcf6630fa76f2d292eba56c88faec56fb6422bdb4c40b90a381b5b39b6c0810",
+      "qwen": {
+        "run": "speech-first-lightx2v-ref8",
+        "recipe": {
+          "id": "lightx2v-ref8",
+          "mode": "ref2va",
+          "seed": 314159,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "7dcf6630fa76f2d292eba56c88faec56fb6422bdb4c40b90a381b5b39b6c0810",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 0.56,
+                "end_time": 0.72
+              },
+              {
+                "text": "担",
+                "start_time": 0.72,
+                "end_time": 0.88
+              },
+              {
+                "text": "心",
+                "start_time": 0.88,
+                "end_time": 1.28
+              },
+              {
+                "text": "等",
+                "start_time": 2.16,
+                "end_time": 2.4
+              },
+              {
+                "text": "我",
+                "start_time": 2.4,
+                "end_time": 2.4
+              },
+              {
+                "text": "回",
+                "start_time": 2.4,
+                "end_time": 2.72
+              },
+              {
+                "text": "来",
+                "start_time": 2.72,
+                "end_time": 2.96
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.56,
+          2.96
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.31,
+          0.71
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "speech-first-lightx2v-ref8",
+        "vad": [
+          {
+            "key": "output-0",
+            "value": [
+              [
+                310,
+                1670
+              ],
+              [
+                1950,
+                3280
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "pool-voiceover-base-seed-161803",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 161803,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 95.416,
+      "gpuPeakTotalUsedMiB": [
+        31336
+      ],
+      "videoSha256": "55994cdee60505c3408f5423bc785d4fd1b8c1b176958312f48b745ea20e88fe",
+      "qwen": {
+        "run": "pool-voiceover-base-seed-161803",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 161803,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "55994cdee60505c3408f5423bc785d4fd1b8c1b176958312f48b745ea20e88fe",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 0.08,
+                "end_time": 0.24
+              },
+              {
+                "text": "慢",
+                "start_time": 0.24,
+                "end_time": 0.4
+              },
+              {
+                "text": "来",
+                "start_time": 0.4,
+                "end_time": 0.64
+              },
+              {
+                "text": "保",
+                "start_time": 3.2,
+                "end_time": 3.36
+              },
+              {
+                "text": "持",
+                "start_time": 3.36,
+                "end_time": 3.52
+              },
+              {
+                "text": "呼",
+                "start_time": 3.52,
+                "end_time": 3.68
+              },
+              {
+                "text": "吸",
+                "start_time": 3.68,
+                "end_time": 4.0
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.08,
+          4.0
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          -0.42,
+          0.5
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "pool-voiceover-base-seed-161803",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                0,
+                960
+              ],
+              [
+                2920,
+                4360
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "pool-voiceover-base-seed-271828",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 95.44,
+      "gpuPeakTotalUsedMiB": [
+        30816
+      ],
+      "videoSha256": "ae9043354d308df01a7d97f8627059d2acc760ea7b596be4eec335aa93edff83",
+      "qwen": {
+        "run": "pool-voiceover-base-seed-271828",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 271828,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "ae9043354d308df01a7d97f8627059d2acc760ea7b596be4eec335aa93edff83",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 1.92,
+                "end_time": 2.0
+              },
+              {
+                "text": "慢",
+                "start_time": 2.0,
+                "end_time": 2.16
+              },
+              {
+                "text": "来",
+                "start_time": 2.16,
+                "end_time": 2.48
+              },
+              {
+                "text": "保",
+                "start_time": 2.64,
+                "end_time": 2.72
+              },
+              {
+                "text": "持",
+                "start_time": 2.72,
+                "end_time": 2.88
+              },
+              {
+                "text": "呼",
+                "start_time": 2.88,
+                "end_time": 3.04
+              },
+              {
+                "text": "吸",
+                "start_time": 3.04,
+                "end_time": 3.36
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          1.92,
+          3.36
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          1.42,
+          -0.14
+        ],
+        "speechWithinWindow": true,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "pool-voiceover-base-seed-271828",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                1630,
+                3700
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "pool-voiceover-lightx2v-ref8-seed-161803",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 161803,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 54.764,
+      "gpuPeakTotalUsedMiB": [
+        31304
+      ],
+      "videoSha256": "286c7cf63dca15e6c4da761c0146785699a73bcab8734543e684c7f28cdadf1a",
+      "qwen": {
+        "run": "pool-voiceover-lightx2v-ref8-seed-161803",
+        "recipe": {
+          "id": "lightx2v-ref8",
+          "mode": "ref2va",
+          "seed": 161803,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "286c7cf63dca15e6c4da761c0146785699a73bcab8734543e684c7f28cdadf1a",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 0.16,
+                "end_time": 0.24
+              },
+              {
+                "text": "慢",
+                "start_time": 0.24,
+                "end_time": 0.4
+              },
+              {
+                "text": "来",
+                "start_time": 0.4,
+                "end_time": 0.64
+              },
+              {
+                "text": "慢",
+                "start_time": 2.56,
+                "end_time": 2.64
+              },
+              {
+                "text": "慢",
+                "start_time": 2.64,
+                "end_time": 2.88
+              },
+              {
+                "text": "来",
+                "start_time": 2.88,
+                "end_time": 3.04
+              },
+              {
+                "text": "保",
+                "start_time": 3.2,
+                "end_time": 3.36
+              },
+              {
+                "text": "持",
+                "start_time": 3.36,
+                "end_time": 3.52
+              },
+              {
+                "text": "呼",
+                "start_time": 3.52,
+                "end_time": 3.68
+              },
+              {
+                "text": "吸",
+                "start_time": 3.68,
+                "end_time": 4.0
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.16,
+          4.0
+        ],
+        "transcriptMatches": false,
+        "speechBoundaryErrorsSeconds": [
+          -0.34,
+          0.5
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "pool-voiceover-lightx2v-ref8-seed-161803",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                0,
+                950
+              ],
+              [
+                2380,
+                4270
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来慢慢来，保持呼吸。"
+      },
+      "bothTranscriptsMatch": false
+    },
+    {
+      "batch": "multiseed",
+      "run": "pool-voiceover-lightx2v-ref8-seed-271828",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 54.751,
+      "gpuPeakTotalUsedMiB": [
+        31304
+      ],
+      "videoSha256": "269dbe4d93c3ce151a1d799d3b4295cbfe8612af2dee92450663e2a149c7bf7f",
+      "qwen": {
+        "run": "pool-voiceover-lightx2v-ref8-seed-271828",
+        "recipe": {
+          "id": "lightx2v-ref8",
+          "mode": "ref2va",
+          "seed": 271828,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "269dbe4d93c3ce151a1d799d3b4295cbfe8612af2dee92450663e2a149c7bf7f",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 1.92,
+                "end_time": 2.0
+              },
+              {
+                "text": "慢",
+                "start_time": 2.0,
+                "end_time": 2.16
+              },
+              {
+                "text": "来",
+                "start_time": 2.16,
+                "end_time": 2.48
+              },
+              {
+                "text": "保",
+                "start_time": 2.64,
+                "end_time": 2.72
+              },
+              {
+                "text": "持",
+                "start_time": 2.72,
+                "end_time": 2.88
+              },
+              {
+                "text": "呼",
+                "start_time": 2.88,
+                "end_time": 3.04
+              },
+              {
+                "text": "吸",
+                "start_time": 3.04,
+                "end_time": 3.36
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          1.92,
+          3.36
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          1.42,
+          -0.14
+        ],
+        "speechWithinWindow": true,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "pool-voiceover-lightx2v-ref8-seed-271828",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                1630,
+                3670
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "pool-voiceover-pdd-ref8-seed-161803",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 161803,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 56.762,
+      "gpuPeakTotalUsedMiB": [
+        31368
+      ],
+      "videoSha256": "2769e04e2e466d85d8f99bb99ede0cb0df0ff4f6ca0f29c966632a65679e2d80",
+      "qwen": {
+        "run": "pool-voiceover-pdd-ref8-seed-161803",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 161803,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "2769e04e2e466d85d8f99bb99ede0cb0df0ff4f6ca0f29c966632a65679e2d80",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 2.16,
+                "end_time": 2.32
+              },
+              {
+                "text": "慢",
+                "start_time": 2.32,
+                "end_time": 2.48
+              },
+              {
+                "text": "来",
+                "start_time": 2.48,
+                "end_time": 2.88
+              },
+              {
+                "text": "保",
+                "start_time": 3.28,
+                "end_time": 3.36
+              },
+              {
+                "text": "持",
+                "start_time": 3.36,
+                "end_time": 3.52
+              },
+              {
+                "text": "呼",
+                "start_time": 3.52,
+                "end_time": 3.68
+              },
+              {
+                "text": "吸",
+                "start_time": 3.68,
+                "end_time": 4.0
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          2.16,
+          4.0
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          1.66,
+          0.5
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "pool-voiceover-pdd-ref8-seed-161803",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                1920,
+                4300
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "pool-voiceover-pdd-ref8-seed-271828",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "pool-voiceover"
+      },
+      "seconds": 56.728,
+      "gpuPeakTotalUsedMiB": [
+        32066
+      ],
+      "videoSha256": "797ac7ade22e56a92f0e376bf5d599d0f478bae9b7e00e6438d65ce4f8501809",
+      "qwen": {
+        "run": "pool-voiceover-pdd-ref8-seed-271828",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 271828,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "pool-voiceover"
+        },
+        "videoSha256": "797ac7ade22e56a92f0e376bf5d599d0f478bae9b7e00e6438d65ce4f8501809",
+        "expectedText": "慢慢来，保持呼吸。",
+        "expectedSpeechWindow": [
+          0.5,
+          3.5
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "慢慢来，保持呼吸。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "慢",
+                "start_time": 1.92,
+                "end_time": 2.0
+              },
+              {
+                "text": "慢",
+                "start_time": 2.0,
+                "end_time": 2.16
+              },
+              {
+                "text": "来",
+                "start_time": 2.16,
+                "end_time": 2.48
+              },
+              {
+                "text": "保",
+                "start_time": 2.64,
+                "end_time": 2.72
+              },
+              {
+                "text": "持",
+                "start_time": 2.72,
+                "end_time": 2.88
+              },
+              {
+                "text": "呼",
+                "start_time": 2.88,
+                "end_time": 3.04
+              },
+              {
+                "text": "吸",
+                "start_time": 3.04,
+                "end_time": 3.36
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          1.92,
+          3.36
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          1.42,
+          -0.14
+        ],
+        "speechWithinWindow": true,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "pool-voiceover-pdd-ref8-seed-271828",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                1630,
+                3700
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+          }
+        ],
+        "cleanText": "慢慢来，保持呼吸。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "speech-first-base-seed-161803",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 161803,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 95.536,
+      "gpuPeakTotalUsedMiB": [
+        31464
+      ],
+      "videoSha256": "c3d9526528f5109a57f17a9dd2e02b31abec928e2c567155c4f2eeb7af8ce1a5",
+      "qwen": {
+        "run": "speech-first-base-seed-161803",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 161803,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "c3d9526528f5109a57f17a9dd2e02b31abec928e2c567155c4f2eeb7af8ce1a5",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 0.4,
+                "end_time": 0.56
+              },
+              {
+                "text": "担",
+                "start_time": 0.56,
+                "end_time": 0.72
+              },
+              {
+                "text": "心",
+                "start_time": 0.72,
+                "end_time": 1.28
+              },
+              {
+                "text": "等",
+                "start_time": 2.24,
+                "end_time": 2.48
+              },
+              {
+                "text": "我",
+                "start_time": 2.48,
+                "end_time": 2.56
+              },
+              {
+                "text": "回",
+                "start_time": 2.56,
+                "end_time": 2.8
+              },
+              {
+                "text": "来",
+                "start_time": 2.8,
+                "end_time": 3.12
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.4,
+          3.12
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.15,
+          0.87
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "speech-first-base-seed-161803",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                120,
+                1540
+              ],
+              [
+                1970,
+                3330
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "speech-first-base-seed-271828",
+      "recipe": {
+        "id": "base",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 20,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 95.452,
+      "gpuPeakTotalUsedMiB": [
+        30784
+      ],
+      "videoSha256": "201f74ddc766a7a03155c0af46a7b1b75f899728cd913d1634c087518f493536",
+      "qwen": {
+        "run": "speech-first-base-seed-271828",
+        "recipe": {
+          "id": "base",
+          "mode": "ref2va",
+          "seed": 271828,
+          "steps": 20,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "201f74ddc766a7a03155c0af46a7b1b75f899728cd913d1634c087518f493536",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 0.64,
+                "end_time": 0.8
+              },
+              {
+                "text": "担",
+                "start_time": 0.8,
+                "end_time": 1.04
+              },
+              {
+                "text": "心",
+                "start_time": 1.04,
+                "end_time": 1.44
+              },
+              {
+                "text": "等",
+                "start_time": 2.08,
+                "end_time": 2.32
+              },
+              {
+                "text": "我",
+                "start_time": 2.32,
+                "end_time": 2.32
+              },
+              {
+                "text": "回",
+                "start_time": 2.32,
+                "end_time": 2.56
+              },
+              {
+                "text": "来",
+                "start_time": 2.56,
+                "end_time": 2.88
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.64,
+          2.88
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.39,
+          0.63
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "speech-first-base-seed-271828",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                410,
+                3130
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|SAD|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "speech-first-lightx2v-ref8-seed-161803",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 161803,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 54.805,
+      "gpuPeakTotalUsedMiB": [
+        31304
+      ],
+      "videoSha256": "2ff01196c1b694d9a0514e8566e4860909e16c5093634ee004b1433e5ef1f8f4",
+      "qwen": {
+        "run": "speech-first-lightx2v-ref8-seed-161803",
+        "recipe": {
+          "id": "lightx2v-ref8",
+          "mode": "ref2va",
+          "seed": 161803,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "2ff01196c1b694d9a0514e8566e4860909e16c5093634ee004b1433e5ef1f8f4",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 0.4,
+                "end_time": 0.56
+              },
+              {
+                "text": "担",
+                "start_time": 0.56,
+                "end_time": 0.72
+              },
+              {
+                "text": "心",
+                "start_time": 0.72,
+                "end_time": 1.28
+              },
+              {
+                "text": "等",
+                "start_time": 2.24,
+                "end_time": 2.48
+              },
+              {
+                "text": "我",
+                "start_time": 2.48,
+                "end_time": 2.48
+              },
+              {
+                "text": "回",
+                "start_time": 2.48,
+                "end_time": 2.8
+              },
+              {
+                "text": "来",
+                "start_time": 2.8,
+                "end_time": 3.12
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.4,
+          3.12
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.15,
+          0.87
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "speech-first-lightx2v-ref8-seed-161803",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                110,
+                1540
+              ],
+              [
+                1970,
+                3390
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "speech-first-lightx2v-ref8-seed-271828",
+      "recipe": {
+        "id": "lightx2v-ref8",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 54.699,
+      "gpuPeakTotalUsedMiB": [
+        31304
+      ],
+      "videoSha256": "05f94f2987c14dbac73bd923f9c06d32adba82078a5a0c1289570547244e3267",
+      "qwen": {
+        "run": "speech-first-lightx2v-ref8-seed-271828",
+        "recipe": {
+          "id": "lightx2v-ref8",
+          "mode": "ref2va",
+          "seed": 271828,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "05f94f2987c14dbac73bd923f9c06d32adba82078a5a0c1289570547244e3267",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 0.64,
+                "end_time": 0.8
+              },
+              {
+                "text": "担",
+                "start_time": 0.8,
+                "end_time": 1.04
+              },
+              {
+                "text": "心",
+                "start_time": 1.04,
+                "end_time": 1.36
+              },
+              {
+                "text": "等",
+                "start_time": 2.08,
+                "end_time": 2.24
+              },
+              {
+                "text": "我",
+                "start_time": 2.32,
+                "end_time": 2.32
+              },
+              {
+                "text": "回",
+                "start_time": 2.32,
+                "end_time": 2.56
+              },
+              {
+                "text": "来",
+                "start_time": 4.72,
+                "end_time": 4.72
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.64,
+          4.72
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.39,
+          2.47
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "speech-first-lightx2v-ref8-seed-271828",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                210,
+                3120
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|SAD|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "speech-first-pdd-ref8-seed-161803",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 161803,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 54.822,
+      "gpuPeakTotalUsedMiB": [
+        31816
+      ],
+      "videoSha256": "5f8f6ce83dcf8b153712e2fa98144ce5afca033d9ffe14c21602ce369b2cddd1",
+      "qwen": {
+        "run": "speech-first-pdd-ref8-seed-161803",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 161803,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "5f8f6ce83dcf8b153712e2fa98144ce5afca033d9ffe14c21602ce369b2cddd1",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 0.4,
+                "end_time": 0.56
+              },
+              {
+                "text": "担",
+                "start_time": 0.56,
+                "end_time": 0.72
+              },
+              {
+                "text": "心",
+                "start_time": 0.72,
+                "end_time": 1.28
+              },
+              {
+                "text": "等",
+                "start_time": 2.24,
+                "end_time": 2.56
+              },
+              {
+                "text": "我",
+                "start_time": 2.56,
+                "end_time": 2.56
+              },
+              {
+                "text": "回",
+                "start_time": 2.56,
+                "end_time": 2.8
+              },
+              {
+                "text": "来",
+                "start_time": 2.8,
+                "end_time": 3.12
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.4,
+          3.12
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.15,
+          0.87
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "speech-first-pdd-ref8-seed-161803",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                110,
+                1600
+              ],
+              [
+                1970,
+                3420
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "bothTranscriptsMatch": true
+    },
+    {
+      "batch": "multiseed",
+      "run": "speech-first-pdd-ref8-seed-271828",
+      "recipe": {
+        "id": "pdd-ref8",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 8,
+        "width": 960,
+        "height": 544,
+        "frames": 124,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "speech-first"
+      },
+      "seconds": 54.695,
+      "gpuPeakTotalUsedMiB": [
+        31674
+      ],
+      "videoSha256": "753a07fc5a208039cb7c1b75fd0ea9313ce51179ee4c5458a2ac0e7d41e5ef60",
+      "qwen": {
+        "run": "speech-first-pdd-ref8-seed-271828",
+        "recipe": {
+          "id": "pdd-ref8",
+          "mode": "ref2va",
+          "seed": 271828,
+          "steps": 8,
+          "width": 960,
+          "height": 544,
+          "frames": 124,
+          "experimental": true,
+          "audioAccepted": false,
+          "caseId": "speech-first"
+        },
+        "videoSha256": "753a07fc5a208039cb7c1b75fd0ea9313ce51179ee4c5458a2ac0e7d41e5ef60",
+        "expectedText": "别担心，等我回来。",
+        "expectedSpeechWindow": [
+          0.25,
+          2.25
+        ],
+        "transcription": {
+          "language": "Chinese",
+          "text": "别担心，等我回来。",
+          "time_stamps": {
+            "items": [
+              {
+                "text": "别",
+                "start_time": 0.64,
+                "end_time": 0.8
+              },
+              {
+                "text": "担",
+                "start_time": 0.8,
+                "end_time": 1.04
+              },
+              {
+                "text": "心",
+                "start_time": 1.04,
+                "end_time": 1.44
+              },
+              {
+                "text": "等",
+                "start_time": 2.08,
+                "end_time": 2.32
+              },
+              {
+                "text": "我",
+                "start_time": 2.32,
+                "end_time": 2.32
+              },
+              {
+                "text": "回",
+                "start_time": 2.32,
+                "end_time": 2.56
+              },
+              {
+                "text": "来",
+                "start_time": 2.56,
+                "end_time": 2.88
+              }
+            ]
+          }
+        },
+        "actualSpeechWindow": [
+          0.64,
+          2.88
+        ],
+        "transcriptMatches": true,
+        "speechBoundaryErrorsSeconds": [
+          0.39,
+          0.63
+        ],
+        "speechWithinWindow": false,
+        "speechWindowMatches": false,
+        "audioAccepted": false
+      },
+      "independent": {
+        "run": "speech-first-pdd-ref8-seed-271828",
+        "vad": [
+          {
+            "key": "output-0.sense",
+            "value": [
+              [
+                410,
+                3120
+              ]
+            ]
+          }
+        ],
+        "sensevoice": [
+          {
+            "key": "output-0.sense",
+            "text": "<|zh|><|SAD|><|Speech|><|withitn|>别担心，等我回来。"
+          }
+        ],
+        "cleanText": "别担心，等我回来。"
+      },
+      "bothTranscriptsMatch": true
+    }
+  ]
+}

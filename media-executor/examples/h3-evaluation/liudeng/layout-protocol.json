@@ -1,0 +1,25 @@
+{
+  "problem": "Simultaneous side-by-side views copied into target video",
+  "baseline": "a1-pdd8-768p",
+  "baseControl": "a1-base20-768p",
+  "promptOnlyControl": "a1-pdd8-768p-fullframe",
+  "promptOnlyGraphChanges": [
+    [
+      "5",
+      "prompt"
+    ],
+    [
+      "14",
+      "filename_prefix"
+    ]
+  ],
+  "invariants": [
+    "same three reference images",
+    "seed271828",
+    "1376x768",
+    "124frames",
+    "same PDD8 sampling and model weights"
+  ],
+  "gate": "Reject any simultaneous panels or extra duplicate subject. Full-frame success alone does not accept identity, motion, sound or entire shot.",
+  "nextIfUnresolved": "Isolate supplementary scene-reference layout while retaining complete storyboard input."
+}

@@ -1,0 +1,32 @@
+{
+  "originalVideoShape": [
+    1,
+    24,
+    72,
+    48,
+    86
+  ],
+  "continuedVideoShape": [
+    1,
+    24,
+    107,
+    48,
+    86
+  ],
+  "originalAudioShape": [
+    1,
+    32,
+    2,
+    405
+  ],
+  "continuedAudioShape": [
+    1,
+    32,
+    2,
+    603
+  ],
+  "videoLatentPrefixExactlyPreserved": true,
+  "audioLatentPrefixExactlyPreserved": true,
+  "stateSha256": "025c863d4dc77ba0899c18b53a57b9e19f6b445cf8481a5e33fdbdd2dc7e3ff1",
+  "scope": "Native latent prefix equality; perceptual new-content acceptance pending"
+}

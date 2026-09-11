@@ -1,0 +1,264 @@
+{
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "type": "minimax",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "MiniMaxH3ReferenceToVideo",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "prompt": "subject_definitions:\n<Picture 1> is the complete chronological four-frame storyboard for [Shot 1], read top-left, top-right, bottom-left, bottom-right.\n<Subject 1> is the adult daughter at screen-left in <Picture 1>, with a dark chin-length bob, blue-gray jacket and off-white shirt.\n<Subject 2> is the father seated at screen-right in <Picture 1>, with short gray hair, a broad face, brown cardigan and pale blue shirt.\n<Subject 3> is the worn table, two off-white cups and warm lit lamp in <Picture 1>.\n\nsummary:\n[reference generation] Generate a single continuous 10.125-second live-action family-drama dialogue shot. Use <Picture 1> as successive moments of one camera view, keeping the two identities distinct and letting only the current speaker move their lips.\n\nretention_analysis:\n<Picture 1>: fully_preserved - preserve action order and spatial relationships; exclude gutters and sheet layout from the video.\n<Subject 1> (appears in [Shot 1]): fully_preserved - facial identity, hair, wardrobe and suitcase ownership.\n<Subject 2> (appears in [Shot 1]): fully_preserved - facial identity, age, hair and clothing.\n<Subject 3> (appears in [Shot 1]): fully_preserved - fixed object count, positions and illumination.\n\ndetailed_description:\nThe target video has realistic skin texture and subdued practical lighting, with a restrained naturalistic performance.\n[Shot 1] A stationary eye-level medium-wide camera frames the daughter at screen-left in the doorway and the seated father at center-right beside the table. Both faces remain visible in three-quarter view. The cool corridor behind her meets warm light from the cream-shade lamp on the far right. One light gray suitcase stands upright beside her right leg; her right hand rests on its extended handle. The father keeps his right hand beside the nearer cup and his left hand near the lamp base. Exactly two off-white cups rest on the tabletop. The complete rectangular screen always contains one uninterrupted camera view, with no split screen, collage, studio background or duplicate person.\n\nFrom 00:00.000 to 00:01.800, the daughter settles at the inside edge of the doorway without pulling the suitcase farther into the room. Her weight shifts gently onto both feet. The father finishes his small touch at the lamp base and notices her presence. The lamp stays steadily lit. His shoulders remain relaxed; he does not stand up. She looks at his face, with fatigue visible in her posture rather than exaggerated brows or tears.\n\nBetween 00:01.800 and 00:03.200, <Subject 1> (S1) asks softly in an ordinary adult female Mandarin voice, slightly breathy but clearly articulated, <d>[Chinese] \u8fd8\u6ca1\u7761\uff1f</d> Her mouth forms the words once, then closes. The father listens with his mouth closed, lifting his gaze toward her. Her hand stays on the suitcase handle throughout the line.\n\nFrom 00:03.200 to 00:04.700, hold the silence. The father glances briefly at the lamp, as if finding a small practical explanation for waiting up. His left hand remains on the tabletop near its base. The daughter watches him without smiling broadly or moving her lips. Their eyelines meet naturally across the small distance.\n\nBetween 00:04.700 and 00:07.400, <Subject 2> (S2) answers in a low, gently textured older male Mandarin voice, with a short natural pause after the first two words, <d>[Chinese] \u8fd9\u706f\uff0c\u521a\u4fee\u597d\u3002</d> He says this once at a conversational volume. The daughter remains silent, listening. His jaw movement belongs only to his own line.\n\nFrom 00:07.400 to 00:10.125, both mouths are closed. Her gaze lowers toward the second cup and her shoulders soften slightly. His gaze returns to her, with only a faint change around the eyes. Keep both cups, lamp, chair and suitcase stationary; let the held silence finish the shot without a cut or camera push.\n\noverall_soundscape:\nQuiet indoor room tone, faint cloth movement and distant corridor ambience. Exactly the two specified dialogue lines, with distinct speakers and natural room reverberation. No narration, additional words, humming or audience sounds.\n\nnon_diegetic_music:\nN/A\n",
+        "width": 1376,
+        "height": 768,
+        "length": 243,
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "ref_image_size": "match",
+        "ref_images.ref_image_0": [
+          "21",
+          0
+        ]
+      }
+    },
+    "6": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "15",
+          0
+        ],
+        "conditioning": [
+          "31",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "9": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 271828
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "9",
+          0
+        ],
+        "guider": [
+          "6",
+          0
+        ],
+        "sampler": [
+          "7",
+          0
+        ],
+        "sigmas": [
+          "16",
+          1
+        ],
+        "latent_image": [
+          "5",
+          1
+        ]
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "70",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "VAEDecodeAudio",
+      "inputs": {
+        "samples": [
+          "70",
+          0
+        ],
+        "vae": [
+          "4",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "audio": [
+          "12",
+          0
+        ],
+        "fps": 24,
+        "bit_depth": 8
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "H3-Evaluation/liudeng/c-pdd8-768p-first-guide",
+        "format": "auto",
+        "codec": "auto"
+      }
+    },
+    "15": {
+      "class_type": "PathchSageAttentionKJ",
+      "inputs": {
+        "model": [
+          "16",
+          0
+        ],
+        "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+        "allow_compile": false
+      }
+    },
+    "16": {
+      "class_type": "MiniMaxH3PDDAccApply",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "pdd_file": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors",
+        "nfe": "8",
+        "lora_strength": 1,
+        "head_strength": 1,
+        "on_off_grid": "error",
+        "partition_check": "error"
+      }
+    },
+    "21": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "liudeng-c-storyboard.png"
+      }
+    },
+    "30": {
+      "class_type": "ImageCrop",
+      "inputs": {
+        "image": [
+          "21",
+          0
+        ],
+        "width": 832,
+        "height": 464,
+        "x": 1,
+        "y": 1
+      }
+    },
+    "31": {
+      "class_type": "MiniMaxH3AddGuide",
+      "inputs": {
+        "positive": [
+          "5",
+          0
+        ],
+        "latent": [
+          "5",
+          1
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "image": [
+          "30",
+          0
+        ],
+        "frame_idx": 0
+      }
+    },
+    "70": {
+      "class_type": "H3SaveContinuationState",
+      "inputs": {
+        "latent": [
+          "10",
+          0
+        ],
+        "context": "{\"audioVaeRevision\": \"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\", \"fps\": 24, \"frames\": 243, \"height\": 768, \"modelRevision\": \"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c\", \"schemaVersion\": 1, \"sourceId\": \"liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5\", \"videoVaeRevision\": \"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\", \"width\": 1376}"
+      }
+    }
+  },
+  "recipe": {
+    "id": "liudeng-c-pdd8-768p-first-guide",
+    "mode": "ref2va",
+    "seed": 271828,
+    "steps": 8,
+    "width": 1376,
+    "height": 768,
+    "frames": 243,
+    "experimental": true,
+    "audioAccepted": false,
+    "caseId": "liudeng-c",
+    "promptSha256": "42f682455d4ccce84250afdb11b4533dd30c2bd7b4edb599a31fb5f71e309c90",
+    "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+    "singleVariable": "Add native frame-zero image guide cropped from top-left cell, retaining complete storyboard reference and unchanged text",
+    "stateContext": {
+      "schemaVersion": 1,
+      "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c",
+      "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "sourceId": "liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5",
+      "width": 1376,
+      "height": 768,
+      "frames": 243,
+      "fps": 24
+    },
+    "stateSaveExperiment": true
+  }
+}

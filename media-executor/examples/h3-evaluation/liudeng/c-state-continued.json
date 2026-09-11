@@ -1,0 +1,303 @@
+{
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "type": "minimax",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    "7": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "9": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 271828
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "70",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "VAEDecodeAudio",
+      "inputs": {
+        "samples": [
+          "70",
+          0
+        ],
+        "vae": [
+          "4",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "audio": [
+          "12",
+          0
+        ],
+        "fps": 24,
+        "bit_depth": 8
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "H3-Evaluation/liudeng/c-state-continued",
+        "format": "auto",
+        "codec": "auto"
+      }
+    },
+    "15": {
+      "class_type": "PathchSageAttentionKJ",
+      "inputs": {
+        "model": [
+          "16",
+          0
+        ],
+        "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+        "allow_compile": false
+      }
+    },
+    "16": {
+      "class_type": "MiniMaxH3PDDAccApply",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "pdd_file": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors",
+        "nfe": "8",
+        "lora_strength": 1,
+        "head_strength": 1,
+        "on_off_grid": "error",
+        "partition_check": "error"
+      }
+    },
+    "21": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "liudeng-c-storyboard.png"
+      }
+    },
+    "80": {
+      "class_type": "H3LoadContinuationState",
+      "inputs": {
+        "state_name": "9ef0463d5b0641419b0bf01d246f6ba9.safetensors",
+        "expected_context": "{\"audioVaeRevision\": \"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\", \"fps\": 24, \"frames\": 243, \"height\": 768, \"modelRevision\": \"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c\", \"schemaVersion\": 1, \"sourceId\": \"liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5\", \"videoVaeRevision\": \"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\", \"width\": 1376}"
+      }
+    },
+    "40": {
+      "class_type": "MiniMaxH3GuidedContinuationWindow",
+      "inputs": {
+        "previous_av_latent": [
+          "80",
+          0
+        ],
+        "overlap_frames": 22,
+        "extension_frames": 119
+      }
+    },
+    "41": {
+      "class_type": "MiniMaxH3ReferenceToVideo",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "prompt": "subject_definitions:\n<Picture 1> is the complete storyboard of the preceding dialogue, used only to preserve the established people, wardrobe, room and props.\n<Subject 1> is the daughter standing at screen-left in <Picture 1>, wearing a blue-gray jacket and holding the upright suitcase with her right hand.\n<Subject 2> is the father seated at screen-right in <Picture 1>, wearing a brown cardigan beside the warm lit lamp.\n<Subject 3> is the worn table and its two off-white cups in <Picture 1>.\n\nsummary:\n[video continuation + reference generation] Extend the supplied native audiovisual temporal context through one continuous 5.875-second window, including the existing 0.917-second overlap. The conversation has finished; continue the quiet moment without repeating speech or replaying storyboard events.\n\nretention_analysis:\n<Picture 1>: partially_preserved - retain identities, room and props; discard grid layout and earlier dialogue action sequence.\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, wardrobe, posture and right-hand suitcase ownership.\n<Subject 2> (appears in [Shot 1]): fully_preserved - identity, wardrobe and seated position.\n<Subject 3> (appears in [Shot 1]): fully_preserved - object count, shapes and tabletop positions.\n\ndetailed_description:\nThe target video continues the same realistic family-drama image, with natural skin, restrained gestures and stable practical illumination.\n[Shot 1] Resume the exact camera view, bodily positions and ongoing movement in the supplied temporal context. The daughter remains at screen-left near the doorway; the father is seated at screen-right by the table. Their clothing and facial features retain the shapes already visible. The camera stays at its current eye level on the same side of the table, without a new establishing view, reverse angle, push-in or change in lens. One full-frame view fills the screen at every instant. Do not display the reference sheet's cells or borders.\n\nFrom 00:00.000 to 00:00.917, preserve and complete the current overlapping motion. Do not restart the woman's entrance or the father's glance at the lamp. No one begins another line of dialogue. The room tone continues at the same low level, and any residual natural decay from earlier movement settles gently rather than stopping abruptly.\n\nFrom 00:00.917 to 00:02.500, the daughter's eyes lower slowly toward the second cup on the table. Her head follows by only a few degrees. Her right fingers maintain their relaxed contact with the extended suitcase handle; the suitcase stays upright on its wheels in its current place. Her left hand hangs beside her blue-gray sleeve. She remains standing at the doorway, with her feet planted and her shoulders easing slightly. Her lips stay closed, without an exaggerated smile or tears.\n\nFrom 00:02.500 to 00:04.000, the father notices the direction of her gaze and looks briefly at the cup. Keep his torso supported by the same chair. His right hand shifts a few centimeters along the tabletop toward the nearer cup, then comes to rest beside it without moving it. His left forearm remains relaxed on the far side of the table. His fingers keep a natural shape, resting against solid wood. Both cups retain their sizes, rims and handles; neither slides or lifts.\n\nFrom 00:04.000 through 00:05.875, hold this shared quiet attention. The daughter looks toward the table; the father lifts his eyes slightly toward her. Both mouths remain closed. The lamp does not flicker, the corridor remains cool, and the tabletop shadows keep the same direction. End in the same uninterrupted view, with only breathing-scale movement in their shoulders and cloth.\n\noverall_soundscape:\nContinue low room tone and subtle cloth sounds at the existing level. No speech, repeated dialogue, singing, humming or voiceover. No exaggerated breath or artificial impact.\n\nnon_diegetic_music:\nN/A\n",
+        "width": 1376,
+        "height": 768,
+        "length": [
+          "40",
+          1
+        ],
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "ref_image_size": "match",
+        "ref_images.ref_image_0": [
+          "21",
+          0
+        ]
+      }
+    },
+    "42": {
+      "class_type": "MiniMaxH3LatentTailGuide",
+      "inputs": {
+        "positive": [
+          "41",
+          0
+        ],
+        "previous_av_latent": [
+          "80",
+          0
+        ],
+        "target_av_latent": [
+          "40",
+          0
+        ],
+        "overlap_video_tokens": [
+          "40",
+          2
+        ],
+        "overlap_audio_tokens": [
+          "40",
+          3
+        ]
+      }
+    },
+    "43": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "15",
+          0
+        ],
+        "conditioning": [
+          "42",
+          0
+        ]
+      }
+    },
+    "44": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "9",
+          0
+        ],
+        "guider": [
+          "43",
+          0
+        ],
+        "sampler": [
+          "7",
+          0
+        ],
+        "sigmas": [
+          "16",
+          1
+        ],
+        "latent_image": [
+          "40",
+          0
+        ]
+      }
+    },
+    "45": {
+      "class_type": "MiniMaxH3AppendContinuation",
+      "inputs": {
+        "previous_av_latent": [
+          "80",
+          0
+        ],
+        "sampled_window": [
+          "44",
+          0
+        ],
+        "overlap_video_tokens": [
+          "40",
+          2
+        ],
+        "overlap_audio_tokens": [
+          "40",
+          3
+        ],
+        "transition_video_tokens": [
+          "40",
+          4
+        ],
+        "transition_audio_tokens": [
+          "40",
+          5
+        ]
+      }
+    },
+    "70": {
+      "class_type": "H3SaveContinuationState",
+      "inputs": {
+        "latent": [
+          "45",
+          0
+        ],
+        "context": "{\"audioVaeRevision\": \"8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48\", \"fps\": 24, \"frames\": 362, \"height\": 768, \"modelRevision\": \"9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c\", \"schemaVersion\": 1, \"sourceId\": \"liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5:extend1:a6103d3b2d947612f487c4bcedc6bc1b18fe7b04495f4a0b610f69a25494c323\", \"videoVaeRevision\": \"7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522\", \"width\": 1376}"
+      }
+    }
+  },
+  "recipe": {
+    "id": "liudeng-c-state-continued",
+    "caseId": "liudeng-c",
+    "mode": "ref2va",
+    "width": 1376,
+    "height": 768,
+    "frames": 362,
+    "steps": 8,
+    "seed": 271828,
+    "experimental": true,
+    "stateContext": {
+      "schemaVersion": 1,
+      "modelRevision": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779+pdd8:111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c",
+      "videoVaeRevision": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "audioVaeRevision": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "sourceId": "liudeng-c:88f52cd600f9eb9c7e47fb569fe49ef32353dbabffdf098d4f6f9f41502b51d5:extend1:a6103d3b2d947612f487c4bcedc6bc1b18fe7b04495f4a0b610f69a25494c323",
+      "width": 1376,
+      "height": 768,
+      "frames": 362,
+      "fps": 24
+    },
+    "sourceStateSha256": "881a6e554b428e36901f50c09be604df9e9b014d136f300e497c102ecd6a3897",
+    "continuationPromptSha256": "a6103d3b2d947612f487c4bcedc6bc1b18fe7b04495f4a0b610f69a25494c323",
+    "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+    "qualityAccepted": false
+  }
+}

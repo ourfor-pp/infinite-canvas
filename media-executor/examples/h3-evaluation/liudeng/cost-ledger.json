@@ -1,0 +1,222 @@
+{
+  "runs": [
+    {
+      "id": "a-pdd8-768p-native-481frames",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 594.707,
+      "observedWallSeconds": null,
+      "gpuPeakTotalUsedMiB": null,
+      "frames": 481,
+      "qualityAccepted": false,
+      "report": "a-pdd8-768p-native-481frames/report.json"
+    },
+    {
+      "id": "a1-base20-768p",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 268.598,
+      "observedWallSeconds": 271.076,
+      "gpuPeakTotalUsedMiB": [
+        30896
+      ],
+      "frames": 124,
+      "qualityAccepted": false,
+      "report": "a1-base20-768p/report.json"
+    },
+    {
+      "id": "a1-pdd8-768p",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 125.649,
+      "observedWallSeconds": 128.222,
+      "gpuPeakTotalUsedMiB": [
+        30976
+      ],
+      "frames": 124,
+      "qualityAccepted": false,
+      "report": "a1-pdd8-768p/report.json"
+    },
+    {
+      "id": "a1-pdd8-768p-fullframe",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 127.073,
+      "observedWallSeconds": 129.941,
+      "gpuPeakTotalUsedMiB": [
+        30698
+      ],
+      "frames": 124,
+      "qualityAccepted": false,
+      "report": "a1-pdd8-768p-fullframe/report.json"
+    },
+    {
+      "id": "a1-pdd8-768p-two-refs",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 119.044,
+      "observedWallSeconds": 121.417,
+      "gpuPeakTotalUsedMiB": [
+        28184
+      ],
+      "frames": 124,
+      "qualityAccepted": false,
+      "report": "a1-pdd8-768p-two-refs/report.json"
+    },
+    {
+      "id": "b-pdd8-768p-two-refs",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 118.454,
+      "observedWallSeconds": 119.572,
+      "gpuPeakTotalUsedMiB": [
+        29700
+      ],
+      "frames": 124,
+      "qualityAccepted": false,
+      "report": "b-pdd8-768p-two-refs/report.json"
+    },
+    {
+      "id": "c-pdd8-768p-dialogue",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 315.475,
+      "observedWallSeconds": 317.663,
+      "gpuPeakTotalUsedMiB": [
+        30398
+      ],
+      "frames": 243,
+      "qualityAccepted": false,
+      "report": "c-pdd8-768p-dialogue/report.json"
+    },
+    {
+      "id": "c-pdd8-768p-first-guide",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 295.917,
+      "observedWallSeconds": 298.543,
+      "gpuPeakTotalUsedMiB": [
+        30224
+      ],
+      "frames": 243,
+      "qualityAccepted": false,
+      "report": "c-pdd8-768p-first-guide/report.json"
+    },
+    {
+      "id": "c-pdd8-768p-storyboard-only",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 290.422,
+      "observedWallSeconds": null,
+      "gpuPeakTotalUsedMiB": null,
+      "frames": 243,
+      "qualityAccepted": false,
+      "report": "c-pdd8-768p-storyboard-only/report.json"
+    },
+    {
+      "id": "c-production-guide",
+      "category": "production-pipeline-validation",
+      "status": "success",
+      "executionSeconds": 659.67,
+      "observedWallSeconds": null,
+      "gpuPeakTotalUsedMiB": null,
+      "frames": 243,
+      "qualityAccepted": false,
+      "report": "c-production-guide/report.json"
+    },
+    {
+      "id": "c-state-continued",
+      "category": "state-continuation",
+      "status": "success",
+      "executionSeconds": 189.117,
+      "observedWallSeconds": 190.34,
+      "gpuPeakTotalUsedMiB": [
+        30738
+      ],
+      "frames": 362,
+      "qualityAccepted": false,
+      "report": "c-state-continued/report.json"
+    },
+    {
+      "id": "c-state-new-segment",
+      "category": "state-new-segment-validation",
+      "status": "success",
+      "executionSeconds": 42.497,
+      "observedWallSeconds": null,
+      "gpuPeakTotalUsedMiB": null,
+      "frames": 119,
+      "qualityAccepted": false,
+      "report": "c-state-new-segment/report.json"
+    },
+    {
+      "id": "c-state-redecode",
+      "category": "state-redecode",
+      "status": "success",
+      "executionSeconds": 34.909,
+      "observedWallSeconds": 36.442,
+      "gpuPeakTotalUsedMiB": [
+        10838
+      ],
+      "frames": 243,
+      "qualityAccepted": false,
+      "report": "c-state-redecode/report.json"
+    },
+    {
+      "id": "d-pdd8-768p-cup",
+      "category": "video-generation",
+      "status": "success",
+      "executionSeconds": 292.345,
+      "observedWallSeconds": 293.616,
+      "gpuPeakTotalUsedMiB": [
+        29954
+      ],
+      "frames": 243,
+      "qualityAccepted": false,
+      "report": "d-pdd8-768p-cup/report.json"
+    }
+  ],
+  "byCategory": {
+    "video-generation": {
+      "runs": 10,
+      "executionSeconds": 2547.684,
+      "missingTiming": 0
+    },
+    "production-pipeline-validation": {
+      "runs": 1,
+      "executionSeconds": 659.67,
+      "missingTiming": 0
+    },
+    "state-continuation": {
+      "runs": 1,
+      "executionSeconds": 189.117,
+      "missingTiming": 0
+    },
+    "state-new-segment-validation": {
+      "runs": 1,
+      "executionSeconds": 42.497,
+      "missingTiming": 0
+    },
+    "state-redecode": {
+      "runs": 1,
+      "executionSeconds": 34.909,
+      "missingTiming": 0
+    }
+  },
+  "totalRecordedComfyExecutionSeconds": 3473.877,
+  "music": {
+    "status": "succeeded",
+    "observedJobWallSeconds": 324.088,
+    "inferenceSeconds": null
+  },
+  "postproductionRenderSeconds": 6.147,
+  "candidateFilmSeconds": 45.458333333333336,
+  "qualifiedFilmSeconds": 0,
+  "endToEndSecondsPerQualifiedFilmSecond": null,
+  "monetaryCost": null,
+  "limitations": [
+    "Comfy timing includes rejected variants and separates state redecoding from generation.",
+    "Music observed wall time includes queue and recovery; it is not inference time.",
+    "Image generation, research, review, idle time and pricing are not completely measured.",
+    "Unknown end-to-end cost remains null even when a film is accepted."
+  ]
+}

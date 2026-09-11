@@ -1,6 +1,33 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compileDirectorStoryboardPrompt, resolveH3Route, resolveStoryboardImageModelPlan } from "./director-render.js";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { compileDirectorStoryboardPrompt, extractDirectorStoryboardOpeningFrame, resolveH3Route, resolveStoryboardImageModelPlan } from "./director-render.js";
+
+test("起始锚点只裁取整张故事板的第一画格，支持三种布局", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "storyboard-guide-test-"));
+    const run = promisify(execFile);
+    try {
+        for (const layout of ["2x2", "3x2", "3x3"] as const) {
+            const columns = layout === "2x2" ? 2 : 3;
+            const rows = layout === "3x3" ? 3 : 2;
+            const width = 600, height = 600;
+            const pixels = Buffer.alloc(width * height * 3);
+            for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+                pixels[(y * width + x) * 3 + (x < width / columns && y < height / rows ? 0 : 1)] = 255;
+            }
+            const source = join(directory, `${layout}.ppm`), output = join(directory, `${layout}.png`);
+            await writeFile(source, Buffer.concat([Buffer.from(`P6\n${width} ${height}\n255\n`), pixels]));
+            await extractDirectorStoryboardOpeningFrame(source, output, layout);
+            const { stdout } = await run("ffmpeg", ["-v", "error", "-i", output, "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { encoding: "buffer", maxBuffer: 2_000_000 });
+            assert.equal(stdout.length, (width / columns - 4) * (height / rows - 4) * 3);
+            for (let i = 0; i < stdout.length; i += 3) assert.deepEqual([...stdout.subarray(i, i + 3)], [255, 0, 0]);
+        }
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 const sheet = (shotNumbers: number[]) => ({
     id: "sheet",

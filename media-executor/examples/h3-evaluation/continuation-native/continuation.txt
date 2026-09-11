@@ -1,0 +1,26 @@
+subject_definitions:
+<Subject 1> is the adult swimmer in <Picture 1>; retain the same body proportions, dark swimwear and swimming direction.
+<Subject 2> is the turquoise outdoor pool with parallel blue and white lane ropes in <Picture 1>.
+
+summary:
+[reference generation] Continue the same uninterrupted swimming shot for a 5.875-second generation window. The opening motion and sound continue directly from the supplied temporal context. The swimmer keeps swimming; the earlier spoken sentence is finished.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - identity, swimwear, scale and direction of travel.
+<Subject 2> (appears in [Shot 1]): fully_preserved - water color, lane arrangement, daylight and camera perspective.
+
+detailed_description:
+The target video has a live-action outdoor sports photography style with natural daylight, clear turquoise water and realistic water reflections.
+[Shot 1] This is the continuation of one existing shot, with no new establishing view. At 00:00.000 the swimmer occupies the position and phase of the stroke established by the supplied motion context. The camera retains the existing height, angle, focal length and movement. Parallel lane ropes extend diagonally across the view. Their blue and white sections keep the same scale and spacing. Daylight highlights ripple across the surface while the deeper water remains turquoise.
+
+During 00:00.000 to 00:00.917, carry forward the existing motion naturally. The swimmer completes the stroke already in progress instead of beginning a new demonstration. A raised arm continues its forward recovery and enters the water ahead of the head. The other arm pulls underwater while the legs sustain small alternating kicks. The body remains elongated within its lane, and the head turns only briefly for a breath before returning toward the water.
+
+From 00:00.917 to 00:03.500, successive strokes propel the swimmer in the established direction. Each hand enters cleanly ahead of the shoulder, making a small splash that breaks into droplets and merges into the wake. The shoulders rotate gently with each stroke. The swimmer's body advances steadily relative to the lane markers. The existing camera behavior continues smoothly without a sudden zoom, reset or change of viewing side.
+
+From 00:03.500 to 00:05.875, maintain the same pace and continuous alternating arm cycle. Small waves trail behind the swimmer and spread toward the lane ropes. Ripples persist between strokes rather than returning to an earlier pattern. The shot ends while the swimmer is still in motion, ready to continue beyond this window. Only water splashes, breathing and distant pool ambience are audible; the previous spoken sentence has already ended.
+
+overall_soundscape:
+Continuous outdoor pool ambience and close rhythmic splashes, preserving the level and acoustic space of the supplied audio context. No new speech occurs in this window.
+
+non_diegetic_music:
+N/A

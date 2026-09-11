@@ -1,0 +1,33 @@
+{
+  "models": {
+    "SenseVoiceSmall": "Revision:master,CreatedAt:1727321787",
+    "FSMN-VAD": "Revision:master,CreatedAt:1707184291"
+  },
+  "results": [
+    {
+      "run": "c",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": [
+            [
+              1440,
+              2690
+            ],
+            [
+              5660,
+              8060
+            ]
+          ]
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>还没睡，这灯刚修好。"
+        }
+      ],
+      "cleanText": "还没睡，这灯刚修好。"
+    }
+  ]
+}

@@ -96,3 +96,74 @@ def test_h3_prompt_detection_and_gpu_drain(monkeypatch, tmp_path):
     assert not module.begin_h3()
     assert commands.count(("user", "stop", ["qwen.service", "moss.service"])) == 1
     assert commands.count(("system", "stop", ["comfy.service"])) == 1
+
+
+def test_worker_recovers_queue_read_error_without_resubmitting(tmp_path, monkeypatch):
+    import sqlite3
+    import pytest
+    monkeypatch.setenv("MEDIA_EXECUTOR_DATA_DIR", str(tmp_path))
+    import media_executor.app as module
+    module = importlib.reload(module)
+    module.init_db()
+    connect = module.connect
+    with connect() as db:
+        db.execute("INSERT INTO jobs(id,status,request,created_at,updated_at) VALUES(?,?,?,?,?)", ("persisted", "queued", "{}", 1, 1))
+    calls = 0
+    generated = []
+
+    def intermittent_connect():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise sqlite3.OperationalError("unable to open database file")
+        return connect()
+
+    class StopWorker(BaseException):
+        pass
+
+    def sleep(seconds):
+        if seconds == .25:
+            raise StopWorker()
+
+    def generate(job_id, request):
+        generated.append(job_id)
+        with connect() as db:
+            db.execute("UPDATE jobs SET status='succeeded' WHERE id=?", (job_id,))
+
+    monkeypatch.setattr(module, "connect", intermittent_connect)
+    monkeypatch.setattr(module, "run_job", generate)
+    monkeypatch.setattr(module.time, "sleep", sleep)
+    with pytest.raises(StopWorker):
+        module.worker()
+    assert generated == ["persisted"]
+    with connect() as db:
+        assert db.execute("SELECT status FROM jobs WHERE id='persisted'").fetchone()[0] == "succeeded"
+
+
+def test_health_rejects_dead_enabled_worker(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_EXECUTOR_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MEDIA_EXECUTOR_TOKEN", "secret")
+    monkeypatch.setenv("MEDIA_EXECUTOR_DISABLE_WORKER", "1")
+    import media_executor.app as module
+    module = importlib.reload(module)
+    with TestClient(module.app) as client:
+        monkeypatch.delenv("MEDIA_EXECUTOR_DISABLE_WORKER")
+        response = client.get("/health", headers={"Authorization": "Bearer secret"})
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Media job worker is not running"
+
+
+def test_health_rejects_unavailable_queue(tmp_path, monkeypatch):
+    import sqlite3
+    monkeypatch.setenv("MEDIA_EXECUTOR_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MEDIA_EXECUTOR_TOKEN", "secret")
+    monkeypatch.setenv("MEDIA_EXECUTOR_DISABLE_WORKER", "1")
+    import media_executor.app as module
+    module = importlib.reload(module)
+    with TestClient(module.app) as client:
+        def unavailable():
+            raise sqlite3.OperationalError("unable to open database file")
+        monkeypatch.setattr(module, "connect", unavailable)
+        response = client.get("/health", headers={"Authorization": "Bearer secret"})
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Media job queue is unavailable"

@@ -285,12 +285,13 @@ async function runComfyGeneration(row: GenerationRow, request: AiGenerationReque
         promptId = created.prompt_id;
         updateGeneration(row, { remoteTaskId: promptId });
     }
-    const outputFiles = await waitForComfyOutput(baseUrl, promptId, comfyHeaders, signal, (progress) => updateGeneration(row, { progress }));
-    const files = await Promise.all(outputFiles.map(async (file) => {
+    const output = await waitForComfyOutput(baseUrl, promptId, comfyHeaders, signal, (progress) => updateGeneration(row, { progress }));
+    const download = async (file: ComfyOutputFile) => {
         const url = `${baseUrl}/view?${new URLSearchParams({ filename: file.filename, subfolder: file.subfolder || "", type: file.type || "output" })}`;
         return storeRemoteFile(row.user_id, await fetch(url, { headers: comfyHeaders, signal, redirect: "error" }), basename(file.filename));
-    }));
-    return { files };
+    };
+    const [files, continuationStates] = await Promise.all([Promise.all(output.files.map(download)), Promise.all(output.continuationStates.map(download))]);
+    return { files, ...(continuationStates.length ? { continuationStates } : {}) };
 }
 
 function selectComfyServer(id: string | null, model: string) {
@@ -317,8 +318,9 @@ async function waitForComfyOutput(baseUrl: string, promptId: string, headers: Re
         const history = await comfyJson<Record<string, { status?: { status_str?: string; messages?: unknown[] }; outputs?: Record<string, unknown> }>>(`${baseUrl}/history/${encodeURIComponent(promptId)}`, { headers, signal });
         const entry = history[promptId];
         if (entry?.status?.status_str === "error") throw generationError("COMFY_WORKFLOW_FAILED", comfyErrorMessage(entry.status.messages) || "ComfyUI 工作流执行失败");
-        const files = collectOutputFiles(entry?.outputs);
-        if (files.length) return files;
+        const output = collectComfyOutputs(entry?.outputs);
+        if (output.files.length) return output;
+        if (entry?.status?.status_str === "success" && output.continuationStates.length) throw generationError("COMFY_MEDIA_OUTPUT_MISSING", "ComfyUI 仅返回续接状态，缺少可用媒体输出");
         onProgress(Math.min(0.95, 0.05 + attempt / 7200));
         await delay(1500, signal);
     }
@@ -348,18 +350,23 @@ function comfyErrorMessage(messages: unknown[] | undefined) {
     return "";
 }
 
-function collectOutputFiles(outputs: Record<string, unknown> | undefined) {
+export function collectComfyOutputs(outputs: Record<string, unknown> | undefined) {
     const files: ComfyOutputFile[] = [];
+    const continuationStates: ComfyOutputFile[] = [];
     Object.values(outputs || {}).forEach((output) => {
         if (!output || typeof output !== "object") return;
-        Object.values(output).forEach((items) => {
+        Object.entries(output).forEach(([key, items]) => {
             if (!Array.isArray(items)) return;
             items.forEach((item) => {
-                if (item && typeof item === "object" && "filename" in item && typeof item.filename === "string") files.push(item as ComfyOutputFile);
+                if (!item || typeof item !== "object" || !("filename" in item) || typeof item.filename !== "string") return;
+                if (key === "h3_states") {
+                    if (!item.filename.endsWith(".safetensors")) throw generationError("COMFY_H3_STATE_INVALID", "H3 续接状态格式无效");
+                    continuationStates.push(item as ComfyOutputFile);
+                } else files.push(item as ComfyOutputFile);
             });
         });
     });
-    return files;
+    return { files, continuationStates };
 }
 
 async function comfyJson<T>(url: string, init?: RequestInit) {

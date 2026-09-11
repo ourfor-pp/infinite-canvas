@@ -1,0 +1,51 @@
+{
+  "models": {
+    "SenseVoiceSmall": "Revision:master,CreatedAt:1727321787",
+    "FSMN-VAD": "Revision:master,CreatedAt:1707184291"
+  },
+  "results": [
+    {
+      "run": "head",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": [
+            [
+              0,
+              1480
+            ]
+          ]
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来。"
+        }
+      ],
+      "cleanText": "慢慢来。"
+    },
+    {
+      "run": "tail",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": [
+            [
+              880,
+              2770
+            ]
+          ]
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>好的来保持呼吸。"
+        }
+      ],
+      "cleanText": "好的来保持呼吸。"
+    }
+  ],
+  "note": "Whole-clip Qwen and SenseVoice agree on a repeated phrase. Cropped head identifies 慢慢来; cropped tail SenseVoice gives 好的来保持呼吸, so cropping confirms separated speech activity but is not a third exact-text confirmation."
+}

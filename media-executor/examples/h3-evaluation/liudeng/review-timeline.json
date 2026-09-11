@@ -1,0 +1,38 @@
+{
+  "path": ".tmp/h3-evaluation/liudeng/review/liudeng-native-audio-review.mp4",
+  "frames": 1091,
+  "seconds": 45.458333333333336,
+  "renderSeconds": 6.147,
+  "timeline": [
+    {
+      "shot": "A",
+      "source": ".tmp/h3-evaluation/liudeng/a-pdd8-768p-native-481frames/output-0.mp4",
+      "sourceSha256": "3fbf158dd3d2c4c87e0c3757d3b1415027d15d17e12c38c72d3ccc101ca3c6cc",
+      "startFrame": 0,
+      "frames": 481
+    },
+    {
+      "shot": "B",
+      "source": ".tmp/h3-evaluation/liudeng/b-pdd8-768p-two-refs/output-0.mp4",
+      "sourceSha256": "256d38113f57bdd022586191a39bb0c3c4c5a2ad6c10f72db500fdb4859cb044",
+      "startFrame": 481,
+      "frames": 124
+    },
+    {
+      "shot": "C",
+      "source": ".tmp/h3-evaluation/liudeng/c-pdd8-768p-first-guide/output-0.mp4",
+      "sourceSha256": "8daa64c6f31d76f1d4daaecb88daf414ad518b61b748f0f7c820c63807625254",
+      "startFrame": 605,
+      "frames": 243
+    },
+    {
+      "shot": "D",
+      "source": ".tmp/h3-evaluation/liudeng/d-pdd8-768p-cup/output-0.mp4",
+      "sourceSha256": "316f1bbff2a02cdb673a3ff821362f0c7b14e829f8281eaba729156416152102",
+      "startFrame": 848,
+      "frames": 243
+    }
+  ],
+  "accepted": false,
+  "note": "Review assembly of candidate takes. Original generated audio, no music or foley replacement, ordinary upscale/crop to1080p. No source-seam repair. Full quality acceptance pending."
+}

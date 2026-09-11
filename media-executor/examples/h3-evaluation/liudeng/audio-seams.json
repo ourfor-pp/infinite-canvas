@@ -1,0 +1,36 @@
+{
+  "sampleRate": 16000,
+  "durationSeconds": 20.064,
+  "wholeRmsDbfs": -55.62386919831898,
+  "wholePeakDbfs": -31.282248323276004,
+  "seams": [
+    {
+      "videoFrame": 124,
+      "seconds": 5.166666666666667,
+      "rmsBeforeDbfs": -57.09466635317394,
+      "rmsAfterDbfs": -56.18585617004257,
+      "sampleJumpAtVideoBoundary": 0.000579833984375,
+      "localMaxSampleJump": 0.0042724609375,
+      "localP99SampleJump": 0.002288818359375
+    },
+    {
+      "videoFrame": 243,
+      "seconds": 10.125,
+      "rmsBeforeDbfs": -65.20762201761042,
+      "rmsAfterDbfs": -61.2067246033249,
+      "sampleJumpAtVideoBoundary": 6.103515625e-05,
+      "localMaxSampleJump": 0.00189208984375,
+      "localP99SampleJump": 0.00054931640625
+    },
+    {
+      "videoFrame": 362,
+      "seconds": 15.083333333333334,
+      "rmsBeforeDbfs": -61.25061169147724,
+      "rmsAfterDbfs": -57.190663072512876,
+      "sampleJumpAtVideoBoundary": 0.000152587890625,
+      "localMaxSampleJump": 0.003173828125,
+      "localP99SampleJump": 0.0010986328125
+    }
+  ],
+  "note": "Decoded mono 16kHz metrics locate possible artifacts. Video boundary is approximate relative to latent audio token boundaries. Not a listening or seam acceptance."
+}

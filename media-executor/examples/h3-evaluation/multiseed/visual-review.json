@@ -1,0 +1,275 @@
+{
+  "method": "Current new seeds inspected as 1fps contact sheets; seed314159 observations retained from prior batch reviews. No claim of full playback or listening.",
+  "results": [
+    {
+      "run": "pool-voiceover-base",
+      "batch": "second-batch",
+      "seed": 314159,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Swimmer remains near center while lane/background positions change; apparent following/reframing, static-camera requirement not accepted; sampled frames insufficient for stroke anatomy.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "pool-voiceover-pdd-ref8",
+      "batch": "second-batch",
+      "seed": 314159,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Swimmer remains near center while lane/background positions change; apparent following/reframing, static-camera requirement not accepted; sampled frames insufficient for stroke anatomy.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "speech-first-base",
+      "batch": "second-batch",
+      "seed": 314159,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Sword visible at 3s, outside frame at 4s; final sampled face unobstructed; exact movement onset/3.75s exit and lip-sync not accepted.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "speech-first-pdd-ref8",
+      "batch": "second-batch",
+      "seed": 314159,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Sword visible at 3s, outside frame at 4s; final sampled face unobstructed; exact movement onset/3.75s exit and lip-sync not accepted.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "pool-voiceover-lightx2v-ref8",
+      "batch": "ref8-v1",
+      "seed": 314159,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Swimmer remains near center while lane/background positions change; apparent following/reframing, static-camera requirement not accepted; sampled frames insufficient for stroke anatomy.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "speech-first-lightx2v-ref8",
+      "batch": "ref8-v1",
+      "seed": 314159,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Sword visible at 3s, outside frame at 4s; final sampled face unobstructed; exact movement onset/3.75s exit and lip-sync not accepted.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "pool-voiceover-base-seed-161803",
+      "batch": "multiseed",
+      "seed": 161803,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Swimmer remains near center while lane/background positions change; apparent following/reframing, static-camera requirement not accepted; sampled frames insufficient for stroke anatomy.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "pool-voiceover-base-seed-271828",
+      "batch": "multiseed",
+      "seed": 271828,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Swimmer remains near center while lane/background positions change; apparent following/reframing, static-camera requirement not accepted; sampled frames insufficient for stroke anatomy.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "pool-voiceover-lightx2v-ref8-seed-161803",
+      "batch": "multiseed",
+      "seed": 161803,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Swimmer remains near center while lane/background positions change; apparent following/reframing, static-camera requirement not accepted; sampled frames insufficient for stroke anatomy.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "pool-voiceover-lightx2v-ref8-seed-271828",
+      "batch": "multiseed",
+      "seed": 271828,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Swimmer remains near center while lane/background positions change; apparent following/reframing, static-camera requirement not accepted; sampled frames insufficient for stroke anatomy.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "pool-voiceover-pdd-ref8-seed-161803",
+      "batch": "multiseed",
+      "seed": 161803,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Swimmer remains near center while lane/background positions change; apparent following/reframing, static-camera requirement not accepted; sampled frames insufficient for stroke anatomy.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "pool-voiceover-pdd-ref8-seed-271828",
+      "batch": "multiseed",
+      "seed": 271828,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Swimmer remains near center while lane/background positions change; apparent following/reframing, static-camera requirement not accepted; sampled frames insufficient for stroke anatomy.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "speech-first-base-seed-161803",
+      "batch": "multiseed",
+      "seed": 161803,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Sword visible at 3s, outside frame at 4s; final sampled face unobstructed; exact movement onset/3.75s exit and lip-sync not accepted.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "speech-first-base-seed-271828",
+      "batch": "multiseed",
+      "seed": 271828,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Sword visible at 3s, outside frame at 4s; final sampled face unobstructed; exact movement onset/3.75s exit and lip-sync not accepted.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "speech-first-lightx2v-ref8-seed-161803",
+      "batch": "multiseed",
+      "seed": 161803,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Sword visible at 3s, outside frame at 4s; final sampled face unobstructed; exact movement onset/3.75s exit and lip-sync not accepted.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "speech-first-lightx2v-ref8-seed-271828",
+      "batch": "multiseed",
+      "seed": 271828,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Sword visible at 3s, outside frame at 4s; final sampled face unobstructed; exact movement onset/3.75s exit and lip-sync not accepted.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "speech-first-pdd-ref8-seed-161803",
+      "batch": "multiseed",
+      "seed": 161803,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Sword visible at 3s, outside frame at 4s; final sampled face unobstructed; exact movement onset/3.75s exit and lip-sync not accepted.",
+      "fullPlaybackAccepted": false
+    },
+    {
+      "run": "speech-first-pdd-ref8-seed-271828",
+      "batch": "multiseed",
+      "seed": 271828,
+      "identity": "No obvious identity replacement in sampled frames; not full-frame facial acceptance",
+      "sampledFramesSeconds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "observation": "Sword visible at 3s, outside frame at 4s; final sampled face unobstructed; exact movement onset/3.75s exit and lip-sync not accepted.",
+      "fullPlaybackAccepted": false
+    }
+  ]
+}

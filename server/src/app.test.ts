@@ -12,7 +12,7 @@ process.env.DATA_DIR = testData;
 process.env.AUTH_MODE = "fnos";
 process.env.APP_SECRET = "test-secret";
 
-const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { isRetriableAgentDiagnostic, recoverAgentRuns, resolveAgentNativeTools, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }, { updateDirectorStoryboardPrompts }, { listDirectorVideoSegments }, { applyDirectorAssetGeneration }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js"), import("./director-render.js"), import("./director.js"), import("./director-workspace.js")]);
+const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { isRetriableAgentDiagnostic, recoverAgentRuns, resolveAgentNativeTools, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }, { getDirectorVideoSegmentPreflight, updateDirectorStoryboardPrompts }, { listDirectorVideoSegments }, { applyDirectorAssetGeneration }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js"), import("./director-render.js"), import("./director.js"), import("./director-workspace.js")]);
 let origin = "";
 const server = app.listen(0, "127.0.0.1");
 
@@ -219,6 +219,12 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.deepEqual(orderedState.body.data.videoSegments.map((item: { title: string }) => item.title), ["车站全景", "清晨站台"], "视频段必须按剧情段落位置和段内位置排序，而不是按随机 ID 排序");
     const promptSegment = orderedState.body.data.videoSegments[1];
     const originalSheet = { ...promptSegment.payload.storyboardSheet, imageFileId: "existing-sheet", generationId: "existing-generation", promptSnapshot: "old prompt", frames: promptSegment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ ...frame, croppedFileId: `crop-${index}` })) };
+    db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, storyboardSheet: originalSheet, videoFileId: "existing-video" }), promptSegment.id, userOne["X-Trim-Userid"]);
+    const guidePreflight = getDirectorVideoSegmentPreflight(userOne["X-Trim-Userid"], promptSegment.id, true);
+    assert.deepEqual(guidePreflight.storyboardStartGuide, { sourceFileId: "existing-sheet", layout: originalSheet.layout, frameIndex: 0 });
+    assert.equal(getDirectorVideoSegmentPreflight(userOne["X-Trim-Userid"], promptSegment.id, false).storyboardStartGuide, undefined);
+    db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, boundary: "continue", storyboardSheet: originalSheet }), promptSegment.id, userOne["X-Trim-Userid"]);
+    assert.equal(getDirectorVideoSegmentPreflight(userOne["X-Trim-Userid"], promptSegment.id, true).storyboardStartGuide, undefined, "连续段不得被新故事板起始画格覆盖前段起点");
     db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, storyboardSheet: originalSheet, videoFileId: "existing-video" }), promptSegment.id, userOne["X-Trim-Userid"]);
     const promptUpdate = updateDirectorStoryboardPrompts(userOne["X-Trim-Userid"], projectId, { items: [{ segmentId: promptSegment.id, revision: 1, frames: originalSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ id: frame.id, shotNumber: Number(frame.shotNumber || 1), timeSeconds: Number(frame.timeSeconds || 0), kind: String(frame.kind || "keyframe"), description: `画格 ${index + 1} 的明确画面`, action: "人物沿站台向前行走", cameraAngle: "平视中景", cameraMove: "缓慢跟拍", h3Visual: "A medium tracking shot follows the person walking forward along the wet platform.", dialogues: [], sound: "rainfall and synchronized footsteps" })) }] });
     assert.equal(promptUpdate.updated, 1);
@@ -1029,6 +1035,15 @@ test("文件上传、Range 下载、路径穿越和越权访问", async () => {
     assert.equal((await fetch(`${origin}/files/..%2Fapp.db/content`, { headers: userOne })).status, 404);
 });
 
+test("ComfyUI 原生续接状态与普通媒体输出分离", async () => {
+    const { collectComfyOutputs } = await import("./generation-service.js");
+    const state = { filename: "state.safetensors", subfolder: "h3-state", type: "output" };
+    const video = { filename: "clip.mp4", type: "output" };
+    assert.deepEqual(collectComfyOutputs({ "1": { h3_states: [state] }, "2": { videos: [video] } }), { files: [video], continuationStates: [state] });
+    assert.deepEqual(collectComfyOutputs({ "1": { h3_states: [state] } }).files, []);
+    assert.throws(() => collectComfyOutputs({ "1": { h3_states: [{ filename: "unsafe.pkl" }] } }), /状态格式无效/);
+});
+
 test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
     let promptCounter = 0;
     const fakeComfy = createServer((request, response) => {
@@ -1038,7 +1053,11 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
         if (url.pathname === "/prompt") return json(response, { prompt_id: `prompt-${++promptCounter}` });
         if (url.pathname.startsWith("/history/")) {
             const id = url.pathname.split("/").pop() || "";
-            return json(response, { [id]: { status: { status_str: "success" }, outputs: { "11": { images: [{ filename: "result.png", type: "output" }] } } } });
+            return json(response, { [id]: { status: { status_str: "success" }, outputs: { "70": { h3_states: [{ filename: "state.safetensors", subfolder: "h3-state", type: "output" }] }, "11": { images: [{ filename: "result.png", type: "output" }] } } } });
+        }
+        if (url.pathname === "/view" && url.searchParams.get("filename") === "state.safetensors") {
+            response.writeHead(200, { "Content-Type": "application/octet-stream" });
+            return response.end(Buffer.from("state-transport-fixture"));
         }
         if (url.pathname === "/view") {
             response.writeHead(200, { "Content-Type": "image/png" });
@@ -1104,6 +1123,14 @@ test("固定 ComfyUI 工作流由后端执行并持久化结果", async () => {
             upscaleGeneration = (await api(`/generations/${upscale.body.data.id}`, userOne)).body.data;
         }
         assert.equal(upscaleGeneration.status, "succeeded");
+        assert.equal(upscaleGeneration.result.files.length, 1);
+        assert.equal(upscaleGeneration.result.files[0].name, "result.png");
+        const stateFile = upscaleGeneration.result.continuationStates[0];
+        assert.equal(stateFile.name, "state.safetensors");
+        const ownedState = await fetch(`${origin}/files/${stateFile.fileId}/content`, { headers: userOne });
+        assert.equal(await ownedState.text(), "state-transport-fixture", "只验证状态传输，不冒充 safetensors 内容校验");
+        assert.equal((await fetch(`${origin}/files/${stateFile.fileId}/content`, { headers: userTwo })).status, 404);
+        assert.ok(db.prepare("SELECT 1 FROM file_refs WHERE user_id=? AND owner_type='generation' AND owner_id=? AND file_id=?").get(userOne["X-Trim-Userid"], upscaleGeneration.id, stateFile.fileId));
     } finally {
         await new Promise<void>((resolvePromise) => fakeComfy.close(() => resolvePromise()));
     }

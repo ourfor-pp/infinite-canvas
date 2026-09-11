@@ -1,0 +1,635 @@
+{
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "type": "minimax",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "MiniMaxH3ReferenceToVideo",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "prompt": "subject_definitions:\n<Picture 1> is one chronological storyboard sheet for [Shot 1]: top-left is 00:00.000, top-right is 00:01.700, bottom-left is 00:03.400, bottom-right is 00:05.167. These are successive times, not simultaneous views.\n<Picture 2> is an identity sheet showing multiple views of the same single woman.\n<Subject 1> is the adult woman in <Picture 2>; retain her facial structure, chin-length dark bob, blue-gray jacket, off-white shirt, dark trousers and charcoal shoes.\n<Subject 2> is the light gray hard-shell rolling suitcase shown in <Picture 1>; retain its shape, extended handle and upright four-wheel rolling posture.\n<Subject 3> is the corridor and warm half-open walnut doorway shown in <Picture 1>.\n\nsummary:\n[reference generation] Generate one continuous 5.167-second live-action shot of the woman walking slowly along the corridor toward the warm doorway. <Picture 1> is a four-frame storyboard of successive moments of this single shot. Expand each moment into normal full-frame video; the sheet layout is not part of the scene.\n\nretention_analysis:\n<Picture 1>: preserve chronological action and camera-side continuity; never preserve gutters, panel borders or collage layout.\n<Picture 2>: preserve the single woman's identity and clothing; discard the studio background and multi-view layout.\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, body proportions, hairstyle and complete wardrobe.\n<Subject 2> (appears in [Shot 1]): fully_preserved - suitcase appearance and right-hand ownership.\n<Subject 3> (appears in [Shot 1]): fully_preserved - corridor proportions, floor, doorway and practical lighting.\n\ndetailed_description:\nAt every moment, exactly one uninterrupted camera view fills the entire rectangular screen, showing one woman and one suitcase. Render a normal full-frame video, never a grid or split screen.\nThe target video has a restrained live-action family-drama style with natural surface texture, believable skin and soft practical lighting.\n[Shot 1] A chest-height camera follows <Subject 1> from behind and slightly to her left. The medium-wide composition includes her head, shoes and the wheels of <Subject 2>. The short corridor of <Subject 3> recedes toward the same half-open dark walnut door. Cool ceiling light falls across the slightly worn pale walls and gray terrazzo floor. Warm light from the room beyond makes a small amber patch near the threshold. The room remains distant enough to leave several steps of walking space.\n\nFrom 00:00.000 to 00:01.700, she takes two small unhurried steps forward. Her right hand grips the extended suitcase handle naturally, and the suitcase rolls behind her right side in an upright posture on four wheels. The wheels stay in contact with the floor. Her left hand hangs loosely beside her jacket. Each planted shoe bears her weight before the other foot swings forward. The camera moves at her pace without changing its viewing side or focal length.\n\nFrom 00:01.700 to 00:03.400, she continues toward the warm doorway. The suitcase maintains its distance behind her right leg, its rigid handle transmitting her movement. The jacket hem shifts subtly with each step. Her shoulders gradually relax, and her chin turns a little toward the warm light. The camera follows smoothly, preserving the corridor's straight lines and the scale of the doorway.\n\nFrom 00:03.400 to 00:05.167, her pace slows slightly but the walking action continues. She remains outside and several steps away from the threshold when the shot ends. Her lips remain closed, and her expression is conveyed by posture rather than a conspicuous head turn. Soft footsteps and the fine irregular rattle of the suitcase wheels continue into the ending. The next segment can carry forward this unfinished movement.\n\noverall_soundscape:\nQuiet late-night corridor ambience with small natural reverberation, gentle alternating footsteps and a light rolling-wheel rattle that follows the visible suitcase. No speech, singing or voiceover.\n\nnon_diegetic_music:\nN/A",
+        "width": 1376,
+        "height": 768,
+        "length": 124,
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "ref_image_size": "match",
+        "ref_images.ref_image_0": [
+          "21",
+          0
+        ],
+        "ref_images.ref_image_1": [
+          "22",
+          0
+        ]
+      }
+    },
+    "6": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "15",
+          0
+        ],
+        "conditioning": [
+          "5",
+          0
+        ]
+      }
+    },
+    "7": {
+      "class_type": "KSamplerSelect",
+      "inputs": {
+        "sampler_name": "euler"
+      }
+    },
+    "9": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 271828
+      }
+    },
+    "10": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "9",
+          0
+        ],
+        "guider": [
+          "6",
+          0
+        ],
+        "sampler": [
+          "7",
+          0
+        ],
+        "sigmas": [
+          "16",
+          1
+        ],
+        "latent_image": [
+          "5",
+          1
+        ]
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "65",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "12": {
+      "class_type": "VAEDecodeAudio",
+      "inputs": {
+        "samples": [
+          "65",
+          0
+        ],
+        "vae": [
+          "4",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "11",
+          0
+        ],
+        "audio": [
+          "12",
+          0
+        ],
+        "fps": 24,
+        "bit_depth": 8
+      }
+    },
+    "14": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "13",
+          0
+        ],
+        "filename_prefix": "H3-Evaluation/liudeng/a-pdd8-768p-native-481frames",
+        "format": "auto",
+        "codec": "auto"
+      }
+    },
+    "15": {
+      "class_type": "PathchSageAttentionKJ",
+      "inputs": {
+        "model": [
+          "16",
+          0
+        ],
+        "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+        "allow_compile": false
+      }
+    },
+    "21": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "liudeng-a1-storyboard.png"
+      }
+    },
+    "40": {
+      "class_type": "MiniMaxH3GuidedContinuationWindow",
+      "inputs": {
+        "previous_av_latent": [
+          "10",
+          0
+        ],
+        "overlap_frames": 22,
+        "extension_frames": 119
+      }
+    },
+    "41": {
+      "class_type": "MiniMaxH3ReferenceToVideo",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "prompt": "subject_definitions:\n<Picture 1> is the complete storyboard sheet establishing the earlier approach, corridor geometry and suitcase appearance.\n<Subject 1> is the adult woman in <Picture 2>, retaining her dark bob, blue-gray jacket and dark trousers.\n<Subject 2> is the upright light gray suitcase in <Picture 1>.\n\nsummary:\n[video continuation + reference generation] Continue the existing audiovisual temporal context as one uninterrupted 5.875-second window, including its 0.917-second overlap. Extend the woman's quiet hesitation at the doorway without replaying her approach.\n\nretention_analysis:\n<Picture 1>: partially_preserved - retain setting and appearance; discard sheet layout and the earlier walking timeline.\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, wardrobe and body proportions.\n<Subject 2> (appears in [Shot 1]): fully_preserved - shape, wheel count and right-hand ownership.\n\ndetailed_description:\nThe target video continues the same restrained live-action family-drama shot, with realistic cloth movement and consistent practical illumination.\n[Shot 1] Begin at the exact ongoing position and movement established by the supplied temporal context. One chest-height camera views the adult woman from behind and slightly to her left. Her chin-length dark bob, blue-gray jacket, off-white shirt, dark trousers and charcoal shoes retain the same shape, scale and materials. One light gray upright four-wheel suitcase remains beside her right leg. Her right hand grips its rigid extended handle. Preserve the current spacing between hand, handle, suitcase and leg; the handle does not bend, grow or pass through her hand. The same cool corridor leads to the same half-open walnut door and warm light beyond. Wall edges, floor pattern and doorway proportions stay stable as the shot develops.\n\nThe opening 00:00.000\u201300:00.917 is the existing temporal overlap. Continue its current motion naturally; new action develops from 00:00.917 through 00:05.875. Do not restart from the first storyboard cell. The complete storyboard remains a source for the established corridor and wardrobe, not instructions to replay the earlier approach. Exactly one full-frame camera view fills the screen throughout, with one woman, one suitcase and one doorway. No sheet borders, split views, studio backgrounds or duplicate figures appear.\n\nKeep weight transfer small and physically grounded. Planted soles stay against the terrazzo until a deliberate step lifts them. The suitcase wheels retain their contact with the floor and stop when her hand stops pulling. The jacket follows her torso with a little natural fabric lag. Camera movement, if any, decelerates with her body rather than drifting independently. The warm patch near the threshold and cool corridor light maintain their intensity and direction. Her mouth remains closed; small changes in posture carry the hesitation without exaggerated facial acting.\n\nShe completes her current step and takes at most one further small step toward the doorway, then stops outside it. Her right hand slows the suitcase until all four wheels rest on the floor. The camera gently comes to rest with her, without passing her shoulder. She keeps her left hand lowered, looking toward the warm gap in the door. End with both feet planted and the suitcase still.\n\noverall_soundscape:\nContinue the quiet corridor room tone and small natural reverberation from the temporal context. Footsteps and wheel rattle occur only while visible movement warrants them; these sounds stop as she settles. Subtle jacket rustle accompanies the arm movement. No speech, singing, humming or voiceover.\n\nnon_diegetic_music:\nN/A\n",
+        "width": 1376,
+        "height": 768,
+        "length": [
+          "40",
+          1
+        ],
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "ref_image_size": "match",
+        "ref_images.ref_image_0": [
+          "21",
+          0
+        ],
+        "ref_images.ref_image_1": [
+          "22",
+          0
+        ]
+      }
+    },
+    "42": {
+      "class_type": "MiniMaxH3LatentTailGuide",
+      "inputs": {
+        "positive": [
+          "41",
+          0
+        ],
+        "previous_av_latent": [
+          "10",
+          0
+        ],
+        "target_av_latent": [
+          "40",
+          0
+        ],
+        "overlap_video_tokens": [
+          "40",
+          2
+        ],
+        "overlap_audio_tokens": [
+          "40",
+          3
+        ]
+      }
+    },
+    "43": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "15",
+          0
+        ],
+        "conditioning": [
+          "42",
+          0
+        ]
+      }
+    },
+    "44": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "9",
+          0
+        ],
+        "guider": [
+          "43",
+          0
+        ],
+        "sampler": [
+          "7",
+          0
+        ],
+        "sigmas": [
+          "16",
+          1
+        ],
+        "latent_image": [
+          "40",
+          0
+        ]
+      }
+    },
+    "45": {
+      "class_type": "MiniMaxH3AppendContinuation",
+      "inputs": {
+        "previous_av_latent": [
+          "10",
+          0
+        ],
+        "sampled_window": [
+          "44",
+          0
+        ],
+        "overlap_video_tokens": [
+          "40",
+          2
+        ],
+        "overlap_audio_tokens": [
+          "40",
+          3
+        ],
+        "transition_video_tokens": [
+          "40",
+          4
+        ],
+        "transition_audio_tokens": [
+          "40",
+          5
+        ]
+      }
+    },
+    "50": {
+      "class_type": "MiniMaxH3GuidedContinuationWindow",
+      "inputs": {
+        "previous_av_latent": [
+          "45",
+          0
+        ],
+        "overlap_frames": 22,
+        "extension_frames": 119
+      }
+    },
+    "51": {
+      "class_type": "MiniMaxH3ReferenceToVideo",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "prompt": "subject_definitions:\n<Picture 1> is the complete storyboard sheet establishing the earlier approach, corridor geometry and suitcase appearance.\n<Subject 1> is the adult woman in <Picture 2>, retaining her dark bob, blue-gray jacket and dark trousers.\n<Subject 2> is the upright light gray suitcase in <Picture 1>.\n\nsummary:\n[video continuation + reference generation] Continue the existing audiovisual temporal context as one uninterrupted 5.875-second window, including its 0.917-second overlap. Extend the woman's quiet hesitation at the doorway without replaying her approach.\n\nretention_analysis:\n<Picture 1>: partially_preserved - retain setting and appearance; discard sheet layout and the earlier walking timeline.\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, wardrobe and body proportions.\n<Subject 2> (appears in [Shot 1]): fully_preserved - shape, wheel count and right-hand ownership.\n\ndetailed_description:\nThe target video continues the same restrained live-action family-drama shot, with realistic cloth movement and consistent practical illumination.\n[Shot 1] Begin at the exact ongoing position and movement established by the supplied temporal context. One chest-height camera views the adult woman from behind and slightly to her left. Her chin-length dark bob, blue-gray jacket, off-white shirt, dark trousers and charcoal shoes retain the same shape, scale and materials. One light gray upright four-wheel suitcase remains beside her right leg. Her right hand grips its rigid extended handle. Preserve the current spacing between hand, handle, suitcase and leg; the handle does not bend, grow or pass through her hand. The same cool corridor leads to the same half-open walnut door and warm light beyond. Wall edges, floor pattern and doorway proportions stay stable as the shot develops.\n\nThe opening 00:00.000\u201300:00.917 is the existing temporal overlap. Continue its current motion naturally; new action develops from 00:00.917 through 00:05.875. Do not restart from the first storyboard cell. The complete storyboard remains a source for the established corridor and wardrobe, not instructions to replay the earlier approach. Exactly one full-frame camera view fills the screen throughout, with one woman, one suitcase and one doorway. No sheet borders, split views, studio backgrounds or duplicate figures appear.\n\nKeep weight transfer small and physically grounded. Planted soles stay against the terrazzo until a deliberate step lifts them. The suitcase wheels retain their contact with the floor and stop when her hand stops pulling. The jacket follows her torso with a little natural fabric lag. Camera movement, if any, decelerates with her body rather than drifting independently. The warm patch near the threshold and cool corridor light maintain their intensity and direction. Her mouth remains closed; small changes in posture carry the hesitation without exaggerated facial acting.\n\nShe remains in the same position outside the doorway, feet planted. Her shoulders lower slightly as she lets out a quiet breath through her nose. She tilts her head just a little toward the warm light, listening. Her right hand keeps its loose grip on the suitcase handle. Her left fingers uncurl at her side. She does not take another step or move the suitcase. The camera remains settled behind her left shoulder.\n\noverall_soundscape:\nContinue the quiet corridor room tone and small natural reverberation from the temporal context. Footsteps and wheel rattle occur only while visible movement warrants them; these sounds stop as she settles. Subtle jacket rustle accompanies the arm movement. No speech, singing, humming or voiceover.\n\nnon_diegetic_music:\nN/A\n",
+        "width": 1376,
+        "height": 768,
+        "length": [
+          "50",
+          1
+        ],
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "ref_image_size": "match",
+        "ref_images.ref_image_0": [
+          "21",
+          0
+        ],
+        "ref_images.ref_image_1": [
+          "22",
+          0
+        ]
+      }
+    },
+    "52": {
+      "class_type": "MiniMaxH3LatentTailGuide",
+      "inputs": {
+        "positive": [
+          "51",
+          0
+        ],
+        "previous_av_latent": [
+          "45",
+          0
+        ],
+        "target_av_latent": [
+          "50",
+          0
+        ],
+        "overlap_video_tokens": [
+          "50",
+          2
+        ],
+        "overlap_audio_tokens": [
+          "50",
+          3
+        ]
+      }
+    },
+    "53": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "15",
+          0
+        ],
+        "conditioning": [
+          "52",
+          0
+        ]
+      }
+    },
+    "54": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "9",
+          0
+        ],
+        "guider": [
+          "53",
+          0
+        ],
+        "sampler": [
+          "7",
+          0
+        ],
+        "sigmas": [
+          "16",
+          1
+        ],
+        "latent_image": [
+          "50",
+          0
+        ]
+      }
+    },
+    "55": {
+      "class_type": "MiniMaxH3AppendContinuation",
+      "inputs": {
+        "previous_av_latent": [
+          "45",
+          0
+        ],
+        "sampled_window": [
+          "54",
+          0
+        ],
+        "overlap_video_tokens": [
+          "50",
+          2
+        ],
+        "overlap_audio_tokens": [
+          "50",
+          3
+        ],
+        "transition_video_tokens": [
+          "50",
+          4
+        ],
+        "transition_audio_tokens": [
+          "50",
+          5
+        ]
+      }
+    },
+    "60": {
+      "class_type": "MiniMaxH3GuidedContinuationWindow",
+      "inputs": {
+        "previous_av_latent": [
+          "55",
+          0
+        ],
+        "overlap_frames": 22,
+        "extension_frames": 119
+      }
+    },
+    "61": {
+      "class_type": "MiniMaxH3ReferenceToVideo",
+      "inputs": {
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "prompt": "subject_definitions:\n<Picture 1> is the complete storyboard sheet establishing the earlier approach, corridor geometry and suitcase appearance.\n<Subject 1> is the adult woman in <Picture 2>, retaining her dark bob, blue-gray jacket and dark trousers.\n<Subject 2> is the upright light gray suitcase in <Picture 1>.\n\nsummary:\n[video continuation + reference generation] Continue the existing audiovisual temporal context as one uninterrupted 5.875-second window, including its 0.917-second overlap. Extend the woman's quiet hesitation at the doorway without replaying her approach.\n\nretention_analysis:\n<Picture 1>: partially_preserved - retain setting and appearance; discard sheet layout and the earlier walking timeline.\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity, wardrobe and body proportions.\n<Subject 2> (appears in [Shot 1]): fully_preserved - shape, wheel count and right-hand ownership.\n\ndetailed_description:\nThe target video continues the same restrained live-action family-drama shot, with realistic cloth movement and consistent practical illumination.\n[Shot 1] Begin at the exact ongoing position and movement established by the supplied temporal context. One chest-height camera views the adult woman from behind and slightly to her left. Her chin-length dark bob, blue-gray jacket, off-white shirt, dark trousers and charcoal shoes retain the same shape, scale and materials. One light gray upright four-wheel suitcase remains beside her right leg. Her right hand grips its rigid extended handle. Preserve the current spacing between hand, handle, suitcase and leg; the handle does not bend, grow or pass through her hand. The same cool corridor leads to the same half-open walnut door and warm light beyond. Wall edges, floor pattern and doorway proportions stay stable as the shot develops.\n\nThe opening 00:00.000\u201300:00.917 is the existing temporal overlap. Continue its current motion naturally; new action develops from 00:00.917 through 00:05.875. Do not restart from the first storyboard cell. The complete storyboard remains a source for the established corridor and wardrobe, not instructions to replay the earlier approach. Exactly one full-frame camera view fills the screen throughout, with one woman, one suitcase and one doorway. No sheet borders, split views, studio backgrounds or duplicate figures appear.\n\nKeep weight transfer small and physically grounded. Planted soles stay against the terrazzo until a deliberate step lifts them. The suitcase wheels retain their contact with the floor and stop when her hand stops pulling. The jacket follows her torso with a little natural fabric lag. Camera movement, if any, decelerates with her body rather than drifting independently. The warm patch near the threshold and cool corridor light maintain their intensity and direction. Her mouth remains closed; small changes in posture carry the hesitation without exaggerated facial acting.\n\nShe stays outside the doorway with her feet planted and the suitcase motionless beside her right leg. Slowly she lifts her left forearm toward the near edge of the half-open door, hesitates briefly, and touches the wood lightly with her fingertips. Her right hand keeps hold of the extended suitcase handle. The door stays at its current angle. End on this gentle contact, with no entry or cut.\n\noverall_soundscape:\nContinue the quiet corridor room tone and small natural reverberation from the temporal context. Footsteps and wheel rattle occur only while visible movement warrants them; these sounds stop as she settles. Subtle jacket rustle accompanies the arm movement. No speech, singing, humming or voiceover.\n\nnon_diegetic_music:\nN/A\n",
+        "width": 1376,
+        "height": 768,
+        "length": [
+          "60",
+          1
+        ],
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "ref_image_size": "match",
+        "ref_images.ref_image_0": [
+          "21",
+          0
+        ],
+        "ref_images.ref_image_1": [
+          "22",
+          0
+        ]
+      }
+    },
+    "62": {
+      "class_type": "MiniMaxH3LatentTailGuide",
+      "inputs": {
+        "positive": [
+          "61",
+          0
+        ],
+        "previous_av_latent": [
+          "55",
+          0
+        ],
+        "target_av_latent": [
+          "60",
+          0
+        ],
+        "overlap_video_tokens": [
+          "60",
+          2
+        ],
+        "overlap_audio_tokens": [
+          "60",
+          3
+        ]
+      }
+    },
+    "63": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "15",
+          0
+        ],
+        "conditioning": [
+          "62",
+          0
+        ]
+      }
+    },
+    "64": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "9",
+          0
+        ],
+        "guider": [
+          "63",
+          0
+        ],
+        "sampler": [
+          "7",
+          0
+        ],
+        "sigmas": [
+          "16",
+          1
+        ],
+        "latent_image": [
+          "60",
+          0
+        ]
+      }
+    },
+    "65": {
+      "class_type": "MiniMaxH3AppendContinuation",
+      "inputs": {
+        "previous_av_latent": [
+          "55",
+          0
+        ],
+        "sampled_window": [
+          "64",
+          0
+        ],
+        "overlap_video_tokens": [
+          "60",
+          2
+        ],
+        "overlap_audio_tokens": [
+          "60",
+          3
+        ],
+        "transition_video_tokens": [
+          "60",
+          4
+        ],
+        "transition_audio_tokens": [
+          "60",
+          5
+        ]
+      }
+    },
+    "16": {
+      "class_type": "MiniMaxH3PDDAccApply",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "pdd_file": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors",
+        "nfe": "8",
+        "lora_strength": 1,
+        "head_strength": 1,
+        "on_off_grid": "error",
+        "partition_check": "error"
+      }
+    },
+    "22": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "liudeng-daughter-identity.png"
+      }
+    }
+  },
+  "recipe": {
+    "id": "liudeng-a-pdd8-768p-native-481frames",
+    "mode": "ref2va",
+    "seed": 271828,
+    "steps": 8,
+    "width": 1376,
+    "height": 768,
+    "frames": 481,
+    "experimental": true,
+    "audioAccepted": false,
+    "caseId": "liudeng-a1",
+    "initialFrames": 124,
+    "extensions": 3,
+    "extensionFrames": 119,
+    "overlapFrames": 22,
+    "continuationNodeRevision": "e1768d5fdfc6f9519d2090dcf78458c2d9625f80",
+    "continuationPromptSha256": [
+      "69b03c69659593bbe08af219c5638e603324bcec13a223b45e1a039e38b6978a",
+      "fa03593301fa0e730b867c3c4c84ea17484cc948c3ee91d7e5a374981585dc5f",
+      "a0d7ec2716027149b1ac8cda41f5bfca44cec94eea2a52090c9c1421af9a4460"
+    ],
+    "promptSha256": "0f84588985afee00254617cc2ea0fa4c5928860b6b8682cda3aefc9436342fa5",
+    "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+    "qualityAccepted": false
+  }
+}

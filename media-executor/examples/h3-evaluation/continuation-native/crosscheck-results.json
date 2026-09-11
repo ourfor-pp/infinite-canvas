@@ -1,0 +1,50 @@
+{
+  "models": {
+    "SenseVoiceSmall": "Revision:master,CreatedAt:1727321787",
+    "FSMN-VAD": "Revision:master,CreatedAt:1707184291"
+  },
+  "results": [
+    {
+      "run": "base20-481frames",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": [
+            [
+              1630,
+              3710
+            ]
+          ]
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+        }
+      ],
+      "cleanText": "慢慢来，保持呼吸。"
+    },
+    {
+      "run": "pdd8-481frames",
+      "vad": [
+        {
+          "key": "output-0",
+          "value": [
+            [
+              1630,
+              3700
+            ]
+          ]
+        }
+      ],
+      "sensevoice": [
+        {
+          "key": "output-0",
+          "text": "<|zh|><|NEUTRAL|><|Speech|><|withitn|>慢慢来，保持呼吸。"
+        }
+      ],
+      "cleanText": "慢慢来，保持呼吸。"
+    }
+  ]
+}

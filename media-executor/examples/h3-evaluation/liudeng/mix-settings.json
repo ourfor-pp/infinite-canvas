@@ -1,0 +1,23 @@
+{
+  "video": "liudeng-music-review.mp4",
+  "nativeTrackGainDb": {
+    "A": 6,
+    "B": 6,
+    "C": 0,
+    "D": 6
+  },
+  "musicSource": "../music/music.wav",
+  "musicSourceStartSeconds": 7.875,
+  "musicDurationSeconds": 12.125,
+  "musicTimelineStartSeconds": 33.333333,
+  "musicGainDb": -14,
+  "fadeInSeconds": 1.5,
+  "fadeOutSeconds": 1.5,
+  "stems": [
+    "native-original.wav",
+    "native-adjusted.wav",
+    "music-aligned.wav",
+    "mix.wav"
+  ],
+  "note": "Native track still combines original speech and ambience; these are not isolated dialogue/foley stems. No perceptual acceptance claimed."
+}

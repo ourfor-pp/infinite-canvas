@@ -1,0 +1,92 @@
+{
+  "model": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-0.6B/snapshots/deba00eb976b8daf9805ffd5d0fdcd7cafbb21b2",
+  "aligner": "/home/cec/.cache/huggingface/hub/models--Qwen--Qwen3-ForcedAligner-0.6B/snapshots/1c85775dfe71a2a90e6aeea682c6eb9df3d8848b",
+  "device": "cpu",
+  "timingToleranceSeconds": 0.25,
+  "note": "ASR and forced alignment are auxiliary evidence, not listening or lip-sync acceptance.",
+  "results": [
+    {
+      "run": "c",
+      "recipe": {
+        "id": "liudeng-c-pdd8-768p-dialogue",
+        "mode": "ref2va",
+        "seed": 271828,
+        "steps": 8,
+        "width": 1376,
+        "height": 768,
+        "frames": 243,
+        "experimental": true,
+        "audioAccepted": false,
+        "caseId": "liudeng-c",
+        "promptSha256": "1f9c7879cdf4c1795a73325b01a1e001e194002f38990f7e3288329203cc0678",
+        "officialSkillRevision": "d21241f0a4b3acbb34c97dae47fa417b7065e438"
+      },
+      "videoSha256": "021776a552d79764ebe55aa654132439e81d10e60fe850c60243f267c3f9a74b",
+      "expectedText": "还没睡？这灯，刚修好。",
+      "expectedSpeechWindow": [
+        1.8,
+        7.4
+      ],
+      "transcription": {
+        "language": "Chinese",
+        "text": "还没睡。这灯刚修好。",
+        "time_stamps": {
+          "items": [
+            {
+              "text": "还",
+              "start_time": 1.76,
+              "end_time": 1.92
+            },
+            {
+              "text": "没",
+              "start_time": 1.92,
+              "end_time": 2.0
+            },
+            {
+              "text": "睡",
+              "start_time": 2.0,
+              "end_time": 2.32
+            },
+            {
+              "text": "这",
+              "start_time": 5.92,
+              "end_time": 6.08
+            },
+            {
+              "text": "灯",
+              "start_time": 6.08,
+              "end_time": 6.48
+            },
+            {
+              "text": "刚",
+              "start_time": 6.96,
+              "end_time": 7.12
+            },
+            {
+              "text": "修",
+              "start_time": 7.12,
+              "end_time": 7.36
+            },
+            {
+              "text": "好",
+              "start_time": 7.36,
+              "end_time": 7.76
+            }
+          ]
+        }
+      },
+      "actualSpeechWindow": [
+        1.76,
+        7.76
+      ],
+      "transcriptMatches": true,
+      "speechBoundaryErrorsSeconds": [
+        -0.04,
+        0.36
+      ],
+      "speechWithinWindow": false,
+      "speechWindowMatches": false,
+      "audioAccepted": false
+    }
+  ]
+}

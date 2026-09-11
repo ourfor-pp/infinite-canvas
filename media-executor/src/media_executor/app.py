@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -38,6 +39,7 @@ ACE_USER_UNITS = ["infinite-ace-step.service", "infinite-ace-step-engine.service
 SYSTEMCTL = shutil.which("systemctl") or "systemctl"
 SUDO = shutil.which("sudo") or "sudo"
 GPU_NATIVE_ACTIVE = threading.Event()
+WORKER_THREAD: threading.Thread | None = None
 H3_ACTIVE = threading.Event()
 GPU_STATE_LOCK = threading.Lock()
 H3_DRAINED: tuple[list[str], list[str]] | None = None
@@ -266,10 +268,15 @@ def run_job(job_id: str, request: dict[str, Any]) -> None:
 
 def worker() -> None:
     while True:
-        with connect() as db:
-            row = db.execute("SELECT * FROM jobs WHERE status='queued' AND cancel_requested=0 ORDER BY created_at LIMIT 1").fetchone()
-            if row:
-                db.execute("UPDATE jobs SET status='running', progress=.02, updated_at=? WHERE id=?", (time.time(), row["id"]))
+        try:
+            with connect() as db:
+                row = db.execute("SELECT * FROM jobs WHERE status='queued' AND cancel_requested=0 ORDER BY created_at LIMIT 1").fetchone()
+                if row:
+                    db.execute("UPDATE jobs SET status='running', progress=.02, updated_at=? WHERE id=?", (time.time(), row["id"]))
+        except sqlite3.OperationalError:
+            logging.exception("Cannot read media job queue; retrying")
+            time.sleep(1)
+            continue
         if not row:
             time.sleep(.25)
             continue
@@ -288,10 +295,11 @@ def worker() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    global WORKER_THREAD
     init_db()
     if os.getenv("MEDIA_EXECUTOR_DISABLE_WORKER") != "1":
-        thread = threading.Thread(target=worker, daemon=True, name="gpu-job-worker")
-        thread.start()
+        WORKER_THREAD = threading.Thread(target=worker, daemon=True, name="gpu-job-worker")
+        WORKER_THREAD.start()
     yield
 
 
@@ -300,6 +308,13 @@ app = FastAPI(title="Infinite Media Executor", lifespan=lifespan)
 
 @app.get("/health")
 def health(_: None = Depends(authorize)):
+    if os.getenv("MEDIA_EXECUTOR_DISABLE_WORKER") != "1" and (WORKER_THREAD is None or not WORKER_THREAD.is_alive()):
+        raise HTTPException(503, "Media job worker is not running")
+    try:
+        with connect() as db:
+            db.execute("SELECT 1 FROM jobs LIMIT 1").fetchone()
+    except sqlite3.Error as exc:
+        raise HTTPException(503, "Media job queue is unavailable") from exc
     runtimes = {}
     if os.getenv("MEDIA_EXECUTOR_DISABLE_RUNTIME_HEALTH") != "1":
         with httpx.Client(timeout=httpx.Timeout(.8, connect=.2), trust_env=False) as client:

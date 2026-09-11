@@ -125,6 +125,15 @@ test("MiniMax H3 按 17k+5 对齐并串联最多四个时间锚点", () => {
     assert.equal(workflow["5"].inputs.first_frame, undefined);
 });
 
+test("Ref2VA 保留整板参考并将独立起始画格接入原生时间锚点", () => {
+    const workflow = buildComfyWorkflow({ model: "minimax-h3-ref2va-local", prompt: "test", params: { seconds: 5, temporalGuides: [{ fileId: "opening", frameIndex: 0 }] }, files: [image("board"), image("actor"), image("opening")] });
+    const loads = Object.values(workflow).filter((node) => node.class_type === "LoadImage").map((node) => node.inputs.image);
+    assert.deepEqual(loads.sort(), ["actor.png", "board.png", "opening.png"]);
+    assert.equal(workflow["102"].class_type, "MiniMaxH3AddGuide");
+    assert.equal(workflow["102"].inputs.frame_idx, 0);
+    assert.deepEqual(workflow["6"].inputs.conditioning, ["102", 0]);
+});
+
 test("MiniMax H3 两档配方只给 FL2VA 预览使用已探测 Turbo", () => {
     assert.equal(h3Recipe("fl2va", "preview", true).turbo, true);
     assert.equal(h3Recipe("fl2va", "preview", true).scheduler, "simple");

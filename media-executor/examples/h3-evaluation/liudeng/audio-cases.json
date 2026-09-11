@@ -1,0 +1,27 @@
+{
+  "cases": [
+    {
+      "id": "liudeng-a1",
+      "expectedText": "",
+      "speechWindow": null
+    },
+    {
+      "id": "liudeng-b",
+      "expectedText": "",
+      "speechWindow": null
+    },
+    {
+      "id": "liudeng-c",
+      "expectedText": "还没睡？这灯，刚修好。",
+      "speechWindow": [
+        1.8,
+        7.4
+      ]
+    },
+    {
+      "id": "liudeng-d",
+      "expectedText": "",
+      "speechWindow": null
+    }
+  ]
+}

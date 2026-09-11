@@ -5,7 +5,9 @@ description: Planned follow-up work
 
 # TODO
 
-- H3 四任务对照与独立语音复核已完成，后续补充多种子、多图/整张故事板、长片段和多角色音色验收。LightX2V Ref2V v0.1 四步出现重复画外音，含对白默认路由暂不提升；作者原生 Ref2V v1.0 八步版已完成四任务对照，单种子泳池重复未复现；继续补充多种子，并检查动作、机位与实际发声时间。社区异常及历史修复适用范围见 `docs/research/minimax-h3-community-anomalies.md`。VDN 先解决剪枝基座跳过 51 项 AdaLN 增量的问题，Ref2VA 保持社区适配实验。
+- H3 加速与成片质量目标：在质量达标前提下验证可复现加速、显存占用和每秒合格成片的总耗时与成本，并以 30–60 秒独立样章验证真实跨段续接、镜头叙事、原生 768p、配音口型、配乐及混音；三种子压力矩阵已完成，原生 latent 三次续接约20秒隔离实验已完成，完整视听仍待验收；原创约45秒样章《留灯》已有45.46秒候选审片组合，配乐与候选混音已完成，完整视听验收仍待完成（`docs/research/h3-short-drama-sample-plan.md`），人物768p首段的分屏已通过移除额外双视角场景板消除，原生768p人物四窗口约20秒续接已完成生成与接点抽帧检查，继续完整运动/声音验收和人物续接机制对照，详见 `docs/research/h3-short-drama-quality-target.md`，速度与整片质量共同验收。跨任务原生双流 latent 持久化原型已完成重启重解码及追加验证，应用状态输出分离已接入；继续完成状态来源绑定、新增片段输出与正式导演接入，见 `docs/research/h3-native-continuation-integration.md`。
+
+- H3 四任务对照与独立语音复核已完成，后续补充多种子、多图/整张故事板、长片段和多角色音色验收。LightX2V Ref2V v0.1 四步出现重复画外音，含对白默认路由暂不提升；作者原生 Ref2V v1.0 八步版已完成四任务对照，单种子泳池重复未复现；三种子追加已发现 v1.0 八步短句重复，PDD 暂为加速候选；继续完整视听、动作、机位与实际发声时间验收。社区异常及历史修复适用范围见 `docs/research/minimax-h3-community-anomalies.md`。VDN 先解决剪枝基座跳过 51 项 AdaLN 增量的问题，Ref2VA 保持社区适配实验。
 
 - Run the fixed 10-scene H3 baseline across silent Turbo preview, audio-sensitive base preview, final and Sage modes on the deployed RTX 5090 checkout; record quality/audio gates and exercise rollback before treating Turbo preview as production-approved.
 - Add named/versioned creative-asset snapshots, linked cross-project creative-asset/style libraries, audio-result quality review, and media-version deletion management.
