@@ -1,0 +1,5 @@
+@supports selector(::-webkit-scrollbar) {
+    .menu { scrollbar-width: auto; scrollbar-color: auto; }
+    .menu::-webkit-scrollbar,
+    .menu::-webkit-scrollbar-track { background: inherit; border: 0; box-shadow: none; }
+}

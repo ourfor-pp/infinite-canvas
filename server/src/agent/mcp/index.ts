@@ -32,7 +32,7 @@ import {
   createDirectorRender,
   createDirectorVideoSegmentGeneration,
   createDirectorStoryboardGeneration,
-  getDirectorVideoSegmentPreflight,
+  getDirectorVideoSegmentPreflightWithFraming,
   listDirectorRenders,
   retryDirectorRender,
   updateDirectorStoryboardPrompts,
@@ -72,7 +72,7 @@ import {
   analyzeAgentVisualStyle,
   generateAgentVisualStyleReferences,
 } from "../canvas-tools.js";
-import { directorMediaModels, directorTaskQuery, getDirectorGenerationTasks, getDirectorRenderTasks } from "../director-tools.js";
+import { createDirectorMusicGeneration, directorMediaModels, directorTaskQuery, getDirectorGenerationTasks, getDirectorRenderTasks } from "../director-tools.js";
 import { sampleDirectorVideo, understandDirectorAudios, prepareProjectVideoOverview, sampleProjectVideoFrames, understandProjectAudios, understandProjectImages } from "../media-understanding.js";
 
 type AgentMcpContext = {
@@ -222,6 +222,7 @@ export function buildAgentToolDefinitions(
             },
           ],
           isError: true,
+          _meta: { directorRetrySafe: (error as { code?: string } | null)?.code === "DIRECTOR_STAGE_GATE" },
         };
       }
     });
@@ -580,17 +581,19 @@ export function buildAgentToolDefinitions(
           "director_validate_video_segments",
           "只读校验最多 100 个视频段的来源节拍、时长守恒、故事板 Shot 结构、素材、H3 英文视觉描述、结构化对白和声景是否可生成；不创建任务、不消费额度。",
           { ...(engine === "codex" ? {} : { segmentIds: z.array(z.string().min(1)).min(1).max(100).optional() }), segmentPaths: z.array(z.string().min(1)).min(1).max(100).optional() },
-          (input) => {
+          async (input) => {
             reconcileDirectorProjectFiles(run.userId, projectId);
             assertDirectorProjectValid(run.userId, projectId);
             const value = input as { segmentIds?: string[]; segmentPaths?: string[] };
             const ids = value.segmentPaths?.map((path) => resolveDirectorEntityReference(run.userId, projectId, path, ["video-segment"]).id) || value.segmentIds;
             if (!ids?.length) throw new Error("请提供 segmentPaths");
-            return ids.map((segmentId) => {
+            const results = [];
+            for (const segmentId of ids) {
               const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
-              const preflight = getDirectorVideoSegmentPreflight(run.userId, segmentId);
-              return { segmentId, title: segment.title, revision: segment.revision, ready: preflight.blockedReasons.length === 0, blockedReasons: preflight.blockedReasons, warnings: preflight.warnings, route: preflight.route, capabilities: preflight.capabilities, nativeWindow: preflight.nativeWindow, durationLimits: { minSeconds: 4, maxSeconds: preflight.capabilities.nativeState && (segment.payload as Record<string, unknown>).boundary === "continue" ? 340 / 24 : 15 }, usesStoryboardStartGuide: Boolean(preflight.storyboardStartGuide), referenceBudget: { selected: preflight.videoSelected.map(({ name, purpose }) => ({ name, purpose })), omitted: preflight.videoOmitted.map(({ name, purpose }) => ({ name, purpose })) }, previewAudioPolicy: preflight.previewAudioPolicy };
-            });
+              const preflight = await getDirectorVideoSegmentPreflightWithFraming(run.userId, segmentId);
+              results.push({ segmentId, title: segment.title, revision: segment.revision, ready: preflight.blockedReasons.length === 0, finalPrompt: preflight.finalPrompt, blockedReasons: preflight.blockedReasons, warnings: preflight.warnings, route: preflight.route, acceleration: preflight.acceleration, recipes: preflight.recipes, capabilities: preflight.capabilities, nativeWindow: preflight.nativeWindow, durationLimits: { minSeconds: 4, maxSeconds: preflight.capabilities.nativeState && (segment.payload as Record<string, unknown>).boundary === "continue" ? 340 / 24 : 15 }, usesStoryboardStartGuide: Boolean(preflight.storyboardStartGuide), guideFraming: preflight.guideFraming, referenceBudget: { selected: preflight.videoSelected.map(({ name, purpose }) => ({ name, purpose })), omitted: preflight.videoOmitted.map(({ name, purpose }) => ({ name, purpose })) }, previewAudioPolicy: preflight.previewAudioPolicy });
+            }
+            return results;
           },
         ),
         call(
@@ -971,6 +974,12 @@ export function buildAgentToolDefinitions(
             );
           },
         ),
+        call("director_generate_music", "从工程配乐提示文件生成独立音乐；结果按任务 ID 查询并保存为独立音频，可加入时间线音乐轨。", {
+          promptPath: z.string().min(1), expectedHash: z.string().min(1),
+        }, (input) => {
+          requireDirectorMediaStage(run.userId, projectId);
+          return createDirectorMusicGeneration(run.userId, projectId, input as { promptPath: string; expectedHash: string });
+        }),
         call(
           "director_list_models",
           "列出已启用且能力匹配的生成模型。",

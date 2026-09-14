@@ -12,4 +12,4 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__directo
 
 估算完成后与项目目标时长比较，并检查相邻场景是否重复同一冲突过程、重大决定是否缺少可观察的因果积累、场景是否没有独立功能、原故事关键事件或后果是否遗漏。只记录能由正文直接证明的问题，不因个人审美把题材惯例当成缺陷。把问题按 `duration`、`repetition`、`causality`、`scene_function`、`coverage` 写入 `reviewIssues`；没有实质问题时提交空数组。
 
-将总览写入 `screenplay/breakdown/overview.md`，逐场拆解写入 `screenplay/breakdown/scene-NNN.md`，使用稳定场次 ID 引用 `screenplay/scenes/`。存在诊断问题时明确建议返回剧本修订，不通过缩短节拍、压缩视频段或省略内容伪造达标；完成后运行工程校验；用户仅要求拆解时交付拆解，已授权完整制作时继续组合素材与视频段规划 Skill。
+将总览写入 `screenplay/breakdown/overview.md`，逐场拆解写入 `screenplay/breakdown/scene-NNN.md`，按正文场景编号建立对应关系，但拆解必须使用独立稳定 ID（如 `breakdown-scene-001`），不得复用 `screenplay/scenes/` 正文的 `scene-001`；视频段来源引用拆解 ID。存在诊断问题时明确建议返回剧本修订，不通过缩短节拍、压缩视频段或省略内容伪造达标；完成后运行工程校验；用户仅要求拆解时交付拆解，已授权完整制作时继续组合素材与视频段规划 Skill。

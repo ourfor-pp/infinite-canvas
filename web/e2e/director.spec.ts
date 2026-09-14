@@ -228,7 +228,7 @@ test("导演台顶级导航、Agent、素材抽卡、整张故事板与视频段
     await expect(page.getByText("Agent 已绑定当前导演项目，可以改编故事、编写剧本并推进素材、分镜和成片。")).toBeVisible();
     await expect(page.getByRole("textbox")).toHaveAttribute("data-placeholder", "描述导演任务，输入 / 调用 Skill，@ 引用故事、视频段或素材…");
     await expect(page.getByText("和画布一起思考")).toHaveCount(0);
-    for (const section of ["概览", "故事", "剧本", "导演方案", "分镜", "视频创作台", "素材库"]) await expect(page.getByRole("button", { name: section, exact: true })).toBeVisible();
+    for (const section of ["概览", "故事", "导演方案", "剧本", "分镜", "视频创作台", "素材库"]) await expect(page.getByRole("button", { name: section, exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "角色与场景", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "道具", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "故事与剧本", exact: true })).toHaveCount(0);
@@ -556,7 +556,7 @@ test("分镜先编辑剧情，再就地创建缺失素材，刷新后保留引�
     await page.setViewportSize({ width: 1600, height: 1000 });
     await page.goto("/__director-test.html");
     const navigation = page.getByRole("navigation", { name: "导演台功能" });
-    await expect(navigation.getByRole("button")).toHaveText(["概览", "故事", "剧本", "导演方案", "分镜", "视频创作台", "素材库"]);
+    await expect(navigation.getByRole("button")).toHaveText(["概览", "故事", "导演方案", "剧本", "分镜", "视频创作台", "素材库"]);
     await navigation.getByRole("button", { name: "分镜", exact: true }).click();
     await expect(page.getByRole("tab", { name: "故事板", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("heading", { name: "剧情与镜头" })).toBeVisible();

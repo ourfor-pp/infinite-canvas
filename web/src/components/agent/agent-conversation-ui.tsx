@@ -33,7 +33,7 @@ export function AgentConversationFlow({
     pendingMessage,
     restartingMessageSeq,
     onRestartFromMessage,
-    onBeforeProcessAutoCollapse,
+    onBeforeProcessCollapse,
 }: {
     events: AgentEvent[];
     loading: boolean;
@@ -49,7 +49,7 @@ export function AgentConversationFlow({
     pendingMessage?: AgentEvent | null;
     restartingMessageSeq?: number | null;
     onRestartFromMessage?: (event: ProjectedEvent) => void;
-    onBeforeProcessAutoCollapse?: (element: HTMLElement) => void;
+    onBeforeProcessCollapse?: (element: HTMLElement) => void;
 }) {
     const sendingId = pendingMessage && !events.some((event) => event.kind === "user_text" && event.sessionId === pendingMessage.sessionId && event.payload.clientMessageId === pendingMessage.payload.clientMessageId) ? `sending-${pendingMessage.payload.clientMessageId}` : undefined;
     const items = useMemo(() => {
@@ -98,7 +98,7 @@ export function AgentConversationFlow({
                 const position = top === undefined ? undefined : { position: "absolute" as const, top: top + historyOffset, left: 0, right: 0 };
                 if (item.type === "time") return <div key={item.id} className="agent-time-note"><time>{item.label}</time></div>;
                 if (item.type === "user") return <Measured key={item.id} id={item.id} style={position} onHeight={recordHeight}><UserMessage event={item.event} theme={theme} restarting={restartingMessageSeq === item.event.seq} onRestart={item.event === pendingMessage ? undefined : onRestartFromMessage} /></Measured>;
-                return <Measured key={item.id} id={item.id} className="agent-assistant-round" style={position} onHeight={recordHeight}>{item.id === sendingId ? <StatusPill state="running" text="正在发送…" /> : <AssistantRound events={item.events} theme={theme} status={item.id === activeRoundId ? status : "completed"} pendingDecision={item.id === activeRoundId ? pendingDecision : null} onBeforeProcessAutoCollapse={onBeforeProcessAutoCollapse} />}</Measured>;
+                return <Measured key={item.id} id={item.id} className="agent-assistant-round" style={position} onHeight={recordHeight}>{item.id === sendingId ? <StatusPill state="running" text="正在发送…" /> : <AssistantRound events={item.events} theme={theme} status={item.id === activeRoundId ? status : "completed"} pendingDecision={item.id === activeRoundId ? pendingDecision : null} onBeforeProcessCollapse={onBeforeProcessCollapse} />}</Measured>;
             })}
         </div>
     );
@@ -170,7 +170,7 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
     );
 }, (previous, next) => previous.theme === next.theme && previous.event.seq === next.event.seq && previous.event.payload === next.event.payload && previous.restarting === next.restarting && previous.onRestart === next.onRestart);
 
-export const AssistantRound = memo(function AssistantRound({ events, theme, status, pendingDecision, onBeforeProcessAutoCollapse }: { events: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; pendingDecision?: AgentPendingDecision | null; onBeforeProcessAutoCollapse?: (element: HTMLElement) => void }) {
+export const AssistantRound = memo(function AssistantRound({ events, theme, status, pendingDecision, onBeforeProcessCollapse }: { events: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; pendingDecision?: AgentPendingDecision | null; onBeforeProcessCollapse?: (element: HTMLElement) => void }) {
     const process = events.filter((event) => event.kind === "thinking" || event.kind === "tool_call");
     const { processMessages, answers } = splitAssistantRoundEvents(events);
     const artifacts = events.filter((event) => event.kind === "artifact");
@@ -197,7 +197,7 @@ export const AssistantRound = memo(function AssistantRound({ events, theme, stat
     };
     return (
         <div className="group/round pr-1">
-            {process.length || processMessages.length || decisionHistory.length ? <ProcessGroup events={process} processMessages={processMessages} decisions={decisionHistory} roundEvents={events} status={status} onBeforeAutoCollapse={onBeforeProcessAutoCollapse} /> : null}
+            {process.length || processMessages.length || decisionHistory.length ? <ProcessGroup events={process} processMessages={processMessages} decisions={decisionHistory} roundEvents={events} status={status} onBeforeCollapse={onBeforeProcessCollapse} /> : null}
             {answers.length || (copyText && roundCompleted) ? <div className="agent-streamdown relative mt-2 text-sm leading-6">
                 {answers.map((event) => <Streamdown key={`${event.sessionId}:${event.seq}`} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } }} isAnimating={Boolean(event.payload.delta)}>{eventText(event)}</Streamdown>)}
                 {copyText && roundCompleted ? <div className="mt-1 flex h-6 items-center"><Tooltip title={copied ? "已复制" : "复制回复"}><button type="button" aria-label="复制本轮回复内容" onClick={() => void copy()} className="grid size-6 place-items-center rounded-md opacity-0 transition hover:bg-black/5 group-hover/round:opacity-50 focus-visible:opacity-50 dark:hover:bg-white/10">{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}</button></Tooltip></div> : null}
@@ -223,20 +223,14 @@ function AgentErrorNotice({ event }: { event: ProjectedEvent }) {
     return <div className="agent-error-notice"><CircleAlert className="size-4 shrink-0" /><div className="min-w-0"><strong>{content.title}</strong><p>{content.message}</p>{known[code] && raw && raw !== content.message ? <details><summary>查看技术详情</summary><pre>{code} · {raw}</pre></details> : null}</div></div>;
 }
 
-function ProcessGroup({ events, processMessages, decisions, roundEvents, status, onBeforeAutoCollapse }: { events: ProjectedEvent[]; processMessages: ProjectedEvent[]; decisions: Array<{ request: AgentPendingDecision; event: ProjectedEvent; response?: ProjectedEvent }>; roundEvents: ProjectedEvent[]; status?: AgentSession["status"]; onBeforeAutoCollapse?: (element: HTMLElement) => void }) {
+function ProcessGroup({ events, processMessages, decisions, roundEvents, status, onBeforeCollapse }: { events: ProjectedEvent[]; processMessages: ProjectedEvent[]; decisions: Array<{ request: AgentPendingDecision; event: ProjectedEvent; response?: ProjectedEvent }>; roundEvents: ProjectedEvent[]; status?: AgentSession["status"]; onBeforeCollapse?: (element: HTMLElement) => void }) {
     const groupRef = useRef<HTMLElement>(null);
     const tools = events.filter((event) => event.kind === "tool_call");
     const thinking = events.filter((event) => event.kind === "thinking");
     const terminal = Boolean(status && !["running", "waiting_for_user"].includes(status));
     const running = !terminal && (status === "running" || tools.some((event) => !event.result));
-    const failed = tools.some((event) => Boolean(event.result?.payload.isError)) || status === "failed" || status === "canceled";
     const failedTools = tools.filter((event) => Boolean(event.result?.payload.isError)).length;
-    const latestFailedToolSeq = [...tools].reverse().find((event) => Boolean(event.result?.payload.isError))?.seq;
-    const failureKey = latestFailedToolSeq ? `tool:${latestFailedToolSeq}` : failed ? `status:${status}` : undefined;
-    const [open, setOpen] = useState(Boolean(failureKey));
-    const [showAllTools, setShowAllTools] = useState(false);
-    const wasRunning = useRef(status === "running");
-    const lastAutoOpenedFailure = useRef(failureKey);
+    const [open, setOpen] = useState(false);
     const [now, setNow] = useState(Date.now());
     const runningTools = terminal ? 0 : tools.filter((event) => !event.result).length;
     const headerParts = [tools.length ? `${tools.length} 次工具调用` : "", runningTools ? `${runningTools} 项进行中` : "", failedTools ? `${failedTools} 项失败` : "", processMessages.length + decisions.length ? `${processMessages.length + decisions.length} 条过程记录` : "", thinking.length ? `思考 ${thinking.length} 轮` : ""].filter(Boolean);
@@ -247,34 +241,24 @@ function ProcessGroup({ events, processMessages, decisions, roundEvents, status,
         else { steps.push({ event, thinking: pendingThinking }); pendingThinking = []; }
     }
     if (pendingThinking.length) steps.push({ event: pendingThinking[0], thinking: pendingThinking });
-    const visibleSteps = steps.map((step, index) => ({ ...step, index })).filter(({ event }) => showAllTools || tools.length <= 6 || event.kind === "thinking" || tools.slice(0, 4).includes(event) || tools.slice(-2).includes(event));
     const duration = roundDuration(roundEvents, running, now);
     useEffect(() => {
         if (!running) return;
         const timer = window.setInterval(() => setNow(Date.now()), 1000);
         return () => window.clearInterval(timer);
     }, [running]);
-    useEffect(() => {
-        if (wasRunning.current && !running && open && !failed) { if (groupRef.current) onBeforeAutoCollapse?.(groupRef.current); setOpen(false); }
-        wasRunning.current = running;
-    }, [failed, onBeforeAutoCollapse, open, running]);
-    useEffect(() => {
-        if (failureKey && failureKey !== lastAutoOpenedFailure.current) setOpen(true);
-        lastAutoOpenedFailure.current = failureKey;
-    }, [failureKey]);
     return (
         <section ref={groupRef} className={`agent-process-group ${processStyles.group}`}>
-            <button type="button" className="agent-process-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+            <button type="button" className="agent-process-toggle" aria-expanded={open} onClick={() => { if (open && groupRef.current) onBeforeCollapse?.(groupRef.current); setOpen((value) => !value); }}>
                 <ChevronRight className={`size-3.5 transition ${open ? "rotate-90" : ""}`} />
                 <span>{headerParts.join(" · ") || "过程记录"}</span>
                 {duration ? <em>本轮耗时 {duration}</em> : null}
             </button>
             {open ? (
                 <div className="agent-process-content">
-                    {visibleSteps.map(({ event, thinking, index }) => event.kind === "thinking"
+                    {steps.map(({ event, thinking }, index) => event.kind === "thinking"
                         ? <ThinkingStep key={event.seq} events={thinking} index={index} />
-                        : <ToolStep key={event.seq} event={event} thinking={thinking} index={index} now={now} terminalStatus={terminal ? status : undefined} autoOpenFailure={event.seq === latestFailedToolSeq} />)}
-                    {tools.length > 6 ? <button type="button" className="agent-process-more" onClick={() => setShowAllTools((value) => !value)}>{showAllTools ? "收起工具步骤" : `查看全部 ${tools.length} 个工具步骤`}</button> : null}
+                        : <ToolStep key={event.seq} event={event} thinking={thinking} index={index} now={now} terminalStatus={terminal ? status : undefined} />)}
                     {processMessages.length ? <div className="agent-process-records">{processMessages.map((event) => <div key={event.seq} className="agent-process-record"><Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } }}>{eventText(event)}</Streamdown></div>)}</div> : null}
                     {decisions.length ? <div className="agent-process-records">{decisions.map(({ request, event, response }) => <DecisionHistory key={event.seq} request={request} response={response} />)}</div> : null}
                 </div>
@@ -318,9 +302,9 @@ function ThinkingStep({ events, index }: { events: ProjectedEvent[]; index: numb
     </div>;
 }
 
-function ToolStep({ event, thinking, index, now, terminalStatus, autoOpenFailure }: { event: ProjectedEvent; thinking: ProjectedEvent[]; index: number; now: number; terminalStatus?: AgentSession["status"]; autoOpenFailure?: boolean }) {
+function ToolStep({ event, thinking, index, now, terminalStatus }: { event: ProjectedEvent; thinking: ProjectedEvent[]; index: number; now: number; terminalStatus?: AgentSession["status"] }) {
     const failed = Boolean(event.result?.payload.isError);
-    const [open, setOpen] = useState(Boolean(failed && autoOpenFailure));
+    const [open, setOpen] = useState(false);
     const [detailsOpen, setDetailsOpen] = useState(true);
     const name = formatAgentToolName(String(event.payload.toolName || "工具"));
     const target = toolTarget(event.payload.input);
@@ -328,7 +312,6 @@ function ToolStep({ event, thinking, index, now, terminalStatus, autoOpenFailure
     const settled = Boolean(event.result || terminalStatus);
     const summary = thinkingText(thinking);
     const state = failed ? "失败" : event.result ? "完成" : terminalStatus === "canceled" ? "已取消" : terminalStatus ? "已结束" : "执行中";
-    useEffect(() => { if (failed && autoOpenFailure) { setOpen(true); setDetailsOpen(true); } }, [autoOpenFailure, failed]);
     return <div className="agent-process-step">
         <button type="button" onClick={() => setOpen((value) => !value)} className="agent-process-step-toggle" aria-expanded={open} aria-label={open ? "收起详情" : "展开详情"}>
             <ChevronRight className={`size-3.5 shrink-0 transition ${open ? "rotate-90" : ""}`} />

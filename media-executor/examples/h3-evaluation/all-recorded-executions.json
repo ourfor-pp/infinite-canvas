@@ -891,13 +891,127 @@
       "sources": [
         ".tmp/h3-evaluation/director-native-portable/current-compiled/history.json"
       ]
+    },
+    {
+      "promptId": "48b26a75-0f5c-4bfa-a3cd-749aead32554",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 47.737,
+      "startedAtMilliseconds": 1789117692526,
+      "endedAtMilliseconds": 1789117740263,
+      "sources": [
+        ".tmp/h3-evaluation/pdd-production-runtime/history-after-base.json",
+        ".tmp/h3-evaluation/pdd-production-runtime/history.json"
+      ]
+    },
+    {
+      "promptId": "09b85d35-c182-4238-9172-a44e13221225",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 68.804,
+      "startedAtMilliseconds": 1789117742952,
+      "endedAtMilliseconds": 1789117811756,
+      "sources": [
+        ".tmp/h3-evaluation/pdd-production-runtime/history-after-base.json",
+        ".tmp/h3-evaluation/pdd-production-runtime/history.json"
+      ]
+    },
+    {
+      "promptId": "dbf102b9-a222-43ac-8a53-a72c1582093f",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 78.883,
+      "startedAtMilliseconds": 1789117911585,
+      "endedAtMilliseconds": 1789117990468,
+      "sources": [
+        ".tmp/h3-evaluation/pdd-production-runtime/history-after-base.json"
+      ]
+    },
+    {
+      "promptId": "722fd60a-bd7b-4ecb-b9c4-c01b469522a3",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 54.849,
+      "startedAtMilliseconds": 1789123535101,
+      "endedAtMilliseconds": 1789123589950,
+      "sources": [
+        ".tmp/h3-evaluation/formal-pdd-music-stage/pdd-smoke/history.json",
+        ".tmp/h3-evaluation/formal-pdd-music-stage/pdd-smoke/report.json"
+      ]
+    },
+    {
+      "promptId": "51774c2e-9808-4586-976b-f3b9ff88871a",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 62.605,
+      "startedAtMilliseconds": 1789123865995,
+      "endedAtMilliseconds": 1789123928600,
+      "sources": [
+        ".tmp/h3-evaluation/formal-pdd-music-stage/continuation-smoke/history.json",
+        ".tmp/h3-evaluation/formal-pdd-music-stage/continuation-smoke/report.json"
+      ]
+    },
+    {
+      "promptId": "0621d60d-46d0-476f-a13d-54d527e935d1",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 114.419,
+      "startedAtMilliseconds": 1789129496813,
+      "endedAtMilliseconds": 1789129611232,
+      "sources": [
+        ".tmp/h3-evaluation/final-prompt-native-entry/history.json"
+      ]
+    },
+    {
+      "promptId": "201ccb32-ca35-47a8-a453-b6c530ac1d91",
+      "category": "continuation",
+      "status": "error",
+      "executionSeconds": 13.874,
+      "startedAtMilliseconds": 1789132216883,
+      "endedAtMilliseconds": 1789132230757,
+      "sources": [
+        ".tmp/h3-evaluation/final-prompt-pdd-entry/attempt-1-oom/oom-history.json"
+      ]
+    },
+    {
+      "promptId": "5c597586-fa92-4999-80be-783ec6afed11",
+      "category": "continuation",
+      "status": "success",
+      "executionSeconds": 68.924,
+      "startedAtMilliseconds": 1789132435482,
+      "endedAtMilliseconds": 1789132504406,
+      "sources": [
+        ".tmp/h3-evaluation/final-prompt-pdd-entry/retry-history.json"
+      ]
+    },
+    {
+      "promptId": "0eb9965d-4cd5-4dc7-aac7-c19cfebf31ed",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 81.266,
+      "startedAtMilliseconds": 1789132936600,
+      "endedAtMilliseconds": 1789133017866,
+      "sources": [
+        ".tmp/h3-evaluation/final-prompt-audio-entry/history.json"
+      ]
+    },
+    {
+      "promptId": "abfcad6f-0ccd-4622-8c2d-72d30c62aab8",
+      "category": "generation",
+      "status": "success",
+      "executionSeconds": 78.724,
+      "startedAtMilliseconds": 1789133725336,
+      "endedAtMilliseconds": 1789133804060,
+      "sources": [
+        ".tmp/h3-evaluation/final-prompt-base-redo-entry/history.json"
+      ]
     }
   ],
-  "uniqueTasks": 80,
-  "duplicateCopiesExcluded": 9,
-  "recordedExecutionSeconds": 11249.928,
+  "uniqueTasks": 90,
+  "duplicateCopiesExcluded": 13,
+  "recordedExecutionSeconds": 11920.013,
   "missingTimingTasks": 0,
-  "failedTasks": 1,
+  "failedTasks": 2,
   "qualifiedFilmSeconds": null,
   "endToEndCost": null,
   "limitations": [
@@ -905,36 +1019,5 @@
     "Importing or copying an existing task does not count as another inference.",
     "Pre-submission failures without Comfy task IDs, image generation, music, review, queueing and pricing are outside this ledger.",
     "No quality acceptance or end-to-end speedup is inferred from task success."
-  ],
-  "currentCandidate": {
-    "durationSeconds": 42.083333333333336,
-    "adoptedSourcePromptIds": [
-      "0680f1be-b02d-4746-a0e5-5fe2f32162fc",
-      "4151136c-408d-4c78-bcdb-dfe9ab9503cb",
-      "7df46688-41d0-4162-913c-450f7edf0bf7",
-      "b16eccd6-4fec-4fc6-b8fb-4f1f0a58d2ca",
-      "b6b54940-d1aa-432f-8375-78dbf7ee0f58"
-    ],
-    "adoptedSourceExecutionSeconds": 1704.463,
-    "qualityAccepted": false,
-    "note": "Full execution of adopted source tasks, including discarded tails; excludes other candidates, source images, music, queueing and postproduction. Not an end-to-end cost or speedup."
-  },
-  "interruptedWithoutTerminalHistory": [
-    {
-      "promptId": "119c913f-5a7c-4b31-ba79-ecd9e3490f78",
-      "status": "runtime-process-missing",
-      "observedSteps": 7,
-      "totalSteps": 20,
-      "lastLoggedSamplingSeconds": 218,
-      "executionSeconds": null,
-      "resultAvailable": false,
-      "cause": "Unproven; runtime log ends without exception, process no longer present and port refuses connection.",
-      "retryRequiresNewAttempt": true
-    }
-  ],
-  "categorySeconds": {
-    "continuation": 3026.527,
-    "generation": 7988.485,
-    "state-or-decode": 234.916
-  }
+  ]
 }

@@ -34,7 +34,9 @@ export const storyboardFileSchema = z.object({
 });
 export const timelineFileSchema = z.object({
     segmentOrder: z.array(id).optional(),
-    tracks: z.array(z.object({ id, kind: z.enum(["dialogue", "narration", "ambient", "sfx", "music", "model-original"]), clips: z.array(z.object({ id, segmentId: id.optional(), path: projectMediaPath.optional(), fileId: z.never().optional(), start: z.number().nonnegative(), duration: z.number().positive(), trimIn: z.number().nonnegative().optional(), trimOut: z.number().nonnegative().optional(), volume: z.number().nonnegative().optional(), muted: z.boolean().optional(), loop: z.boolean().optional() })) })).optional(),
+    tracks: z.array(z.object({ id, kind: z.enum(["dialogue", "narration", "ambient", "sfx", "music", "model-original"]), clips: z.array(z.object({ id, segmentId: id.optional(), path: projectMediaPath.optional(), fileId: z.never().optional(), start: z.number().nonnegative(), duration: z.number().positive(), trimIn: z.number().nonnegative().optional(), fadeIn: z.number().nonnegative().optional(), fadeOut: z.number().nonnegative().optional(), trimOut: z.number().nonnegative().optional(), volume: z.number().nonnegative().optional(), muted: z.boolean().optional(), loop: z.boolean().optional() }).superRefine((clip, ctx) => {
+        for (const field of ["fadeIn", "fadeOut"] as const) if ((clip[field] || 0) > clip.duration) ctx.addIssue({ code: "custom", path: [field], message: "淡入淡出时长不能超过声音片段时长" });
+    })) })).optional(),
 }).strict().superRefine((timeline, ctx) => {
     const unique = (values: string[], path: (string | number)[]) => { if (new Set(values).size !== values.length) ctx.addIssue({ code: "custom", path, message: "ID 不得重复" }); };
     unique(timeline.segmentOrder || [], ["segmentOrder"]);

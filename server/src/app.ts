@@ -36,7 +36,7 @@ import {
     getDirectorDocument, getDirectorScreenplayBreakdown, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
     updateDirectorDocument, updateDirectorScreenplayBreakdown, updateDirectorSequence, updateDirectorTimeline, updateDirectorVideoSegment, updateDirectorWorkspace, updateDirectorSegmentAssetReference,
 } from "./director.js";
-import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflight, getDirectorPlaybackPlan, listDirectorRenders, retryDirectorRender } from "./director-render.js";
+import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflightWithFraming, getDirectorPlaybackPlan, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
 import {
     addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
@@ -258,7 +258,7 @@ api.post("/director/projects/:id/video-segments", route((req) => createDirectorV
 api.put("/director/video-segments/:id", route((req) => updateDirectorVideoSegment(req.user.id, routeId(req), req.body)));
 api.put("/director/video-segments/:id/asset-reference", route((req) => updateDirectorSegmentAssetReference(req.user.id, routeId(req), req.body)));
 api.delete("/director/video-segments/:id", route((req) => deleteDirectorVideoSegment(req.user.id, routeId(req))));
-api.get("/director/video-segments/:id/preflight", route((req) => getDirectorVideoSegmentPreflight(req.user.id, routeId(req))));
+api.get("/director/video-segments/:id/preflight", asyncRoute((req) => getDirectorVideoSegmentPreflightWithFraming(req.user.id, routeId(req))));
 api.post("/director/video-segments/:id/storyboard/generate", route((req) => createDirectorStoryboardGeneration(req.user.id, routeId(req), req.body), 202));
 api.post("/director/video-segments/:id/generate", asyncRoute((req) => createDirectorVideoSegmentGeneration(req.user.id, routeId(req), req.body), 201));
 api.get("/director/projects/:id/playback-plan", asyncRoute((req) => getDirectorPlaybackPlan(req.user.id, routeId(req))));

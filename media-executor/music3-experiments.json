@@ -1,0 +1,34 @@
+{
+  "comfyRevision": "40c4fcdf513a4523e39d54a9d391908af8df8171",
+  "upstreamVerification": {
+    "repository": "Comfy-Org/MiniMax-Music-3",
+    "revision": "6baad88896848433857c170ba4f05d2ea9d5f218",
+    "license": "https://huggingface.co/MiniMaxAI/MiniMax-Music3/blob/main/LICENSE"
+  },
+  "files": [
+    {
+      "repository": "Comfy-Org/MiniMax-Music-3",
+      "source": "modelscope",
+      "revision": "fbc3502b5d2ca0049348ee28b632f270b35e193a",
+      "path": "diffusion_models/minimax_music3_dit_fp16.safetensors",
+      "sha256": "45494a2b6b69af115902ff28eaf54118d19067aa54da01000f3e3efce7ba0e34",
+      "bytes": 4914197682
+    },
+    {
+      "repository": "Comfy-Org/MiniMax-Music-3",
+      "source": "modelscope",
+      "revision": "fbc3502b5d2ca0049348ee28b632f270b35e193a",
+      "path": "text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
+      "sha256": "010b7416d2336a08c711bc22ee65849c9623069ddb7d89bec011a75699e52014",
+      "bytes": 9196611886
+    },
+    {
+      "repository": "Comfy-Org/MiniMax-Music-3",
+      "source": "modelscope",
+      "revision": "fbc3502b5d2ca0049348ee28b632f270b35e193a",
+      "path": "vae/minimax_music3_dav.safetensors",
+      "sha256": "2a32155b769be01445fcc2a8663b910fc9e1751e18dc1c3ec528064512d9ef0c",
+      "bytes": 216696128
+    }
+  ]
+}

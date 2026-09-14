@@ -31,6 +31,7 @@ export const COMFY_MODELS = [
     "minimax-h3-fl2va-local",
     "minimax-h3-ref2va-local",
     "voxcpm2-local",
+    "minimax-music3-local",
 ] as const;
 
 export type ComfyModel = (typeof COMFY_MODELS)[number];
@@ -46,7 +47,7 @@ export const PURPOSE_MODELS: Record<ImageWorkflowPurpose, ComfyModel> = {
     "image-angle": "qwen-image-edit-2511-local",
 };
 
-export type ComfyModelDefinition = { name: string; output: "image" | "video" | "audio"; inputs: Array<"text" | "image" | "video" | "audio">; selectable: boolean; imageModes?: ImageMode[]; maxReferenceImages?: number; minDurationSeconds?: number; maxDurationSeconds?: number; videoModes?: Array<"fl2va" | "ref2va">; videoReferenceRoles?: Array<"reference" | "first-frame" | "last-frame" | "continuation">; maxReferenceVideos?: number; maxReferenceAudios?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend"; qualityPresets?: H3QualityPreset[]; supportsTemporalGuides?: boolean; maxTemporalGuides?: number; frameStride?: number; frameBase?: number; turboPreview?: boolean };
+export type ComfyModelDefinition = { name: string; output: "image" | "video" | "audio"; inputs: Array<"text" | "image" | "video" | "audio">; selectable: boolean; audioModes?: Array<"speech" | "ambient" | "sfx" | "music">; audioOperations?: Array<"generate" | "clone" | "transform" | "extend" | "inpaint" | "cover" | "remix">; imageModes?: ImageMode[]; maxReferenceImages?: number; minDurationSeconds?: number; maxDurationSeconds?: number; videoModes?: Array<"fl2va" | "ref2va">; videoReferenceRoles?: Array<"reference" | "first-frame" | "last-frame" | "continuation">; maxReferenceVideos?: number; maxReferenceAudios?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend"; qualityPresets?: H3QualityPreset[]; supportsTemporalGuides?: boolean; maxTemporalGuides?: number; frameStride?: number; frameBase?: number; turboPreview?: boolean };
 export const COMFY_MODEL_DEFINITIONS: Record<ComfyModel, ComfyModelDefinition> = {
     "qwen-image-2512-local": { name: "Qwen Image 2512 FP8", output: "image", inputs: ["text"], selectable: true, imageModes: ["generate"] },
     "z-image-turbo-local": { name: "Z-Image Turbo", output: "image", inputs: ["text"], selectable: true, imageModes: ["generate"] },
@@ -58,10 +59,12 @@ export const COMFY_MODEL_DEFINITIONS: Record<ComfyModel, ComfyModelDefinition> =
     "flux2-dev-fp8-local": { name: "FLUX.2 Dev FP8 Mixed", output: "image", inputs: ["text", "image"], selectable: true, imageModes: ["generate", "edit"], maxReferenceImages: 6 },
     "minimax-h3-fl2va-local": { name: "MiniMax H3 FL2VA", output: "video", inputs: ["text", "image", "video", "audio"], selectable: true, minDurationSeconds: 4, maxDurationSeconds: 15, maxReferenceImages: 4, maxReferenceVideos: 1, maxReferenceAudios: 1, maxReferenceFiles: 5, videoModes: ["fl2va"], videoReferenceRoles: ["first-frame", "last-frame", "continuation"], videoContinuationMode: "reference", videoFps: 24, videoNativeAudio: true, videoNativeResolution: "768p", qualityPresets: ["preview", "final"], supportsTemporalGuides: true, maxTemporalGuides: 4, frameStride: 17, frameBase: 5, turboPreview: true },
     "minimax-h3-ref2va-local": { name: "MiniMax H3 Ref2VA", output: "video", inputs: ["text", "image", "video", "audio"], selectable: true, minDurationSeconds: 4, maxDurationSeconds: 15, maxReferenceImages: 9, maxReferenceVideos: 3, maxReferenceAudios: 3, maxReferenceFiles: 12, videoModes: ["ref2va"], videoReferenceRoles: ["reference", "continuation"], videoContinuationMode: "reference", videoFps: 24, videoNativeAudio: true, videoNativeResolution: "768p", qualityPresets: ["preview", "final"], supportsTemporalGuides: true, maxTemporalGuides: 4, frameStride: 17, frameBase: 5, turboPreview: false },
+    "minimax-music3-local": { name: "MiniMax-Music3", output: "audio", inputs: ["text"], selectable: true, audioModes: ["music"], audioOperations: ["generate"], minDurationSeconds: 1, maxDurationSeconds: 300 },
     "voxcpm2-local": { name: "VoxCPM2", output: "audio", inputs: ["text", "audio"], selectable: true },
 };
 
 export const COMFY_REQUIREMENTS: Partial<Record<ComfyModel, { nodes: string[]; models: Array<{ loader: string; name: string }> }>> = {
+    "minimax-music3-local": { nodes: ["UNETLoader", "CLIPLoader", "VAELoader", "MiniMaxMusic3TextEncode", "EmptyMiniMaxMusic3LatentAudio", "ConditioningZeroOut", "KSampler", "VAEDecodeAudio", "SaveAudio"], models: [{ loader: "UNETLoader", name: "minimax_music3_dit_fp16.safetensors" }, { loader: "CLIPLoader", name: "minimax_music3_text_encoder_pruned_int8_convrot.safetensors" }, { loader: "VAELoader", name: "minimax_music3_dav.safetensors" }] },
     "qwen-image-2512-local": { nodes: ["UNETLoader", "CLIPLoader", "VAELoader", "LoraLoaderModelOnly", "EmptySD3LatentImage", "KSampler"], models: [{ loader: "UNETLoader", name: "qwen_image_2512_fp8_e4m3fn.safetensors" }, { loader: "CLIPLoader", name: "qwen_2.5_vl_7b_fp8_scaled.safetensors" }, { loader: "VAELoader", name: "qwen_image_vae.safetensors" }, { loader: "LoraLoaderModelOnly", name: "Qwen-Image-2512-Lightning-4steps-V1.0-bf16.safetensors" }, { loader: "LoraLoaderModelOnly", name: "Qwen-Image-2512-Lightning-8steps-V1.0-bf16.safetensors" }] },
     "z-image-turbo-local": { nodes: ["UNETLoader", "CLIPLoader", "VAELoader", "EmptySD3LatentImage", "KSampler"], models: [{ loader: "UNETLoader", name: "z_image_turbo_bf16.safetensors" }, { loader: "CLIPLoader", name: "qwen_3_4b.safetensors" }, { loader: "VAELoader", name: "ae.safetensors" }] },
     "qwen-image-edit-2511-local": { nodes: ["TextEncodeQwenImageEditPlus", "FluxKontextImageScale", "CFGNorm"], models: [{ loader: "UNETLoader", name: "qwen_image_edit_2511_bf16.safetensors" }, { loader: "CLIPLoader", name: "qwen_2.5_vl_7b_fp8_scaled.safetensors" }, { loader: "VAELoader", name: "qwen_image_vae.safetensors" }] },
@@ -102,6 +105,7 @@ export function buildComfyWorkflow(input: WorkflowInput): Workflow {
     if (input.model === "hidream-o1-full-fp8-local") return hiDream(input);
     if (input.model === "flux2-dev-fp8-local") return flux2Dev(input);
     if (input.model === "minimax-h3-fl2va-local" || input.model === "minimax-h3-ref2va-local") return miniMaxH3(input);
+    if (input.model === "minimax-music3-local") return miniMaxMusic3(input);
     if (input.model === "voxcpm2-local") return voxCpm(input);
     throw Object.assign(new Error("不支持的 ComfyUI 模型"), { code: "COMFY_MODEL_UNSUPPORTED", status: 400 });
 }
@@ -491,4 +495,23 @@ export function h3VideoDimensions(params: Record<string, unknown>) {
     if (width * height > maxPixels) { const scale = Math.sqrt(maxPixels / (width * height)); width *= scale; height *= scale; }
     width = Math.max(32, Math.round(width / 32) * 32); height = Math.max(32, Math.round(height / 32) * 32);
     return { width, height };
+}
+
+function miniMaxMusic3({ prompt, params, files }: WorkflowInput): Workflow {
+    const seconds = Number(params.seconds ?? 30);
+    if (!prompt.trim() || files.length || !Number.isFinite(seconds) || seconds < 1 || seconds > 300) throw Object.assign(new Error("Music3 需要音乐提示、1–300 秒时长，且不支持参考媒体"), { status: 400 });
+    if (params.audioMode !== undefined && params.audioMode !== "music" || params.audioOperation !== undefined && params.audioOperation !== "generate") throw Object.assign(new Error("Music3 当前仅支持音乐生成"), { status: 400 });
+    const generationSeed = Number(params.seed ?? seed());
+    if (!Number.isSafeInteger(generationSeed) || generationSeed < 0) throw Object.assign(new Error("Music3 种子必须是非负安全整数"), { status: 400 });
+    return {
+        "1": node("UNETLoader", { unet_name: "minimax_music3_dit_fp16.safetensors", weight_dtype: "default" }),
+        "2": node("CLIPLoader", { clip_name: "minimax_music3_text_encoder_pruned_int8_convrot.safetensors", type: "minimax", device: "default" }),
+        "3": node("VAELoader", { vae_name: "minimax_music3_dav.safetensors" }),
+        "4": node("MiniMaxMusic3TextEncode", { clip: ["2", 0], caption: prompt, lyrics: String(params.lyrics ?? "[Instrumental]"), seed: generationSeed, max_duration: seconds, cfg_scale: 1.7, top_k: 50 }),
+        "5": node("ConditioningZeroOut", { conditioning: ["4", 0] }),
+        "6": node("EmptyMiniMaxMusic3LatentAudio", { seconds: ["4", 1], batch_size: 1 }),
+        "7": node("KSampler", { model: ["1", 0], positive: ["4", 0], negative: ["5", 0], latent_image: ["6", 0], seed: generationSeed, steps: 30, cfg: 1.7, sampler_name: "euler", scheduler: "simple", denoise: 1 }),
+        "8": node("VAEDecodeAudio", { samples: ["7", 0], vae: ["3", 0] }),
+        "14": node("SaveAudio", { audio: ["8", 0], filename_prefix: "InfiniteCanvas/MiniMax-Music3" }),
+    };
 }

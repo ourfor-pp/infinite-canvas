@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -92,6 +92,21 @@ test("隔离挂载不接受用户目录程序；Codex Skills 不携带 Claude �
     syncBuiltInAgentSkills(root, agentScenes.director.skillIds, "codex");
     for (const id of agentScenes.director.skillIds) assert.doesNotMatch(readFileSync(join(root, ".agents", "skills", id, "SKILL.md"), "utf8"), /allowed-tools:/);
 });
+test("导演沙箱可实际生成并探测 PCM 音频，系统依赖仍只读", {
+    skip: process.platform !== "linux" || !["/usr/bin/bwrap", "/usr/bin/ffmpeg", "/usr/bin/ffprobe", "/etc/alternatives"].every(existsSync),
+}, () => {
+    const workspace = join(root, "audio-workspace"), home = join(root, "audio-home"), policy = join(root, "audio-policy");
+    for (const path of [workspace, home, policy, join(workspace, ".cache/codex-images")]) mkdirSync(path, { recursive: true });
+    const run = (binary: string, args: string[]) => {
+        const result = spawnSync("/usr/bin/bwrap", [...sandboxArguments(workspace, home, policy, binary), "--", binary, ...args], { encoding: "utf8", timeout: 30_000, env: { PATH: "/usr/bin:/bin" } });
+        assert.equal(result.status, 0, result.stderr || String(result.error));
+        return result.stdout;
+    };
+    run("/usr/bin/ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.1", "-ac", "2", "-ar", "32000", "/workspace/test.wav"]);
+    const metadata = JSON.parse(run("/usr/bin/ffprobe", ["-v", "error", "-show_entries", "stream=codec_name,sample_rate,channels", "-of", "json", "/workspace/test.wav"]));
+    assert.deepEqual(metadata.streams, [{ codec_name: "pcm_s16le", sample_rate: "32000", channels: 2 }]);
+    run("/usr/bin/sh", ["-c", "test ! -e /home/cec && test -d /etc/alternatives && ! touch /etc/alternatives/director-write-test"]);
+});
 test("标准 MCP 校验凭据、当前 run，并对生成重试只提交一次", async () => {
     const now = new Date().toISOString();
     db.prepare("INSERT INTO users VALUES('u','test',0,?,?)").run(now, now);
@@ -109,6 +124,18 @@ test("标准 MCP 校验凭据、当前 run，并对生成重试只提交一次",
         for (const response of await Promise.all([request(10), request(11)])) { assert.equal(response.status, 200); assert.equal((await response.json()).result.content[0].text, "task-1"); }
         assert.equal(calls, 1);
         assert.equal((await request(12)).status, 200); assert.equal(calls, 1);
+        let attempts = 0;
+        const retryBridge = await serveDirectorMcp("s", "r", [{ name: "director_generate_music", description: "test", inputSchema: {}, handler: async () => {
+            attempts++;
+            return attempts === 1 ? { isError: true, _meta: { directorRetrySafe: true }, content: [{ type: "text", text: "请先完成剧本" }] } : { content: [{ type: "text", text: "music-task" }] };
+        } }]);
+        try {
+            for (const id of [20, 21, 22]) {
+                const response = await fetch(retryBridge.url, { method: "POST", headers: { authorization: `Bearer ${retryBridge.token}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "director_generate_music", arguments: {} } }) });
+                assert.equal((await response.json()).result.content[0].text, id === 20 ? "请先完成剧本" : "music-task");
+            }
+            assert.equal(attempts, 2, "前置条件拒绝可重试，成功后仍只提交一次");
+        } finally { retryBridge.close(); }
         db.prepare("UPDATE agent_sessions SET current_run_id=NULL WHERE id='s'").run();
         assert.equal((await request(13)).status, 410);
     } finally { bridge.close(); }
@@ -206,7 +233,8 @@ test("Codex 移除四项重复 MCP，内置 Agent 保留；同步 Skill 只引�
     for (const id of ["director_analyze_style", "media_understand_images", "director_navigate", "ask_user"]) {
         assert.ok(!native.includes(id)); assert.ok(builtin.includes(id));
     }
-    assert.equal(native.length, 13);
+    assert.equal(native.length, 14);
+    assert.ok(native.includes("director_generate_music"));
     assert.ok(native.includes("media_sample_video"));
     assert.ok(!native.includes("media_prepare_video_overview"));
     assert.ok(!native.includes("media_sample_video_frames"));

@@ -5,7 +5,7 @@
 - `sequence.md`：必填 `id`、`kind: sequence`、`name`、从 1 开始的 `order`；正文为段落概述。
 - `segment.md`：必填 `id`、`kind: video-segment`、`sequenceId`、唯一正整数 `order`、4–15 秒 `durationSeconds`。生产前必须补齐来源、戏剧变化、开始/结束状态和英文 H3 字段。
 - `sourceSceneId`、`sourceBeatIds` 对应制作拆解场次及其 `beats[].id`，`sourceDurationSeconds` 是本段覆盖节拍的预计总时长。
-- `references.characters/locations/props` 为稳定 ID 数组，或 `{ id, variantId }` 对象数组；角色必须引用 character，场景引用 scene，道具引用 prop。
+- `references.characters/locations/props` 为稳定 ID 数组，或 `{ id, variantId }` 对象数组；角色必须引用 character，场景引用 scene，道具引用 prop。这些列表用于追加独立视觉参考，每一项都需要实际可用主图或指定形象，不是剧本全部出场物件的清单。普通物件若已在采用故事板中清楚呈现且无需额外身份图，应保留剧本、关键时刻与最终提示中的叙事，并明确其视觉依据来自整板；不要把没有主图的物件机械加入额外参考。需要独立身份约束的角色或关键道具仍应准备真实参考，不得静默丢弃缺失输入。
 - `boundary` 为 `cut` 或 `continue`；续接填写 `continuationFromSegmentId`。独立视觉过渡填写 `generationIntent: transition` 和 `transitionFromSegmentId` / `transitionToSegmentId`，无需故事板文件。
 - `audioReferences` 最多三项，每项为工程相对 `path`、`purpose: voice|dialogue|sound|music`、英文 `description`；voice/dialogue 额外填写本段角色 `speakerAssetId`。
 - `storyboard.yaml` 必填 `version: 1`、当前 `segmentId`、`layout`、`frames`。版式 2x2 / 3x2 / 3x3 分别对应 4 / 6 / 9 格。

@@ -561,7 +561,7 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
                         onSuggestion={(text) => { setComposerDocument({ version: 1, segments: [{ type: "text", text }] }); setDraft(projectId, text); setComposerFocusRequest((value) => value + 1); }}
                         restartingMessageSeq={restartingMessageSeq}
                         onRestartFromMessage={session?.engine === "codex" ? undefined : (event) => void restartFromMessage(event)}
-                        onBeforeProcessAutoCollapse={beforeCollapse}
+                        onBeforeProcessCollapse={beforeCollapse}
                     />
                 </div>
             </div>

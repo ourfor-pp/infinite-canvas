@@ -35,3 +35,14 @@ test("拒绝深层时间线、对白和 Shot 错误并定位字段", () => {
     assert.equal(segmentFileSchema.safeParse(audio).success, false);
     assert.equal(segmentFileSchema.safeParse({ ...segment(), boundary: "continue" }).success, false);
 });
+
+test("时间线保留淡入淡出并拒绝越界包络", () => {
+    const value = timeline(); Object.assign(value.tracks[0].clips[0], { fadeIn: 0.5, fadeOut: 1 });
+    const clip = timelineFileSchema.parse(value).tracks![0].clips[0];
+    assert.equal(clip.fadeIn, 0.5); assert.equal(clip.fadeOut, 1);
+    for (const field of ["fadeIn", "fadeOut"]) for (const invalid of [-1, 7, Infinity]) {
+        const bad = structuredClone(value); bad.tracks[0].clips[0][field] = invalid;
+        const result = timelineFileSchema.safeParse(bad); assert.equal(result.success, false);
+        if (!result.success) assert.deepEqual(result.error.issues[0].path, ["tracks", 0, "clips", 0, field]);
+    }
+});

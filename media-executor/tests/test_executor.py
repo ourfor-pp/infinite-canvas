@@ -201,3 +201,25 @@ def test_h3_identity_requires_all_nodes_and_ready_fingerprint(tmp_path, monkeypa
     assert module.health()["h3PddRuntime"] == identity
     identity["ready"] = False
     assert module.health()["h3PddRuntime"] is None
+
+
+def test_music3_requires_nodes_and_all_weights(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_EXECUTOR_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MEDIA_EXECUTOR_DISABLE_WORKER", "1")
+    monkeypatch.setenv("MEDIA_EXECUTOR_DISABLE_RUNTIME_HEALTH", "1")
+    import media_executor.app as module
+    module = importlib.reload(module)
+    module.init_db()
+    info = {name: {} for name in ("MiniMaxMusic3TextEncode", "EmptyMiniMaxMusic3LatentAudio", "ConditioningZeroOut", "KSampler", "VAEDecodeAudio", "SaveAudio")}
+    class FakeClient:
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def get(self, _): return httpx.Response(200, json=info)
+    monkeypatch.setattr(module.httpx, "Client", lambda **_: FakeClient())
+    assert module.health()["comfyFeatures"]["music3"] is False
+    for loader, field, name in (("UNETLoader", "unet_name", "minimax_music3_dit_fp16.safetensors"), ("CLIPLoader", "clip_name", "minimax_music3_text_encoder_pruned_int8_convrot.safetensors"), ("VAELoader", "vae_name", "minimax_music3_dav.safetensors")):
+        assert module.health()["comfyFeatures"]["music3"] is False
+        info[loader] = {"input": {"required": {field: [[name]]}}}
+    assert module.health()["comfyFeatures"]["music3"] is True
+    del info["MiniMaxMusic3TextEncode"]
+    assert module.health()["comfyFeatures"]["music3"] is False

@@ -232,7 +232,7 @@ export function updateVisualStyle(userId: string, styleId: string, raw: unknown)
     if (!current) throw styleError(404, "VISUAL_STYLE_NOT_FOUND", "视觉风格不存在或无权访问");
     const patch = updateSchema.parse(raw);
     const semanticChange = ["name", "mode", "templateId", "description", "dna", "references"].some((key) => key in patch);
-    const visualChange = ["mode", "templateId", "description", "dna"].some((key) => key in patch);
+    const replacesTemplate = patch.mode === "template" && patch.templateId !== undefined && (patch.templateId !== current.template_id || current.mode !== "template");
     const projectKind = (db.prepare("SELECT kind FROM projects WHERE id=? AND user_id=?").get(current.project_id, userId) as { kind?: string } | undefined)?.kind;
     const nextStatus = patch.status ?? current.status;
     const customizesTemplate = projectKind === "director" && current.mode === "template" && patch.mode === undefined && (patch.description !== undefined || patch.dna !== undefined);
@@ -243,7 +243,7 @@ export function updateVisualStyle(userId: string, styleId: string, raw: unknown)
     // for explaining where the local style started.
     const nextTemplateId = patch.templateId === undefined ? current.template_id : patch.templateId;
     const currentReferences = referencesSchema.parse(parseJson(current.reference_files, {}));
-    const nextReferences = patch.references ?? (visualChange ? { ...currentReferences, board: undefined } : currentReferences);
+    const nextReferences = patch.references ?? (replacesTemplate ? { ...currentReferences, board: undefined } : currentReferences);
     const input = materializeTemplateBoard(userId, resolveTemplate({ name: patch.name ?? current.name, mode: nextMode, templateId: nextTemplateId, description: patch.description ?? current.description, status: nextStatus, dna: patch.dna ?? parseStyleDna(current.dna, current.template_id), references: nextReferences }));
     assertStyleReady(input);
     assertStyleReferences(userId, input.references);
@@ -423,7 +423,7 @@ function ensureStoredTemplateBoard(userId: string, row: StyleRow) {
 }
 function assertStyleReady(style: { status: VisualStyleStatus; description: string }) { if (style.status === "confirmed" && !style.description.trim()) throw styleError(400, "VISUAL_STYLE_DESCRIPTION_REQUIRED", "确认视觉风格前请先填写风格描述"); }
 function styleRow(userId: string, styleId: string) { return db.prepare("SELECT * FROM visual_styles WHERE id=? AND user_id=?").get(styleId, userId) as StyleRow | undefined; }
-function styleResponse(row: StyleRow) { const references = referencesSchema.parse(parseJson(row.reference_files, {})); const boardStale = isStyleBoardStale(row, references.board); return { id: row.id, projectId: row.project_id, name: row.name, mode: row.mode, templateId: row.template_id, description: row.description, status: row.status, dna: parseStyleDna(row.dna, row.template_id), references, referenceFileId: boardStale ? references.source || null : references.board || references.source || null, boardStale, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function styleResponse(row: StyleRow) { const references = referencesSchema.parse(parseJson(row.reference_files, {})); const boardStale = isStyleBoardStale(row, references.board); return { id: row.id, projectId: row.project_id, name: row.name, mode: row.mode, templateId: row.template_id, description: row.description, status: row.status, dna: parseStyleDna(row.dna, row.template_id), references, referenceFileId: references.board || references.source || null, boardStale, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function isStyleBoardStale(row: StyleRow, boardFileId?: string) {
     if (!boardFileId || row.mode === "template") return false;
     const generations = db.prepare("SELECT request,result FROM generations WHERE user_id=? AND status='succeeded' AND result LIKE ? ORDER BY updated_at DESC LIMIT 20").all(row.user_id, `%${boardFileId}%`) as Array<{ request: string; result: string | null }>;

@@ -10,7 +10,7 @@ def summarize(roots):
     for root in roots:
         if not root.is_dir():
             raise ValueError(f'History root does not exist: {root}')
-        paths = sorted(set(root.rglob('*history.json')) | set(root.rglob('report.json')))
+        paths = sorted(set(root.rglob('*history*.json')) | set(root.rglob('report.json')))
         for path in paths:
             data = json.loads(path.read_text())
             history = data.get('history', data)

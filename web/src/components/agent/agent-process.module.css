@@ -1,6 +1,6 @@
 .group { display: grid; width: 100%; min-width: 0; gap: 8px; margin-bottom: 8px; color: var(--agent-text); font-size: 13px; }
 .group :global(.agent-process-toggle), .group :global(.agent-process-step-toggle) { display: flex; width: 100%; min-width: 0; align-items: center; gap: 8px; border: 0; padding: 0; background: transparent; color: var(--agent-text); text-align: left; cursor: pointer; }
-.group :global(.agent-process-toggle):hover, .group :global(.agent-process-step-toggle):hover, .group .toolHeader:hover, .group .codeBlock button:hover, .group :global(.agent-process-more):hover { background: transparent; }
+.group :global(.agent-process-toggle):hover, .group :global(.agent-process-step-toggle):hover, .group .toolHeader:hover, .group .codeBlock button:hover { background: transparent; }
 .group :global(.agent-process-toggle):focus-visible, .group :global(.agent-process-step-toggle):focus-visible, .toolHeader:focus-visible { outline: 2px solid var(--agent-accent); outline-offset: 3px; border-radius: 4px; }
 .group :global(.agent-process-toggle) { flex-wrap: wrap; }
 .group :global(.agent-process-toggle) > svg, .group :global(.agent-process-step-toggle) > svg { flex: 0 0 auto; color: var(--agent-muted); }
@@ -29,4 +29,3 @@
 .group :global(.agent-process-records) { display: grid; min-width: 0; gap: 12px; border: 1px solid color-mix(in srgb, var(--agent-line) 64%, transparent); border-radius: 10px; background: var(--agent-soft); padding: 9px 10px; }
 .group :global(.agent-process-record) { min-width: 0; color: var(--agent-muted); font-size: 13px; line-height: 1.65; }
 .group :global(.agent-process-record) > :first-child { margin-top: 0; }.group :global(.agent-process-record) > :last-child { margin-bottom: 0; }
-.group :global(.agent-process-more) { justify-self: start; padding: 4px 0; color: var(--agent-accent); font-size: 11px; cursor: pointer; }

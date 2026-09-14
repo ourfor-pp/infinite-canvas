@@ -147,7 +147,7 @@ export function validateStoryboardNarrativePlan(payload: Record<string, unknown>
 
     const shotNumbers = [...new Set(ordered.map((frame) => frame.shotNumber))];
     const maxShots = duration <= 6 ? 2 : duration <= 10 ? 2 : 3;
-    if (shotNumbers.length > maxShots) blockedReasons.push(`${duration} 秒视频段包含 ${shotNumbers.length} 个 Shot，表演停留不足，请拆段或减少切镜`);
+    if (shotNumbers.length > maxShots) warnings.push(`${duration} 秒视频段包含 ${shotNumbers.length} 个 Shot，请检查动作、对白和反应是否有足够停留`);
     const groups = new Map<number, StoryboardFrame[]>();
     ordered.forEach((frame) => groups.set(frame.shotNumber, [...(groups.get(frame.shotNumber) || []), frame]));
     const shots = [...groups.entries()].sort(([left], [right]) => left - right);
@@ -156,7 +156,7 @@ export function validateStoryboardNarrativePlan(payload: Record<string, unknown>
         const end = shots[index + 1]?.[1][0]?.timeSeconds ?? duration;
         if (end - start < 1.5) blockedReasons.push(`Shot ${shotNumber} 只有 ${(end - start).toFixed(2)} 秒，无法承载自然动作或反应`);
         if (frames[0]!.kind && frames[0]!.kind !== "shot-start") blockedReasons.push(`Shot ${shotNumber} 第一格必须标记为 shot-start`);
-        if (frames.at(-1)!.kind && frames.at(-1)!.kind !== "shot-end") blockedReasons.push(`Shot ${shotNumber} 最后一格必须标记为 shot-end`);
+        if ((frames.length > 1 || index === shots.length - 1) && frames.at(-1)!.kind && frames.at(-1)!.kind !== "shot-end") blockedReasons.push(`Shot ${shotNumber} 最后一格必须标记为 shot-end`);
         if (frames.slice(1, -1).some((frame) => frame.kind && frame.kind !== "keyframe")) blockedReasons.push(`Shot ${shotNumber} 中间画格只能标记为 keyframe`);
         const angles = unique(frames.map((frame) => normalizedCamera(frame.cameraAngle)).filter(Boolean));
         const locked = frames.some((frame) => /(?:locked|static|fixed|tripod|锁定|固定|静止)/i.test(promptText(frame.cameraMove)));
@@ -292,3 +292,14 @@ function truncate(value: string, length: number) { return value.length > length 
 function unique(values: string[]) { return [...new Set(values)]; }
 function joinNatural(values: string[]) { return values.length < 2 ? values[0] || "" : `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`; }
 function timestamp(seconds: number) { const millis = Math.max(0, Math.round(seconds * 1000)); return `${String(Math.floor(millis / 60000)).padStart(2, "0")}:${String(Math.floor(millis / 1000) % 60).padStart(2, "0")}.${String(millis % 1000).padStart(3, "0")}`; }
+
+
+export function validateH3FinalPromptReferences(prompt: string, counts: { image: number; video: number; audio: number }) {
+    const limits = { Picture: counts.image, Video: counts.video, Audio: counts.audio + counts.video };
+    const invalid = new Set<string>();
+    for (const match of prompt.matchAll(/<(Picture|Video|Audio) (\d+)>/g)) {
+        const index = Number(match[2]);
+        if (index < 1 || index > limits[match[1] as keyof typeof limits]) invalid.add(match[0]);
+    }
+    return [...invalid].map((tag) => `最终提示引用 ${tag}，但实际输入中没有对应媒体`);
+}

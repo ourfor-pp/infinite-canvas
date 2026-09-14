@@ -31,8 +31,11 @@ export async function serveDirectorMcp(sessionId: string, runId: string, tools: 
                 const previous = db.prepare("SELECT input_hash,status,result FROM agent_tool_requests WHERE session_id=? AND run_id=? AND request_key=?").get(sessionId, runId, requestKey) as { input_hash: string; status: string; result: string | null } | undefined;
                 if (previous?.input_hash !== undefined && previous.input_hash !== inputHash) throw new Error("MCP 请求标识与参数冲突");
                 if (pending.has(requestKey)) return pending.get(requestKey)!;
-                if (previous?.status === "completed") return JSON.parse(previous.result!) as CallToolResult;
-                if (previous) return { isError: true, content: [{ type: "text", text: "上次工具执行已提交但结果未知，请先查询任务状态，不要重复生成。" }] };
+                if (previous?.status === "completed") {
+                    const cached = JSON.parse(previous.result!) as CallToolResult;
+                    if (!cached.isError || cached._meta?.directorRetrySafe !== true) return cached;
+                    db.prepare("DELETE FROM agent_tool_requests WHERE session_id=? AND run_id=? AND request_key=?").run(sessionId, runId, requestKey);
+                } else if (previous) return { isError: true, content: [{ type: "text", text: "上次工具执行已提交但结果未知，请先查询任务状态，不要重复生成。" }] };
                 db.prepare("INSERT INTO agent_tool_requests(session_id,run_id,request_key,tool_name,input_hash,status) VALUES(?,?,?,?,?,'started')").run(sessionId, runId, requestKey, definition.name, inputHash);
                 const result = definition.handler(input, extra).then((value) => {
                     db.prepare("UPDATE agent_tool_requests SET status='completed',result=? WHERE session_id=? AND run_id=? AND request_key=?").run(JSON.stringify(value), sessionId, runId, requestKey);

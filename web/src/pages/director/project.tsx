@@ -77,8 +77,8 @@ import "./director-light.css";
 const sections: Array<{ id: DirectorSection; label: string; icon: typeof Film }> = [
     { id: "overview", label: "概览", icon: LayoutDashboard },
     { id: "story", label: "故事", icon: FileText },
-    { id: "script", label: "剧本", icon: ScrollText },
     { id: "style", label: "导演方案", icon: Palette },
+    { id: "script", label: "剧本", icon: ScrollText },
     { id: "storyboard", label: "分镜", icon: Clapperboard },
     { id: "studio", label: "视频创作台", icon: Scissors },
     { id: "assets", label: "素材库", icon: Package },
@@ -328,8 +328,8 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
     const readyAssets = assets.filter((item) => item.payload.variants.some((variant) => variant.kind === "image")).length;
     const stages = [
         Boolean(documents.story?.content.trim()),
-        Boolean(documents.script?.content.trim()),
         Boolean(styles.find((item) => item.id === state.activeStyleId)),
+        Boolean(documents.script?.content.trim()),
         state.videoSegments.length > 0,
         state.videoSegments.length > 0 && state.videoSegments.every((item) => item.payload.storyboardSheet?.imageFileId),
         state.videoSegments.length > 0 && state.videoSegments.every((item) => item.payload.videoFileId),
@@ -337,8 +337,8 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
     const progress = Math.round((stages.filter(Boolean).length / stages.length) * 100);
     const stageItems = [
         { label: "故事", detail: documents.story?.content.trim() ? "已编写" : "待创作", done: stages[0], target: "story" as const },
-        { label: "剧本", detail: stages[1] ? "已编写" : "待创作", done: stages[1], target: "script" as const },
-        { label: "导演方案", detail: styles.find((item) => item.id === state.activeStyleId)?.name || "待设置", done: stages[2], target: "style" as const },
+        { label: "导演方案", detail: styles.find((item) => item.id === state.activeStyleId)?.name || "待设置", done: stages[1], target: "style" as const },
+        { label: "剧本", detail: stages[2] ? "已编写" : "待创作", done: stages[2], target: "script" as const },
         { label: "分镜规划", detail: `${state.videoSegments.length} 个视频段`, done: stages[3], target: "storyboard" as const },
         { label: "故事板", detail: `${state.videoSegments.filter((item) => item.payload.storyboardSheet?.imageFileId).length}/${state.videoSegments.length}`, done: stages[4], target: "storyboard" as const },
         { label: "视频段", detail: `${state.videoSegments.filter((item) => item.payload.videoFileId).length}/${state.videoSegments.length}`, done: stages[5], target: "storyboard" as const },
@@ -829,7 +829,7 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
     const rulesDirtyRef = useRef(false);
     const uploadRef = useRef<HTMLInputElement>(null);
     const style = styles.find((item) => item.id === selectedId);
-    const previewUrl = style?.references.board && !style.boardStale ? serverApiUrl(`/director/projects/${projectId}/direction/style-board?v=${directionVersion}`) : "";
+    const previewUrl = style?.references.board ? serverApiUrl(`/director/projects/${projectId}/direction/style-board?v=${directionVersion}`) : "";
     const styleDirty = styleDocument !== savedStyleDocument;
     const rulesDirty = rules !== savedRules;
     styleDirtyRef.current = styleDirty;
@@ -950,7 +950,7 @@ function DirectorTreatmentPage({ projectId, workspace, activeStyleId, styles, on
                             <Button icon={<Palette className="size-3.5" />} disabled={styleDirty || Boolean(busy)} onClick={() => setTemplatePickerOpen(true)}>更换风格</Button>
                             <Button icon={<RefreshCw className="size-3.5" />} loading={busy === "board"} disabled={styleDirty || Boolean(busy) || !style} onClick={generateBoard}>{previewUrl ? "重新生成参考板" : "生成参考板"}</Button>
                             <Button type="text" icon={<Upload className="size-3.5" />} loading={busy === "upload"} disabled={styleDirty || Boolean(busy) || !style} onClick={() => uploadRef.current?.click()}>上传参考图</Button>
-                            {style?.boardStale ? <span className="ml-auto self-center text-[10px] text-rose-500">文字已变化，参考板需更新</span> : null}
+                            {style?.boardStale ? <span className="ml-auto self-center text-[10px] text-rose-500">文字已更新，参考板待复核</span> : null}
                             <input ref={uploadRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />
                         </div>
                         <div className={`director-treatment-style-document ${editingStyle ? "is-editing" : ""}`}>
@@ -1423,6 +1423,7 @@ function StoryboardInspector({ segment, mode, preflight }: { segment: DirectorVi
             </div>
         </header>
         {prompt ? <div className="thin-scrollbar min-h-0 flex-1 overflow-auto px-4 py-3"><div className="whitespace-pre-wrap break-words text-xs leading-6 text-slate-600">{body}</div>{frontmatter ? <details className="mt-6 border-t border-slate-100 pt-4"><summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">参考配置</summary><pre className="mt-3 whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-500">{frontmatter}</pre></details> : null}</div> : <div className="grid min-h-0 flex-1 place-items-center px-6 text-center text-xs leading-6 text-slate-400">{mode === "storyboard" ? "尚未编写故事板提示词，可交给 Agent 完善。" : "尚无视频提示词记录，生成后会显示实际使用的内容。"}</div>}
+        {mode === "video" && preflight?.guideFraming && (preflight.guideFraming.crop.x > 0 || preflight.guideFraming.crop.y > 0) ? <p data-testid="director-guide-framing-notice" className="shrink-0 border-t border-slate-100 px-4 py-2 text-[11px] leading-5 text-slate-500">首格会裁切以适配视频画幅，请确认人物头部、手部和关键道具仍完整。后续动作由整张故事板与提示控制，可交给 Agent 检查构图。</p> : null}
         {mode === "video" && preflight?.blockedReasons.length ? <p className="shrink-0 border-t border-rose-100 px-4 py-2 text-[11px] text-rose-600">{preflight.blockedReasons.join("；")}</p> : null}
     </aside>;
 }

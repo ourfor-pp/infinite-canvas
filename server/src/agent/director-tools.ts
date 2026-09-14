@@ -1,6 +1,7 @@
+import { createGeneration } from "../generation-service.js";
 import { z } from "zod";
 import { db, parseJson } from "../database.js";
-import { cacheDirectorMediaFile } from "../director-workspace.js";
+import { cacheDirectorMediaFile, readDirectorMusicPrompt, materializeDirectorMusic } from "../director-workspace.js";
 import { listPublicModels } from "../provider-service.js";
 import { getStoredFile } from "../file-store.js";
 
@@ -8,7 +9,7 @@ export const directorTaskQuery = z.object({ id: z.string().min(1).optional(), of
 
 type GenerationSummary = { id: string; kind: string; status: string; modelId: string; error: string | null; errorCode: string | null; progress: number; createdAt: string; updatedAt: string; result: string | null };
 // Filter by project before paging; requests are never returned to the agent.
-const generationProjectSql = `COALESCE(${["__agentCanvas", "__creativeAsset", "__directorShot", "__directorSegment", "__directorStoryboardSheet"].map((key) => `NULLIF(json_extract(request, '$.params.${key}.projectId'), '')`).join(",")}, '')`;
+const generationProjectSql = `COALESCE(${["__directorMusic", "__agentCanvas", "__creativeAsset", "__directorShot", "__directorSegment", "__directorStoryboardSheet"].map((key) => `NULLIF(json_extract(request, '$.params.${key}.projectId'), '')`).join(",")}, '')`;
 
 export function getDirectorGenerationTasks(userId: string, projectId: string, input: unknown) {
     assertProject(userId, projectId);
@@ -18,7 +19,8 @@ export function getDirectorGenerationTasks(userId: string, projectId: string, in
     const summarize = ({ result, ...row }: GenerationSummary) => {
         if (!id) return row;
         const files = parseJson<{ files?: Array<{ id?: string; fileId?: string }> } | null>(result, null)?.files || [];
-        return { ...row, outputs: files.slice(0, 16).map((file) => {
+        const music = materializeDirectorMusic(userId, projectId, row.id);
+        return { ...row, ...(music ? { music } : {}), outputs: files.slice(0, 16).map((file) => {
             const fileId = file.fileId || file.id;
             if (!fileId || !getStoredFile(userId, fileId)) return { available: false, message: "产物文件已不存在" };
             return cacheDirectorMediaFile(userId, projectId, fileId);
@@ -48,3 +50,9 @@ function assertProject(userId: string, projectId: string) {
     if (!db.prepare("SELECT 1 FROM projects WHERE id=? AND user_id=? AND kind='director'").get(projectId, userId)) throw notFound("导演项目");
 }
 function notFound(subject: string) { return Object.assign(new Error(`${subject}不存在或不属于当前项目`), { status: 404, code: "DIRECTOR_TASK_NOT_FOUND" }); }
+
+export function createDirectorMusicGeneration(userId: string, projectId: string, input: { promptPath: string; expectedHash: string }) {
+    assertProject(userId, projectId);
+    const music = readDirectorMusicPrompt(userId, projectId, input.promptPath, input.expectedHash);
+    return createGeneration(userId, { kind: "audio", model: music.model, prompt: music.prompt, params: { audioMode: "music", audioOperation: "generate", seconds: music.seconds, seed: music.seed, lyrics: music.lyrics, __directorMusic: { projectId, promptPath: music.promptPath, promptHash: music.promptHash } } });
+}

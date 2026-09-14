@@ -3,6 +3,8 @@ import { App, Dropdown, type MenuProps } from "antd";
 import { ChevronDown, LoaderCircle } from "lucide-react";
 import { agentApi, type AgentSession, type CodexModelCatalog, type CodexOptions } from "@/services/api/agent";
 
+import styles from "./codex-model-picker.module.css";
+
 const effortLabels: Record<string, string> = { none: "不思考", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高", ultra: "极限" };
 
 export function CodexModelPicker({ session, onChange, onSavingChange }: { session: AgentSession; onSavingChange: (saving: boolean) => void; onChange: (session: AgentSession) => void }) {
@@ -31,7 +33,7 @@ export function CodexModelPicker({ session, onChange, onSavingChange }: { sessio
     const items: MenuProps["items"] = error ? [{ key: "retry", label: "加载失败，点击重试", title: error }] : !catalog ? [{ key: "loading", label: "正在读取 Codex 模型…", disabled: true }] : [
         { type: "group", label: "模型", children: [
             { key: "model:", label: "跟随默认模型" },
-            ...catalog.models.map((model) => ({ key: `model:${model.id}`, label: model.name, title: model.description })),
+            ...catalog.models.toSorted((a, b) => (b.id.match(/^gpt-[\d.]+/)?.[0] || "").localeCompare(a.id.match(/^gpt-[\d.]+/)?.[0] || "", undefined, { numeric: true })).map((model) => ({ key: `model:${model.id}`, label: model.name, title: model.description })),
         ] },
         ...(current?.efforts.length ? [{ type: "divider" as const }, { type: "group" as const, label: "思考强度", children: [
             { key: "effort:", label: `默认 · ${effortLabels[current.defaultEffort] || current.defaultEffort}` },
@@ -39,7 +41,7 @@ export function CodexModelPicker({ session, onChange, onSavingChange }: { sessio
         ] }] : []),
         ...(["running", "waiting_for_user"].includes(session.status) ? [{ type: "divider" as const }, { key: "next-turn", label: "切换后从下一轮生效", disabled: true }] : []),
     ];
-    return <Dropdown trigger={["click"]} placement="topLeft" onOpenChange={(open) => { if (open) void load(); }} menu={{ items, selectable: true, selectedKeys: [`model:${options.model}`, `effort:${options.effort}`], style: { maxHeight: "min(520px, 70vh)", overflowY: "auto" }, onClick: ({ key }) => {
+    return <Dropdown trigger={["click"]} placement="topLeft" onOpenChange={(open) => { if (open) void load(); }} menu={{ className: `thin-scrollbar ${styles.menu}`, items, selectable: true, selectedKeys: [`model:${options.model}`, `effort:${options.effort}`], style: { maxHeight: "min(520px, 70vh)", overflowY: "auto", borderInlineEnd: 0 }, onClick: ({ key }) => {
         if (key === "retry") void load();
         else if (key.startsWith("model:")) void save({ model: key.slice(6), effort: "" });
         else if (key.startsWith("effort:")) void save({ ...options, effort: key.slice(7) });

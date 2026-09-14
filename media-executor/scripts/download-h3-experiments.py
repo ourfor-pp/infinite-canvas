@@ -9,8 +9,9 @@ from urllib.parse import quote
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--root", type=Path, default=Path.home() / ".local/share/infinite-media-executor/models/H3-Experiments")
+parser.add_argument("--manifest", type=Path, default=Path(__file__).resolve().parents[1] / "h3-experiments.json")
 args = parser.parse_args()
-manifest = json.loads((Path(__file__).resolve().parents[1] / "h3-experiments.json").read_text())
+manifest = json.loads(args.manifest.read_text())
 args.root.mkdir(parents=True, exist_ok=True)
 for item in manifest["files"]:
     target = args.root / item["repository"].split("/")[0] / item["path"]

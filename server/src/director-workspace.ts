@@ -275,6 +275,13 @@ export function readDirectorTextFile(userId: string, projectId: string, relative
     return { path: posixRelative(root, path), content: readFileSync(path, "utf8"), hash: hashFile(path) };
 }
 
+export function readDirectorVideoPrompt(userId: string, projectId: string, segmentId: string) {
+    const path = `videos/seg-${directorExternalId(projectId, segmentId)}/video-prompt.md`;
+    const file = readDirectorTextFile(userId, projectId, path);
+    if (!file.content.trim()) throw workspaceError(409, "DIRECTOR_VIDEO_PROMPT_REQUIRED", "请先按官方提示规则编写视频最终提示文件", { path });
+    return file;
+}
+
 export function readDirectorStyleBoard(userId: string, projectId: string) {
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     const document = matter(readFileSync(resolve(root, "direction", "visual-style.md"), "utf8"));
@@ -594,13 +601,20 @@ export function syncDirectorVideoSegmentFile(userId: string, projectId: string, 
         return { ...reference, path: posixRelative(root, target), ...(speakerAssetId ? { speakerAssetId: directorExternalId(projectId, speakerAssetId) } : {}) };
     });
     syncFileRefs(userId, "director_shot", segmentId, payload);
-    writeMarkdown(resolve(folder, "segment.md"), { ...(existing ? matter(readFileSync(existing, "utf8")).data : {}), id: externalSegmentId, kind: "video-segment", name: segment.title, sequenceId: externalSequenceId, order: segment.position + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references, audioReferences, ...segmentNarrativeMetadata(payload, projectId), sourceRevision: segment.revision }, String(payload.description ?? payload.action ?? ""));
-    if (payload.generationIntent !== "transition") writeYaml(resolve(folder, "storyboard.yaml"), { version: 1, segmentId: externalSegmentId, layout: sheet.layout || "2x2", frames: framesToFile(projectId, sheet.frames) });
+    const previousDocument = existing ? matter(readFileSync(existing, "utf8")) : undefined;
+    const segmentData = { ...previousDocument?.data, id: externalSegmentId, kind: "video-segment", name: segment.title, sequenceId: externalSequenceId, order: segment.position + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references, audioReferences, ...segmentNarrativeMetadata(payload, projectId), sourceRevision: segment.revision };
+    const segmentBody = String(payload.description ?? payload.action ?? "");
+    if (!previousDocument || previousDocument.content.trim() !== segmentBody.trim() || !isDeepStrictEqual({ ...previousDocument.data, sourceRevision: undefined }, { ...segmentData, sourceRevision: undefined })) writeMarkdown(resolve(folder, "segment.md"), segmentData, segmentBody);
+    if (payload.generationIntent !== "transition") {
+        const storyboardPath = resolve(folder, "storyboard.yaml");
+        const storyboardData = { version: 1, segmentId: externalSegmentId, layout: sheet.layout || "2x2", frames: framesToFile(projectId, sheet.frames) };
+        if (!existsSync(storyboardPath) || !isDeepStrictEqual(parseYaml(readFileSync(storyboardPath, "utf8")), storyboardData)) writeYaml(storyboardPath, storyboardData);
+    }
     writeFileAtomic(resolve(folder, "storyboard-prompt.md"), String(sheet.promptSnapshot || sheet.prompt || payload.storyboardPrompt || ""));
     const storyboardFileId = String(sheet.fileId || sheet.imageFileId || "");
     if (storyboardFileId) copyNamedFile(userId, storyboardFileId, resolve(folder, "storyboard.png"));
     const videoFolder = resolve(root, "videos", `seg-${externalSegmentId}`);
-    writeFileAtomic(resolve(videoFolder, "video-prompt.md"), String(payload.videoPrompt || payload.prompt || ""));
+    if (!existsSync(resolve(videoFolder, "video-prompt.md"))) writeFileAtomic(resolve(videoFolder, "video-prompt.md"), "");
     const video = documentRecord(payload.video);
     const currentVideoFileId = String(payload.videoFileId || "");
     const qualityPreset = String(payload.videoQualityPreset || payload.qualityPreset || "preview");
@@ -845,7 +859,7 @@ function exportStoryboards(userId: string, projectId: string, root: string) {
             writeFileAtomic(resolve(folder, "storyboard-prompt.md"), String(board.prompt || payload.storyboardPrompt || ""));
             copyNamedFile(userId, String(board.imageFileId || board.fileId || ""), resolve(folder, "storyboard.png"));
             const videoFolder = resolve(root, "videos", `seg-${segment.id}`);
-            writeFileAtomic(resolve(videoFolder, "video-prompt.md"), String(payload.videoPrompt || payload.prompt || ""));
+            if (!existsSync(resolve(videoFolder, "video-prompt.md"))) writeFileAtomic(resolve(videoFolder, "video-prompt.md"), "");
             const video = payload.video && typeof payload.video === "object" ? payload.video as Record<string, unknown> : {};
             const currentVideoFileId = String(payload.videoFileId || "");
             const qualityPreset = String(payload.videoQualityPreset || payload.qualityPreset || "preview");
@@ -886,16 +900,7 @@ function reconcileDirection(userId: string, projectId: string, root: string, now
     const dna = stringifyRecord(nextDna);
     if (!existingStyle) db.prepare(`INSERT INTO visual_styles(id,user_id,project_id,name,mode,template_id,description,status,dna,reference_files,revision,created_at,updated_at) VALUES(?,?,?,?,'custom',?,?,'draft',?,'{}',1,?,?)`).run(styleId, userId, projectId, styleName, sourceTemplateId, description, dna, now, now);
     else if (existingStyle.name !== styleName || existingStyle.description !== description || existingStyle.dna !== dna) {
-        const references = parseJson<Record<string, unknown>>(existingStyle.reference_files, {});
-        const visualChanged = serializeVisualStyleMarkdown(existingStyle.name, existingStyle.description, previousDna).trim() !== styleDocument.content.trim();
-        if (visualChanged) delete references.board;
-        if (visualChanged && styleDocument.data.referenceBoard) {
-            moveManagedDirectionReference(root, "style-board");
-            const nextData = { ...styleDocument.data } as Record<string, unknown>;
-            delete nextData.referenceBoard;
-            writeMarkdown(stylePath, nextData, styleDocument.content);
-        }
-        db.prepare("UPDATE visual_styles SET name=?,mode='custom',template_id=?,description=?,dna=?,reference_files=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND id=?").run(styleName, sourceTemplateId, description, dna, JSON.stringify(references), now, userId, projectId, styleId);
+        db.prepare("UPDATE visual_styles SET name=?,mode='custom',template_id=?,description=?,dna=?,reference_files=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND id=?").run(styleName, sourceTemplateId, description, dna, existingStyle.reference_files, now, userId, projectId, styleId);
     }
     const payload = parseJson<Record<string, unknown>>((db.prepare("SELECT payload FROM projects WHERE user_id=? AND id=?").get(userId, projectId) as { payload: string }).payload, {});
     if (payload.defaultVisualStyleId !== styleId) db.prepare("UPDATE projects SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND id=?").run(JSON.stringify({ ...payload, defaultVisualStyleId: styleId }), now, userId, projectId);
@@ -1036,8 +1041,21 @@ function reconcileStoryboards(userId: string, projectId: string, root: string, n
                 const imageHash = hashFile(storyboardImage);
                 if (currentPayload.storyboardImageHash && currentPayload.storyboardImageHash !== imageHash) payload.storyboardStale = false;
                 payload.storyboardImageHash = imageHash;
+                const reviewPath = safeWorkspacePath(root, posixRelative(root, resolve(segmentFolder, "quality-review.md")));
+                const review = existsSync(reviewPath) ? matter(readFileSync(reviewPath, "utf8")) : undefined;
+                const acceptedInputs = documentRecord(review?.data.acceptedInputs);
+                if (Object.keys(acceptedInputs).length || documentRecord(currentSheet.review).acceptedInputs) {
+                    const hashes = { image: imageHash, storyboard: hashFile(resolve(segmentFolder, "storyboard.yaml")), prompt: hashFile(resolve(segmentFolder, "storyboard-prompt.md")), segment: hashFile(segmentPath) };
+                    const accepted = review?.data.status === "accepted" && Boolean(review.content.trim()) && Object.entries(hashes).every(([key, hash]) => acceptedInputs[key] === hash);
+                    payload.storyboardStale = !accepted;
+                    nextSheet.review = { status: accepted ? "accepted" : "stale", summary: accepted ? review!.content.trim() : "采用记录与当前故事板文件不一致，请重新审阅", issues: [], acceptedInputs };
+                }
             }
             const videoFolder = resolve(root, "videos", `seg-${segmentEntity.id}`);
+            const videoPromptPath = safeWorkspacePath(root, posixRelative(root, resolve(videoFolder, "video-prompt.md")));
+            const videoPrompt = existsSync(videoPromptPath) ? readFileSync(videoPromptPath, "utf8") : "";
+            if (videoPrompt || "videoPrompt" in currentPayload) payload.videoPrompt = videoPrompt;
+            if (existing && String(currentPayload.videoPrompt || "") !== videoPrompt) payload.videoStale = Boolean(currentPayload.videoFileId);
             const finalVideo = resolve(videoFolder, "final.mp4");
             const previewVideo = resolve(videoFolder, "preview.mp4");
             const modelAudio = resolve(videoFolder, "model-audio.wav");
@@ -1732,7 +1750,7 @@ function safeWorkspacePath(root: string, path: string) {
     if (target !== root && !target.startsWith(`${root}${sep}`)) throw workspaceError(400, "DIRECTOR_PATH_ESCAPE", "路径超出当前导演项目");
     let cursor = target;
     while (cursor.startsWith(root) && cursor !== root) {
-        if (existsSync(cursor) && lstatSync(cursor).isSymbolicLink()) throw workspaceError(400, "DIRECTOR_SYMLINK", "禁止通过符号链接访问工程外文件");
+        if (lstatSync(cursor, { throwIfNoEntry: false })?.isSymbolicLink()) throw workspaceError(400, "DIRECTOR_SYMLINK", "禁止通过符号链接访问工程外文件");
         cursor = dirname(cursor);
     }
     return target;
@@ -1774,4 +1792,39 @@ function workspaceError(status: number, code: string, message: string, details?:
 
 function projectAgents(title: string) {
     return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；时间线使用 JSON，故事板画格使用 YAML。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；导演规则首章“创作定位”概括题材、类型、基调、时代地域、目标观众与核心命题，不得另建重复文件；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；\`character.md\`、\`location.md\` 或 \`prop.md\` 是权威主档案。\n- 角色基础设计位于 \`identity/\`，场景与道具基础设计位于 \`design/\`；\`prompt.md\` 正文必须是可以原样发送给当前模型的完整最终提示词，程序不会再追加风格、版式、人物或参考用途说明。\n- 提示词采用的项目内参考图在 \`prompt.md\` Frontmatter 的 \`references\` 中逐项声明 \`path\`、\`purpose\` 和可选 \`label\`；用户上传的专属参考仍放在同目录 \`inputs/\`。程序只校验并原样提交这些显式输入，不自动选择风格板。\n- 当前主结果以 \`primary.*\` 命名；切换模型、视觉风格或素材身份后应先按对应 Skill 显式修订 \`prompt.md\`，不得依赖运行时隐藏拼接。\n- 角色声音位于 \`voice/\`，场景与道具声音位于 \`sound/\`；\`sound.md\` 正文是唯一声音提示词，试听文本和建议时长只写 Frontmatter，参考声音最多一个并命名为 \`reference.*\`，当前结果命名为 \`primary.*\`。\n- 每个生产变体位于 \`variants/var-NNN-slug/\`，必须包含带稳定 ID 的 \`variant.md\`、独立 \`prompt.md\`、可选 \`inputs/\` 和当前 \`primary.*\`；不得把多个变体压回主档或扁平媒体数组。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- 一个 4–15 秒视频段对应一个完整多宫格故事板；故事板只生成一张媒体，画格不是独立生成任务。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
+}
+
+export function readDirectorMusicPrompt(userId: string, projectId: string, promptPath: string, expectedHash: string) {
+    if (!/^audio\/music\/[a-zA-Z0-9_-]+\/prompt\.md$/.test(promptPath)) throw workspaceError(400, "DIRECTOR_MUSIC_PATH", "配乐提示应位于 audio/music/<配乐ID>/prompt.md");
+    const file = readDirectorTextFile(userId, projectId, promptPath);
+    if (file.hash !== expectedHash) throw workspaceError(409, "DIRECTOR_FILE_CONFLICT", "配乐提示已修改，请重新读取后生成");
+    const document = matter(file.content);
+    const settings = z.object({ model: z.string().min(1).default("comfyui::minimax-music3-local"), seconds: z.number().min(1).max(300).default(30), seed: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(), lyrics: z.string().default("[Instrumental]") }).parse(document.data);
+    if (!document.content.trim()) throw workspaceError(400, "DIRECTOR_MUSIC_PROMPT", "配乐提示不能为空");
+    return { ...settings, prompt: document.content.trim(), promptPath: file.path, promptHash: file.hash };
+}
+
+export function materializeDirectorMusic(userId: string, projectId: string, generationId: string) {
+    const row = db.prepare("SELECT status,request,result FROM generations WHERE id=? AND user_id=? AND json_extract(request,'$.params.__directorMusic.projectId')=?").get(generationId, userId, projectId) as { status: string; request: string; result: string } | undefined;
+    if (!row || row.status !== "succeeded") return undefined;
+    const request = JSON.parse(row.request);
+    const source = request.params.__directorMusic;
+    if (!/^audio\/music\/[a-zA-Z0-9_-]+\/prompt\.md$/.test(source.promptPath) || !/^[a-zA-Z0-9_-]+$/.test(generationId)) throw workspaceError(400, "DIRECTOR_MUSIC_PATH", "配乐任务路径无效");
+    const root = ensureDirectorProjectWorkspace(userId, projectId);
+    const promptPath = safeWorkspacePath(root, source.promptPath);
+    if (!existsSync(promptPath)) throw workspaceError(409, "DIRECTOR_MUSIC_REMOVED", "配乐提示已移除；生成记录仍保留原始产物");
+    const result = JSON.parse(row.result);
+    const file = getStoredFile(userId, result.files?.[0]?.fileId || result.files?.[0]?.id);
+    if (!file?.mime_type.startsWith("audio/")) throw workspaceError(409, "DIRECTOR_MUSIC_OUTPUT", "配乐任务缺少音频产物");
+    const extension = extname(file.original_name || file.path).toLowerCase();
+    if (![".flac", ".wav", ".mp3", ".m4a", ".ogg"].includes(extension)) throw workspaceError(400, "DIRECTOR_MUSIC_FORMAT", "配乐输出格式不受支持");
+    const relativePath = `${source.promptPath.slice(0, -"prompt.md".length)}outputs/${generationId}${extension}`;
+    const target = safeWorkspacePath(root, relativePath);
+    mkdirSync(dirname(target), { recursive: true });
+    if (existsSync(target)) { if (hashFile(target) !== hashFile(file.path)) throw workspaceError(409, "DIRECTOR_MUSIC_CONFLICT", "配乐产物已被修改，不覆盖现有文件"); }
+    else copyFileSync(file.path, target);
+    const metadataPath = `${relativePath}.json`;
+    const metadata = safeWorkspacePath(root, metadataPath);
+    if (!existsSync(metadata)) writeFileAtomic(metadata, JSON.stringify({ generationId, promptPath: source.promptPath, promptHash: source.promptHash, prompt: request.prompt, model: request.model, params: { seconds: request.params.seconds, lyrics: request.params.lyrics, seed: request.params.seed }, audioPath: relativePath, audioSha256: hashFile(target) }, null, 2));
+    return { path: relativePath, metadataPath, promptChanged: hashFile(promptPath) !== source.promptHash };
 }

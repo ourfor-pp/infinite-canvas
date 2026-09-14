@@ -237,3 +237,19 @@ test("H3 续接窗口包含隐藏重叠且不超过单次 362 帧", async () => 
     assert.equal(h3ContinuationFrames(15), 340);
     assert.throws(() => h3ContinuationFrames(NaN), /between/);
 });
+
+test("Music3 生产图复现已实测配方，并拒绝不支持的输入", async () => {
+    const { readFileSync } = await import("node:fs");
+    const experiment = JSON.parse(readFileSync(new URL("../../media-executor/examples/music3/experiment.json", import.meta.url), "utf8"));
+    const params = { seconds: 30, seed: 271828, lyrics: experiment.graph["4"].inputs.lyrics, audioMode: "music", audioOperation: "generate" };
+    const input = { model: "minimax-music3-local", prompt: experiment.graph["4"].inputs.caption, params, files: [] };
+    const actual = buildComfyWorkflow(input);
+    experiment.graph["14"].inputs.filename_prefix = actual["14"].inputs.filename_prefix;
+    assert.deepEqual(actual, experiment.graph);
+    assert.deepEqual(COMFY_MODEL_DEFINITIONS["minimax-music3-local"].audioModes, ["music"]);
+    assert.deepEqual(COMFY_MODEL_DEFINITIONS["minimax-music3-local"].audioOperations, ["generate"]);
+    for (const seconds of [0, 301, NaN]) assert.throws(() => buildComfyWorkflow({ ...input, params: { ...params, seconds } }), /时长/);
+    assert.throws(() => buildComfyWorkflow({ ...input, files: [image()] }), /参考媒体/);
+    assert.throws(() => buildComfyWorkflow({ ...input, params: { ...params, audioOperation: "clone" } }), /仅支持音乐生成/);
+    assert.throws(() => buildComfyWorkflow({ ...input, params: { ...params, audioMode: "speech" } }), /仅支持音乐生成/);
+});

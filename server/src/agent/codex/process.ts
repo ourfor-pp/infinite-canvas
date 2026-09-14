@@ -44,7 +44,7 @@ export function sandboxArguments(workspace: string, home: string, policyDir: str
         "--bind", workspace, "/workspace", "--bind", home, "/codex-home", "--bind", resolve(workspace, ".cache/codex-images"), "/codex-home/generated_images", "--ro-bind", policyDir, "/etc/codex",
         "--setenv", "HOME", "/home", "--setenv", "CODEX_HOME", "/codex-home", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "LANG", "C.UTF-8",
         "--setenv", "TMPDIR", "/tmp", "--chdir", "/workspace"];
-    for (const path of ["/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/ssl/certs", "/etc/ld.so.cache"]) {
+    for (const path of ["/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/ssl/certs", "/etc/ld.so.cache", "/etc/alternatives"]) {
         if (existsSync(path)) args.push("--ro-bind", realpathSync(path), path);
     }
     for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]) {

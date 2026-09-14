@@ -133,6 +133,25 @@ test("故事板生成前阻止压缩来源节拍和同一 Shot 内的固定机�
     assert.ok(result.blockedReasons.some((item) => item.includes("固定机位")));
 });
 
+test("八秒三镜头允许中间镜头仅有起始画格，同时保留节奏提醒与边界校验", () => {
+    const frames = [
+        { shotNumber: 1, timeSeconds: 0, kind: "shot-start" as const },
+        { shotNumber: 1, timeSeconds: 2, kind: "shot-end" as const },
+        { shotNumber: 2, timeSeconds: 2.8, kind: "shot-start" as const },
+        { shotNumber: 3, timeSeconds: 4.5, kind: "shot-start" as const },
+        { shotNumber: 3, timeSeconds: 6, kind: "keyframe" as const },
+        { shotNumber: 3, timeSeconds: 8, kind: "shot-end" as const },
+    ].map((frame) => ({ ...sheet.frames[0]!, ...frame, cameraAngle: `angle ${frame.shotNumber}`, cameraMove: "locked" }));
+    const payload = { ...planned, durationSeconds: 8, sourceDurationSeconds: 8 };
+    const result = validateStoryboardNarrativePlan(payload, { frames });
+    assert.deepEqual(result.blockedReasons, []);
+    assert.ok(result.warnings.some((item) => item.includes("3 个 Shot")));
+    const invalid = { frames: frames.map((frame, index) => index === 2 ? { ...frame, kind: "shot-end" as const } : frame) };
+    assert.ok(validateStoryboardNarrativePlan(payload, invalid).blockedReasons.some((item) => item.includes("Shot 2 第一格")));
+    const missingEnd = { frames: frames.map((frame, index) => index === 5 ? { ...frame, kind: "keyframe" as const } : frame) };
+    assert.ok(validateStoryboardNarrativePlan(payload, missingEnd).blockedReasons.some((item) => item.includes("Shot 3 最后一格")));
+});
+
 test("故事板 Shot 停留过短时阻止继续生成", () => {
     const invalid = { frames: [
         { shotNumber: 1, timeSeconds: 0, kind: "shot-start" as const, description: "开场", action: "抬头", cameraAngle: "medium shot", cameraMove: "locked", h3Visual: "A medium shot shows the person looking up.", sound: "room tone" },
@@ -196,4 +215,13 @@ test("原生续接末画格和末句对白落在对齐后的实际窗口内", as
     assert.doesNotMatch(prompt, /00:08\.917/);
     assert.match(prompt, /这灯，刚修好。/);
     assert.deepEqual(sheet, before);
+});
+
+
+test("最终提示媒体编号匹配实际输入，只有显式视频携带原声音频编号", async () => {
+    const { validateH3FinalPromptReferences: validate } = await import("./h3-prompt.js");
+    assert.deepEqual(validate("<Picture 1> <Picture 2> <Video 1> <Audio 1> <Audio 2>", { image: 2, video: 1, audio: 1 }), []);
+    assert.equal(validate("<Picture 3> <Audio 0> <Audio 0>", { image: 2, video: 0, audio: 0 }).length, 2);
+    assert.equal(validate("<Video 1> <Audio 1>", { image: 2, video: 0, audio: 0 }).length, 2, "原生隐藏状态不是显式视频或音频参考");
+    assert.deepEqual(validate("<Subject 4> (S1) <d>[Chinese] 你的。</d>", { image: 2, video: 0, audio: 0 }), []);
 });

@@ -224,6 +224,8 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, storyboardSheet: originalSheet, videoFileId: "existing-video" }), promptSegment.id, userOne["X-Trim-Userid"]);
     const guidePreflight = getDirectorVideoSegmentPreflight(userOne["X-Trim-Userid"], promptSegment.id, true);
     assert.deepEqual(guidePreflight.storyboardStartGuide, { sourceFileId: "existing-sheet", layout: originalSheet.layout, frameIndex: 0 });
+    const framingPreflightResponse = await api(`/director/video-segments/${promptSegment.id}/preflight`, userOne);
+    assert.equal(framingPreflightResponse.body.data.storyboardFileId, "existing-sheet", "异步预检必须返回解析结果，不能序列化Promise为空对象");
     assert.equal(getDirectorVideoSegmentPreflight(userOne["X-Trim-Userid"], promptSegment.id, false).storyboardStartGuide, undefined);
     db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, boundary: "continue", storyboardSheet: originalSheet }), promptSegment.id, userOne["X-Trim-Userid"]);
     assert.equal(getDirectorVideoSegmentPreflight(userOne["X-Trim-Userid"], promptSegment.id, true).storyboardStartGuide, undefined, "连续段不得被新故事板起始画格覆盖前段起点");
@@ -242,7 +244,8 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     const promptView = listDirectorVideoSegments(userOne["X-Trim-Userid"], projectId, { sequenceId: laterSequence.body.data.id, view: "prompt" }) as unknown as { items: Array<{ payload: { storyboardSheet: { imageFileId?: string; hasImage: boolean } } }> };
     assert.equal(promptView.items[0].payload.storyboardSheet.imageFileId, undefined, "精简提示词视图不得返回重媒体字段");
     assert.equal(promptView.items[0].payload.storyboardSheet.hasImage, true);
-    const storyboardWithoutStyle = await api(`/director/video-segments/${segment.body.data.id}/storyboard/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: 1 }) });
+    const currentSegmentRevision = (db.prepare("SELECT revision FROM director_shots WHERE id=? AND user_id=?").get(segment.body.data.id, userOne["X-Trim-Userid"]) as { revision: number }).revision;
+    const storyboardWithoutStyle = await api(`/director/video-segments/${segment.body.data.id}/storyboard/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: currentSegmentRevision }) });
     assert.equal(storyboardWithoutStyle.response.status, 409);
     assert.equal(storyboardWithoutStyle.body.error.code, "DIRECTOR_ASSET_MISSING", "付费生成应先报告视频段中已经失效的素材引用");
     const directorStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "雨夜冷调", mode: "custom", description: "冷灰雨夜电影风格" }) });
@@ -258,9 +261,10 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     const confirmed = await api(`/director/sequences/${sequence.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "confirmed" }) });
     assert.equal(confirmed.response.status, 200);
     assert.deepEqual(segment.body.data.payload.characterRefs, [{ id: "character-stable-id", revision: 3 }]);
-    const lockedShot = await api(`/director/video-segments/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "locked" }) });
+    const lockRevision = (db.prepare("SELECT revision FROM director_shots WHERE id=? AND user_id=?").get(segment.body.data.id, userOne["X-Trim-Userid"]) as { revision: number }).revision;
+    const lockedShot = await api(`/director/video-segments/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: lockRevision, status: "locked" }) });
     assert.equal(lockedShot.response.status, 200);
-    const rejectedLockedEdit = await api(`/director/video-segments/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, title: "未经审批的改名" }) });
+    const rejectedLockedEdit = await api(`/director/video-segments/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: lockedShot.body.data.revision, title: "未经审批的改名" }) });
     assert.equal(rejectedLockedEdit.response.status, 423);
     await api(`/director/projects/${projectId}/documents/story`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, content: "# 故事\n林夏在雪夜追查旧怀表。" }) });
     const stale = await api(`/director/projects/${projectId}`, userOne);
@@ -650,7 +654,7 @@ test("内置视觉风格提供原创预览、题材标签和完整 DNA，创建�
     assert.equal(previewResponse.status, 200);
 });
 
-test("导演风格修改后旧统一风格板会标记过期", async () => {
+test("导演风格修改后参考板待复核但仍可读取", async () => {
     const projectId = "director-style-board-project";
     await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "导演风格板" }) });
     const templateStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "模板来源", mode: "template", templateId: "ink-wash" }) });
@@ -665,10 +669,10 @@ test("导演风格修改后旧统一风格板会标记过期", async () => {
     db.prepare("UPDATE visual_styles SET description=?,revision=3,updated_at=? WHERE id=?").run("明亮 Q 版卡通风格", now, styleId);
     const stale = await api(`/visual-styles/${styleId}`, userOne);
     assert.equal(stale.body.data.boardStale, true);
-    assert.equal(stale.body.data.referenceFileId, null, "旧风格板不得继续作为当前风格参考");
+    assert.equal(stale.body.data.referenceFileId, boardFileId, "待复核不应隐藏当前参考板");
 });
 
-test("导演风格板迁入工程目录并随 Markdown 风格变化失效", async () => {
+test("导演风格板在文字和规则修改后保留且支持显式替换", async () => {
     const projectId = "director-file-style-board";
     await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, kind: "director", title: "文件风格板" }) });
     const created = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "水墨模板", mode: "template", templateId: "ink-wash" }) });
@@ -688,11 +692,24 @@ test("导演风格板迁入工程目录并随 Markdown 风格变化失效", asyn
     const revised = styleFile.body.data.content.replace("东方水墨动画", "东方水墨喜剧动画");
     assert.equal((await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", headers: { "If-Match": styleFile.body.data.hash }, body: JSON.stringify({ path: "direction/visual-style.md", content: revised }) })).response.status, 200);
     const revisedFile = await api(`/director/projects/${projectId}/file?path=${encodeURIComponent("direction/visual-style.md")}`, userOne);
-    assert.doesNotMatch(revisedFile.body.data.content, /referenceBoard:/);
-    assert.equal((await fetch(`${origin}/director/projects/${projectId}/direction/style-board`, { headers: userOne })).status, 404);
+    assert.match(revisedFile.body.data.content, /referenceBoard: direction\/references\/style-board\.webp/);
+    const retainedBoard = await fetch(`${origin}/director/projects/${projectId}/direction/style-board`, { headers: userOne });
+    assert.equal(retainedBoard.status, 200);
+    const originalBytes = Buffer.from(await board.arrayBuffer());
+    assert.deepEqual(Buffer.from(await retainedBoard.arrayBuffer()), originalBytes);
+    const rulesFile = await api(`/director/projects/${projectId}/file?path=${encodeURIComponent("direction/directing-rules.md")}`, userOne);
+    assert.equal((await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", headers: { "If-Match": rulesFile.body.data.hash }, body: JSON.stringify({ path: "direction/directing-rules.md", content: `${rulesFile.body.data.content}\n补充人物冲突与改编边界。\n` }) })).response.status, 200);
+    assert.deepEqual(Buffer.from(await (await fetch(`${origin}/director/projects/${projectId}/direction/style-board`, { headers: userOne })).arrayBuffer()), originalBytes);
     const revisedStyle = (await api(`/projects/${projectId}/visual-styles`, userOne)).body.data.find((item: { id: string }) => item.id === created.body.data.id);
     assert.equal(revisedStyle.mode, "custom");
     assert.equal(revisedStyle.templateId, "ink-wash", "本地修改不应丢失内置模板来源");
+    const patched = await api(`/visual-styles/${revisedStyle.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: revisedStyle.revision, description: "补充水墨笔触说明" }) });
+    assert.equal(patched.response.status, 200, JSON.stringify(patched.body));
+    assert.equal(patched.body.data.references.board, revisedStyle.references.board);
+    assert.deepEqual(Buffer.from(await (await fetch(`${origin}/director/projects/${projectId}/direction/style-board`, { headers: userOne })).arrayBuffer()), originalBytes);
+    const replaced = await api(`/visual-styles/${revisedStyle.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: patched.body.data.revision, mode: "template", templateId: "clay-stop-motion" }) });
+    assert.equal(replaced.response.status, 200, JSON.stringify(replaced.body));
+    assert.notDeepEqual(Buffer.from(await (await fetch(`${origin}/director/projects/${projectId}/direction/style-board`, { headers: userOne })).arrayBuffer()), originalBytes);
 });
 
 test("Agent 画布操作校验语义端口类型和单连接限制", async () => {
@@ -1223,10 +1240,21 @@ test("导演自动原声按默认叙事顺序定位并保留刷新及混音音�
     const refreshed = await api(`/director/projects/${projectId}`, userOne);
     assert.equal(refreshed.response.status, 200);
     const clips = refreshed.body.data.timeline.payload.tracks.find((track: { id: string }) => track.id === "model-original").clips;
+    const { getStoredFile: readNativeAudio } = await import("./file-store.js");
+    const nativeAudio = readNativeAudio(userId, clips[0].fileId)!;
+    assert.equal(nativeAudio.mime_type, "audio/wav");
+    const audioHeader = readFileSync(nativeAudio.path);
+    assert.equal(audioHeader.toString("ascii", 0, 4), "RIFF", "工程WAV不得只是重命名的M4A");
+    assert.equal(audioHeader.toString("ascii", 8, 12), "WAVE");
+    const { stdout: nativeProbe } = await promisify(execFileCallback)("ffprobe", ["-v", "error", "-show_entries", "stream=codec_name:format=format_name", "-of", "json", nativeAudio.path]);
+    assert.equal(JSON.parse(nativeProbe).format.format_name, "wav");
+    assert.equal(JSON.parse(nativeProbe).streams[0].codec_name, "pcm_s16le");
     assert.deepEqual(clips.map((clip: { segmentId: string; start: number }) => [clip.segmentId, clip.start]), [["native-audio-z", 0], ["native-audio-a", 4]]);
     const plan = await api(`/director/projects/${projectId}/playback-plan`, userOne);
     assert.deepEqual(plan.body.data.segments.map((segment: { segmentId: string }) => segment.segmentId), ["native-audio-z", "native-audio-a"]);
     clips[1].volume = 0.5;
+    clips[1].fadeIn = 1;
+    clips[1].fadeOut = 1;
     const timeline = await api(`/director/projects/${projectId}/timeline`, userOne, { method: "PUT", body: JSON.stringify({ revision: refreshed.body.data.timeline.revision, payload: refreshed.body.data.timeline.payload }) });
     const submission = await api(`/director/projects/${projectId}/renders`, userOne, { method: "POST", body: JSON.stringify({ timelineRevision: timeline.body.data.revision }) });
     assert.equal(submission.response.status, 202, JSON.stringify(submission.body));
@@ -1248,8 +1276,15 @@ test("导演自动原声按默认叙事顺序定位并保留刷新及混音音�
     assert.equal(JSON.parse(mixedProbe).streams[0].channels, 2, "首段单声道原声不得将最终混音折为单声道");
     const sourceRms = await rms(path, 0.5);
     assert.ok(Math.abs(await rms(output, 0.5) / sourceRms - 1) < 0.05, "首段不得因为后续音轨和静音填充而衰减");
-    assert.ok(Math.abs(await rms(output, 4.5) / sourceRms - 0.5) < 0.03, "后段应保留用户设置的半音量");
+    assert.ok(Math.abs(await rms(output, 5.5) / sourceRms - 0.5) < 0.03, "后段应保留用户设置的半音量");
+    for (const start of [4, 7.5]) {
+        const ratio = await rms(output, start) / sourceRms;
+        assert.ok(Math.abs(ratio - Math.sqrt(1 / 12) * 0.5) < 0.025, `导出必须保留片段相对淡入淡出，${start} 秒的 RMS 比值 ${ratio}`);
+    }
     const loudProject = (await api(`/director/projects/${projectId}`, userOne)).body.data;
+    const persistedClip = loudProject.timeline.payload.tracks[0].clips[1];
+    assert.equal(persistedClip.fadeIn, 1);
+    assert.equal(persistedClip.fadeOut, 1);
     loudProject.timeline.payload.tracks[0].clips.forEach((clip: { start: number; volume: number }) => { clip.start = 0; clip.volume = 20; });
     const loudTimeline = await api(`/director/projects/${projectId}/timeline`, userOne, { method: "PUT", body: JSON.stringify({ revision: loudProject.timeline.revision, payload: loudProject.timeline.payload }) });
     let loudRender = (await api(`/director/projects/${projectId}/renders`, userOne, { method: "POST", body: JSON.stringify({ timelineRevision: loudTimeline.body.data.revision }) })).body.data;
@@ -1391,7 +1426,7 @@ async function uploadDirectorSource(projectId: string, blob: Blob, name: string)
 test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () => {
     const settings = await import("./media-executor-settings.js");
     const { storeLocalFile } = await import("./file-store.js");
-    const { syncDirectorVideoSegmentFile } = await import("./director-workspace.js");
+    const { syncDirectorVideoSegmentFile, ensureDirectorProjectWorkspace, reconcileDirectorProjectFiles, readDirectorVideoPrompt } = await import("./director-workspace.js");
     const { cancelGeneration } = await import("./generation-service.js");
     const original = settings.getMediaExecutorSettings();
     const identity = { ready: true, schemaVersion: 1, modelId: "minimax-h3-ref2va-local", modelRevision: `${"a".repeat(64)}:pipeline:${"b".repeat(64)}`, videoVaeRevision: "c".repeat(64), audioVaeRevision: "d".repeat(64), implementationRevision: "b".repeat(64) };
@@ -1430,13 +1465,40 @@ test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () 
             if (result.body.data?.id) cancelGeneration(userId, result.body.data.id);
             return result;
         };
+        const promptFile = join(ensureDirectorProjectWorkspace(userId, projectId), "videos", `seg-${segment.id}`, "video-prompt.md");
+        const emptySubmission = await generate();
+        assert.equal(emptySubmission.response.status, 409, JSON.stringify(emptySubmission.body));
+        const finalPrompt = "  subject_definitions:\n<Picture 1> is the storyboard.\n\nsummary:\n[reference generation] A door opens.\n\nretention_analysis:\n<Picture 1>: partially_preserved.\n\ndetailed_description:\n[Shot 1] The door slowly opens. Keep its bottom edge touching the floor throughout.\n\noverall_soundscape:\nQuiet room tone.\n\nnon_diegetic_music:\nN/A\n";
+        writeFileSync(promptFile, finalPrompt);
+        reconcileDirectorProjectFiles(userId, projectId);
+        const promptSource = readDirectorVideoPrompt(userId, projectId, segment.id);
+        syncDirectorVideoSegmentFile(userId, projectId, segment.id);
+        assert.equal(readFileSync(promptFile, "utf8"), finalPrompt, "同步不能覆盖Agent最终提示");
         const preflight = await api(`/director/video-segments/${segment.id}/preflight`, userOne);
         assert.equal(preflight.body.data.acceleration, "pdd-ref8");
         assert.equal(preflight.body.data.recipes.preview.steps, 8);
+        const { buildAgentToolDefinitions } = await import("./agent/mcp/index.js");
+        const { agentScenes } = await import("./agent/scenes/index.js");
+        const context = { session: { projectId }, run: { userId }, appendEvent: () => {} } as unknown as Parameters<typeof buildAgentToolDefinitions>[0];
+        const validateTool = buildAgentToolDefinitions(context, agentScenes.director).find((tool) => tool.name === "director_validate_video_segments")!;
+        const agentPreflight = async () => {
+            const result = await validateTool.handler({ segmentIds: [segment.id] });
+            assert.equal(result.isError, undefined, JSON.stringify(result));
+            return JSON.parse((result.content[0] as { text: string }).text).data[0];
+        };
+        const accelerated = await agentPreflight();
+        assert.equal(accelerated.acceleration, "pdd-ref8");
+        assert.deepEqual(accelerated.finalPrompt, { path: promptSource.path, hash: promptSource.hash });
+        assert.deepEqual(accelerated.recipes, preflight.body.data.recipes);
+
         for (const recipe of [undefined, "base"] as const) {
             const result = await generate(recipe);
             assert.equal(result.response.status, 201, JSON.stringify(result.body));
             const params = result.body.data.request.params;
+            assert.equal(result.body.data.request.prompt, finalPrompt, "官方格式最终稿必须逐字提交而非重新编译");
+            assert.equal(result.body.data.request.params.__directorSegment.promptHash, promptSource.hash);
+            assert.equal(result.body.data.request.params.__directorSegment.promptPath, promptSource.path);
+            assert.equal(readFileSync(promptFile, "utf8"), finalPrompt, "生成回写不能清空提示文件");
             assert.equal(params.h3Recipe, recipe || "pdd-ref8");
             assert.equal(params.__directorSegment.recipe.steps, recipe ? 20 : 8);
             assert.equal(params.__h3StateContext.modelRevision, recipe ? identity.modelRevision : `${identity.modelRevision}:pdd-ref8:${"e".repeat(64)}`);
@@ -1448,6 +1510,10 @@ test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () 
         const fallback = await generate();
         assert.equal(fallback.response.status, 201, JSON.stringify(fallback.body));
         assert.equal(fallback.body.data.request.params.h3Recipe, "base");
+        const basePreflight = await agentPreflight();
+        assert.equal(basePreflight.acceleration, "base");
+        assert.equal(basePreflight.recipes.preview.steps, 20);
+        assert.equal(basePreflight.recipes.final.resolution, "768p");
         const count = () => (db.prepare("SELECT count(*) AS count FROM generations WHERE user_id=?").get(userId) as { count: number }).count;
         const beforeRejected = count();
         assert.equal((await generate("pdd-ref8")).response.status, 409);
@@ -1577,7 +1643,7 @@ test("Skill 文件样例投影来源和 H3 字段，时间线使用相对媒体�
     assert.equal(reconcileDirectorProjectFiles(userId, projectId).some((item) => item.severity === "error"), false);
     const readSegment = () => JSON.parse((db.prepare("SELECT payload FROM director_shots WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string }).payload);
     const payload = readSegment();
-    assert.equal(payload.sourceSceneId, "scene-001");
+    assert.equal(payload.sourceSceneId, "breakdown-scene-001");
     assert.deepEqual(payload.sourceBeatIds, ["beat-001"]);
     assert.match(payload.h3VisualDescription, /wooden door/);
     assert.equal(payload.storyboardSheet.frames[3].position, 3);
@@ -1598,7 +1664,7 @@ test("Skill 文件样例投影来源和 H3 字段，时间线使用相对媒体�
     const importedState = (await api(`/director/projects/${imported.data.projectId}`, userOne)).body.data;
     assert.equal(importedState.timeline.payload.segmentOrder[0], importedState.videoSegments[0].id);
     assert.notEqual(importedState.videoSegments[0].id, "segment-001", "同名工程实体必须隔离");
-    assert.equal(importedState.videoSegments[0].payload.sourceSceneId, "scene-001");
+    assert.equal(importedState.videoSegments[0].payload.sourceSceneId, "breakdown-scene-001");
     assert.equal(importedState.timeline.payload.tracks[0].clips[0].segmentId, importedState.videoSegments[0].id);
     assert.notEqual(importedState.timeline.payload.tracks[0].clips[0].fileId, JSON.parse(timeline.payload).tracks[0].clips[0].fileId);
     writeFileSync(join(segment, "storyboard.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aVZ0AAAAASUVORK5CYII=", "base64"));
@@ -1609,7 +1675,28 @@ test("Skill 文件样例投影来源和 H3 字段，时间线使用相对媒体�
     writeFileSync(join(segment, "storyboard.yaml"), stringify(board));
     reconcileDirectorProjectFiles(userId, projectId);
     assert.equal(readSegment().storyboardStale, true);
+    assert.ok((await api(`/director/video-segments/segment-001/preflight`, userOne)).body.data.blockedReasons.includes("故事板提示词已经修改，请先重新生成整张故事板"), "预检必须报告生成入口同样检查的故事板过期阻断");
     assert.equal(readSegment().storyboardSheet.imageFileId, imageId, "语义变更保留旧媒体并标记过期");
+    const { createHash } = await import("node:crypto");
+    const acceptancePath = join(segment, "quality-review.md");
+    const acceptCurrent = () => writeFileSync(acceptancePath, matter.stringify("已检查整张图，当前修订仅校正描述，成图仍符合动作与连续性。", { id: "segment-001-review", kind: "media-review", status: "accepted", acceptedInputs: Object.fromEntries(Object.entries({ image: "storyboard.png", storyboard: "storyboard.yaml", prompt: "storyboard-prompt.md", segment: "segment.md" }).map(([key, name]) => [key, createHash("sha256").update(readFileSync(join(segment, name))).digest("hex")])) }));
+    acceptCurrent();
+    const acceptanceDiagnostics = reconcileDirectorProjectFiles(userId, projectId);
+    assert.equal(readSegment().storyboardStale, false, JSON.stringify(acceptanceDiagnostics));
+    assert.equal(readSegment().storyboardSheet.imageFileId, imageId);
+    syncDirectorVideoSegmentFile(userId, projectId, "segment-001");
+    reconcileDirectorProjectFiles(userId, projectId);
+    assert.equal(readSegment().storyboardStale, false, "无创作变更的媒体同步不得使采用失效");
+    board.frames[1].action = "The door pauses halfway open.";
+    writeFileSync(join(segment, "storyboard.yaml"), stringify(board));
+    reconcileDirectorProjectFiles(userId, projectId);
+    assert.equal(readSegment().storyboardStale, true, "后续修改不能复用旧采用记录");
+    acceptCurrent();
+    reconcileDirectorProjectFiles(userId, projectId);
+    assert.equal(readSegment().storyboardStale, false);
+    writeFileSync(acceptancePath, "---\nid: segment-001-review\nkind: media-review\nstatus: accepted\n---\n未绑定文件的文字不能放行\n");
+    reconcileDirectorProjectFiles(userId, projectId);
+    assert.equal(readSegment().storyboardStale, true, "删除哈希绑定不能保留放行状态");
     board.frames[2].dialogues = [{ speakerAssetId: "unknown", speakerName: "未知", text: "你好", language: "zh-CN", delivery: "quiet", startSeconds: 4, endSeconds: 7 }];
     writeFileSync(join(segment, "storyboard.yaml"), stringify(board));
     const invalid = validateDirectorProject(userId, projectId);

@@ -323,7 +323,7 @@ def health(_: None = Depends(authorize)):
                     runtimes[name] = client.get(f"{url}/health").is_success
                 except httpx.HTTPError:
                     runtimes[name] = False
-    comfy_features = {"temporalGuides": False, "turboPreview": False, "pddRef8": False}
+    comfy_features = {"temporalGuides": False, "turboPreview": False, "pddRef8": False, "music3": False}
     h3_runtime = None
     h3_pdd_runtime = None
     try:
@@ -334,6 +334,8 @@ def health(_: None = Depends(authorize)):
             "turboPreview": "MiniMaxH3TurboLoRA" in info and "MiniMaxH3TurboSampler" in info,
             "pddRef8": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors" in info.get("MiniMaxH3PDDAccApply", {}).get("input", {}).get("required", {}).get("pdd_file", [[]])[0],
         }
+        music_models = (("UNETLoader", "unet_name", "minimax_music3_dit_fp16.safetensors"), ("CLIPLoader", "clip_name", "minimax_music3_text_encoder_pruned_int8_convrot.safetensors"), ("VAELoader", "vae_name", "minimax_music3_dav.safetensors"))
+        comfy_features["music3"] = {"MiniMaxMusic3TextEncode", "EmptyMiniMaxMusic3LatentAudio", "ConditioningZeroOut", "KSampler", "VAEDecodeAudio", "SaveAudio"}.issubset(info) and all(name in info.get(loader, {}).get("input", {}).get("required", {}).get(field, [[]])[0] for loader, field, name in music_models)
         required = {"H3SaveContinuationState", "H3LoadContinuationState", "H3NewAVSegment", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "MiniMaxH3AppendContinuation"}
         comfy_features["nativeState"] = required.issubset(info)
         if comfy_features["nativeState"]:

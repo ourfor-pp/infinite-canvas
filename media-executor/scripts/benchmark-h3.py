@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one exported H3 experiment on an isolated ComfyUI and retain evidence."""
+"""Run one exported video/audio experiment on isolated ComfyUI and retain evidence."""
 import argparse
 import hashlib
 import json
@@ -62,9 +62,9 @@ while time.monotonic() - start < args.timeout:
         if history["status"]["status_str"] != "success":
             raise RuntimeError(f"Inference failed; see {args.output / 'report.json'}")
         outputs = history["outputs"]["14"]
-        videos = [item for values in outputs.values() if isinstance(values, list) for item in values if isinstance(item, dict) and str(item.get("filename", "")).endswith((".mp4", ".webm"))]
+        videos = [item for values in outputs.values() if isinstance(values, list) for item in values if isinstance(item, dict) and str(item.get("filename", "")).endswith((".mp4", ".webm", ".flac", ".wav", ".mp3"))]
         if not videos:
-            raise RuntimeError("No saved video in successful history")
+            raise RuntimeError("No saved media in successful history")
         artifacts = []
         for index, item in enumerate(videos):
             video = session.get(args.url + "/view", params={key: item[key] for key in ("filename", "subfolder", "type") if key in item}, timeout=60)

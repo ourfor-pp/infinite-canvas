@@ -18,3 +18,4 @@ web/public/plugins
 .res
 .tmp/
 .playwright-mcp
+media-executor/examples

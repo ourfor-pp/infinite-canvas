@@ -1,5 +1,5 @@
 ---
-id: scene-001
+id: breakdown-scene-001
 kind: screenplay-breakdown-scene
 heading: 外景 车站站台 夜
 title: 空站台

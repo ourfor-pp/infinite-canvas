@@ -12,7 +12,7 @@ const schema = z.object({
 });
 export type MediaExecutorSettings = z.infer<typeof schema>;
 export type MediaExecutorModel = { engine?: string; [key: string]: unknown };
-export type MediaExecutorHealth = { h3Runtime?: H3RuntimeCatalog; h3PddRuntime?: H3RuntimeCatalog; available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean; nativeState?: boolean; pddRef8?: boolean } };
+export type MediaExecutorHealth = { h3Runtime?: H3RuntimeCatalog; h3PddRuntime?: H3RuntimeCatalog; available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean; nativeState?: boolean; pddRef8?: boolean; music3?: boolean } };
 
 const emptyCatalog = (): MediaExecutorHealth => ({ available: false, models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, turboPreview: false } });
 let catalog: MediaExecutorHealth = emptyCatalog();
@@ -54,7 +54,7 @@ export async function refreshMediaExecutorCatalog(value = getMediaExecutorSettin
         const features = health.comfyFeatures && typeof health.comfyFeatures === "object" ? health.comfyFeatures : { temporalGuides: false, turboPreview: false };
         const h3Runtime = h3RuntimeCatalogSchema.safeParse(health.h3Runtime);
         const h3PddRuntime = h3RuntimeCatalogSchema.safeParse(health.h3PddRuntime);
-        return catalog = { ...(h3Runtime.success && !h3Runtime.data.modelRevision.includes(":pdd-ref8:") ? { h3Runtime: h3Runtime.data } : {}), ...(h3PddRuntime.success && h3PddRuntime.data.modelRevision.includes(":pdd-ref8:") ? { h3PddRuntime: h3PddRuntime.data } : {}), available: true, models, runtimes, comfyFeatures: { temporalGuides: Boolean(features.temporalGuides), turboPreview: Boolean(features.turboPreview), nativeState: Boolean(features.nativeState), pddRef8: Boolean(features.pddRef8) } };
+        return catalog = { ...(h3Runtime.success && !h3Runtime.data.modelRevision.includes(":pdd-ref8:") ? { h3Runtime: h3Runtime.data } : {}), ...(h3PddRuntime.success && h3PddRuntime.data.modelRevision.includes(":pdd-ref8:") ? { h3PddRuntime: h3PddRuntime.data } : {}), available: true, models, runtimes, comfyFeatures: { temporalGuides: Boolean(features.temporalGuides), turboPreview: Boolean(features.turboPreview), nativeState: Boolean(features.nativeState), pddRef8: Boolean(features.pddRef8), music3: Boolean(features.music3) } };
     } catch {
         return catalog = emptyCatalog();
     }

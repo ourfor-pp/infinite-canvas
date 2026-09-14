@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { compileDirectorStoryboardPrompt, extractDirectorStoryboardOpeningFrame, resolveH3Route, resolveStoryboardImageModelPlan } from "./director-render.js";
+import { directorAudioClipFilter, compileDirectorStoryboardPrompt, extractDirectorStoryboardOpeningFrame, resolveH3Route, resolveStoryboardImageModelPlan } from "./director-render.js";
 
 test("起始锚点只裁取整张故事板的第一画格，支持三种布局", async () => {
     const directory = await mkdtemp(join(tmpdir(), "storyboard-guide-test-"));
@@ -39,7 +39,8 @@ const sheet = (shotNumbers: number[]) => ({
 
 test("普通视频段无论内部 Shot 数量都使用整张故事板 Ref2VA", () => {
     assert.deepEqual(resolveH3Route({ boundary: "cut" }, sheet([1, 1, 1, 1])), { mode: "ref2va", reason: "完整故事板作为视频段构图与动作参考" });
-    assert.deepEqual(resolveH3Route({ boundary: "cut" }, sheet([1, 1, 2, 2])), { mode: "ref2va", reason: "完整故事板包含 2 个内部切镜，按整板时序生成" });
+    assert.deepEqual(resolveH3Route({ boundary: "cut" }, sheet([1, 1, 2, 2])), { mode: "ref2va", reason: "完整故事板包含 2 个镜头、1 次内部切镜，按整板时序生成" });
+    assert.deepEqual(resolveH3Route({ boundary: "cut" }, sheet([1, 1, 2, 3])), { mode: "ref2va", reason: "完整故事板包含 3 个镜头、2 次内部切镜，按整板时序生成" });
 });
 
 test("连续段使用 Ref2VA 尾部音视频，独立视觉过渡才使用 FL2VA", () => {
@@ -64,4 +65,26 @@ test("故事板使用任意已配置图片模型并按其能力路由参考图",
     assert.deepEqual(resolveStoryboardImageModelPlan({ inputs: ["text"], imagePromptProfile: "gpt-image-2" }, candidates), {
         imagePromptProfile: "gpt-image-2", references: [], omitted: candidates,
     });
+});
+
+test("声音包络按片段局部时间淡入淡出后移到整片位置", async () => {
+    const run = promisify(execFile);
+    const filter = directorAudioClipFilter({ id: "cue", start: 1, duration: 2, volume: 0.5, fadeIn: 0.5, fadeOut: 1 }, 0);
+    const { stdout } = await run("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo:d=4", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2", "-filter_complex", `${filter};[a0]apad,atrim=0:4[out]`, "-map", "[out]", "-f", "f32le", "-acodec", "pcm_f32le", "pipe:1"], { encoding: "buffer", maxBuffer: 2_000_000 });
+    assert.equal(stdout.length, 4 * 48000 * 2 * 4);
+    const rms = (start: number, end: number) => {
+        let sum = 0; const first = Math.floor(start * 48000) * 2, last = Math.floor(end * 48000) * 2;
+        for (let i = first; i < last; i++) sum += stdout.readFloatLE(i * 4) ** 2;
+        return Math.sqrt(sum / (last - first));
+    };
+    assert.equal(rms(0.2, 0.8), 0); assert.equal(rms(3.2, 3.8), 0);
+    const plateau = rms(1.7, 1.8);
+    assert.ok(Math.abs(rms(1.09, 1.11) / plateau - 0.2) < 0.03);
+    assert.ok(Math.abs(rms(2.89, 2.91) / plateau - 0.1) < 0.02);
+});
+
+test("合成器拒绝未经文件契约校验的非法淡入淡出", () => {
+    for (const value of [-1, 3, Infinity, NaN]) for (const field of ["fadeIn", "fadeOut"]) {
+        assert.throws(() => directorAudioClipFilter({ id: "cue", start: 0, duration: 2, [field]: value }, 0), /淡入淡出/);
+    }
 });

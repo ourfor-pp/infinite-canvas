@@ -2,7 +2,7 @@
 
 制作拆解是剧本与素材、分镜之间的结构化契约，不是另一份剧本。
 
-- 场次 ID 在同一剧本结构内保持稳定，优先沿用正文场景编号。
+- 拆解实体 ID 必须与正文场次 ID 区分，例如正文 `scene-001` 对应拆解 `breakdown-scene-001`；编号可以对应，实体 ID 不得重复。视频段的 `sourceSceneId` 引用拆解 ID，`sourceBeatIds` 引用其中的节拍 ID。
 - `heading` 保存正文中的完整场景标题；`title` 是便于浏览的短标题。
 - `openingState` 与 `endingState` 描述人物、信息、关系或物理局面的变化。
 - `dramaticTurn` 只写本场发生的关键转变，不写主题总结。

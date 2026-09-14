@@ -41,6 +41,44 @@ describe("Agent 用户消息气泡", () => {
 });
 
 describe("Agent 助手回合", () => {
+    it("过程展开后直接显示全部工具步骤", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const events = Array.from({ length: 17 }, (_, index) => ({ sessionId: "session-1", runId: "run-1", seq: index + 1, kind: "tool_call" as const, payload: { toolId: `tool-${index}`, toolName: "执行命令" }, createdAt: new Date().toISOString() }));
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="completed" />));
+        await act(async () => (holder.querySelector(".agent-process-toggle") as HTMLButtonElement).click());
+        expect(holder.querySelectorAll(".agent-process-step-toggle")).toHaveLength(17);
+        expect(holder.querySelector(".agent-process-more")).toBeNull();
+        expect(holder.textContent).not.toContain("查看全部");
+        expect(holder.querySelectorAll('.agent-process-step-toggle[aria-expanded="false"]')).toHaveLength(17);
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("新工具、失败与回合状态变化不改变手动折叠状态", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const base = { sessionId: "session-1", runId: "run-1", createdAt: new Date().toISOString() };
+        const tool = { ...base, seq: 1, kind: "tool_call" as const, payload: { toolId: "tool-1", toolName: "执行命令" } };
+        const failedTool = { ...tool, result: { ...base, seq: 2, kind: "tool_result" as const, payload: { isError: true, output: "失败" } } };
+        const toggle = () => holder.querySelector(".agent-process-toggle") as HTMLButtonElement;
+        await act(async () => root.render(<AssistantRound events={[failedTool]} theme={canvasThemes.light} status="failed" />));
+        expect(toggle().getAttribute("aria-expanded")).toBe("false");
+        await act(async () => toggle().click());
+        await act(async () => toggle().click());
+        const events = [failedTool, { ...tool, seq: 3, payload: { toolId: "tool-2", toolName: "执行命令" } }];
+        await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="running" />));
+        expect(toggle().getAttribute("aria-expanded")).toBe("false");
+        events[1] = { ...failedTool, seq: 3 };
+        for (const status of ["running", "waiting_for_user", "failed", "canceled", "completed"] as const) {
+            await act(async () => root.render(<AssistantRound events={[...events]} theme={canvasThemes.light} status={status} />));
+            expect(toggle().getAttribute("aria-expanded")).toBe("false");
+        }
+        await act(async () => toggle().click());
+        for (const status of ["running", "completed"] as const) {
+            await act(async () => root.render(<AssistantRound events={[tool]} theme={canvasThemes.light} status={status} />));
+            expect(toggle().getAttribute("aria-expanded")).toBe("true");
+        }
+        await act(async () => root.unmount()); holder.remove();
+    });
+
     const processEvents = [
         { sessionId: "session-1", seq: 2, runId: "run-1", kind: "thinking" as const, payload: { text: "正在规划" }, createdAt: new Date().toISOString() },
         { sessionId: "session-1", seq: 3, runId: "run-1", kind: "assistant_text" as const, payload: { text: "阶段性回复" }, createdAt: new Date().toISOString() },
@@ -189,20 +227,23 @@ describe("Agent 助手回合", () => {
         await act(async () => root.unmount()); holder.remove();
     });
 
-    it("工具失败时自动展开过程并显示失败数量", async () => {
+    it("工具失败时保持过程折叠并显示失败数量", async () => {
         const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
         const events = [
             { sessionId: "session-1", seq: 2, runId: "run-1", kind: "tool_call" as const, payload: { toolId: "tool-1", toolName: "director_generate_video_segment", input: {} }, result: { sessionId: "session-1", seq: 3, runId: "run-1", kind: "tool_result" as const, payload: { toolId: "tool-1", toolName: "director_generate_video_segment", output: "生成失败", isError: true }, createdAt: new Date().toISOString() }, createdAt: new Date().toISOString() },
             { sessionId: "session-1", seq: 4, runId: "run-1", kind: "run_state" as const, payload: { state: "failed" }, createdAt: new Date().toISOString() },
         ];
         await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="failed" />));
-        expect(holder.querySelector(".agent-process-toggle")?.getAttribute("aria-expanded")).toBe("true");
+        expect(holder.querySelector(".agent-process-toggle")?.getAttribute("aria-expanded")).toBe("false");
+        await act(async () => (holder.querySelector(".agent-process-toggle") as HTMLButtonElement).click());
         expect(holder.querySelector(".agent-process-toggle")?.textContent).toContain("1 项失败");
+        expect(holder.textContent).not.toContain("生成失败");
+        await act(async () => (holder.querySelector(".agent-process-step-toggle") as HTMLButtonElement).click());
         expect(holder.textContent).toContain("生成失败");
         await act(async () => root.unmount()); holder.remove();
     });
 
-    it("失败过程自动展开后允许用户手动收起", async () => {
+    it("失败过程允许用户手动展开后再收起", async () => {
         const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
         const events = [
             { sessionId: "session-1", seq: 2, runId: "run-1", kind: "tool_call" as const, payload: { toolId: "tool-1", toolName: "director_generate_video_segment", input: {} }, result: { sessionId: "session-1", seq: 3, runId: "run-1", kind: "tool_result" as const, payload: { toolId: "tool-1", toolName: "director_generate_video_segment", output: "生成失败", isError: true }, createdAt: new Date().toISOString() }, createdAt: new Date().toISOString() },
@@ -210,6 +251,7 @@ describe("Agent 助手回合", () => {
         ];
         await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="failed" />));
         const toggle = holder.querySelector(".agent-process-toggle") as HTMLButtonElement;
+        await act(async () => toggle.click());
         expect(toggle.getAttribute("aria-expanded")).toBe("true");
         await act(async () => toggle.click());
         expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -217,14 +259,41 @@ describe("Agent 助手回合", () => {
         await act(async () => root.unmount()); holder.remove();
     });
 
-    it("多个工具失败时只自动展开最近一次失败详情", async () => {
+    it("手动展开过程后所有失败步骤仍保持收起", async () => {
         const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
         const failedTool = (seq: number, output: string) => ({ sessionId: "session-1", seq, runId: "run-1", kind: "tool_call" as const, payload: { toolId: `tool-${seq}`, toolName: "director_generate_video_segment", input: {} }, result: { sessionId: "session-1", seq: seq + 1, runId: "run-1", kind: "tool_result" as const, payload: { toolId: `tool-${seq}`, toolName: "director_generate_video_segment", output, isError: true }, createdAt: new Date().toISOString() }, createdAt: new Date().toISOString() });
         const events = [failedTool(2, "第一次失败"), failedTool(4, "第二次失败"), { sessionId: "session-1", seq: 6, runId: "run-1", kind: "run_state" as const, payload: { state: "failed" }, createdAt: new Date().toISOString() }];
         await act(async () => root.render(<AssistantRound events={events} theme={canvasThemes.light} status="failed" />));
-        expect(holder.querySelectorAll(".agent-process-step-toggle[aria-expanded='true']")).toHaveLength(1);
+        await act(async () => (holder.querySelector(".agent-process-toggle") as HTMLButtonElement).click());
+        expect(holder.querySelectorAll(".agent-process-step-toggle[aria-expanded='true']")).toHaveLength(0);
         expect(holder.textContent).not.toContain("第一次失败");
+        expect(holder.textContent).not.toContain("第二次失败");
+        await act(async () => (holder.querySelectorAll(".agent-process-step-toggle")[1] as HTMLButtonElement).click());
         expect(holder.textContent).toContain("第二次失败");
+        await act(async () => root.unmount()); holder.remove();
+    });
+
+    it("工具从执行中变为失败时不展开步骤或已收起的工具内容", async () => {
+        const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
+        const base = { sessionId: "session-1", runId: "run-1", createdAt: new Date().toISOString() };
+        const tool = { ...base, seq: 2, kind: "tool_call" as const, payload: { toolId: "tool-1", toolName: "执行命令" } };
+        const failedTool = { ...tool, result: { ...base, seq: 3, kind: "tool_result" as const, payload: { isError: true, output: "执行失败" } } };
+        const render = (failed: boolean) => act(async () => root.render(<AssistantRound events={[failed ? failedTool : tool]} theme={canvasThemes.light} status="running" />));
+        await render(false);
+        await act(async () => (holder.querySelector(".agent-process-toggle") as HTMLButtonElement).click());
+        await render(true);
+        const step = holder.querySelector(".agent-process-step-toggle") as HTMLButtonElement;
+        expect(step.getAttribute("aria-expanded")).toBe("false");
+        expect(holder.textContent).not.toContain("执行失败");
+        await render(false);
+        await act(async () => step.click());
+        await act(async () => (holder.querySelector('[aria-label="收起工具内容"]') as HTMLButtonElement).click());
+        await render(true);
+        expect(step.getAttribute("aria-expanded")).toBe("true");
+        expect(holder.querySelector('[aria-label="展开工具内容"]')?.getAttribute("aria-expanded")).toBe("false");
+        expect(holder.textContent).not.toContain("执行失败");
+        await act(async () => (holder.querySelector('[aria-label="展开工具内容"]') as HTMLButtonElement).click());
+        expect(holder.textContent).toContain("执行失败");
         await act(async () => root.unmount()); holder.remove();
     });
 

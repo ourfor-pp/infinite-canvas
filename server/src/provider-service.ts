@@ -224,10 +224,10 @@ export function listPublicModels() {
     return [
         ...publicModels,
         ...(executor.url && executor.token ? Object.values(LOCAL_MEDIA_MODELS).filter((model) => isMediaExecutorModelAvailable(model.id) && (model.id !== "stable-audio-3-medium-local" || executor.stableAudio3LicenseAccepted)).map((model) => ({ ...model, imagePromptProfile: "generic" as const, value: `local-media::${model.id}`, providerId: "local-media", providerName: "本地媒体执行器", enabled: true })) : []),
-        ...Array.from(comfyNames).map((id) => {
+        ...Array.from(comfyNames).filter((id) => id !== "minimax-music3-local" || comfyFeatures.music3).map((id) => {
             const output = comfyModelOutput(id);
             const capability = COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS];
-            return { ...capability, supportsTemporalGuides: Boolean(capability.supportsTemporalGuides && comfyFeatures.temporalGuides), turboPreview: Boolean(capability.turboPreview && comfyFeatures.turboPreview), id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: output === "audio" ? ["speech" as const] : undefined, imagePromptProfile: "generic" as const, enabled: true };
+            return { ...capability, supportsTemporalGuides: Boolean(capability.supportsTemporalGuides && comfyFeatures.temporalGuides), turboPreview: Boolean(capability.turboPreview && comfyFeatures.turboPreview), id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: capability.audioModes ?? (output === "audio" ? ["speech" as const] : undefined), imagePromptProfile: "generic" as const, enabled: true };
         }),
     ];
 }
@@ -333,7 +333,7 @@ export function resolveProviderModel(value: string, expectedOutput: MediaKind) {
     if (providerId === "comfyui") {
         const output = comfyModelOutput(modelId);
         const node = db.prepare("SELECT id FROM comfy_servers WHERE enabled=1 AND models LIKE ? ORDER BY created_at LIMIT 1").get(`%${modelId}%`) as { id: string } | undefined;
-        if (!node || output !== expectedOutput) throw providerError(400, "AI_MODEL_UNAVAILABLE", "模型不可用或能力不匹配");
+        if (!node || output !== expectedOutput || modelId === "minimax-music3-local" && !getMediaExecutorCatalog().comfyFeatures.music3) throw providerError(400, "AI_MODEL_UNAVAILABLE", "模型不可用或能力不匹配");
         return { providerId, modelId, model: { ...COMFY_MODEL_DEFINITIONS[modelId as keyof typeof COMFY_MODEL_DEFINITIONS], id: modelId, name: comfyModelName(modelId), output, inputs: comfyModelInputs(modelId), enabled: true }, comfyServerId: node.id };
     }
     const provider = getProviderRow(providerId);

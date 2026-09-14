@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -70,4 +70,31 @@ test("时间线改变后拒绝重试旧成片，任务保持失败", async () =>
     db.prepare("UPDATE director_renders SET status='failed' WHERE id='render-0'").run();
     assert.throws(() => retryDirectorRender("u", "render-0"), /时间线已变化/);
     assert.equal((db.prepare("SELECT status FROM director_renders WHERE id='render-0'").get() as { status: string }).status, "failed");
+});
+
+test("独立配乐按项目查询并保存每次产物，提示改动不覆盖历史且拒绝路径逃逸", () => {
+    const projectRoot = workspace.ensureDirectorProjectWorkspace("u", "p");
+    const promptPath = "audio/music/cue-1/prompt.md";
+    const text = "---\nseconds: 30\nlyrics: '[Instrumental]'\n---\nGlobal Metadata\nQuiet piano.";
+    const saved = workspace.writeDirectorMarkdown("u", "p", promptPath, text);
+    assert.equal(workspace.readDirectorMusicPrompt("u", "p", promptPath, saved.hash).seconds, 30);
+    assert.throws(() => workspace.readDirectorMusicPrompt("u", "p", promptPath, "wrong"), /已修改/);
+    assert.throws(() => workspace.readDirectorMusicPrompt("u", "p", "../prompt.md", saved.hash), /配乐提示/);
+    assert.throws(() => workspace.readDirectorMusicPrompt("foreign", "p", promptPath, saved.hash), /不存在/);
+    const wave = join(root, "music.wav");
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.1", wave]);
+    const file = storeLocalFile("u", wave, "music.wav", "audio/wav");
+    db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES('music-1','u','audio','succeeded','test',?,?,'now','now')")
+        .run(JSON.stringify({ prompt: "Quiet piano.", model: "test", params: { __directorMusic: { projectId: "p", promptPath, promptHash: saved.hash } } }), JSON.stringify({ files: [{ fileId: file.fileId }] }));
+    const result = tasks.getDirectorGenerationTasks("u", "p", { id: "music-1" }) as any;
+    assert.equal(result.music.path, "audio/music/cue-1/outputs/music-1.wav");
+    assert.deepEqual(readFileSync(join(projectRoot, result.music.path)), readFileSync(wave));
+    assert.throws(() => tasks.getDirectorGenerationTasks("u", "other", { id: "music-1" }), /不属于/);
+    workspace.writeDirectorMarkdown("u", "p", promptPath, text + "\nA cello enters.");
+    assert.equal((tasks.getDirectorGenerationTasks("u", "p", { id: "music-1" }) as any).music.promptChanged, true);
+    writeFileSync(join(projectRoot, result.music.path), "user changed output");
+    assert.throws(() => tasks.getDirectorGenerationTasks("u", "p", { id: "music-1" }), /不覆盖/);
+    const linkFolder = join(projectRoot, "audio/music/cue-link"); mkdirSync(linkFolder, { recursive: true });
+    symlinkSync(join(root, "missing-outside.md"), join(linkFolder, "prompt.md"));
+    assert.throws(() => workspace.readDirectorMusicPrompt("u", "p", "audio/music/cue-link/prompt.md", "hash"), /符号链接/);
 });

@@ -5,7 +5,7 @@ name: 门被风推开
 sequenceId: sequence-001
 order: 1
 durationSeconds: 6
-sourceSceneId: scene-001
+sourceSceneId: breakdown-scene-001
 sourceBeatIds: [beat-001]
 sourceDurationSeconds: 6
 dramaticBeat: 紧闭的门被风推开，露出空房间。

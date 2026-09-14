@@ -61,13 +61,17 @@ async function generateText(context: ProviderContext) {
         model: languageModel(context) as never,
         messages: messages as never,
         abortSignal: context.signal,
+        onError: () => undefined,
         ...(context.request.params?.temperature == null ? {} : { temperature: Number(context.request.params.temperature) }),
         ...textProviderOptions(context),
     });
     let text = "";
-    for await (const delta of result.textStream) {
-        text += delta;
-        context.onDelta(delta);
+    for await (const part of result.fullStream) {
+        if (part.type === "error") throw part.error instanceof Error ? part.error : adapterError("AI_STREAM_FAILED", String(asRecord(part.error).message || "模型流式响应失败"));
+        if (part.type === "text-delta") {
+            text += part.text;
+            context.onDelta(part.text);
+        }
     }
     const usage = await result.usage;
     const finishReason = await result.finishReason;
