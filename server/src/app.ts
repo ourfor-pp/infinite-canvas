@@ -19,7 +19,7 @@ import { clearProviderCredentials, deleteProvider, discoverProviderModels, getAi
 import { agentAdminRouter, agentRouter } from "./agent/routes.js";
 import { handleAgentProviderProxy } from "./agent/provider-proxy.js";
 import { removeAgentProjectWorkspace } from "./agent/service.js";
-import { getMediaExecutorSettings, publicMediaExecutorSettings, refreshMediaExecutorCatalog, saveMediaExecutorSettings } from "./media-executor-settings.js";
+import { getMediaExecutorSettings, MEDIA_PROTOCOL, publicMediaExecutorSettings, refreshMediaExecutorCatalog, saveMediaExecutorSettings } from "./media-executor-settings.js";
 import {
     createCreativeAsset,
     deleteCanvasNodes,
@@ -67,7 +67,7 @@ const generationParamsSchema = jsonRecord.superRefine((value, context) => {
 registerGenerationEffects();
 
 const generationSchema = z.object({
-    kind: z.enum(["image", "video", "audio", "text"]),
+    kind: z.enum(["image", "video", "audio", "text", "transcription"]),
     model: z.string().trim().min(3).optional(),
     purpose: z.enum(["default", "image-inpaint", "image-upscale-faithful", "image-upscale-generative", "image-angle"]).default("default"),
     prompt: z.string().max(200_000).optional(),
@@ -79,7 +79,7 @@ const generationSchema = z.object({
     references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional(), role: z.enum(["reference", "first-frame", "last-frame", "continuation"]).optional(), transcript: z.string().max(20_000).optional(), frameIndex: z.number().int().min(-1).optional(), includeAudio: z.boolean().optional() })).optional(),
 }).superRefine((value, context) => {
     if (value.purpose === "default" && !value.model) context.addIssue({ code: "custom", path: ["model"], message: "普通生成必须指定模型" });
-    if (!value.prompt?.trim() && !value.messages?.length && !value.purpose.startsWith("image-upscale-")) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });
+    if (value.kind !== "transcription" && !value.prompt?.trim() && !value.messages?.length && !value.purpose.startsWith("image-upscale-")) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });
     if (value.purpose !== "default" && value.kind !== "image") context.addIssue({ code: "custom", path: ["purpose"], message: "专用图片工具只支持图片任务" });
     if (value.purpose === "image-inpaint" && !String(value.params?.maskFileId || "")) context.addIssue({ code: "custom", path: ["params", "maskFileId"], message: "局部编辑缺少蒙版" });
     if (value.purpose.startsWith("image-upscale-") && ![1024, 2048, 4096].includes(Number(value.params?.targetLongEdge))) context.addIssue({ code: "custom", path: ["params", "targetLongEdge"], message: "超分目标只支持 1024、2048 或 4096" });
@@ -388,7 +388,7 @@ api.post("/admin/comfyui/servers/:id/test", requireAdmin, asyncRoute(async (req)
     if (!row) throw apiError(404, "COMFY_NOT_FOUND", "ComfyUI 节点不存在");
     const { url } = decryptJson<{ url: string }>(row.encrypted_url, config.appSecret);
     const baseUrl = url.replace(/\/+$/, "");
-    const headers: Record<string, string> = row.id === "media-executor" ? { Authorization: `Bearer ${getMediaExecutorSettings().token}` } : {};
+    const headers: Record<string, string> = row.id === "media-executor" ? { Authorization: `Bearer ${getMediaExecutorSettings().token}`, "X-Media-Protocol": MEDIA_PROTOCOL } : {};
     const [statsResponse, infoResponse] = await Promise.all([
         fetch(`${baseUrl}/system_stats`, { headers, signal: AbortSignal.timeout(10_000), redirect: "error" }),
         fetch(`${baseUrl}/object_info`, { headers, signal: AbortSignal.timeout(10_000), redirect: "error" }),
@@ -431,7 +431,7 @@ api.get("/generations", (req, res) => {
 api.get("/admin/ai/generations", requireAdmin, (req, res) => {
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
     const rows = db.prepare(`SELECT g.*, u.username FROM generations g JOIN users u ON u.id=g.user_id ORDER BY g.created_at DESC LIMIT ?`).all(limit) as Array<GenerationRow & { username: string }>;
-    res.json({ data: rows.map((row) => ({ ...generationResponse(row), user: { id: row.user_id, username: row.username }, error: redactAdminError(row.error), request: undefined, result: undefined })) });
+    res.json({ data: rows.map((row) => { const response = generationResponse(row); return { ...response, diagnostics: response.diagnostics ? { phase: (response.diagnostics as { phase?: string }).phase } : null, user: { id: row.user_id, username: row.username }, error: redactAdminError(row.error), request: undefined, result: undefined }; }) });
 });
 api.post("/admin/ai/generations/:id/cancel", requireAdmin, route((req) => {
     const updated = cancelGenerationByAdmin(routeId(req));

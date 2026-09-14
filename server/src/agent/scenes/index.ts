@@ -17,7 +17,7 @@ export type AgentSceneDefinition = {
   composer: { placeholder: string; referenceLabel: string; emptyTitle: string; emptyDescription: string; suggestions: readonly string[] };
 };
 
-const mediaToolIds = ["media_list_capabilities", "media_validate_generation", "media_generate", "media_get_generation_status", "media_cancel_generation", "media_import_reference", "media_save_result"] as const;
+const mediaToolIds = ["media_list_capabilities", "media_validate_generation", "media_generate", "media_get_generation_status", "media_read_transcription", "media_cancel_generation", "media_import_reference", "media_save_result"] as const;
 const canvasToolIds = [
     ...mediaToolIds,
     "canvas_list_projects", "canvas_get_state", "canvas_apply_ops", "canvas_create_text_nodes", "canvas_delete_nodes", "canvas_delete_connections", "canvas_connect_nodes",

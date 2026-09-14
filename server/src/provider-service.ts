@@ -25,6 +25,9 @@ export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; famil
 export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; minDurationSeconds?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: ImagePromptProfile; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean; videoModes?: H3GenerationMode[]; maxReferenceVideos?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend"; qualityPresets?: H3QualityPreset[]; supportsTemporalGuides?: boolean; maxTemporalGuides?: number; frameStride?: number; frameBase?: number; turboPreview?: boolean };
 
 const LOCAL_MEDIA_MODELS: Record<string, Omit<AiModelDefinition, "endpoint" | "enabled">> = {
+    "qwen3-asr-1.7b-local": { id: "qwen3-asr-1.7b-local", name: "Qwen3-ASR 1.7B", output: "text", inputs: ["audio", "text"], maxReferenceAudios: 1 },
+    "qwen3-asr-0.6b-local": { id: "qwen3-asr-0.6b-local", name: "Qwen3-ASR 0.6B（轻量）", output: "text", inputs: ["audio", "text"], maxReferenceAudios: 1 },
+    "voxcpm2-local": { id: "voxcpm2-local", name: "VoxCPM2", output: "audio", inputs: ["text", "audio"], audioModes: ["speech"], audioOperations: ["generate", "clone"], maxReferenceAudios: 1 },
     "qwen3-tts-1.7b-customvoice-local": { id: "qwen3-tts-1.7b-customvoice-local", name: "Qwen3-TTS 1.7B CustomVoice", output: "audio", inputs: ["text"], audioModes: ["speech"], audioOperations: ["generate"], languages: ["Auto", "Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"], voices: ["Vivian", "Serena", "Ryan", "Aiden", "Dylan", "Eric", "Ono_Anna", "Sohee", "Uncle_Fu"] },
     "qwen3-tts-1.7b-base-local": { id: "qwen3-tts-1.7b-base-local", name: "Qwen3-TTS 1.7B 声音克隆", output: "audio", inputs: ["text", "audio"], audioModes: ["speech"], audioOperations: ["clone"], maxReferenceAudios: 1, languages: ["Auto", "Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"] },
     "moss-soundeffect-v2-local": { id: "moss-soundeffect-v2-local", name: "MOSS SoundEffect v2", output: "audio", inputs: ["text"], audioModes: ["ambient", "sfx"], audioOperations: ["generate"], maxDurationSeconds: 30, languages: ["Chinese", "English"] },
@@ -223,7 +226,7 @@ export function listPublicModels() {
     const comfyNames = new Set(comfyRows.flatMap((row) => parseJson<string[]>(row.models, [])).filter((id) => COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable));
     return [
         ...publicModels,
-        ...(executor.url && executor.token ? Object.values(LOCAL_MEDIA_MODELS).filter((model) => isMediaExecutorModelAvailable(model.id) && (model.id !== "stable-audio-3-medium-local" || executor.stableAudio3LicenseAccepted)).map((model) => ({ ...model, imagePromptProfile: "generic" as const, value: `local-media::${model.id}`, providerId: "local-media", providerName: "本地媒体执行器", enabled: true })) : []),
+        ...(executor.url && executor.token ? Object.values(LOCAL_MEDIA_MODELS).filter((model) => isMediaExecutorModelAvailable(model.id) && (model.id !== "stable-audio-3-medium-local" || executor.stableAudio3LicenseAccepted)).map((model) => ({ ...model, output: model.id.startsWith("qwen3-asr-") ? "transcription" as const : model.output, imagePromptProfile: "generic" as const, value: `local-media::${model.id}`, providerId: "local-media", providerName: "本地媒体执行器", enabled: true })) : []),
         ...Array.from(comfyNames).filter((id) => id !== "minimax-music3-local" || comfyFeatures.music3).map((id) => {
             const output = comfyModelOutput(id);
             const capability = COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS];
@@ -320,14 +323,17 @@ export function pruneModelDefaults() {
     });
 }
 
-export function resolveProviderModel(value: string, expectedOutput: MediaKind) {
+export function resolveProviderModel(value: string, expectedOutput: MediaKind | "transcription") {
     const [providerId, ...modelParts] = value.split("::");
     const modelId = modelParts.join("::");
     if (!providerId || !modelId) throw providerError(400, "AI_MODEL_INVALID", "模型标识不正确");
+    const transcription = providerId === "local-media" && modelId.startsWith("qwen3-asr-");
+    if ((expectedOutput === "transcription") !== transcription) throw providerError(400, "AI_MODEL_UNAVAILABLE", "转写模型只用于 transcription 任务");
+    const output = expectedOutput === "transcription" ? "text" : expectedOutput;
     if (providerId === "local-media") {
         const executor = getMediaExecutorSettings();
         const model = LOCAL_MEDIA_MODELS[modelId];
-        if (!executor.url || !executor.token || !model || model.output !== expectedOutput || !isMediaExecutorModelAvailable(modelId) || (modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted)) throw providerError(400, modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted ? "STABLE_AUDIO_LICENSE_REQUIRED" : "AI_MODEL_UNAVAILABLE", modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted ? "管理员尚未确认 Stable Audio 3 模型许可" : "本地媒体模型尚未部署或运行时离线");
+        if (!executor.url || !executor.token || !model || model.output !== output || !isMediaExecutorModelAvailable(modelId) || (modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted)) throw providerError(400, modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted ? "STABLE_AUDIO_LICENSE_REQUIRED" : "AI_MODEL_UNAVAILABLE", modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted ? "管理员尚未确认 Stable Audio 3 模型许可" : "本地媒体模型尚未部署或运行时离线");
         return { providerId, modelId, model: { ...model, endpoint: "openai-tts" as const, enabled: true } };
     }
     if (providerId === "comfyui") {
@@ -342,7 +348,7 @@ export function resolveProviderModel(value: string, expectedOutput: MediaKind) {
     return { providerId, modelId, model, provider: { ...provider, credentials: decryptCredentials(provider) } };
 }
 
-export function resolveSelectableModel(value: string, expectedOutput: MediaKind) {
+export function resolveSelectableModel(value: string, expectedOutput: MediaKind | "transcription") {
     const selection = resolveProviderModel(value, expectedOutput);
     if (selection.providerId === "comfyui" && !COMFY_MODEL_DEFINITIONS[selection.modelId as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable) throw providerError(400, "AI_MODEL_NOT_SELECTABLE", "该工作流只能由对应图片工具调用");
     if (expectedOutput === "image" && !selection.model.imageModes?.includes("generate")) throw providerError(400, "AI_MODEL_MODE_UNSUPPORTED", "该模型不支持文生图");

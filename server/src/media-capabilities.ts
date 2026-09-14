@@ -3,16 +3,16 @@ import { createReadStream, openAsBlob } from "node:fs";
 import type { AiGenerationRequest } from "./ai-adapters.js";
 import { db, parseJson } from "./database.js";
 import { getStoredFile } from "./file-store.js";
-import { getMediaExecutorSettings } from "./media-executor-settings.js";
+import { getMediaExecutorSettings, MEDIA_PROTOCOL } from "./media-executor-settings.js";
 
-export type MediaCapability = { id: string; version: string; output: "video" | "audio"; available: boolean; modes: string[]; operations: string[]; inputs: string[]; [key: string]: unknown };
+export type MediaCapability = { id: string; version: string; output: "video" | "audio" | "text"; available: boolean; modes: string[]; operations: string[]; inputs: string[]; [key: string]: unknown };
 export type MediaPlan = { capabilityVersion: string; mode: string; recipe?: string; qualityPreset?: string; width?: number; height?: number; fps?: number; outputFrames?: number; outputSeconds?: number; overlapFrames?: number; context?: Record<string, unknown> | null; previous?: Record<string, unknown> | null; seed: number };
 export const executorComfyModels = new Set(["minimax-h3-ref2va-local", "minimax-h3-fl2va-local", "minimax-music3-local"]);
 
 export async function executorRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
     const executor = getMediaExecutorSettings();
     if (!executor.url || !executor.token) throw mediaError("MEDIA_EXECUTOR_UNAVAILABLE", "媒体能力服务尚未配置");
-    const response = await fetch(`${executor.url}${path}`, { ...init, headers: { ...init.headers, Authorization: `Bearer ${executor.token}` }, signal: init.signal || AbortSignal.timeout(30_000), redirect: "error" });
+    const response = await fetch(`${executor.url}${path}`, { ...init, headers: { ...init.headers, Authorization: `Bearer ${executor.token}`, "X-Media-Protocol": MEDIA_PROTOCOL }, signal: init.signal || AbortSignal.timeout(30_000), redirect: "error" });
     if (!response.ok) {
         const detail = await response.json().catch(() => ({})) as { detail?: unknown };
         throw Object.assign(mediaError("MEDIA_EXECUTOR_REQUEST_FAILED", typeof detail.detail === "string" ? detail.detail : `媒体能力请求失败（${response.status}）`), { status: response.status });
@@ -21,7 +21,9 @@ export async function executorRequest<T>(path: string, init: RequestInit = {}): 
 }
 
 export async function listMediaCapabilities() {
-    return executorRequest<{ version: string; capabilities: MediaCapability[] }>("/v1/capabilities");
+    const result = await executorRequest<{ version: string; capabilities: MediaCapability[] }>("/v1/capabilities");
+    if (result.version !== MEDIA_PROTOCOL) throw mediaError("MEDIA_CAPABILITY_VERSION_MISMATCH", "媒体能力协议不匹配，请配套更新执行器");
+    return result;
 }
 
 export async function ownedMediaHash(userId: string, fileId: string) {
@@ -54,8 +56,8 @@ export async function prepareExecutorRequest(userId: string, id: string, model: 
     const references = await Promise.all(refs.map(async (ref) => ({ fileId: await upload(userId, ref.fileId, signal), kind: ref.kind || "image", role: ref.role || "reference", transcript: ref.transcript, frameIndex: ref.frameIndex, includeAudio: ref.includeAudio })));
     const continuation = state ? { fileId: await upload(userId, state.fileId, signal), sha256: state.sha256 } : undefined;
     const params = Object.fromEntries(Object.entries(request.params || {}).filter(([key]) => !key.startsWith("__")));
-    const mode = request.mode || (model.includes("ref2va") ? "ref2va" : model.includes("fl2va") ? "fl2va" : model === "minimax-music3-local" ? "music" : String(params.audioMode || "speech"));
-    const operation = request.operation || (state ? "extend" : String(params.audioOperation || (mode === "speech" && refs.length ? "clone" : "generate")));
+    const mode = request.mode || (request.kind === "transcription" ? "transcription" : model.includes("ref2va") ? "ref2va" : model.includes("fl2va") ? "fl2va" : model === "minimax-music3-local" ? "music" : String(params.audioMode || "speech"));
+    const operation = request.operation || (request.kind === "transcription" ? "transcribe" : state ? "extend" : String(params.audioOperation || (mode === "speech" && refs.length ? "clone" : "generate")));
     return { id, model, mode, operation, prompt: request.prompt || "", params, references, continuation };
 }
 

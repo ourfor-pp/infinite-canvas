@@ -11,7 +11,7 @@ Treat `media-executor/` as an independently deployable GPU service. Keep the app
 
 1. Read `media-executor/README.md`, `systemd/media-executor.env.example`, and `references/topology.md`.
 2. Run `scripts/audit.sh` before changing anything. Record GPU, disk, ports, service state, configured revisions, and model paths.
-3. Keep only port 8290 reachable from the application-server network. Bind ComfyUI and all native runtimes to `127.0.0.1`.
+3. Keep only port 8290 reachable from the application-server network. Keep ComfyUI and the ACE official engine on loopback; native model workers use private Unix sockets, not TCP ports.
 4. Use a long random Bearer token. Save the same token in the executor environment and application-server encrypted settings. Never print it in reports.
 5. Install every native runtime in its own `.venv`. Do not reuse system Python or ComfyUI's environment.
 6. Keep `/data/sas/models` as the stable model entrypoint. Put only models used by enabled runtimes on SSD/NVMe under `~/.local/share/infinite-media-executor/models`, then symlink each model directory from the entrypoint, matching the existing ComfyUI pattern. Verify link targets with `findmnt` and `lsblk` (`ROTA=0`). Run `media-executor/scripts/download-models.sh`; it uses pinned official ModelScope commits and writes `manifest.json`. Use official Hugging Face only when ModelScope lacks the repository.
@@ -23,15 +23,17 @@ Use Python 3.12 for Qwen, MOSS, and ACE environments. Qwen also requires system 
 
 Install pinned ACE-Step with `media-executor/scripts/install-ace-step.sh`. It applies the repository-owned Linux/Python 3.12 lock patch, omits optional flash-attn in favor of SDPA, and links the upstream API's hard-coded `checkpoints` directory to the SSD model root. Never advertise ACE until the official engine imports and a real music generation succeeds.
 For XL SFT text-to-music, keep `shift=1`, use 50 steps, and explicitly set both `dcw_enabled=false` and `audio_cover_strength=0` while `thinking=true`. Current upstream defaults combine DCW with full-strength LM audio-code conditioning and can produce broadband electrical noise or degenerate sounds. Cover/Remix may use their explicit reference strength; do not apply that strength to ordinary generation. Validate actual audio statistics/spectrum, not merely WAV readability.
-ACE-Step XL SFT cannot coexist with the project's ComfyUI processes on a 32GB 5090. Configure exact host units with `scripts/configure-gpu-drain.sh`; the executor must reject a busy Comfy queue, pause active Comfy/Qwen/MOSS units, run ACE, unload ACE, restore only previously active units, then restart ACE in lazy-load health mode. System units require the narrow sudoers rules in `systemd/infinite-media-executor-sudoers`.
+Use the executor NVML scheduler for all ComfyUI and native submissions. Configure exact ComfyUI/ACE engine `*_UNITS` and model `*_REVISION` values; never use a login/session scope containing unrelated processes. Retain idle models when memory permits, evict idle non-target runtimes in LRU order only under pressure, and include foreign GPU allocations without stopping their processes. Unknown input profiles require conservative space; only explicit CUDA OOM permits one identical-request retry. A stopped runtime starts lazily on demand. System units require the narrow sudoers rules in `systemd/infinite-media-executor-sudoers`.
 Keep `ACE_STEP_ENABLED=0` until that full smoke test passes; set it with `scripts/set-runtime-enabled.sh ace 1`, reinstall units, and restart the gateway only after success. Keep `STABLE_AUDIO_3_LICENSE_ACCEPTED=0` until license approval and inference verification.
 
-VoxCPM2 runs inside the CUDA 13 ComfyUI environment. Its systemd service must include the environment's `nvidia/cu13/lib` directory in `LD_LIBRARY_PATH`; having the wheel installed is not sufficient because NVRTC loads `libnvrtc-builtins.so.13.0` by name at runtime. Run `media-executor/scripts/install-comfyui-h3-dropin.sh`; it refuses to restart a busy queue and installs the repository drop-in. Then run a real VoxCPM2 generation. Never symlink a CUDA 12 builtins library to satisfy CUDA 13.
+Qwen3-ASR and VoxCPM2 use separate Python 3.12 environments at `runtimes/qwen_asr` and `runtimes/voxcpm`. Install with `uv sync --frozen`; download their pinned official models with `scripts/download-audio-models.py`, verifying `audio-models.json` and SSD symlink targets. The executor launches native workers from their own environments, communicates over private Unix sockets, and injects their own `nvidia/cu13/lib` into `LD_LIBRARY_PATH`; never cross-link CUDA 12 libraries. Verify transcription/alignment JSON and real speech generation before enabling them.
+
+Deploy application and executor together with transport protocol 2 (`X-Media-Protocol: 2`). Link `media-executor/comfy-runtime` into ComfyUI custom nodes for lifecycle status; do not change the H3 workflow plugin or continuation identity to add lifecycle endpoints. Record actual queue termination before releasing a canceled task's GPU lease. Check result download, authoritative application storage and ACK, not only engine health.
 
 ## Safety
 
 - Never delete model directories during an upgrade. Download into a revisioned sibling directory, verify it, then switch the environment path.
-- Never expose ports 8189, 8001, or 8301–8304 to the LAN.
+- Only the executor is public. Do not add TCP ports or separate systemd services for native audio workers. Keep existing ComfyUI/ACE engine ports on loopback.
 - Stop or drain generation work before restarting a GPU runtime.
 - Never move or replace an ACE `checkpoints` directory while its API process is alive; stop and kill the complete unit cgroup first. A ModelScope snapshot thread may otherwise continue writing through the old directory inode.
 - Diagnose `runtime offline` by checking the runtime unit, import errors, model path, CUDA visibility, and port binding in that order.

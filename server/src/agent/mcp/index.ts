@@ -1,6 +1,6 @@
 import { listMediaCapabilities } from "../../media-capabilities.js";
 import { createMediaGeneration, prepareMediaGeneration, mediaGenerationShape } from "../../media-generation.js";
-import { mediaGenerationStatus, cancelProjectMedia, importMediaReference, saveMediaResult } from "../media-tools.js";
+import { mediaGenerationStatus, cancelProjectMedia, importMediaReference, saveMediaResult, readMediaTranscription } from "../media-tools.js";
 import { h3AudioReferencesInput } from "../../h3-prompt.js";
 import { basename } from "node:path";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
@@ -240,6 +240,7 @@ export function buildAgentToolDefinitions(
     call("media_validate_generation", "校验中立媒体请求并返回执行计划；不创建生成任务。", mediaGenerationShape, async (input) => ({ valid: true, plan: (await prepareMediaGeneration(run.userId, input)).plan })),
     call("media_generate", "提交中立媒体任务；返回任务 ID。结果需显式保存或由项目工作流采用，不自动加入时间线。", mediaGenerationShape, (input) => createMediaGeneration(run.userId, input, projectId)),
     call("media_get_generation_status", "读取当前项目媒体任务状态、结果文件和执行快照。", { generationId: z.string().min(1) }, (input: { generationId: string }) => mediaGenerationStatus(run.userId, projectId, input.generationId)),
+    call("media_read_transcription", "按片段分页读取当前项目转写或参考文本对齐结果；完整 JSON 可用 media_save_result 保存。", { generationId: z.string().min(1), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(20).default(10) }, (input: { generationId: string; offset: number; limit: number }) => readMediaTranscription(run.userId, projectId, input.generationId, input.offset, input.limit)),
     call("media_cancel_generation", "取消当前项目的媒体任务。", { generationId: z.string().min(1) }, (input: { generationId: string }) => cancelProjectMedia(run.userId, projectId, input.generationId)),
     call("media_import_reference", "将工程内媒体文件登记为显式参考，返回 fileId。", { path: z.string().min(1).max(500) }, (input: { path: string }) => importMediaReference(run.userId, projectId, context.resolveWorkspacePath(input.path))),
     call("media_save_result", "把当前项目已完成任务的指定结果保存到工程相对路径；保留扩展名，不覆盖已有文件。", { generationId: z.string().min(1), fileId: z.string().min(1), path: z.string().min(1).max(500) }, (input: { generationId: string; fileId: string; path: string }) => ({ ...saveMediaResult(run.userId, projectId, input.generationId, input.fileId, context.resolveWorkspacePath(input.path)), path: input.path })),

@@ -16,6 +16,7 @@
 ## Development and Data
 
 - [中立媒体能力与执行器边界](/docs/development/media-capabilities)
+- [中立服务音乐、ASR 与 TTS 选型](./research/audio-capability-selection.md)
 
 - [Local Development](/docs/development/local-development)
 - [Testing Strategy](/docs/development/testing-strategy)
@@ -26,6 +27,7 @@
 - [Director Realtime Sync Version Plan](./research/director-realtime-sync-plan.md)
 - [Local ComfyUI Integration Handoff](./COMFYUI_HANDOFF.md)
 - [MiniMax H3 Ecosystem and Iteration Research](./research/minimax-h3-ecosystem-iteration.md)
+- [OpenVDN Single-GPU Reproduction Research](./research/openvdn-single-gpu-reproduction.md)
 - [MiniMax H3 First-batch Validation](./research/minimax-h3-first-batch-validation.md)
 - [MiniMax H3 Multi-scenario Validation](./research/minimax-h3-second-batch-validation.md)
 - [MiniMax H3 Multiseed Validation](./research/minimax-h3-multiseed-validation.md)
@@ -66,3 +68,5 @@
 - Docker, Render, Vercel, and fnOS packaging are follow-up work for the new backend architecture and are not maintained by this development milestone yet.
 
 - [导演 Agent 长视频落地路线](research/h3-agent-production-roadmap.md)：默认 Ref2VA 加速接入、配方身份和创作 Skills 研究入口。
+
+- `research/audio-v0152-acceptance.md`：音频固定输入对照、GPU 调度恢复及正式部署验收与听审边界。

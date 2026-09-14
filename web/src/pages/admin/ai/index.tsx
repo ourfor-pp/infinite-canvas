@@ -1,3 +1,4 @@
+import { generationPhaseLabel } from "@/lib/generation-status";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, AutoComplete, Button, Checkbox, Empty, Form, Input, InputNumber, List, Modal, Radio, Result, Select, Switch, Table, Tag, Tooltip } from "antd";
 import { Bot, Cable, DatabaseBackup, KeyRound, Library, ListChecks, Pencil, Plus, RefreshCw, Search, Server, SlidersHorizontal, Trash2, Wifi } from "lucide-react";
@@ -405,9 +406,9 @@ function TaskManager() {
     const { data = [], isFetching } = useQuery({ queryKey: ["admin-generations"], queryFn: serverApi.adminGenerations, refetchInterval: 3000 });
     return <section><div className="mb-4 flex items-center justify-between"><p className="text-sm text-stone-500">仅显示任务元数据，不展示用户提示词和生成内容。</p><Button icon={<RefreshCw className="size-4" />} loading={isFetching} onClick={() => void queryClient.invalidateQueries({ queryKey: ["admin-generations"] })}>刷新</Button></div><Table rowKey="id" pagination={{ pageSize: 20 }} dataSource={data} columns={[
         { title: "用户", dataIndex: ["user", "username"], width: 150 },
-        { title: "类型", dataIndex: "kind", width: 90, render: (value) => <Tag>{value}</Tag> },
+        { title: "类型", dataIndex: "kind", width: 90, render: (value) => <Tag>{value === "transcription" ? "转写" : value}</Tag> },
         { title: "模型", dataIndex: "modelId", ellipsis: true },
-        { title: "状态", dataIndex: "status", width: 110, render: (value) => <Tag color={value === "succeeded" ? "green" : value === "failed" ? "red" : value === "running" ? "processing" : undefined}>{value}</Tag> },
+        { title: "状态", dataIndex: "status", width: 110, render: (value, row) => <Tag color={value === "succeeded" ? "green" : value === "failed" ? "red" : value === "running" ? "processing" : undefined}>{generationPhaseLabel(row)}</Tag> },
         { title: "进度", dataIndex: "progress", width: 90, render: (value) => `${Math.round(Number(value) * 100)}%` },
         { title: "耗时", width: 100, render: (_, row) => `${Math.max(0, Math.round((Date.parse(row.updatedAt) - Date.parse(row.createdAt)) / 1000))}s` },
         { title: "错误", dataIndex: "error", ellipsis: true },

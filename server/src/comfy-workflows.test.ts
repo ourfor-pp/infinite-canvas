@@ -77,21 +77,8 @@ test("两种超分都输出指定长边", () => {
     assert.deepEqual({ width: generative["14"].inputs.width, height: generative["14"].inputs.height }, { width: 4096, height: 2304 });
 });
 
-test("VoxCPM2 透传克隆文本、归一化、降噪与高级参数", () => {
-    const workflow = buildComfyWorkflow({
-        model: "voxcpm2-local",
-        prompt: "新的台词",
-        params: { referenceTranscript: "参考台词", cfgValue: 3, steps: 18, seed: 42, ultimateClone: true, maxLength: 2048 },
-        files: [{ fileId: "voice", kind: "audio", name: "voice.wav" }],
-    });
-    assert.equal(workflow["2"].inputs.reference_audio_text, "参考台词");
-    assert.equal(workflow["2"].inputs.normalize_text, true);
-    assert.equal(workflow["2"].inputs.denoise_reference, true);
-    assert.equal(workflow["2"].inputs.cfg_value, 3);
-    assert.equal(workflow["2"].inputs.inference_steps, 18);
-    assert.equal(workflow["2"].inputs.seed, 42);
-    assert.equal(workflow["2"].inputs.ultimate_clone, true);
-    assert.deepEqual(workflow["2"].inputs.reference_audio, ["4", 0]);
+test("VoxCPM2 不再经过 ComfyUI 推理", () => {
+    assert.throws(() => buildComfyWorkflow({ model: "voxcpm2-local", prompt: "台词", params: {}, files: [] }), { code: "COMFY_MODEL_UNSUPPORTED" });
 });
 
 test("H3 与 Music3 生产图仅由媒体执行器提供", () => {

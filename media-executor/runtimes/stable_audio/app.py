@@ -1,5 +1,4 @@
 import os
-from functools import lru_cache
 from pathlib import Path
 
 import torch
@@ -8,7 +7,11 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from stable_audio_3 import StableAudioModel
 
+from media_executor.runtime import Runtime
+
 app = FastAPI()
+runtime = Runtime()
+runtime.routes(app)
 
 
 class Request(BaseModel):
@@ -19,15 +22,18 @@ class Request(BaseModel):
     outputDir: str
 
 
-@lru_cache(maxsize=1)
 def load():
     if os.getenv("STABLE_AUDIO_3_LICENSE_ACCEPTED") != "1":
         raise HTTPException(403, "Stable Audio 3 license has not been accepted")
-    return StableAudioModel.from_pretrained(os.getenv("STABLE_AUDIO_MODEL", "medium"), device="cuda")
+    return runtime.load("StableAudio", lambda: StableAudioModel.from_pretrained(os.getenv("STABLE_AUDIO_MODEL", "medium"), device="cuda"))
 
 
 @app.post("/generate")
 def generate(value: Request):
+    return runtime.run(value, synthesize)
+
+
+def synthesize(value: Request):
     model = load()
     duration = max(1, min(300, float(value.params.get("seconds", 30))))
     arguments = {"prompt": value.prompt, "duration": duration, "steps": int(value.params.get("steps", 8)), "cfg_scale": float(value.params.get("cfgScale", 1)), "seed": int(value.params.get("seed", -1)), "batch_size": 1}
@@ -51,8 +57,3 @@ def generate(value: Request):
 @app.get("/health")
 def health():
     return {"ok": os.getenv("STABLE_AUDIO_3_LICENSE_ACCEPTED") == "1"}
-
-
-def main():
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8304)

@@ -1,0 +1,1316 @@
+{
+  "version": 1,
+  "asrDataset": {
+    "source": "https://huggingface.co/datasets/google/fleurs",
+    "revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+    "split": "test",
+    "license": "CC-BY-4.0",
+    "selection": "First eight archive entries with published metadata per locale; selected before inference"
+  },
+  "cases": [
+    {
+      "id": "asr-17-00",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10026684690566417990.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-01",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10040380210557600780.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-02",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10048525650290665384.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-03",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10053956375630517392.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-04",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10056338555786085046.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-05",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10073099671796350432.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-06",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10081186303620187437.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-07",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10104380129516909856.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-08",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10006915745726529860.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-09",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-1003282807420591297.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-10",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10115432746173245930.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-11",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10123879626346052468.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-12",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10124045044575977258.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-13",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10163731863724677756.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-14",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10165854033091765666.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-15",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10194685291289583261.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-16",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-1003119935936341070.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-17",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10052240106321793346.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-18",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10167324587744183095.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-19",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10197164397713068203.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-20",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10233995782544396174.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-21",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10235738076911595987.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-22",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10323357556845456822.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-17-23",
+      "model": "qwen3-asr-1.7b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10335587906469246566.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-00",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10026684690566417990.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-01",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10040380210557600780.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-02",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10048525650290665384.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-03",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10053956375630517392.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-04",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10056338555786085046.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-05",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10073099671796350432.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-06",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10081186303620187437.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-07",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Chinese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "cmn_hans_cn-10104380129516909856.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-08",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10006915745726529860.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-09",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-1003282807420591297.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-10",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10115432746173245930.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-11",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10123879626346052468.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-12",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10124045044575977258.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-13",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10163731863724677756.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-14",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10165854033091765666.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-15",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "Cantonese",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "yue_hant_hk-10194685291289583261.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-16",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-1003119935936341070.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-17",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10052240106321793346.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-18",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10167324587744183095.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-19",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10197164397713068203.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-20",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10233995782544396174.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-21",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10235738076911595987.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-22",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10323357556845456822.wav"
+        }
+      ]
+    },
+    {
+      "id": "asr-06-23",
+      "model": "qwen3-asr-0.6b-local",
+      "mode": "transcription",
+      "operation": "transcribe",
+      "params": {
+        "language": "English",
+        "timestamps": true,
+        "seed": 42
+      },
+      "references": [
+        {
+          "kind": "audio",
+          "path": "en_us-10335587906469246566.wav"
+        }
+      ]
+    },
+    {
+      "id": "tts-qwen-narration-1",
+      "model": "qwen3-tts-1.7b-customvoice-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "夜色渐深，窗边的一盏灯仍然亮着。我们慢慢说，故事才刚刚开始。",
+      "params": {
+        "seed": 101,
+        "instructions": "温和、自然的旁白",
+        "language": "Chinese",
+        "speaker": "Vivian"
+      }
+    },
+    {
+      "id": "tts-qwen-narration-2",
+      "model": "qwen3-tts-1.7b-customvoice-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "夜色渐深，窗边的一盏灯仍然亮着。我们慢慢说，故事才刚刚开始。",
+      "params": {
+        "seed": 102,
+        "instructions": "温和、自然的旁白",
+        "language": "Chinese",
+        "speaker": "Vivian"
+      }
+    },
+    {
+      "id": "tts-vox-narration-1",
+      "model": "voxcpm2-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "夜色渐深，窗边的一盏灯仍然亮着。我们慢慢说，故事才刚刚开始。",
+      "params": {
+        "seed": 101,
+        "instructions": "温和、自然的旁白",
+        "normalizeText": true
+      }
+    },
+    {
+      "id": "tts-vox-narration-2",
+      "model": "voxcpm2-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "夜色渐深，窗边的一盏灯仍然亮着。我们慢慢说，故事才刚刚开始。",
+      "params": {
+        "seed": 102,
+        "instructions": "温和、自然的旁白",
+        "normalizeText": true
+      }
+    },
+    {
+      "id": "tts-qwen-emotion-1",
+      "model": "qwen3-tts-1.7b-customvoice-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "你终于回来了！我以为，这一次真的再也见不到你了。别站在雨里，快进来吧。",
+      "params": {
+        "seed": 101,
+        "instructions": "先惊喜，再略带哽咽，最后关切温柔",
+        "language": "Chinese",
+        "speaker": "Vivian"
+      }
+    },
+    {
+      "id": "tts-qwen-emotion-2",
+      "model": "qwen3-tts-1.7b-customvoice-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "你终于回来了！我以为，这一次真的再也见不到你了。别站在雨里，快进来吧。",
+      "params": {
+        "seed": 102,
+        "instructions": "先惊喜，再略带哽咽，最后关切温柔",
+        "language": "Chinese",
+        "speaker": "Vivian"
+      }
+    },
+    {
+      "id": "tts-vox-emotion-1",
+      "model": "voxcpm2-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "你终于回来了！我以为，这一次真的再也见不到你了。别站在雨里，快进来吧。",
+      "params": {
+        "seed": 101,
+        "instructions": "先惊喜，再略带哽咽，最后关切温柔",
+        "normalizeText": true
+      }
+    },
+    {
+      "id": "tts-vox-emotion-2",
+      "model": "voxcpm2-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "你终于回来了！我以为，这一次真的再也见不到你了。别站在雨里，快进来吧。",
+      "params": {
+        "seed": 102,
+        "instructions": "先惊喜，再略带哽咽，最后关切温柔",
+        "normalizeText": true
+      }
+    },
+    {
+      "id": "tts-qwen-pronunciation-1",
+      "model": "qwen3-tts-1.7b-customvoice-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "重庆的银行行长说，今天要重新核对三百零六点五万元。这个项目的增长率为百分之十二点八，编号是 A307，请在九月二十四日之前提交。",
+      "params": {
+        "seed": 101,
+        "instructions": "清晰准确，新闻播报语气",
+        "language": "Chinese",
+        "speaker": "Vivian"
+      }
+    },
+    {
+      "id": "tts-qwen-pronunciation-2",
+      "model": "qwen3-tts-1.7b-customvoice-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "重庆的银行行长说，今天要重新核对三百零六点五万元。这个项目的增长率为百分之十二点八，编号是 A307，请在九月二十四日之前提交。",
+      "params": {
+        "seed": 102,
+        "instructions": "清晰准确，新闻播报语气",
+        "language": "Chinese",
+        "speaker": "Vivian"
+      }
+    },
+    {
+      "id": "tts-vox-pronunciation-1",
+      "model": "voxcpm2-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "重庆的银行行长说，今天要重新核对三百零六点五万元。这个项目的增长率为百分之十二点八，编号是 A307，请在九月二十四日之前提交。",
+      "params": {
+        "seed": 101,
+        "instructions": "清晰准确，新闻播报语气",
+        "normalizeText": true
+      }
+    },
+    {
+      "id": "tts-vox-pronunciation-2",
+      "model": "voxcpm2-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "重庆的银行行长说，今天要重新核对三百零六点五万元。这个项目的增长率为百分之十二点八，编号是 A307，请在九月二十四日之前提交。",
+      "params": {
+        "seed": 102,
+        "instructions": "清晰准确，新闻播报语气",
+        "normalizeText": true
+      }
+    },
+    {
+      "id": "tts-qwen-long-1",
+      "model": "qwen3-tts-1.7b-customvoice-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "沿着河岸向前走，城市的声音渐渐变轻了。桥下的水映着远处的灯，一圈一圈，把夜色推向更远的地方。她停下脚步，翻开那本已经磨旧的笔记本，里面夹着一张没有署名的明信片。很多年前，也是在这样的傍晚，有人告诉她，离开并不意味着结束。有些路看起来绕了很远，最后却把人带回最初想去的地方。现在，她终于明白了这句话。风吹过树梢，她合上本子，继续往前走。",
+      "params": {
+        "seed": 101,
+        "instructions": "平静自然的长篇旁白，句间停顿清楚，音色保持一致",
+        "language": "Chinese",
+        "speaker": "Vivian"
+      }
+    },
+    {
+      "id": "tts-qwen-long-2",
+      "model": "qwen3-tts-1.7b-customvoice-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "沿着河岸向前走，城市的声音渐渐变轻了。桥下的水映着远处的灯，一圈一圈，把夜色推向更远的地方。她停下脚步，翻开那本已经磨旧的笔记本，里面夹着一张没有署名的明信片。很多年前，也是在这样的傍晚，有人告诉她，离开并不意味着结束。有些路看起来绕了很远，最后却把人带回最初想去的地方。现在，她终于明白了这句话。风吹过树梢，她合上本子，继续往前走。",
+      "params": {
+        "seed": 102,
+        "instructions": "平静自然的长篇旁白，句间停顿清楚，音色保持一致",
+        "language": "Chinese",
+        "speaker": "Vivian"
+      }
+    },
+    {
+      "id": "tts-vox-long-1",
+      "model": "voxcpm2-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "沿着河岸向前走，城市的声音渐渐变轻了。桥下的水映着远处的灯，一圈一圈，把夜色推向更远的地方。她停下脚步，翻开那本已经磨旧的笔记本，里面夹着一张没有署名的明信片。很多年前，也是在这样的傍晚，有人告诉她，离开并不意味着结束。有些路看起来绕了很远，最后却把人带回最初想去的地方。现在，她终于明白了这句话。风吹过树梢，她合上本子，继续往前走。",
+      "params": {
+        "seed": 101,
+        "instructions": "平静自然的长篇旁白，句间停顿清楚，音色保持一致",
+        "normalizeText": true
+      }
+    },
+    {
+      "id": "tts-vox-long-2",
+      "model": "voxcpm2-local",
+      "mode": "speech",
+      "operation": "generate",
+      "prompt": "沿着河岸向前走，城市的声音渐渐变轻了。桥下的水映着远处的灯，一圈一圈，把夜色推向更远的地方。她停下脚步，翻开那本已经磨旧的笔记本，里面夹着一张没有署名的明信片。很多年前，也是在这样的傍晚，有人告诉她，离开并不意味着结束。有些路看起来绕了很远，最后却把人带回最初想去的地方。现在，她终于明白了这句话。风吹过树梢，她合上本子，继续往前走。",
+      "params": {
+        "seed": 102,
+        "instructions": "平静自然的长篇旁白，句间停顿清楚，音色保持一致",
+        "normalizeText": true
+      }
+    },
+    {
+      "id": "music-music3-piano",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Intimate felt piano solo, slow reflective melody, gentle dynamics, quiet night scene, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 900,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-piano",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Intimate felt piano solo, slow reflective melody, gentle dynamics, quiet night scene, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 900,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-strings",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Warm chamber strings with a lyrical cello melody, restrained cinematic emotion, clear acoustic texture, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 901,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-strings",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Warm chamber strings with a lyrical cello melody, restrained cinematic emotion, clear acoustic texture, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 901,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-ambient",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Sparse ambient synthesizer pads, slow evolving atmosphere, distant soft bell notes, calm and spacious, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 902,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-ambient",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Sparse ambient synthesizer pads, slow evolving atmosphere, distant soft bell notes, calm and spacious, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 902,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-action",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Urgent orchestral action cue, staccato strings and deep percussion, energetic rhythm with a clear build, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 903,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-action",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Urgent orchestral action cue, staccato strings and deep percussion, energetic rhythm with a clear build, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 903,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-suspense",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Tense cinematic suspense, low strings and sparse piano notes, subtle pulsing rhythm, controlled rising unease, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 904,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-suspense",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Tense cinematic suspense, low strings and sparse piano notes, subtle pulsing rhythm, controlled rising unease, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 904,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-jazz",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Small acoustic jazz trio, brushed drums, upright bass and mellow piano, relaxed swing, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 905,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-jazz",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Small acoustic jazz trio, brushed drums, upright bass and mellow piano, relaxed swing, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 905,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-folk",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Gentle acoustic guitar folk instrumental, fingerpicked melody and soft upright bass, warm human timing, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 906,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-folk",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Gentle acoustic guitar folk instrumental, fingerpicked melody and soft upright bass, warm human timing, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 906,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-electronic",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Clean electronic dance instrumental, tight kick and bass, bright synth motif, steady 120 BPM beat, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 907,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-electronic",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Clean electronic dance instrumental, tight kick and bass, bright synth motif, steady 120 BPM beat, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 907,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-chinese",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Traditional Chinese instrumental cue, expressive erhu and delicate guzheng, flowing lyrical melody, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 908,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-chinese",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Traditional Chinese instrumental cue, expressive erhu and delicate guzheng, flowing lyrical melody, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 908,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-rock",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Energetic rock instrumental, crunchy electric guitars, acoustic drum kit and driving bass, clear separation, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 909,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-ace-rock",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Energetic rock instrumental, crunchy electric guitars, acoustic drum kit and driving bass, clear separation, no vocals.",
+      "params": {
+        "seconds": 15,
+        "seed": 909,
+        "lyrics": "[Instrumental]"
+      }
+    },
+    {
+      "id": "music-music3-english-song",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Gentle English folk song, clear expressive female lead voice, acoustic guitar accompaniment, intimate delivery.",
+      "params": {
+        "seconds": 15,
+        "seed": 910,
+        "lyrics": "[Verse]\nA little light beside the door\nI hear your footsteps once more\n[Chorus]\nStay until the rain is gone\nWe will find our way at dawn"
+      }
+    },
+    {
+      "id": "music-ace-english-song",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Gentle English folk song, clear expressive female lead voice, acoustic guitar accompaniment, intimate delivery.",
+      "params": {
+        "seconds": 15,
+        "seed": 910,
+        "lyrics": "[Verse]\nA little light beside the door\nI hear your footsteps once more\n[Chorus]\nStay until the rain is gone\nWe will find our way at dawn"
+      }
+    },
+    {
+      "id": "music-music3-chinese-song",
+      "model": "minimax-music3-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Warm Mandarin pop ballad, clear expressive female lead voice, soft piano and strings, natural lyrical phrasing.",
+      "params": {
+        "seconds": 15,
+        "seed": 911,
+        "lyrics": "[Verse]\n窗边的灯还亮着\n晚风轻轻对我说\n[Chorus]\n等雨停了再出发\n一路都有你的家"
+      }
+    },
+    {
+      "id": "music-ace-chinese-song",
+      "model": "ace-step-v15-xl-sft-local",
+      "mode": "music",
+      "operation": "generate",
+      "prompt": "Warm Mandarin pop ballad, clear expressive female lead voice, soft piano and strings, natural lyrical phrasing.",
+      "params": {
+        "seconds": 15,
+        "seed": 911,
+        "lyrics": "[Verse]\n窗边的灯还亮着\n晚风轻轻对我说\n[Chorus]\n等雨停了再出发\n一路都有你的家"
+      }
+    }
+  ]
+}

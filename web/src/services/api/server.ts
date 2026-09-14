@@ -23,7 +23,7 @@ export type ServerFile = {
 
 export type ServerGeneration = {
     id: string;
-    kind: "image" | "video" | "audio" | "text";
+    kind: "image" | "video" | "audio" | "text" | "transcription";
     status: "queued" | "running" | "succeeded" | "failed" | "canceled";
     providerId: string | null;
     modelId: string;
@@ -32,6 +32,7 @@ export type ServerGeneration = {
     error: string | null;
     errorCode: string | null;
     progress: number;
+    diagnostics?: { phase?: string; [key: string]: unknown } | null;
     usage: Record<string, unknown> | null;
     createdAt: string;
     updatedAt: string;
@@ -49,7 +50,7 @@ export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; famil
 export type AiGlobalSettings = { config: { canvasImageCount: string; audioVoice: string; audioFormat: string; audioSpeed: string; audioInstructions: string; systemPrompt: string; creativeAssetReviewModel: string }; imageEditModel: string; imageWorkflows: Record<ImageWorkflowPurpose, string>; audioDefaults: Record<AudioMode, Partial<Record<AudioOperation, string>>>; promptSources: { sources: Array<Record<string, unknown>>; schedule: Record<string, unknown> } };
 export type VideoReferenceRole = "reference" | "first-frame" | "last-frame" | "continuation";
 export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: ModelCapability; inputs: ModelCapability[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; minDurationSeconds?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: "generic" | "gpt-image-2"; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean; videoModes?: Array<"fl2va" | "ref2va">; maxReferenceVideos?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend" };
-export type PublicAiModel = Omit<AiModelDefinition, "endpoint" | "agentEnabled"> & { value: string; providerId: string; providerName: string };
+export type PublicAiModel = Omit<AiModelDefinition, "endpoint" | "agentEnabled" | "output"> & { output: ModelCapability | "transcription"; value: string; providerId: string; providerName: string };
 export type AiProvider = {
     id: string;
     name: string;

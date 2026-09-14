@@ -1,7 +1,7 @@
 import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
 import { nanoid } from "nanoid";
-import { adapterFor, type AiGenerationRequest, type ProviderContext } from "./ai-adapters.js";
+import { adapterFor, type AiGenerationRequest, type GenerationKind, type ProviderContext } from "./ai-adapters.js";
 import { config } from "./config.js";
 import { decryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
@@ -10,12 +10,12 @@ import { buildComfyWorkflow, type GenerationPurpose } from "./comfy-workflows.js
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
 import { decryptCredentials, getProviderRow, resolveImageModel, resolveMediaUnderstandingModel, resolveProviderModel, resolvePurposeModel, resolveSelectableModel, type AiModelDefinition, type AudioMode, type AudioOperation, type MediaKind } from "./provider-service.js";
 import { acknowledgeLocalMediaGeneration, cancelLocalMediaGeneration, runLocalMediaGeneration } from "./local-media.js";
-import { getMediaExecutorSettings } from "./media-executor-settings.js";
+import { getMediaExecutorSettings, MEDIA_PROTOCOL } from "./media-executor-settings.js";
 
 export type GenerationRow = {
     id: string;
     user_id: string;
-    kind: MediaKind;
+    kind: GenerationKind;
     status: "queued" | "running" | "succeeded" | "failed" | "canceled";
     provider_id: string | null;
     model_id: string;
@@ -56,6 +56,7 @@ export function generationResponse(row: GenerationRow) {
         error: row.error,
         errorCode: row.error_code,
         progress: row.progress,
+        diagnostics: parseJson<Record<string, unknown> | null>((db.prepare("SELECT detail FROM generation_diagnostics WHERE generation_id=? AND user_id=?").get(row.id, row.user_id) as { detail: string } | undefined)?.detail, null),
         usage: parseJson(row.usage, null),
         effects: db.prepare("SELECT handler,status,attempts,error FROM generation_effects WHERE generation_id=? ORDER BY handler").all(row.id),
         createdAt: row.created_at,
@@ -72,7 +73,7 @@ export function createGeneration(userId: string, input: AiGenerationRequest, id 
         ? input.kind === "image"
             ? resolveImageModel(input.model || "", (input.references || []).some((reference) => (reference.kind || "image") === "image") ? "edit" : "generate")
             : resolveSelectableModel(input.model || "", input.kind)
-        : resolvePurposeModel(purpose, input.kind);
+        : resolvePurposeModel(purpose, input.kind === "transcription" ? "text" : input.kind);
     const imageReferenceCount = (input.references || []).filter((reference) => (reference.kind || "image") === "image").length;
     const audioReferenceCount = (input.references || []).filter((reference) => reference.kind === "audio").length;
     const videoReferenceCount = (input.references || []).filter((reference) => reference.kind === "video").length;
@@ -190,7 +191,7 @@ async function runGeneration(initialRow: GenerationRow, controller: AbortControl
         if (!row || row.status === "canceled") return;
         const request = parseJson<AiGenerationRequest>(row.request, {} as AiGenerationRequest);
         const result = usesMediaExecutorJobs(row)
-            ? await runLocalMediaGeneration(row, request, controller.signal, (id) => updateGeneration(row, { remoteTaskId: id }), (progress) => updateGeneration(row, { progress }))
+            ? await runLocalMediaGeneration(row, request, controller.signal, (id) => updateGeneration(row, { remoteTaskId: id }), (progress, diagnostics) => updateGeneration(row, { progress, diagnostics }))
             : row.provider_id === "comfyui"
             ? await runComfyGeneration(row, request, controller.signal)
             : await runPublicGeneration(row, request, controller.signal);
@@ -275,7 +276,7 @@ async function runComfyGeneration(row: GenerationRow, request: AiGenerationReque
     const server = selectComfyServer(row.comfy_server_id, row.model_id);
     if (!server) throw generationError("COMFY_UNAVAILABLE", "没有可用的 ComfyUI 节点");
     const baseUrl = decryptJson<{ url: string }>(server.encrypted_url, config.appSecret).url.replace(/\/+$/, "");
-    const comfyHeaders: Record<string, string> = server.id === "media-executor" ? { Authorization: `Bearer ${getMediaExecutorSettings().token}` } : {};
+    const comfyHeaders: Record<string, string> = server.id === "media-executor" ? { Authorization: `Bearer ${getMediaExecutorSettings().token}`, "X-Media-Protocol": MEDIA_PROTOCOL } : {};
     let promptId = row.remote_task_id;
     if (!promptId) {
         const uploaded = await uploadComfyReferences(baseUrl, row.user_id, request.references || [], signal);
@@ -305,7 +306,7 @@ function selectComfyServer(id: string | null, model: string) {
 }
 
 async function uploadComfyFile(baseUrl: string, userId: string, fileId: string, signal: AbortSignal) {
-    const headers: Record<string, string> = baseUrl.includes("/v1/comfy") ? { Authorization: `Bearer ${getMediaExecutorSettings().token}` } : {};
+    const headers: Record<string, string> = baseUrl.includes("/v1/comfy") ? { Authorization: `Bearer ${getMediaExecutorSettings().token}`, "X-Media-Protocol": MEDIA_PROTOCOL } : {};
     const stored = getStoredFile(userId, fileId);
     if (!stored) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
     const form = new FormData();
@@ -341,11 +342,11 @@ async function cancelComfyPrompt(row: GenerationRow) {
     const server = selectComfyServer(row.comfy_server_id, row.model_id);
     if (!server || !row.remote_task_id) return;
     const baseUrl = decryptJson<{ url: string }>(server.encrypted_url, config.appSecret).url.replace(/\/+$/, "");
-    const headers: Record<string, string> = server.id === "media-executor" ? { Authorization: `Bearer ${getMediaExecutorSettings().token}` } : {};
+    const headers: Record<string, string> = server.id === "media-executor" ? { Authorization: `Bearer ${getMediaExecutorSettings().token}`, "X-Media-Protocol": MEDIA_PROTOCOL } : {};
     try {
         await fetch(`${baseUrl}/queue`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ delete: [row.remote_task_id] }), signal: AbortSignal.timeout(5000), redirect: "error" });
         const queue = await comfyJson<{ queue_running?: unknown[] }>(`${baseUrl}/queue`, { headers, signal: AbortSignal.timeout(5000) });
-        if (JSON.stringify(queue.queue_running || []).includes(row.remote_task_id)) await fetch(`${baseUrl}/interrupt`, { method: "POST", headers, signal: AbortSignal.timeout(5000), redirect: "error" });
+        if (JSON.stringify(queue.queue_running || []).includes(row.remote_task_id)) await fetch(`${baseUrl}/interrupt`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ prompt_id: row.remote_task_id }), signal: AbortSignal.timeout(5000), redirect: "error" });
     } catch {
         // The local task remains canceled even when the node is offline.
     }
@@ -383,14 +384,26 @@ export function collectComfyOutputs(outputs: Record<string, unknown> | undefined
     return { files, continuationStates, cumulativeVideos };
 }
 
-async function comfyJson<T>(url: string, init?: RequestInit) {
-    const response = await fetch(url, { ...init, redirect: "error" });
-    if (!response.ok) throw generationError("COMFY_REQUEST_FAILED", `ComfyUI 请求失败（${response.status}）`);
-    return await response.json() as T;
+async function comfyJson<T>(url: string, init: RequestInit = {}): Promise<T> {
+    const queuedSubmit = url.endsWith("/prompt") && new Headers(init.headers).get("X-Media-Protocol") === MEDIA_PROTOCOL;
+    const deadline = Date.now() + 600_000;
+    for (;;) {
+        try {
+            const response = await fetch(url, { ...init, redirect: "error" });
+            if (response.ok) return await response.json() as T;
+            if (!queuedSubmit || response.status !== 409) throw generationError("COMFY_REQUEST_FAILED", `ComfyUI 请求失败（${response.status}）`);
+        } catch (error) {
+            if (!queuedSubmit || !(error instanceof TypeError) || init.signal?.aborted) throw error;
+        }
+        if (Date.now() >= deadline) throw generationError("GPU_QUEUE_TIMEOUT", "等待 GPU 执行权超过十分钟");
+        init.signal?.throwIfAborted();
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
 }
 
-function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["status"]; result?: unknown; error?: string; errorCode?: string; remoteTaskId?: string; progress?: number; usage?: unknown }) {
+function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["status"]; result?: unknown; error?: string; errorCode?: string; remoteTaskId?: string; progress?: number; usage?: unknown; diagnostics?: Record<string, unknown> }) {
     db.transaction(() => {
+    if (patch.diagnostics) db.prepare("INSERT INTO generation_diagnostics VALUES(?,?,?) ON CONFLICT(generation_id,user_id) DO UPDATE SET detail=excluded.detail").run(row.id, row.user_id, JSON.stringify(patch.diagnostics));
     const now = new Date().toISOString();
     db.prepare(`UPDATE generations SET
         status=COALESCE(?, status), result=COALESCE(?, result), error=?, error_code=?,

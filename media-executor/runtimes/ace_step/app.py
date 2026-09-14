@@ -6,8 +6,11 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from media_executor.runtime import Runtime
 
 app = FastAPI()
+runtime = Runtime()
+runtime.routes(app, external_gpu=True)
 ACE_API = os.getenv("ACE_STEP_INTERNAL_URL", "http://127.0.0.1:8001").rstrip("/")
 
 
@@ -30,7 +33,13 @@ def build_payload(value: Request):
 
 @app.post("/generate")
 def generate(value: Request):
+    return runtime.run(value, synthesize)
+
+
+def synthesize(value: Request):
     payload = build_payload(value)
+    payload["seed"] = int(value.params["seed"])
+    runtime.models["ACE-Step-XL-SFT"] = True
     with httpx.Client(timeout=None) as client:
         response = client.post(f"{ACE_API}/release_task", json=payload)
         if response.status_code >= 400:
@@ -38,6 +47,8 @@ def generate(value: Request):
         task_id = str(response.json().get("data", {}).get("task_id", ""))
         if not task_id:
             raise HTTPException(502, "ACE-Step returned no task id")
+        (Path(value.outputDir) / ".ace-task.json").write_text(json.dumps({"taskId": task_id}))
+        runtime.phase = "inference"
         for _ in range(3600):
             status = client.post(f"{ACE_API}/query_result", json={"task_id_list": [task_id]})
             status.raise_for_status()
@@ -73,8 +84,3 @@ def health():
         return {"ok": True, "modelsInitialized": bool(data.get("models_initialized")), "llmInitialized": bool(data.get("llm_initialized"))}
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(503, f"ACE-Step engine is unavailable: {exc}") from exc
-
-
-def main():
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8303)

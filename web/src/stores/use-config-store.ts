@@ -15,7 +15,7 @@ export type AiModelOption = {
     value: string;
     providerId: string;
     providerName: string;
-    output: ModelCapability;
+    output: ModelCapability | "transcription";
     inputs: ModelInputCapability[];
     enabled: boolean;
     audioModes?: AudioMode[];

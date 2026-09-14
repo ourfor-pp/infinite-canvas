@@ -22,10 +22,10 @@ def setup(monkeypatch, tmp_path):
 def test_neutral_preflight_and_idempotency(monkeypatch, tmp_path):
     module = setup(monkeypatch, tmp_path)
     job = {"id": "neutral", "model": "minimax-h3-ref2va-local", "mode": "ref2va", "prompt": "A room.", "references": [{"fileId": "image.png", "kind": "image"}]}
-    headers = {"Authorization": "Bearer secret"}
+    headers = {"Authorization": "Bearer secret", "X-Media-Protocol": "2"}
     with TestClient(module.app) as client:
         assert client.get("/v1/capabilities").status_code == 401
-        assert client.get("/v1/capabilities", headers=headers).json()["version"] == "1"
+        assert client.get("/v1/capabilities", headers=headers).json()["version"] == "2"
         response = client.post("/v1/jobs/validate", json=job, headers=headers)
         assert response.status_code == 200
         assert response.json()["plan"]["recipe"] == "pdd-ref8"
@@ -49,7 +49,7 @@ def test_previously_submitted_job_is_recovered_not_resubmitted(monkeypatch, tmp_
     posts = []
     def handler(req):
         if req.method == "POST": posts.append(req.url.path)
-        if req.url.path == "/queue": return httpx.Response(200, json={"queue_running": [], "queue_pending": [[0, "previous-id", {}, {"client_id": "resume"}]]})
+        if req.url.path == "/queue": return httpx.Response(200, json={"queue_running": [], "queue_pending": [] if posts else [[0, "previous-id", {}, {"client_id": "resume"}]]})
         if req.url.path == "/history": return httpx.Response(200, json={})
         return httpx.Response(200, json={})
     real_client = httpx.Client
@@ -65,7 +65,7 @@ def test_previously_submitted_job_is_recovered_not_resubmitted(monkeypatch, tmp_
 def test_uploaded_state_retains_loader_extension(monkeypatch, tmp_path):
     module = setup(monkeypatch, tmp_path)
     with TestClient(module.app) as client:
-        response = client.post("/v1/files", headers={"Authorization": "Bearer secret"}, files={"upload": ("../../state.safetensors", b"state", "application/octet-stream")})
+        response = client.post("/v1/files", headers={"Authorization": "Bearer secret", "X-Media-Protocol": "2"}, files={"upload": ("../../state.safetensors", b"state", "application/octet-stream")})
         assert response.status_code == 200
         file_id = response.json()["id"]
         assert file_id.endswith(".safetensors") and "/" not in file_id

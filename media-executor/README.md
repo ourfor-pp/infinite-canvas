@@ -11,7 +11,7 @@ uv sync --extra test
 MEDIA_EXECUTOR_TOKEN=change-me MEDIA_EXECUTOR_HOST=0.0.0.0 uv run infinite-media-executor
 ```
 
-运行时分别监听 `127.0.0.1:8301`（Qwen TTS）、`8302`（MOSS SoundEffect）、`8303`（ACE-Step 适配器）和 `8304`（Stable Audio 3）。`MEDIA_MODEL_ROOT` 使用统一入口 `/data/sas/models`；当前实际启用的模型文件放在 NVMe 的 `/home/cec/.local/share/infinite-media-executor/models`，再由统一入口软链接过去，与现有 ComfyUI 模型方案一致。正式部署使用 `systemd/` 中的 unit，并用防火墙限制 8290 仅允许业务服务器访问。
+对外仅提供执行器 `8290` 入口。Qwen TTS、MOSS、ASR、VoxCPM2 和 ACE 适配器由执行器按需启动为独立 Python 工作进程，通过数据目录 `workers/*.sock` 私有 Unix Socket 通信，不监听 TCP 端口，也不需要单独安装或启用 systemd 服务。独立 `.venv` 用于隔离依赖；空闲时可保留模型，按显存预算卸载或退出。ComfyUI 与 ACE 官方引擎保留本机接口。`MEDIA_MODEL_ROOT` 使用统一入口 `/data/sas/models`；当前实际启用的模型文件放在 NVMe 的 `/home/cec/.local/share/infinite-media-executor/models`，再由统一入口软链接过去，与现有 ComfyUI 模型方案一致。正式部署使用 `systemd/` 中的 unit，并用防火墙限制 8290 仅允许业务服务器访问。
 
 业务服务器配置：
 
@@ -31,25 +31,27 @@ ACE 只有在官方引擎和完整检查点通过 smoke test 后才设置 `ACE_S
 
 ```bash
 ./scripts/install-user-services.sh
-systemctl --user start infinite-media-executor infinite-qwen-tts
+systemctl --user start infinite-media-executor
 ```
 
-VoxCPM2 所在的 CUDA 13 ComfyUI 正式服务需要额外的 NVRTC 动态库路径。使用下列安装器部署受版本管理的 systemd drop-in；脚本会在队列非空时拒绝重启：
+Qwen3-ASR 与 VoxCPM2 使用各自 `runtimes/` 下的 Python 3.12 环境；先执行 `uv sync --frozen`，再验证导入及真实推理。`scripts/download-audio-models.py` 从固定官方 ModelScope revision 下载 ASR 两种尺寸、ForcedAligner、VoxCPM2 和 ZipEnhancer，校验 Git LFS 哈希并保存 `audio-models.json`。CUDA 13 环境的 `nvidia/cu13/lib` 必须加入工作进程的 `LD_LIBRARY_PATH`（执行器启动时自动注入），不能用 CUDA 12 库替代。
 
-```bash
-./scripts/audit-h3-ecosystem.sh
-./scripts/install-h3-ecosystem.sh
-./scripts/install-comfyui-h3-dropin.sh
-```
+ASR 返回 `transcription.json`，区分转写和参考文本对齐；无强制对齐的片段标记 `timestampSource=vad`。完整 JSON 由应用存储，Agent 分页读取。VoxCPM2 普通生成和克隆统一走执行器任务接口。
 
 H3 生态安装器固定 ComfyUI v0.35.0，并关闭尚未纳入本机验收的 Comfy Compiler；把固定 ComfyUI、KJNodes 与 Turbo 节点部署到新的 revision 目录，在独立 8190 端口同时探测 AddGuide、Turbo、Sage Attention 和 `SaveVideo` 后才切换 `/home/cec/ComfyUI-H3-current`。旧 checkout 不删除，可用于回滚。Turbo 权重保存在 SSD 并记录 revision、SHA256 与上游许可入口；只有正式的固定样例视频和原声音频基准通过后，才应将 Turbo 作为默认预览配方。
 
 FLUX.2 Dev 使用 `scripts/install-flux2-dev.sh` 通过 ModelScope SDK 从官方 `Comfy-Org/flux2-dev` 同仓的固定 revision 直接下载 FP8 mixed diffusion、FP8 Mistral 3 Small 文本编码器和 VAE，不保留双份 Git LFS 对象缓存。约 53.8 GB 的实体文件保存在 NVMe 的 `/home/cec/.local/share/comfyui-models`，`/data/sas/ComfyUI/models` 仅放三个稳定软链接；安装器会校验 SHA256，并拒绝覆盖已有真实模型文件。该模型受 FLUX Non-Commercial License v2.1 约束，当前只用于本地内部测试与评估。
 
-ACE XL 与 MiniMax H3 推理前必须排空其他常驻 GPU 服务。用 `scripts/configure-gpu-drain.sh` 配置本机 unit 列表；执行器会在 ACE 任务或 H3 ComfyUI 提交前暂停冲突服务，等对应任务及队列完成后恢复原先处于 active 的服务。H3 默认暂停 Qwen TTS、MOSS SoundEffect 和普通 ComfyUI，但不会停止承载 H3 队列的 `comfyui-h3.service`。若包含系统级 unit，按 `systemd/infinite-media-executor-sudoers` 为执行器账号配置最小化 `systemctl` 权限。
+执行器使用 NVML 与运行时状态统一串行调度 GPU。空间足够时保留闲置模型；不足时先清缓存，再按最近最少使用顺序卸载，达到预算即停止。未知规格保守腾空间；明确 CUDA OOM 只按原请求和种子重试一次。外部进程计入预算但不停止。按 `systemd/media-executor.env.example` 配置 ComfyUI、ACE 官方引擎的实际 `*_UNITS` 与各模型 `*_REVISION`，不得把包含无关进程的会话 scope 当作受管 unit。释放失败时才终止对应闲置工作进程或受管引擎，下次任务懒启动。
 
-安装器只生成和启用 unit，不会在运行时尚未通过 smoke test 时自动启动。执行器监听 `0.0.0.0:8290`，子运行时始终只监听回环地址；正式跨机器使用时还应由防火墙只放行业务服务器 IP。
+ComfyUI 的 `custom_nodes/` 需链接仓库 `comfy-runtime/` 状态扩展，保持原 H3 工作流节点和续接身份不变。所有应用代理提交与中立任务共用执行权；取消与恢复先核对真实上游任务。诊断记录任务阶段、峰值、驻留和加载次数。应用与执行器必须配套使用协议 2，请求携带 `X-Media-Protocol: 2`，H3 续接版本单独管理。
 
+部署前备份环境、unit 与代码，逐个运行时完成真实推理、结果传输和显存释放验证后，再排空正式队列切换应用和执行器。任一环节失败应恢复整套旧配置与代码；健康检查不能代替推理验收。系统级 unit 仅授权 `systemd/infinite-media-executor-sudoers` 中的明确服务。
+
+安装器只生成和启用 unit，不会在运行时尚未通过 smoke test 时自动启动。执行器监听 `0.0.0.0:8290`，模型工作进程只使用私有 Unix Socket，ComfyUI 与 ACE 官方引擎只监听回环地址；正式跨机器使用时还应由防火墙只放行业务服务器 IP。
+
+
+当前 v0.15.2 已在本机完成正式切换、应用 ASR/Vox 落库、旧 H3 状态续接及固定输入模型对照，证据与听审边界见 [部署验收](../docs/research/audio-v0152-acceptance.md)。
 
 ## H3 隔离加速验证
 

@@ -12,7 +12,8 @@ const schema = z.object({
 });
 export type MediaExecutorSettings = z.infer<typeof schema>;
 export type MediaExecutorModel = { engine?: string; [key: string]: unknown };
-export type MediaExecutorHealth = { h3Runtime?: H3RuntimeCatalog; h3PddRuntime?: H3RuntimeCatalog; available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean; nativeState?: boolean; pddRef8?: boolean; music3?: boolean } };
+export const MEDIA_PROTOCOL = "2";
+export type MediaExecutorHealth = { protocolVersion?: string; configuredRuntimes?: Record<string, boolean>; h3Runtime?: H3RuntimeCatalog; h3PddRuntime?: H3RuntimeCatalog; available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean; nativeState?: boolean; pddRef8?: boolean; music3?: boolean } };
 
 const emptyCatalog = (): MediaExecutorHealth => ({ available: false, models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, turboPreview: false } });
 let catalog: MediaExecutorHealth = emptyCatalog();
@@ -40,21 +41,23 @@ export function getMediaExecutorCatalog() {
 
 export function isMediaExecutorModelAvailable(id: string) {
     const model = catalog.models[id];
-    return Boolean(model && (!model.engine || catalog.runtimes[model.engine]));
+    return Boolean(model && (!model.engine || (catalog.runtimes[model.engine] || catalog.configuredRuntimes?.[model.engine])));
 }
 
 export async function refreshMediaExecutorCatalog(value = getMediaExecutorSettings()) {
     if (!value.url || !value.token) return catalog = emptyCatalog();
     try {
-        const response = await fetch(`${value.url}/health`, { headers: { Authorization: `Bearer ${value.token}` }, signal: AbortSignal.timeout(5000), redirect: "error" });
+        const response = await fetch(`${value.url}/health`, { headers: { Authorization: `Bearer ${value.token}`, "X-Media-Protocol": MEDIA_PROTOCOL }, signal: AbortSignal.timeout(5000), redirect: "error" });
         if (!response.ok) return catalog = emptyCatalog();
         const health = await response.json() as Partial<MediaExecutorHealth>;
+        if (health.protocolVersion !== MEDIA_PROTOCOL) return catalog = emptyCatalog();
+        const configuredRuntimes = health.configuredRuntimes || {};
         const runtimes = health.runtimes && typeof health.runtimes === "object" ? health.runtimes : {};
-        const models = Object.fromEntries(Object.entries(health.models && typeof health.models === "object" ? health.models : {}).filter(([, model]) => !model.engine || runtimes[model.engine]));
+        const models = Object.fromEntries(Object.entries(health.models && typeof health.models === "object" ? health.models : {}).filter(([, model]) => !model.engine || runtimes[model.engine] || configuredRuntimes[model.engine]));
         const features = health.comfyFeatures && typeof health.comfyFeatures === "object" ? health.comfyFeatures : { temporalGuides: false, turboPreview: false };
         const h3Runtime = h3RuntimeCatalogSchema.safeParse(health.h3Runtime);
         const h3PddRuntime = h3RuntimeCatalogSchema.safeParse(health.h3PddRuntime);
-        return catalog = { ...(h3Runtime.success && !h3Runtime.data.modelRevision.includes(":pdd-ref8:") ? { h3Runtime: h3Runtime.data } : {}), ...(h3PddRuntime.success && h3PddRuntime.data.modelRevision.includes(":pdd-ref8:") ? { h3PddRuntime: h3PddRuntime.data } : {}), available: true, models, runtimes, comfyFeatures: { temporalGuides: Boolean(features.temporalGuides), turboPreview: Boolean(features.turboPreview), nativeState: Boolean(features.nativeState), pddRef8: Boolean(features.pddRef8), music3: Boolean(features.music3) } };
+        return catalog = { ...(h3Runtime.success && !h3Runtime.data.modelRevision.includes(":pdd-ref8:") ? { h3Runtime: h3Runtime.data } : {}), ...(h3PddRuntime.success && h3PddRuntime.data.modelRevision.includes(":pdd-ref8:") ? { h3PddRuntime: h3PddRuntime.data } : {}), available: true, models, runtimes, configuredRuntimes, protocolVersion: MEDIA_PROTOCOL, comfyFeatures: { temporalGuides: Boolean(features.temporalGuides), turboPreview: Boolean(features.turboPreview), nativeState: Boolean(features.nativeState), pddRef8: Boolean(features.pddRef8), music3: Boolean(features.music3) } };
     } catch {
         return catalog = emptyCatalog();
     }

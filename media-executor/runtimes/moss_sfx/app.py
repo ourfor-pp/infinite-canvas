@@ -1,13 +1,15 @@
 import os
-from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 import soundfile as sf
 import torch
+from media_executor.runtime import Runtime
 
 app = FastAPI()
+runtime = Runtime()
+runtime.routes(app)
 MODEL_ROOT = Path(os.getenv("MEDIA_MODEL_ROOT", "/data/sas/models"))
 
 
@@ -17,14 +19,17 @@ class Request(BaseModel):
     outputDir: str
 
 
-@lru_cache(maxsize=1)
 def load():
     from moss_soundeffect_v2 import MossSoundEffectPipeline
-    return MossSoundEffectPipeline.from_pretrained(str(MODEL_ROOT / "MOSS-SoundEffect-v2.0"), torch_dtype=torch.bfloat16, device="cuda")
+    return runtime.load("MOSS-SoundEffect-v2.0", lambda: MossSoundEffectPipeline.from_pretrained(str(MODEL_ROOT / "MOSS-SoundEffect-v2.0"), torch_dtype=torch.bfloat16, device="cuda"))
 
 
 @app.post("/generate")
 def generate(value: Request):
+    return runtime.run(value, synthesize)
+
+
+def synthesize(value: Request):
     pipe = load()
     seconds = max(1, min(30, float(value.params.get("seconds", 10))))
     audio = pipe(
@@ -46,8 +51,3 @@ def generate(value: Request):
 @app.get("/health")
 def health():
     return {"ok": True}
-
-
-def main():
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8302)

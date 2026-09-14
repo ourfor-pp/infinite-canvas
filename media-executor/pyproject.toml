@@ -2,7 +2,7 @@
 name = "infinite-media-executor"
 version = "0.1.0"
 requires-python = ">=3.12,<3.14"
-dependencies = ["fastapi>=0.116,<1", "httpx>=0.28,<1", "safetensors>=0.5,<1", "numpy>=2,<3", "python-multipart>=0.0.20", "uvicorn[standard]>=0.35,<1"]
+dependencies = ["fastapi>=0.116,<1", "httpx>=0.28,<1", "safetensors>=0.5,<1", "numpy>=2,<3", "nvidia-ml-py>=12,<14", "python-multipart>=0.0.20", "uvicorn[standard]>=0.35,<1"]
 
 [project.optional-dependencies]
 test = ["pytest>=8.4", "pytest-asyncio>=1.1"]

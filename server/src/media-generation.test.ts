@@ -15,22 +15,27 @@ const { db } = await import("./database.js");
 const { saveMediaExecutorSettings, refreshMediaExecutorCatalog } = await import("./media-executor-settings.js");
 const { createMediaGeneration } = await import("./media-generation.js");
 const { getGenerationForAgent } = await import("./generation-service.js");
-const { mediaGenerationStatus, saveMediaResult } = await import("./agent/media-tools.js");
+const { mediaGenerationStatus, saveMediaResult, readMediaTranscription } = await import("./agent/media-tools.js");
 const { resolveMediaContinuation } = await import("./media-capabilities.js");
 const media = Buffer.from("transport fixture, not quality acceptance");
 const sha256 = createHash("sha256").update(media).digest("hex");
 const jobs = new Map<string, Record<string, unknown>>();
+const transcript = { version: 1, source: "transcription", model: "qwen3-asr-1.7b-local", text: "完整转写", language: "Chinese", languages: ["Chinese"], duration: 60,
+    segments: Array.from({ length: 30 }, (_, index) => ({ index, text: `片段${index}`, language: "Chinese", start: index, end: index + 1, timestampSource: "vad" })) };
+const acknowledged = new Set<string>();
 let submissions = 0, observedFailure = false, base = "";
 const executor = createServer(async (req, res) => {
     assert.equal(req.headers.authorization, "Bearer private-test-token");
+    assert.equal(req.headers["x-media-protocol"], "2");
     const send = (body: unknown, status = 200) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); };
-    if (req.url === "/health") return send({ models: {}, runtimes: {}, comfyFeatures: { music3: true }, h3Runtime: null });
+    if (req.url === "/health") return send({ protocolVersion: "2", models: { "qwen3-asr-1.7b-local": { engine: "asr" } }, runtimes: { asr: true }, comfyFeatures: { music3: true }, h3Runtime: null });
+    if (req.url === "/v1/files") { for await (const _ of req) { /* consume multipart */ } return send({ id: "uploaded-audio" }); }
     if (req.url === "/v1/jobs/validate") {
         const chunks = []; for await (const chunk of req) chunks.push(chunk);
         const input = JSON.parse(Buffer.concat(chunks).toString());
-        assert.equal(input.mode, "music"); assert.equal(input.operation, "generate");
+        if (input.mode !== "transcription") { assert.equal(input.mode, "music"); assert.equal(input.operation, "generate"); }
         assert.equal(input.metadata, undefined);
-        return send({ valid: true, plan: { capabilityVersion: "1", mode: "music", seed: 42 } });
+        return send({ valid: true, plan: { capabilityVersion: "1", mode: input.mode, seed: 42 } });
     }
     if (req.url === "/v1/jobs" && req.method === "POST") {
         const chunks = []; for await (const chunk of req) chunks.push(chunk);
@@ -39,10 +44,16 @@ const executor = createServer(async (req, res) => {
         return;
     }
     const id = req.url?.split("/")[3] || "";
-    if (req.url?.endsWith("/ack")) return send({ acknowledged: true });
+    if (req.url?.endsWith("/ack")) {
+        assert.equal(getGenerationForAgent("dev-admin", id)?.status, "succeeded");
+        acknowledged.add(id);
+        return send({ acknowledged: true });
+    }
+    if (req.url?.endsWith("transcription.json")) return send(transcript);
     if (req.url?.includes("/files/")) { res.writeHead(200, { "Content-Type": "audio/wav" }); res.end(media); return; }
     if (!jobs.has(id)) return send({ detail: "missing" }, 404);
     if (!observedFailure) { observedFailure = true; return send({ detail: "temporary observation outage" }, 503); }
+    if (jobs.get(id)?.mode === "transcription") return send({ status: "succeeded", progress: 1, diagnostics: { phase: "completed", peakBytes: 123 }, result: { files: [{ name: "transcription.json", mimeType: "application/json" }] } });
     return send({ status: "succeeded", progress: 1, result: { files: [{ name: "music.wav", sha256 }], execution: { capabilityVersion: "1", seed: 42 } } });
 });
 const server = app.listen(0, "127.0.0.1");
@@ -75,6 +86,28 @@ test("接受后断线与临时查询失败仍恢复同一任务，保存结果�
     assert.throws(() => saveMediaResult("dev-admin", "project-a", task.id, result.files[0].fileId, path));
     await assert.rejects(resolveMediaContinuation("dev-admin", { generationId: task.id, fileId: result.files[0].fileId }), /续接状态/);
     assert.equal(JSON.stringify(mediaGenerationStatus("dev-admin", "project-a", task.id)).includes("private-test-token"), false);
+});
+
+test("ASR 保存权威 JSON、分页与项目隔离，落库后才 ACK", async () => {
+    const { storeLocalFile } = await import("./file-store.js");
+    const path = join(root, "reference.wav");
+    writeFileSync(path, "transport fixture");
+    const reference = storeLocalFile("dev-admin", path, "reference.wav", "audio/wav");
+    const task = await createMediaGeneration("dev-admin", { kind: "transcription", model: "local-media::qwen3-asr-1.7b-local", mode: "transcription", operation: "transcribe", references: [{ kind: "audio", fileId: reference.id }] }, "asr-project");
+    for (let i = 0; i < 150 && !acknowledged.has(task.id); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    const row = getGenerationForAgent("dev-admin", task.id)!;
+    assert.equal(row.kind, "transcription");
+    assert.equal(row.status, "succeeded", row.error || "not completed");
+    assert.ok(acknowledged.has(task.id));
+    const page = readMediaTranscription("dev-admin", "asr-project", task.id, 0, 7);
+    assert.equal(page.total, 30); assert.equal(page.nextOffset, 7); assert.equal(page.segments.length, 7);
+    assert.equal(readMediaTranscription("dev-admin", "asr-project", task.id, 28, 7).nextOffset, null);
+    assert.throws(() => readMediaTranscription("dev-admin", "another-project", task.id));
+    assert.throws(() => readMediaTranscription("another-user", "asr-project", task.id));
+    const saved = join(root, "saved/transcription.json");
+    saveMediaResult("dev-admin", "asr-project", task.id, page.fileId, saved);
+    assert.deepEqual(JSON.parse(readFileSync(saved, "utf8")), transcript);
+    assert.equal((mediaGenerationStatus("dev-admin", "asr-project", task.id).diagnostics as { peakBytes: number }).peakBytes, 123);
 });
 
 

@@ -100,6 +100,13 @@ CREATE TABLE IF NOT EXISTS generations (
   PRIMARY KEY (id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_generations_user_created ON generations(user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS generation_diagnostics (
+  generation_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  PRIMARY KEY (generation_id, user_id),
+  FOREIGN KEY (generation_id, user_id) REFERENCES generations(id, user_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS user_settings (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   encrypted_payload TEXT NOT NULL,

@@ -25,8 +25,9 @@ def describe(runtime):
     items.append({"id": music.MODEL, "version": "1", "output": "audio", "available": bool(features.get("music3")), "modes": ["music"], "operations": ["generate"], "inputs": ["text"], "duration": {"min": 1, "max": 300}, "referenceLimits": {"total": 0}, "recipes": ["base"], "skill": "media-generation", "qualityAccepted": False})
     for model, definition in runtime.get("models", {}).items():
         if model not in COMFY_MODELS:
-            items.append({"id": model, "version": "1", "output": "audio", **definition, "available": bool(runtime.get("runtimes", {}).get(definition.get("engine"))), "qualityAccepted": False, "skill": "media-generation"})
-    return {"version": "1", "capabilities": items}
+            available = runtime.get("runtimes", {}).get(definition.get("engine")) or runtime.get("configuredRuntimes", {}).get(definition.get("engine"))
+            items.append({"id": model, "version": "1", "output": "audio", **definition, "available": bool(available), "qualityAccepted": False, "skill": "media-generation"})
+    return {"version": "2", "capabilities": items}
 
 
 def input_path(root: Path, file_id: str):
@@ -59,6 +60,26 @@ def prepare(request, runtime, files: Path):
             raise ValueError("model capability mismatch")
         if any(ref["kind"] not in definition["inputs"] for ref in request.get("references", [])) or len(request.get("references", [])) > definition.get("maxReferenceAudios", 0):
             raise ValueError("audio reference capability mismatch")
+        if definition.get("engine") == "asr":
+            if len(request.get("references", [])) != 1:
+                raise ValueError("ASR requires exactly one audio file")
+            if request["operation"] == "align" and not request.get("prompt", "").strip():
+                raise ValueError("alignment requires reference text")
+            if set(request.get("params", {})) - {"language", "timestamps", "seed"}:
+                raise ValueError("unsupported ASR parameter")
+            if "timestamps" in request.get("params", {}) and type(request["params"]["timestamps"]) is not bool:
+                raise ValueError("timestamps must be a boolean")
+        if definition.get("engine") == "vox":
+            params = request.get("params", {})
+            if not request.get("prompt", "").strip():
+                raise ValueError("speech text is required")
+            if request["operation"] == "clone" and not request.get("references"):
+                raise ValueError("voice cloning requires reference audio")
+            if params.get("ultimateClone") and (not request.get("references") or not (request["references"][0].get("transcript") or params.get("referenceTranscript"))):
+                raise ValueError("ultimate voice cloning requires a reference transcript")
+            for key, low, high in (("cfgValue", 1, 5), ("steps", 4, 50), ("maxLength", 256, 8192)):
+                if key in params and (type(params[key]) not in (int, float) or not low <= params[key] <= high):
+                    raise ValueError(f"invalid VoxCPM parameter: {key}")
         plan = {"capabilityVersion": "1", "mode": request["mode"]}
     plan["seed"] = seed if seed is not None else int(hashlib.sha256(request["id"].encode()).hexdigest()[:13], 16)
     return plan

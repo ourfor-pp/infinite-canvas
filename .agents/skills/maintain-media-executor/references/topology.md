@@ -1,14 +1,18 @@
-# Topology
+# 部署边界
+
+应用只连接一个中立服务入口；音频模型工作进程是执行器的内部实现，不是独立部署的业务服务。
 
 ```text
-Application server
-  └─ HTTPS/LAN + Bearer → media executor :8290
-       ├─ SQLite queue and temporary files
-       ├─ ComfyUI proxy → 127.0.0.1:8189
-       ├─ Qwen TTS     → 127.0.0.1:8301
-       ├─ MOSS SFX     → 127.0.0.1:8302
-       ├─ ACE adapter  → 127.0.0.1:8303 → ACE API :8001
-       └─ Stable Audio → 127.0.0.1:8304
+应用服务器
+  └─ Bearer → 中立执行器 :8290（唯一对外入口）
+       ├─ 统一任务队列、GPU 调度、临时结果
+       ├─ Unix Socket → 按需模型工作进程
+       │    ├─ Qwen TTS / MOSS / Qwen ASR / VoxCPM2
+       │    ├─ ACE 适配器 → ACE 官方引擎（本机接口）
+       │    └─ Stable Audio（默认禁用）
+       └─ 本机接口 → ComfyUI
 ```
 
-The application server owns generation records and final files. The executor owns only recoverable execution state and unacknowledged temporary files. A generation ID is the idempotency key.
+执行器自动启动、复用和回收音频工作进程，不为它们分配 TCP 端口或安装独立 systemd 服务。每个工作进程使用自己的 Python 环境，私有通信文件位于执行器数据目录 `workers/`，Unix Socket 仅当前用户可访问。ComfyUI 与 ACE 官方引擎使用现有受管服务，其回环地址由执行器配置，应用无需感知。
+
+应用服务器拥有任务记录和最终文件。执行器只保存可恢复执行状态和等待下载确认的临时文件，以任务 ID 去重。执行器重启时核对工作进程身份、任务日志和上游 ID，不重复提交仍在执行的任务。

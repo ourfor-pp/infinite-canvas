@@ -47,6 +47,12 @@ def _cancel(client, prompt_id):
     if any(p[1] == prompt_id for p in queue.get("queue_running", [])):
         response = client.post("/interrupt", json={"prompt_id": prompt_id})
         response.raise_for_status()
+    # An interrupt acknowledgement is not proof that CUDA execution has stopped.
+    while True:
+        queue = _observe_json(client, "/queue")
+        if not any(p[1] == prompt_id for p in queue.get("queue_running", []) + queue.get("queue_pending", [])):
+            return
+        time.sleep(.25)
 
 
 def run(app, job_id, request):
@@ -152,4 +158,4 @@ def run(app, job_id, request):
             result["execution"]["elapsedSeconds"] = (times["execution_success"] - times["execution_start"]) / 1000
         with app.connect() as db:
             db.execute("UPDATE comfy_executions SET history=? WHERE job_id=?", (json.dumps(history), job_id))
-            db.execute("UPDATE jobs SET status='succeeded',result=?,progress=1,updated_at=? WHERE id=? AND cancel_requested=0", (json.dumps(result), time.time(), job_id))
+            db.execute("UPDATE jobs SET result=?,progress=1,updated_at=? WHERE id=? AND cancel_requested=0", (json.dumps(result), time.time(), job_id))

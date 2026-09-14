@@ -22,7 +22,6 @@ export const COMFY_MODELS = [
     "flux2-dev-fp8-local",
     "minimax-h3-fl2va-local",
     "minimax-h3-ref2va-local",
-    "voxcpm2-local",
     "minimax-music3-local",
 ] as const;
 
@@ -52,7 +51,6 @@ export const COMFY_MODEL_DEFINITIONS: Record<ComfyModel, ComfyModelDefinition> =
     "minimax-h3-fl2va-local": { name: "MiniMax H3 FL2VA", output: "video", inputs: ["text", "image", "video", "audio"], selectable: true, minDurationSeconds: 4, maxDurationSeconds: 15, maxReferenceImages: 4, maxReferenceVideos: 1, maxReferenceAudios: 1, maxReferenceFiles: 5, videoModes: ["fl2va"], videoReferenceRoles: ["first-frame", "last-frame", "continuation"], videoContinuationMode: "reference", videoFps: 24, videoNativeAudio: true, videoNativeResolution: "768p", qualityPresets: ["preview", "final"], supportsTemporalGuides: true, maxTemporalGuides: 4, frameStride: 17, frameBase: 5, turboPreview: true },
     "minimax-h3-ref2va-local": { name: "MiniMax H3 Ref2VA", output: "video", inputs: ["text", "image", "video", "audio"], selectable: true, minDurationSeconds: 4, maxDurationSeconds: 15, maxReferenceImages: 9, maxReferenceVideos: 3, maxReferenceAudios: 3, maxReferenceFiles: 12, videoModes: ["ref2va"], videoReferenceRoles: ["reference", "continuation"], videoContinuationMode: "reference", videoFps: 24, videoNativeAudio: true, videoNativeResolution: "768p", qualityPresets: ["preview", "final"], supportsTemporalGuides: true, maxTemporalGuides: 4, frameStride: 17, frameBase: 5, turboPreview: false },
     "minimax-music3-local": { name: "MiniMax-Music3", output: "audio", inputs: ["text"], selectable: true, audioModes: ["music"], audioOperations: ["generate"], minDurationSeconds: 1, maxDurationSeconds: 300 },
-    "voxcpm2-local": { name: "VoxCPM2", output: "audio", inputs: ["text", "audio"], selectable: true },
 };
 
 export const COMFY_REQUIREMENTS: Partial<Record<ComfyModel, { nodes: string[]; models: Array<{ loader: string; name: string }> }>> = {
@@ -79,7 +77,6 @@ export function buildComfyWorkflow(input: WorkflowInput): Workflow {
     if (input.model === "hidream-o1-full-fp8-local") return hiDream(input);
     if (input.model === "flux2-dev-fp8-local") return flux2Dev(input);
     if (["minimax-h3-fl2va-local", "minimax-h3-ref2va-local", "minimax-music3-local"].includes(input.model)) throw Object.assign(new Error("此能力由媒体执行器构建工作流"), { code: "MEDIA_EXECUTOR_REQUIRED" });
-    if (input.model === "voxcpm2-local") return voxCpm(input);
     throw Object.assign(new Error("不支持的 ComfyUI 模型"), { code: "COMFY_MODEL_UNSUPPORTED", status: 400 });
 }
 
@@ -324,12 +321,5 @@ function flux2Dev(input: WorkflowInput): Workflow {
         conditioning = [referenceId, 0];
     });
     graph["10"].inputs.conditioning = conditioning;
-    return graph;
-}
-
-function voxCpm(input: WorkflowInput): Workflow {
-    const reference = input.files.find((file) => file.kind === "audio");
-    const graph: Workflow = { "1": node("RunningHub_VoxCPM_LoadModel", { model_name: "VoxCPM2", optimize: false, lora_name: "None" }), "2": node("RunningHub_VoxCPM_Generate", { model: ["1", 0], control_instruction: String(input.params.instructions || "自然、清晰、有感染力的中文旁白声音").trim(), text: input.prompt.trim(), cfg_value: Math.max(1, Math.min(5, Number(input.params.cfgValue) || 2)), inference_steps: Math.max(4, Math.min(50, Number(input.params.steps) || 10)), seed: Number.isFinite(Number(input.params.seed)) ? Number(input.params.seed) : seed(), ultimate_clone: input.params.ultimateClone === true, reference_audio_text: String(input.params.referenceTranscript || "").trim(), normalize_text: input.params.normalizeText !== false, denoise_reference: Boolean(reference) && input.params.denoiseReference !== false, max_len: Math.max(256, Math.min(8192, Number(input.params.maxLength) || 4096)), retry_badcase: input.params.retryBadcase !== false }), "3": node("SaveAudio", { audio: ["2", 0], filename_prefix: "InfiniteCanvas/VoxCPM2" }) };
-    if (reference) { graph["4"] = node("LoadAudio", { audio: reference.name }); graph["2"].inputs.reference_audio = ["4", 0]; }
     return graph;
 }

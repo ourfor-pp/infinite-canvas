@@ -11,9 +11,10 @@ import { modelEndpointRegistry, providerBaseUrl, providerPath, type AiModelDefin
 import type { GenerationPurpose } from "./comfy-workflows.js";
 
 export type GenerationMessage = { role: "system" | "user" | "assistant"; content: unknown };
+export type GenerationKind = MediaKind | "transcription";
 export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text">; role?: "reference" | "first-frame" | "last-frame" | "continuation"; purpose?: "reference_input" | "identity_reference" | "wardrobe_reference" | "composition_reference"; label?: string; source?: "style" | "asset" | "canvas" | "primary"; transcript?: string; frameIndex?: number; includeAudio?: boolean };
 export type AiGenerationRequest = {
-    kind: MediaKind;
+    kind: GenerationKind;
     model?: string;
     purpose?: GenerationPurpose;
     prompt?: string;
@@ -322,7 +323,7 @@ async function cancelRemote(context: ProviderContext) {
 }
 
 async function providerFetch(context: ProviderContext, path: string, options: { method: string; json?: unknown; body?: BodyInit; signal?: AbortSignal }) {
-    const timeoutMs = config.aiProviderTimeouts[context.request.kind];
+    const timeoutMs = config.aiProviderTimeouts[context.request.kind === "transcription" ? "text" : context.request.kind];
     let response: Response;
     try {
         response = await fetch(providerPath(context.row, path), {
@@ -341,7 +342,7 @@ async function providerFetch(context: ProviderContext, path: string, options: { 
 }
 
 async function fetchMedia(context: ProviderContext, url: string) {
-    const timeoutMs = config.aiProviderTimeouts[context.request.kind];
+    const timeoutMs = config.aiProviderTimeouts[context.request.kind === "transcription" ? "text" : context.request.kind];
     let response: Response;
     try {
         response = await fetch(url, { headers: requestHeaders(context), signal: AbortSignal.any([context.signal, AbortSignal.timeout(timeoutMs)]), redirect: "error" });

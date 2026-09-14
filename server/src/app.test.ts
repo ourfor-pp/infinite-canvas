@@ -1445,7 +1445,7 @@ test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () 
     const identity = { ready: true, schemaVersion: 1, modelId: "minimax-h3-ref2va-local", modelRevision: `${"a".repeat(64)}:pipeline:${"b".repeat(64)}`, videoVaeRevision: "c".repeat(64), audioVaeRevision: "d".repeat(64), implementationRevision: "b".repeat(64) };
     let ready = true;
     const executor = createServer(async (request, response) => {
-        if (request.url === "/health") json(response, { models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, nativeState: true, pddRef8: ready }, h3Runtime: identity, h3PddRuntime: ready ? { ...identity, modelRevision: `${identity.modelRevision}:pdd-ref8:${"e".repeat(64)}` } : null });
+        if (request.url === "/health") json(response, { protocolVersion: "2", models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, nativeState: true, pddRef8: ready }, h3Runtime: identity, h3PddRuntime: ready ? { ...identity, modelRevision: `${identity.modelRevision}:pdd-ref8:${"e".repeat(64)}` } : null });
         else if (request.url === "/v1/files") { for await (const _chunk of request) { /* consume upload */ } json(response, { id: "uploaded-reference" }); }
         else if (request.url === "/v1/jobs/validate") {
             const chunks = []; for await (const chunk of request) chunks.push(chunk);

@@ -1,8 +1,29 @@
-import { constants, copyFileSync, mkdirSync, statSync } from "node:fs";
+import { constants, copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
 import { db, parseJson } from "../database.js";
 import { getStoredFile, storeLocalFile } from "../file-store.js";
 import { cancelGeneration, generationResponse, getGenerationForAgent } from "../generation-service.js";
+import { transcriptionSchema } from "../transcription.js";
+
+export function readMediaTranscription(userId: string, projectId: string, id: string, offset = 0, limit = 10) {
+    const row = projectMediaGeneration(userId, projectId, id);
+    if (row.kind !== "transcription" || row.status !== "succeeded") throw new Error("当前任务没有已完成的转写结果");
+    const result = parseJson<{ files?: Array<{ fileId: string }> }>(row.result, {});
+    const file = result.files?.[0] && getStoredFile(userId, result.files[0].fileId);
+    if (!file || file.mime_type !== "application/json") throw new Error("转写结果文件不存在或无权访问");
+    const document = transcriptionSchema.parse(JSON.parse(readFileSync(file.path, "utf8")));
+    const segments = [];
+    let size = 0;
+    for (const segment of document.segments.slice(offset, offset + Math.min(20, limit))) {
+        const length = JSON.stringify(segment).length;
+        if (size + length > 24_000) break;
+        size += length;
+        segments.push(segment);
+    }
+    if (!segments.length && offset < document.segments.length) throw new Error("单片段过大，请将完整 JSON 保存到工程后读取");
+    return { fileId: file.id, source: document.source, language: document.language, languages: document.languages, duration: document.duration,
+        total: document.segments.length, offset, segments, nextOffset: offset + segments.length < document.segments.length ? offset + segments.length : null };
+}
 
 export function projectMediaGeneration(userId: string, projectId: string, id: string) {
     const row = getGenerationForAgent(userId, id);
