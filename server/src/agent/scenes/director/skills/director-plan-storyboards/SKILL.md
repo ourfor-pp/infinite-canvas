@@ -1,34 +1,21 @@
 ---
 name: director-plan-storyboards
-description: 将当前已保存剧本无损拆成 4–15 秒视频段，并为每段规划一张包含 1–3 个真实 Shot 的多宫格故事板；用于视频段编排、故事板提示修订和生成前检查。
-allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__director_validate, mcp__infinite_canvas__director_validate_video_segments, mcp__infinite_canvas__director_generate_storyboard]
+description: 按完整场景设计观看顺序、调度、主镜头、反应与补充覆盖，建立不受生成窗口限制的文字分镜，并规划镜头与制作任务的多对多关系。
+allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__director_read_shots, mcp__infinite_canvas__director_read_tasks, mcp__infinite_canvas__director_validate]
 ---
 
-# 导演台故事板规划
+# 镜头规划
 
-先读 [文件格式与完整样例](references/file-format.md)。
+先读 [v2 文件格式](references/file-format.md)、[场景与制作规划](references/segment-planning.md) 和 [镜头语言](references/storyboard-language.md)。按需分页读取当前剧本、制作拆解、导演规则和视觉风格；不要一次读全工程。
 
-先读 [剧本到视频段](references/segment-planning.md)、[故事板与 Shot](references/storyboard-language.md) 与 [连续性检查](references/continuity-qc.md)。读取 `screenplay/`、`screenplay/breakdown/`、`direction/` 和相关 `assets/` 主档；制作拆解缺失或存在 error 时先修复。摄影、表演、节奏、声音和全片禁区应贯彻到所有视频段，但不得替代当前场景的具体戏剧判断。严格分两步执行：先完成场景到视频段的内容覆盖与时长守恒，再为每个视频段设计 Shot 和画格。
+先为完整场景设计观看顺序、人物调度、视线、画面、动作、对白、声音和衔接，再规划主画面、必要反应与补充覆盖。保留表演的铺垫、停顿、转折和后果，不为模型窗口截短文字镜头。素材未齐也能完成全部文字设计。
 
-先完成文字视频段和镜头设计，不等待全剧素材齐备。随后检查本段出镜主体与一致性需求，查询已有素材；复用已有主形象或变体，缺少时才建立本段所需素材档案。普通背景细节直接写入故事板提示词，无需独立素材。素材引用不足只影响当前段的媒体生成，不阻止文字规划；授权完整制作时按当前段缺口继续组合素材设计与生成能力。
+镜头写入 `storyboards/<场景>/shot-<ID>/shot.md`，所属场景保留 `sequence.md`。镜头记录来源场次与节拍、叙事目的、人物调度、摄影、动作、对白、声音、预计时长和开始/结束状态。预计时长表达创作意图，没有 4–15 秒限制。
 
-每段填写来源场次、来源节拍、该段唯一的戏剧变化、开始状态和结束状态。`segment.md` Frontmatter 用 `dramaticBeat`、`openingState`、`endingState` 分别保存这三个叙事字段，正文保存段落描述。一个剧本节拍不得静默丢失；场次拆段后的总计划时长应接近原场次时长。普通段内容超过 15 秒时拆成相邻视频段；续接还需遵循预检返回的实际窗口，不压缩对白、停顿、反应或动作过程来硬塞时长。
+一个镜头可由多个制作任务实现，一个任务也可覆盖多个镜头。素材可重复覆盖同一段戏，为后期提供不同视角；不要求生成总时长等于成片时长。需要安排生成时组合视频生成 Skill，在 `productions/` 另建任务，不把生成参数放进镜头设计。
 
-一张故事板对应一个视频段，版式为 `2×2`、`3×2` 或 `3×3` 整板。此 Skill 先完成文字镜头和最终整板提示；用户授权图片生成时，再使用当前引擎图片能力并遵循素材生成 Skill 的提交与验收规则。不逐格生图，也不把画格拆成独立媒体。
+参考图片是可选输入：可使用单张画面或任意数量结构化关键时刻的多宫格说明，不要求每个镜头先生成图片，也不固定每张参考图的格数。整张参考图仍作为一个媒体文件操作。普通图片使用宿主原生生图能力，遵循工程落盘与索引约定。
 
-每个视频段建立 `storyboards/seq-NNN-*/seg-NNN-*/`，在 `segment.md` Frontmatter 保存来源、顺序、时长、边界和素材稳定 ID，在正文保存戏剧变化、动作和声景；在 `storyboard.yaml` 保存 4–9 个结构化画格，在 `storyboard-prompt.md` 保存最终整板提示词。不要创建任意 payload 或把媒体快照塞入 Markdown 正文。
+视觉风格约束媒介、真实程度、色彩、材质、光线和摄影质感。剪辑节奏由剧本与表演需要决定，不从风格说明继承无依据的快切或蒙太奇。
 
-场景、时空或主要人物组合发生明显变化时拆成新的视频段和独立故事板，不把跨场景过渡塞进同一张整板。普通相邻段使用 `cut`；只有同一动作、同一空间和同一镜头运动确实跨越段界时，下一段才使用 `continue` 并填写 `continuationFromSegmentId`。声音先于画面进入或延后退出属于时间线声桥，不因此改成首尾帧视频生成。确有溶变式形态变化、穿越遮挡物或其他必须生成的视觉桥接时，单独创建 4–6 秒 `generationIntent: transition` 视频段，并填写 `transitionFromSegmentId` 与 `transitionToSegmentId`；它不生成故事板，必须等相邻两段已有实际首尾帧后再生成。
-
-视觉风格只约束媒介、真实程度、色彩、材质、光线和摄影质感，不得从风格描述继承“短促切镜、快节奏、蒙太奇”等剪辑指令。剪辑节奏必须由当前剧本节拍和表演需要决定。
-
-同时为视频段填写简洁的英文 `h3VisualDescription` 与具体英文 `h3Soundscape`：前者只描述可见动作、构图和运镜，后者只描述环境声、同步动作声和非语言人声。不要继续填写旧的段落级 `dialogue`；精确对白在画格的 `dialogues` 中结构化提交。
-
-整理已有提示词时先运行工程校验，只修返回问题的视频段。按剧情段落分页读取，每批最多十个视频段：
-
-1. 把旧 `sound` 中形如“角色：台词”的内容拆开；对白原文移入 `dialogues`，咳嗽、呼吸、脚步等才留在 `sound`。
-2. 每条对白填写角色素材 ID、角色名、原文、语言、英文语气与发声方式、精确起止秒数及是否画外；对白窗口必须足够念完且默认不重叠。
-3. 先按真实构图切换划分 1–3 个 Shot，再为画格连续编号；同一连续镜头中的动作推进保持同一 Shot，不能把整段机械地全标为 Shot 1。
-4. 每格提交精确时间、类型、用于图片模型生成整板的画面/动作/机位/运镜，以及简洁英文 `h3Visual` 和具体英文 `sound`。`h3Visual` 只写可观察构图、主体动作、环境状态和运镜，不写标题、字段名或声音。
-
-第一格从 0 秒开始，最后一格落在视频段结尾，时间严格递增。修改 YAML 或提示词后不要碰 `storyboard.png`，旧图由内容哈希自动标记过期。更新一批后再次运行工程校验；除非用户明确要求生成，否则只修文件，不触发图片或视频任务。
+修改前读取当前文件哈希；保存后运行 `director_validate`。已有任务受镜头变化影响时标记待检查；未经授权不重生成。计划时点只是意图，实际切点必须查看生成视频才能确定。

@@ -44,7 +44,7 @@ test("普通视频段无论内部 Shot 数量都使用整张故事板 Ref2VA", (
 });
 
 test("连续段使用 Ref2VA 尾部音视频，独立视觉过渡才使用 FL2VA", () => {
-    assert.deepEqual(resolveH3Route({ boundary: "continue" }, sheet([1, 1, 1, 1])), { mode: "ref2va", reason: "连续视频段使用上一段尾部音视频与当前完整故事板续写" });
+    assert.deepEqual(resolveH3Route({ boundary: "continue" }, sheet([1, 1, 1, 1])), { mode: "ref2va", reason: "连续任务使用上一任务的运动与原声状态续写" });
     assert.deepEqual(resolveH3Route({ generationIntent: "transition" }, sheet([1, 1, 1, 1])), { mode: "fl2va", reason: "视觉过渡使用前段尾帧与后段首帧生成" });
 });
 

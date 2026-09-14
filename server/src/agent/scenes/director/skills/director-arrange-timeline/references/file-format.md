@@ -1,11 +1,9 @@
-# 时间线文件契约
+# 时间线 v2
 
-完整样例见 [timeline.json](timeline.json)。所有时间单位为秒；音频路径从工程根目录解析。示例的 `model-audio.wav` 必须由视频生成获得或替换为已有声音路径，不能伪造空文件。
+权威文件为 `timeline/timeline.json`，完整例子见 [timeline.json](timeline.json)。
 
-`segmentOrder` 按叙事顺序列出 segment.md 稳定 ID，不得重复；省略时使用工程段落与视频段顺序。`tracks` 可省略或为空。每轨必填唯一 `id`、`kind`、`clips`。kind 为 dialogue / narration / ambient / sfx / music / model-original。
+`videoClips` 为有序数组，每项 `id` 唯一；`taskId` 可重复。`trimIn >= 0`，`trimOut > trimIn`，均为任务当前结果的实际素材秒数。`linkedAudio` 默认 true。
 
-每个 clip 必填全时间线唯一 `id`、全片起点 `start >= 0`、`duration > 0`；可选所属 `segmentId`、声音文件 `path`、素材裁切起点 `trimIn >= 0`、`volume >= 0`、`muted`、`loop`。duration 控制实际使用长度，`trimOut` 保留界面数据但当前合成器不读取，请勿依赖它进行裁切。无 path 的草稿片段给出 warning，指定了不存在的文件则为 error。不要填写数据库 fileId。
+`tracks` 保留 id、kind、clips。声音片段用 `taskId` 引用任务当前模型原声，或用 `path` 指定工程内音视频文件；start 是成片时间，trimIn 是素材入点，duration 是采用时长，volume 是线性增益。任务原声解关联后必须关闭对应视频片段的 linkedAudio。
 
-各声音轨允许重叠和跨段声桥。视频段的 boundary / durationSeconds 写在 segment.md，时间线不重复定义视频生成模式或段时长。写完运行 director_validate；模型原声默认启用，不自动删除。
-
-声音片段可设置 `fadeIn`、`fadeOut`（非负秒数，各自不超过 `duration`）；淡入从片段开始，淡出在片段结束前执行，均使用裁取后局部时间。省略时保持原固定音量行为。
+任务媒体尚未生成时保留引用并报告待制作；重做变短后越界会报错，不自动删片段或缩短。禁止写 segmentOrder。

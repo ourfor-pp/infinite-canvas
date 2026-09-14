@@ -11,7 +11,7 @@ export type AgentCanvasContext = {
 export type AgentEntityReference = { instruction?: string } & (
     | { kind: "asset"; projectId: string; assetId: string; nodeId?: string; path?: string; title: string; subtitle: string }
     | { kind: "style"; projectId: string; styleId: string; nodeId?: string; title: string; subtitle: string }
-    | { kind: "director"; projectId: string; entityKind: "story" | "script" | "directing-plan" | "sequence" | "video-segment" | "timeline"; entityId: string; title: string; subtitle: string });
+    | { kind: "director"; projectId: string; entityKind: "story" | "script" | "directing-plan" | "sequence" | "shot-design" | "production-task" | "video-segment" | "timeline"; entityId: string; title: string; subtitle: string });
 export const EMPTY_AGENT_ENTITY_REFERENCES: AgentEntityReference[] = [];
 
 type AgentStore = {

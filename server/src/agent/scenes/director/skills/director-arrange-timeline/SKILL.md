@@ -1,17 +1,19 @@
 ---
 name: director-arrange-timeline
-description: 编排视频段与声音轨、检查实际时长和声桥，并提交、查看或重试整片 MP4 导出。
-allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__director_generate_music, mcp__infinite_canvas__director_get_generation_status, mcp__infinite_canvas__director_list_models, mcp__infinite_canvas__director_validate, mcp__infinite_canvas__director_list_renders, mcp__infinite_canvas__director_start_render, mcp__infinite_canvas__director_cancel_render, mcp__infinite_canvas__director_retry_render]
+description: 按实际素材选片、裁切和排序，独立编排模型原声与声音轨，核对内容覆盖及声画衔接并导出固定媒体快照。
+allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__director_read_tasks, mcp__infinite_canvas__director_read_edit, mcp__infinite_canvas__director_edit_timeline, mcp__infinite_canvas__director_generate_music, mcp__infinite_canvas__director_get_generation_status, mcp__infinite_canvas__director_list_models, mcp__infinite_canvas__director_validate, mcp__infinite_canvas__director_list_renders, mcp__infinite_canvas__director_start_render, mcp__infinite_canvas__director_cancel_render, mcp__infinite_canvas__director_retry_render]
 ---
 
-# 导演台时间线编排
+# 选片与剪辑
 
-先读 [文件格式与完整样例](references/file-format.md)。
+先读 [文件格式](references/file-format.md)。视频主轨按 `videoClips` 顺序拼接，每个片段有独立 id、taskId、trimIn、trimOut、linkedAudio。允许同一任务重复使用不同范围，不把生成任务总时长当作成片时长。
 
-以视频段为主轨，按叙事顺序设置时长、裁切、音量、静音、循环和 `cut`/`continue` 边界。保留默认启用的模型原声轨，并根据剧本与资产引用铺设对白、旁白、环境声、道具音效和背景音乐；可建议静音模型原声，但不得自动删除。需要 J-cut 或 L-cut 时让声音轨跨越视频段边界，不要因此把普通画面切换改成首尾帧视频生成。
+先观看实际素材并确定剪接点，再编排。计划画格时点不能直接作为素材分界。加入视频默认 `linkedAudio: true`；需要 J-cut/L-cut 时设置 false，并把该任务原声作为独立 track clip，避免双重播放。
 
-需要独立配乐时，先阅读 [配乐工程与生成](references/music.md)，按故事的情绪变化和对白留白设计音乐；不要为配乐创建伪角色、场景或道具。
+声音可跨画面边界，设置成片 start、素材 trimIn、duration、volume、muted、loop、fadeIn/fadeOut；独立声音可来自任务 taskId 或工程媒体 path。模型原声由任务当前输出解析，累计续接的时间偏移交给服务端播放计划，不能手工把累计偏移再次加进 taskId 片段。
 
-直接维护 `timeline/timeline.json`。写入前检查缺失视频、重叠声音和连续性问题，写完调用 `director_validate`；不把可选声音缺失误报为视频阻塞。
+保存前读取当前文件/hash 或使用当前 timeline revision，冲突时重新读取，不猜版本。保存后校验并用服务端播放计划检查实际裁切；任务替换后裁切越界必须调整，不静默缩短。
 
-导出前或处理合成任务时阅读 [成片提交与验收](references/rendering.md)。时间线使用实际媒体时长，保留原生帧对齐尾部；累计视频与原声的连续链由后端解析，不能把累计画面与其前段再次拼接。
+生成完成不自动加入成片。完整性按当前预期剪辑的剧情、动作、对白及反应覆盖检查，允许任务之间戏剧时间重叠。
+
+独立配乐见 [配乐](references/music.md)。导出见 [提交与验收](references/rendering.md)：提交时固定媒体快照，后续重做不改变该次导出。浏览器预览与导出使用同一播放计划；代码测试不能替代真实声画检查。

@@ -1,5 +1,5 @@
 import { markDirectorProjectChanged, type DirectorResource } from "./director-sync.js";
-import { screenplayScene, screenplayReviewIssue } from "./director-file-contract.js";
+import { projectMediaPath, screenplayScene, screenplayReviewIssue } from "./director-file-contract.js";
 import { h3AudioReferencesInput } from "./h3-prompt.js";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
@@ -11,7 +11,7 @@ import { z } from "zod";
 import { db, parseJson } from "./database.js";
 import { getStoredFile, syncFileRefs } from "./file-store.js";
 import {
-    getDirectorAssetDetail, reconcileDirectorProjectFiles, syncDirectorBreakdownFile, syncDirectorDirectionFiles, syncDirectorDocumentFile,
+    validateDirectorTimelineInput, getDirectorAssetDetail, reconcileDirectorProjectFiles, syncDirectorBreakdownFile, syncDirectorDirectionFiles, syncDirectorDocumentFile,
     syncDirectorSequenceFile, syncDirectorSourceFiles, syncDirectorTimelineFile, syncDirectorVideoSegmentFile, trashDirectorSequenceFolder, trashDirectorVideoSegmentFolder,
 } from "./director-workspace.js";
 
@@ -26,9 +26,9 @@ type SequenceRow = { id: string; user_id: string; project_id: string; position: 
 type ShotRow = { id: string; user_id: string; project_id: string; sequence_id: string; position: number; title: string; status: DirectorEntityStatus; payload: string; revision: number; created_at: string; updated_at: string };
 type TimelineRow = { project_id: string; user_id: string; payload: string; revision: number; created_at: string; updated_at: string };
 type SourceChapter = { heading: string; content: string };
-export type DirectorStoryboardLayout = "2x2" | "3x2" | "3x3";
+export type DirectorStoryboardLayout = "single" | `${number}x${number}`;
 
-const id = z.string().trim().min(1).max(128);
+const id = z.string().trim().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/);
 const status = z.enum(["draft", "confirmed", "locked"]);
 const record = z.record(z.string(), z.unknown());
 const sourceInput = z.object({ fileId: id });
@@ -386,6 +386,7 @@ export function updateDirectorTimeline(userId: string, projectId: string, body: 
     assertDirectorProject(userId, projectId);
     const value = timelinePatch.parse(body);
     validateTimeline(userId, projectId, value.payload);
+    validateDirectorTimelineInput(userId, projectId, value.payload);
     const current = db.prepare("SELECT * FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
     const now = new Date().toISOString();
     const result = db.prepare("UPDATE director_timelines SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND revision=?")
@@ -566,23 +567,25 @@ function normalizeShotPayload(payload: Record<string, unknown>, sequence: Sequen
         const file = getStoredFile(userId, fileId);
         if (!file || !file.mime_type.startsWith("audio/")) throw directorError(400, "DIRECTOR_AUDIO_REFERENCE_INVALID", "音频参考文件不存在或不是音频");
     }
+    const shotIds = z.array(id).default([]).parse(payload.shotIds);
+    const referenceImages = z.array(projectMediaPath).default([]).parse(payload.referenceImages);
+    for (const shotId of shotIds) if (!db.prepare("SELECT 1 FROM director_file_index WHERE user_id=? AND project_id=? AND entity_id=? AND kind='shot-design'").get(userId, sequence.project_id, shotId)) throw directorError(400, "DIRECTOR_TASK_SHOT", `制作任务关联的镜头不存在：${shotId}`);
     const dependencies = typeof payload.dependencies === "object" && payload.dependencies ? payload.dependencies : parseJson<Record<string, unknown>>(sequence.payload, {}).dependencies;
     const legacy = payload.references && typeof payload.references === "object" ? payload.references as Record<string, unknown> : {};
     const refs = (value: unknown) => Array.isArray(value) ? value : [];
-    const durationSeconds = Math.round(Number(payload.durationSeconds ?? payload.duration) || 4);
-    if (durationSeconds < 4 || durationSeconds > 15) throw directorError(400, "DIRECTOR_VIDEO_SEGMENT_DURATION", "视频段时长必须为 4–15 秒；更长内容请先拆段");
+    const durationSeconds = Number(payload.durationSeconds ?? payload.duration ?? 4);
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw directorError(400, "DIRECTOR_TASK_DURATION", "制作任务时长必须大于 0");
     const existingSheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : undefined;
     const existingFrames = Array.isArray(existingSheet?.frames) ? existingSheet.frames as Array<Record<string, unknown>> : [];
-    const requestedCount = Number(payload.storyboardFrameCount);
-    const frameCount = [4, 6, 9].includes(requestedCount) ? requestedCount : [4, 6, 9].includes(existingFrames.length) ? existingFrames.length : recommendedStoryboardFrameCount(durationSeconds);
-    const sheetChanged = Boolean(existingSheet && existingFrames.length !== frameCount);
-    const storyboardSheet = existingSheet && !sheetChanged ? { ...existingSheet, layout: storyboardLayout(frameCount), frames: normalizeStoryboardFrames(existingFrames, durationSeconds) } : buildStoryboardSheet(durationSeconds, frameCount, payload, existingFrames, Number(existingSheet?.revision || 0) + 1);
+    const frameCount = existingFrames.length;
+    const sheetChanged = false;
+    const storyboardSheet = existingSheet ? { ...existingSheet, frames: normalizeStoryboardFrames(existingFrames, durationSeconds) } : { revision: 1, layout: "single", frames: [] };
     const { references: _references, h3ModeOverride: _h3ModeOverride, firstFrameFileId: _firstFrameFileId, lastFrameFileId: _lastFrameFileId, ...cleanPayload } = payload;
-    return { ...cleanPayload, audioReferences, entityKind: "video-segment", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), storyboardFrameCount: frameCount, storyboardSheet, ...(sheetChanged ? { videoStale: Boolean(payload.videoFileId) } : {}), dependencies, needsReview: false };
+    return { ...cleanPayload, shotIds, referenceImages, audioReferences, entityKind: "production-task", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), storyboardFrameCount: frameCount, storyboardSheet, ...(sheetChanged ? { videoStale: Boolean(payload.videoFileId) } : {}), dependencies, needsReview: false };
 }
 
 export function recommendedStoryboardFrameCount(durationSeconds: number) { return durationSeconds <= 6 ? 4 : durationSeconds <= 10 ? 6 : 9; }
-export function storyboardLayout(frameCount: number): DirectorStoryboardLayout { return frameCount === 9 ? "3x3" : frameCount === 6 ? "3x2" : "2x2"; }
+export function storyboardLayout(frameCount: number): DirectorStoryboardLayout { return frameCount <= 1 ? "single" : frameCount === 9 ? "3x3" : frameCount === 6 ? "3x2" : "2x2"; }
 
 function buildStoryboardSheet(duration: number, frameCount: number, payload: Record<string, unknown>, source: Array<Record<string, unknown>> = [], revision = 1) {
     const intent = String(payload.description || payload.action || "");
@@ -602,7 +605,7 @@ function normalizeStoryboardFrames(frames: Array<Record<string, unknown>>, durat
             id: String(frame.id || nanoid()),
             position,
             shotNumber: Math.max(1, Math.round(Number(frame.shotNumber ?? frame.shot ?? 1) || 1)),
-            timeSeconds: Math.max(0, Math.min(duration, Number(frame.timeSeconds) || 0)),
+            timeSeconds: Math.max(0, Number(frame.timeSeconds) || 0),
             kind: frame.kind === "shot-start" || frame.kind === "shot-end" ? frame.kind : "keyframe",
             description: String(frame.description || ""),
             action: String(frame.action || ""),
@@ -626,7 +629,7 @@ function storyboardPlanChanged(before: Record<string, unknown>, after: Record<st
 
 function validateTimeline(userId: string, projectId: string, payload: Record<string, unknown>) {
     const shotIds = new Set((db.prepare("SELECT id FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>).map((row) => row.id));
-    const order = Array.isArray(payload.segmentOrder) ? payload.segmentOrder : [];
+    const order = Array.isArray(payload.videoClips) ? payload.videoClips.map((clip: any) => clip.taskId) : [];
     if (order.some((shotId) => typeof shotId !== "string" || !shotIds.has(shotId))) throw directorError(400, "DIRECTOR_TIMELINE_SEGMENT", "时间线包含不属于本项目的视频段");
 }
 
@@ -668,6 +671,7 @@ function videoSegmentPromptResponse(segment: ReturnType<typeof videoSegmentRespo
     const sheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : {};
     const frames = Array.isArray(sheet.frames) ? sheet.frames as Array<Record<string, unknown>> : [];
     return { ...segment, payload: {
+        shotIds: payload.shotIds, referenceImages: payload.referenceImages, promptPath: payload.promptPath, videoPrompt: payload.videoPrompt, videoFileId: payload.videoFileId, videoDurationSeconds: payload.videoDurationSeconds,
         audioReferences: payload.audioReferences, durationSeconds: payload.durationSeconds, sourceSceneId: payload.sourceSceneId, sourceBeatIds: payload.sourceBeatIds, sourceDurationSeconds: payload.sourceDurationSeconds, dramaticBeat: payload.dramaticBeat, openingState: payload.openingState, endingState: payload.endingState, boundary: payload.boundary, continuationFromSegmentId: payload.continuationFromSegmentId, description: payload.description, action: payload.action, dialogue: payload.dialogue, narration: payload.narration, soundDesign: payload.soundDesign, h3VisualDescription: payload.h3VisualDescription, h3Soundscape: payload.h3Soundscape, h3NonDiegeticMusic: payload.h3NonDiegeticMusic,
         characterRefs: payload.characterRefs, sceneRefs: payload.sceneRefs, propRefs: payload.propRefs,
         storyboardStale: Boolean(payload.storyboardStale), videoStale: Boolean(payload.videoStale),

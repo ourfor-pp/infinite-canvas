@@ -46,7 +46,7 @@ export function directorResourcesForPaths(paths: readonly string[]): DirectorRes
         else if (root === "direction") { resources.add("direction"); resources.add("segments"); }
         else if (root === "sources") resources.add("sources");
         else if (root === "assets") { resources.add("assets"); resources.add("segments"); }
-        else if (root === "storyboards" || root === "videos") { resources.add("segments"); resources.add("timeline"); }
+        else if (root === "storyboards" || root === "productions") { resources.add("segments"); resources.add("timeline"); }
         else if (root === "timeline") resources.add("timeline");
         else if (root === "renders") resources.add("renders");
         else if (!["AGENTS.md", "README.md"].includes(path)) directorResources.forEach((resource) => resources.add(resource));

@@ -1,24 +1,9 @@
 {
-  "segmentOrder": [
-    "segment-001"
+  "videoClips": [
+    { "id": "clip-001", "taskId": "task-001", "trimIn": 0, "trimOut": 6, "linkedAudio": false },
+    { "id": "clip-002", "taskId": "task-001", "trimIn": 6.5, "trimOut": 8, "linkedAudio": false }
   ],
-  "tracks": [
-    {
-      "id": "original",
-      "kind": "model-original",
-      "clips": [
-        {
-          "id": "original-001",
-          "segmentId": "segment-001",
-          "path": "videos/seg-segment-001/model-audio.wav",
-          "start": 0,
-          "duration": 6,
-          "trimIn": 0,
-          "volume": 1,
-          "muted": false,
-          "loop": false
-        }
-      ]
-    }
-  ]
+  "tracks": [{ "id": "voice", "kind": "model-original", "clips": [
+    { "id": "audio-001", "taskId": "task-001", "start": 0, "trimIn": 0, "duration": 6, "volume": 1 }
+  ] }]
 }

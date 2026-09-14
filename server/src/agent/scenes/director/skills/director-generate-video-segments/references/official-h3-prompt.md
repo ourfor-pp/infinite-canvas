@@ -27,7 +27,7 @@
 - 无配乐时将 `non_diegetic_music` 写成 `N/A`。
 - 不把视频段标题、人物名、Shot 标签、时间、动作说明或其他元数据当成可朗读内容。
 - Turbo 仅用于快速画面预览；上游要求 4–8 步配合 `simple` 调度，且明确说明音频仍在改进。含对白、旁白或精确音效时优先基础模型预览，不把 Turbo 原声当作验收结果。
-- H3 Prompt 只实现已确定的视频段内容，不能补写剧本、压缩对白、删除停顿或增加未规划切镜。若内容无法在 4–15 秒内自然完成，返回上游重新拆段。
+- H3 Prompt 只实现已确定的视频段内容，不能补写剧本、压缩对白、删除停顿或增加未规划切镜。若内容无法在当前模型单次窗口内自然完成，为同一镜头安排多个任务；不得截断镜头设计。
 
 ## Ref2VA
 
@@ -42,9 +42,9 @@
 
 `detailed_description` 先用一句英文声明整体视觉风格，再开始 `[Shot 1]`。按照官方指南，通常展开为约 350–500 个英文词；只细化已规划的可观察内容，包括开场位置、连续动作路径、时间点、动作结果和结束状态，不靠增加剧情或切镜凑字数。
 
-用 `<Subject N>` 表示可复用主体；普通导演视频段把 `<Picture 1>` 固定为从左到右、从上到下读取的完整故事板，其余 `<Picture N>` 才用于角色、场景、道具或风格参考；用 `<Video N>` 表示上一段运动与原声续接来源，用 `<Audio N>` 表示复制或参考的音频。标签在六段中保持同一含义。不得把整张故事板裁成普通视频的硬时间锚点，也不得让输出保留宫格或分屏版式。
+用 `<Subject N>` 表示可复用主体；图片编号严格对应任务显式输入顺序，可为单图、故事板或角色、场景、道具、风格参考，不预留固定故事板位置；用 `<Video N>` 表示上一段运动与原声续接来源，用 `<Audio N>` 表示复制或参考的音频。标签在六段中保持同一含义。不得把整张故事板裁成普通视频的硬时间锚点，也不得让输出保留宫格或分屏版式。
 
-角色参考不能只声明为普通图片。应先定义 `<Subject 1> is the character shown in <Picture 2>`，再在 `detailed_description` 中用 `<Subject 1> (S1)` 指向稳定身份。例如：
+角色参考不能只声明为普通图片。应先定义 `<Subject 1> is the character shown in <Picture N>`，再在 `detailed_description` 中用 `<Subject 1> (S1)` 指向稳定身份。例如：
 
 ```text
 At 00:02.200, <Subject 1> (S1) turns toward the doorway and speaks on screen with natural synchronized lip movement, in a restrained and wary delivery: <d>[Chinese] 你是谁？</d>

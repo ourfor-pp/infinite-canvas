@@ -1,5 +1,5 @@
 version: 1
-segmentId: segment-001
+segmentId: task-001
 layout: 2x2
 frames:
   - id: frame-001

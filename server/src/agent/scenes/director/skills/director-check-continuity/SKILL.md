@@ -1,15 +1,17 @@
 ---
 name: director-check-continuity
-description: 对照故事板、素材和实际视频取样检查身份、空间、动作接点、对白与声桥连续性，给出可定位证据和最小修订建议。
-allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__director_validate, mcp__infinite_canvas__media_prepare_video_overview, mcp__infinite_canvas__media_sample_video_frames, mcp__infinite_canvas__media_understand_audios]
+description: 按镜头意图与实际选片核对身份、空间、视线、道具、动作、对白和可用剪接点，区分计划判断与真实声画证据。
+allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__director_read_shots, mcp__infinite_canvas__director_read_tasks, mcp__infinite_canvas__director_read_edit, mcp__infinite_canvas__director_validate, mcp__infinite_canvas__media_prepare_video_overview, mcp__infinite_canvas__media_sample_video_frames, mcp__infinite_canvas__media_understand_audios]
 ---
 
 # 连续性检查
 
-先按 `timeline/timeline.json` 定位待检查段及相邻段，再读取它们的 `segment.md`、`storyboard.yaml`、整张故事板、`videos/seg-<segmentId>/` 下实际媒体和相关素材。没有实际媒体时只能检查文字计划，不能声称画面连续性已通过。
+从 `timeline/timeline.json` 的独立片段 ID 和实际入出点定位素材，再读取关联 `productions/<任务ID>/task.md`、当前视频和 `storyboards/` 镜头设计。没有实际媒体时只能检查文字计划。
 
-使用当前场景的媒体取样能力先看联系表，再在明确接点前后取帧并按顺序观察。检查人物身份、屏幕方向、站位、动作阶段、道具持有与损毁、服装、时空与光线。声音使用媒体理解能力检查台词遗漏、重复、说话人、突变和声桥；语义判断不能冒充精确逐词对齐。单张首尾帧也不能证明运动平滑。
+先看联系表，再在实际剪接点前后取帧并顺序观看；检查人物身份、空间轴线、视线、屏幕方向、道具状态、服装、动作阶段、对白时序和声桥。多镜头生成的计划切点不等于实际切点；单张首尾帧不能证明运动平滑。
 
-每个发现给出“文件或视频段路径 + 实际时间点 + 观察到的冲突 + 影响 + 最小修订建议”，区分确定问题与证据不足。画格仅用于对照结构，整张故事板仍作为一个文件查看与操作。
+模型原声按任务素材时间映射；解关联后可先入或后出。检查漏词、重复台词、说话人、断句和突变，不用音频语义理解冒充精确逐词对齐。
 
-用户只要求检查时不改文件；明确要求修复时修改相关文字或时间线并校验，媒体重生成需已有授权。前段变化只标记受影响内容待检查，不默认重做全片。
+每项发现写明“片段 ID + 任务路径 + 实际秒数 + 观察证据 + 影响 + 最小修订建议”。覆盖完整性以预期剪辑是否表达剧本必要内容为准，允许素材时间重叠，不要求任务时长守恒。
+
+只要求检查时不修改；获准修订后只调整受影响镜头、任务或裁切并校验。上游重做后逐项定位下游依赖，不默认重做全片。

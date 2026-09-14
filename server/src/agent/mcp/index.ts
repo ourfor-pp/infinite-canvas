@@ -28,6 +28,7 @@ import {
   updateDirectorWorkspace,
 } from "../../director.js";
 import {
+  getDirectorPlaybackPlan,
   cancelDirectorRender,
   createDirectorRender,
   createDirectorVideoSegmentGeneration,
@@ -38,7 +39,7 @@ import {
   updateDirectorStoryboardPrompts,
 } from "../../director-render.js";
 import { sceneTools, type AgentSceneDefinition } from "../scenes/index.js";
-import { reconcileDirectorProjectFiles, assertDirectorProjectValid, resolveDirectorEntityReference, trashDirectorProjectPath, validateDirectorProject } from "../../director-workspace.js";
+import { listDirectorShotDesigns, saveDirectorShotDesign, reconcileDirectorProjectFiles, assertDirectorProjectValid, resolveDirectorEntityReference, trashDirectorProjectPath, validateDirectorProject } from "../../director-workspace.js";
 import { createDirectorAssetGeneration } from "../../creative-asset-generation.js";
 import {
   addAsset,
@@ -282,6 +283,10 @@ export function buildAgentToolDefinitions(
           { path: z.string().min(1).max(500) },
           (input) => trashDirectorProjectPath(run.userId, projectId, String((input as { path: string }).path)),
         ),
+        call("director_read_shots", "分页读取镜头设计与文件 hash；镜头时长独立于单次生成窗口。", { offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(20).default(10) }, (input) => { const value = input as { offset: number; limit: number }; reconcileDirectorProjectFiles(run.userId, projectId); return listDirectorShotDesigns(run.userId, projectId, value.offset, value.limit); }),
+        call("director_read_tasks", "分页读取制作任务、覆盖镜头、当前输出及 revision。", { sequenceId: z.string().optional(), q: z.string().optional(), offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(10).default(5), view: z.enum(["prompt", "full"]).default("prompt") }, (input) => listDirectorVideoSegments(run.userId, projectId, input)),
+        call("director_read_edit", "读取权威剪辑 revision 和有界播放计划。实际素材时间已解析累计续接偏移。", { offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(100).default(20) }, async (input) => { const { offset, limit } = input as { offset: number; limit: number }; const plan = await getDirectorPlaybackPlan(run.userId, projectId); return { ...plan, segments: plan.segments.slice(offset, offset + limit), audio: plan.audio.slice(offset, offset + limit), totalVideoClips: plan.segments.length, totalAudioClips: plan.audio.length, nextOffset: Math.max(plan.segments.length, plan.audio.length) > offset + limit ? offset + limit : null }; }),
+        call("director_edit_timeline", "按当前 revision 保存独立视频片段与声音编排。videoClips 支持重复 taskId 和独立 id/trimIn/trimOut/linkedAudio。", { revision: z.number().int().positive(), payload: z.record(z.string(), z.unknown()) }, (input) => updateDirectorTimeline(run.userId, projectId, input)),
         call(
           "director_get_state",
           "读取导演项目的轻量权威概览、revision 和实体数量。具体正文、剧情段落或视频段必须再调用对应读取工具。",
@@ -485,7 +490,7 @@ export function buildAgentToolDefinitions(
           { segmentPath: z.string().min(1).optional(), segmentId: z.string().min(1).optional(), revision: z.number().int().positive().optional(), model: z.string().optional() },
           (input) => {
             const value = input as { segmentPath?: string; segmentId?: string; revision?: number } & Record<string, unknown>;
-            const segmentId = value.segmentPath ? resolveDirectorEntityReference(run.userId, projectId, value.segmentPath, ["video-segment"]).id : value.segmentId;
+            const segmentId = value.segmentPath ? resolveDirectorEntityReference(run.userId, projectId, value.segmentPath, ["production-task"]).id : value.segmentId;
             if (!segmentId) throw mcpError(400, "DIRECTOR_SEGMENT_REQUIRED", "请提供 segmentPath");
             const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
             return createDirectorStoryboardGeneration(run.userId, segmentId, { ...value, revision: value.revision ?? segment.revision });
@@ -578,15 +583,15 @@ export function buildAgentToolDefinitions(
           },
         ),
         call(
-          "director_validate_video_segments",
-          "只读校验最多 100 个视频段的来源节拍、时长守恒、故事板 Shot 结构、素材、H3 英文视觉描述、结构化对白和声景是否可生成；不创建任务、不消费额度。",
-          { ...(engine === "codex" ? {} : { segmentIds: z.array(z.string().min(1)).min(1).max(100).optional() }), segmentPaths: z.array(z.string().min(1)).min(1).max(100).optional() },
+          "director_preflight_tasks",
+          "只读校验制作任务的实际模型时长窗口、显式输入、最终提示与续接状态；不要求固定故事板或任务时长守恒。",
+          { ...(engine === "codex" ? {} : { segmentIds: z.array(z.string().min(1)).min(1).max(100).optional() }), taskPaths: z.array(z.string().min(1)).min(1).max(100).optional() },
           async (input) => {
             reconcileDirectorProjectFiles(run.userId, projectId);
             assertDirectorProjectValid(run.userId, projectId);
-            const value = input as { segmentIds?: string[]; segmentPaths?: string[] };
-            const ids = value.segmentPaths?.map((path) => resolveDirectorEntityReference(run.userId, projectId, path, ["video-segment"]).id) || value.segmentIds;
-            if (!ids?.length) throw new Error("请提供 segmentPaths");
+            const value = input as { segmentIds?: string[]; taskPaths?: string[] };
+            const ids = value.taskPaths?.map((path) => resolveDirectorEntityReference(run.userId, projectId, path, ["production-task"]).id) || value.segmentIds;
+            if (!ids?.length) throw new Error("请提供 taskPaths");
             const results = [];
             for (const segmentId of ids) {
               const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
@@ -647,19 +652,19 @@ export function buildAgentToolDefinitions(
           },
         ),
         call(
-          "director_generate_video_segment",
-          "读取视频段工程目录并锁定当前故事板快照，以完整故事板和素材参考生成带原生声音的视频段；已就绪的普通 Ref2VA 图片参考默认使用加速配方，recipe=base 显式使用基础版。续接沿用前段配方，切换配方需从连续镜头首段重做。优先传 segmentPath。",
+          "director_generate_task",
+          "读取 productions 制作任务和原样最终提示，按显式参考生成当前结果；可无故事板，成功后替换，失败保留旧媒体。续接沿用上游运行时身份与配方。优先传 taskPath。",
           {
-            segmentPath: engine === "codex" ? z.string().min(1) : z.string().min(1).optional(),
+            taskPath: engine === "codex" ? z.string().min(1) : z.string().min(1).optional(),
             ...(engine === "codex" ? {} : { segmentId: z.string().min(1).optional(), revision: z.number().int().positive().optional() }),
             model: z.string().optional(),
             qualityPreset: z.enum(["preview", "final"]).default("preview"),
             recipe: z.enum(["base", "pdd-ref8"]).optional(),
           },
           (input) => {
-            const value = input as { segmentPath?: string; segmentId?: string; revision?: number } & Record<string, unknown>;
-            const segmentId = value.segmentPath ? resolveDirectorEntityReference(run.userId, projectId, value.segmentPath, ["video-segment"]).id : value.segmentId;
-            if (!segmentId) throw mcpError(400, "DIRECTOR_SEGMENT_REQUIRED", "请提供 segmentPath");
+            const value = input as { taskPath?: string; segmentId?: string; revision?: number } & Record<string, unknown>;
+            const segmentId = value.taskPath ? resolveDirectorEntityReference(run.userId, projectId, value.taskPath, ["production-task"]).id : value.segmentId;
+            if (!segmentId) throw mcpError(400, "DIRECTOR_SEGMENT_REQUIRED", "请提供 taskPath");
             const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
             return createDirectorVideoSegmentGeneration(
               run.userId,

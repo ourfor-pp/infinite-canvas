@@ -33,13 +33,13 @@ import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles,
 import { createVisualStyleAnalysis, createVisualStyleReferences } from "./visual-style-generation.js";
 import {
     createDirectorSequence, createDirectorSource, createDirectorVideoSegment, deleteDirectorSequence, deleteDirectorVideoSegment,
-    getDirectorDocument, getDirectorScreenplayBreakdown, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
+    listDirectorVideoSegments, getDirectorDocument, getDirectorScreenplayBreakdown, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
     updateDirectorDocument, updateDirectorScreenplayBreakdown, updateDirectorSequence, updateDirectorTimeline, updateDirectorVideoSegment, updateDirectorWorkspace, updateDirectorSegmentAssetReference,
 } from "./director.js";
 import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflightWithFraming, getDirectorPlaybackPlan, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
 import {
-    addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
+    resolveDirectorMediaFile, listDirectorShotDesigns, saveDirectorShotDesign, addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
     readDirectorLogicalDocument, readDirectorStyleBoard, readDirectorTextFile, removeDirectorAssetMediaInput, removeDirectorProjectWorkspace, trashDirectorAssetVariant, validateDirectorProject, writeDirectorDocumentPart, writeDirectorMarkdown,
 } from "./director-workspace.js";
 
@@ -197,6 +197,7 @@ api.get("/director/projects/:id", route((req) => {
 }));
 api.post("/director/projects/:id/validate", route((req) => validateDirectorProject(req.user.id, routeId(req), typeof req.body?.scope === "string" ? req.body.scope : "")));
 api.get("/director/projects/:id/validation", route((req) => getDirectorValidation(req.user.id, routeId(req))));
+api.get("/director/projects/:id/reference-image", route((req) => ({ fileId: resolveDirectorMediaFile(req.user.id, routeId(req), String(req.query.path || ""), "image").fileId })));
 api.get("/director/projects/:id/file", route((req) => readDirectorTextFile(req.user.id, routeId(req), String(req.query.path || ""))));
 api.put("/director/projects/:id/file", route((req) => writeDirectorMarkdown(req.user.id, routeId(req), String(req.body?.path || ""), String(req.body?.content || ""), typeof req.headers["if-match"] === "string" ? req.headers["if-match"].replace(/^\"|\"$/g, "") : undefined)));
 api.get("/director/projects/:id/direction/style-board", (req, res, next) => {
@@ -254,17 +255,20 @@ api.get("/director/projects/:id/sequences", route((req) => listDirectorSequences
 api.post("/director/projects/:id/sequences", route((req) => createDirectorSequence(req.user.id, routeId(req), req.body), 201));
 api.put("/director/sequences/:id", route((req) => updateDirectorSequence(req.user.id, routeId(req), req.body)));
 api.delete("/director/sequences/:id", route((req) => deleteDirectorSequence(req.user.id, routeId(req))));
-api.post("/director/projects/:id/video-segments", route((req) => createDirectorVideoSegment(req.user.id, routeId(req), req.body), 201));
-api.put("/director/video-segments/:id", route((req) => updateDirectorVideoSegment(req.user.id, routeId(req), req.body)));
-api.put("/director/video-segments/:id/asset-reference", route((req) => updateDirectorSegmentAssetReference(req.user.id, routeId(req), req.body)));
-api.delete("/director/video-segments/:id", route((req) => deleteDirectorVideoSegment(req.user.id, routeId(req))));
-api.get("/director/video-segments/:id/preflight", asyncRoute((req) => getDirectorVideoSegmentPreflightWithFraming(req.user.id, routeId(req))));
-api.post("/director/video-segments/:id/storyboard/generate", route((req) => createDirectorStoryboardGeneration(req.user.id, routeId(req), req.body), 202));
-api.post("/director/video-segments/:id/generate", asyncRoute((req) => createDirectorVideoSegmentGeneration(req.user.id, routeId(req), req.body), 201));
+api.get("/director/projects/:id/shots", route((req) => listDirectorShotDesigns(req.user.id, routeId(req), Number(req.query.offset) || 0, Number(req.query.limit) || 50)));
+api.put("/director/projects/:id/shots", route((req) => saveDirectorShotDesign(req.user.id, routeId(req), req.body)));
+api.get("/director/projects/:id/production-tasks", route((req) => listDirectorVideoSegments(req.user.id, routeId(req), req.query)));
+api.post("/director/projects/:id/production-tasks", route((req) => createDirectorVideoSegment(req.user.id, routeId(req), req.body), 201));
+api.put("/director/production-tasks/:id", route((req) => updateDirectorVideoSegment(req.user.id, routeId(req), req.body)));
+api.put("/director/production-tasks/:id/asset-reference", route((req) => updateDirectorSegmentAssetReference(req.user.id, routeId(req), req.body)));
+api.delete("/director/production-tasks/:id", route((req) => deleteDirectorVideoSegment(req.user.id, routeId(req))));
+api.get("/director/production-tasks/:id/preflight", asyncRoute((req) => getDirectorVideoSegmentPreflightWithFraming(req.user.id, routeId(req))));
+api.post("/director/production-tasks/:id/storyboard/generate", route((req) => createDirectorStoryboardGeneration(req.user.id, routeId(req), req.body), 202));
+api.post("/director/production-tasks/:id/generate", asyncRoute((req) => createDirectorVideoSegmentGeneration(req.user.id, routeId(req), req.body), 201));
 api.get("/director/projects/:id/playback-plan", asyncRoute((req) => getDirectorPlaybackPlan(req.user.id, routeId(req))));
 api.put("/director/projects/:id/timeline", route((req) => updateDirectorTimeline(req.user.id, routeId(req), req.body)));
 api.get("/director/projects/:id/renders", route((req) => listDirectorRenders(req.user.id, routeId(req))));
-api.post("/director/projects/:id/renders", route((req) => createDirectorRender(req.user.id, routeId(req), req.body), 202));
+api.post("/director/projects/:id/renders", asyncRoute((req) => createDirectorRender(req.user.id, routeId(req), req.body), 202));
 api.post("/director/renders/:id/cancel", route((req) => cancelDirectorRender(req.user.id, routeId(req))));
 api.post("/director/renders/:id/retry", route((req) => retryDirectorRender(req.user.id, routeId(req)), 202));
 api.get("/director/assets/:id/detail", route((req) => getDirectorAssetDetail(req.user.id, routeId(req))));
@@ -569,7 +573,7 @@ function initializeDirectorProject(userId: string, projectId: string, now: strin
     document.run(projectId, userId, "story", now, now);
     document.run(projectId, userId, "script", now, now);
     db.prepare("INSERT INTO director_screenplay_breakdowns(project_id, user_id, created_at, updated_at) VALUES(?, ?, ?, ?)").run(projectId, userId, now, now);
-    db.prepare("INSERT INTO director_timelines(project_id, user_id, payload, created_at, updated_at) VALUES(?, ?, ?, ?, ?)").run(projectId, userId, JSON.stringify({ tracks: [], segmentOrder: [] }), now, now);
+    db.prepare("INSERT INTO director_timelines(project_id, user_id, payload, created_at, updated_at) VALUES(?, ?, ?, ?, ?)").run(projectId, userId, JSON.stringify({ tracks: [], videoClips: [] }), now, now);
 }
 
 function assertProjectKind(userId: string, projectId: string, expected?: ProjectKind) {

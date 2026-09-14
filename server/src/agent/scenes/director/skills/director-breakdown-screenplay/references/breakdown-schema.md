@@ -24,4 +24,4 @@
 
 ## 文件格式
 
-`overview.md` Frontmatter 为 `id: screenplay-breakdown`、`kind: screenplay-breakdown`、`reviewIssues: []`（有问题时填写上述结构）；正文是总览。各 `scene-NNN.md` 的 Frontmatter 保存完整场次字段，参照 [完整场次样例](scene-example.md)，kind 固定为 screenplay-breakdown-scene，文件编号决定读取顺序。正文只写补充说明，字段不得只藏在正文中。服务端从这些文件更新制作拆解投影，segment.md 的来源指向这里的场次 ID 和 beats ID。
+`overview.md` Frontmatter 为 `id: screenplay-breakdown`、`kind: screenplay-breakdown`、`reviewIssues: []`（有问题时填写上述结构）；正文是总览。各 `scene-NNN.md` 的 Frontmatter 保存完整场次字段，参照 [完整场次样例](scene-example.md)，kind 固定为 screenplay-breakdown-scene，文件编号决定读取顺序。正文只写补充说明，字段不得只藏在正文中。服务端从这些文件更新制作拆解投影，shot.md 的来源指向这里的场次 ID 和 beats ID。

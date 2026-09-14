@@ -64,11 +64,11 @@ test("任务产物提供工程缓存路径；成片列表分页与单项查询�
 });
 
 
-test("时间线改变后拒绝重试旧成片，任务保持失败", async () => {
+test("缺少媒体快照的旧成片拒绝重试，任务保持失败", async () => {
     const { retryDirectorRender } = await import("../director-render.js");
     db.prepare("INSERT INTO director_timelines(project_id,user_id,revision,created_at,updated_at) VALUES('p','u',2,datetime('now'),datetime('now'))").run();
     db.prepare("UPDATE director_renders SET status='failed' WHERE id='render-0'").run();
-    assert.throws(() => retryDirectorRender("u", "render-0"), /时间线已变化/);
+    assert.throws(() => retryDirectorRender("u", "render-0"), /缺少媒体快照/);
     assert.equal((db.prepare("SELECT status FROM director_renders WHERE id='render-0'").get() as { status: string }).status, "failed");
 });
 

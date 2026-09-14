@@ -15,7 +15,7 @@ import { getCanvasState, listAgentCreativeAssets, listAgentVisualStyles } from "
 import { agentScenes, resolveAgentScene, sceneAutoAllowedTools, sceneHasReference, sceneHasSkill, sceneRegisteredTools, sceneSkillIds, validateAgentScenes, type AgentSceneDefinition } from "./scenes/index.js";
 import { creativeAssetInputSchema, getCreativeAsset } from "../creative-assets.js";
 import { getVisualStyle } from "../visual-styles.js";
-import { getDirectorState } from "../director.js";
+import { getDirectorAgentOverview, getDirectorState } from "../director.js";
 import { ensureDirectorProjectWorkspace, getDirectorAssetDetail, reconcileDirectorProjectFiles } from "../director-workspace.js";
 import type { AgentComposerDocument, AgentEngine, AgentEvent, AgentEventKind, AgentMessageInput, AgentPendingDecision, AgentQueuedMessage, AgentSession, AgentSessionStatus, AgentStreamEvent } from "./types.js";
 import { SdkInputChannel } from "./sdk-input-channel.js";
@@ -431,11 +431,15 @@ export function listAgentReferences(userId: string, projectId: string, query: { 
         for (const node of getCanvasState(userId, projectId).nodes) items.push({ key: `canvas:${node.id}`, label: String(node.title || "画布节点"), detail: String(node.type || "节点"), segment: { type: "canvas", mentionId: nanoid(), projectId, nodeId: node.id } });
     }
     if (sceneHasReference(scene, "director")) {
-        const state = getDirectorState(userId, projectId);
+        reconcileDirectorProjectFiles(userId, projectId);
+        const state = getDirectorAgentOverview(userId, projectId);
         state.documents.forEach((document) => items.push({ key: `director:${document.kind}`, label: document.kind === "story" ? "故事" : "剧本", detail: `REV ${document.revision}`, segment: { type: "director", mentionId: nanoid(), projectId, entityKind: document.kind, entityId: document.kind } }));
         items.push({ key: "director:directing-plan", label: "导演方案", detail: `REV ${state.workspace.revision}`, segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "directing-plan", entityId: "directing-plan" } });
         state.sequences.forEach((sequence) => items.push({ key: `director:sequence:${sequence.id}`, label: sequence.title, detail: "剧情段落", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "sequence", entityId: sequence.id } }));
-        state.videoSegments.forEach((segment) => items.push({ key: `director:video-segment:${segment.id}`, label: segment.title, detail: "视频段", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "video-segment", entityId: segment.id } }));
+        const tasks = db.prepare("SELECT id,title FROM director_shots WHERE user_id=? AND project_id=? AND instr(lower(title),?)>0 ORDER BY position,id LIMIT ?").all(userId, projectId, q, limit) as Array<{ id: string; title: string }>;
+        tasks.forEach((task) => items.push({ key: `director:production-task:${task.id}`, label: task.title, detail: "制作任务", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "production-task", entityId: task.id } }));
+        const shots = db.prepare("SELECT entity_id,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND instr(lower(json_extract(metadata,'$.name')),?)>0 ORDER BY json_extract(metadata,'$.order'),path LIMIT ?").all(userId, projectId, q, limit) as Array<{ entity_id: string; metadata: string }>;
+        shots.forEach((shot) => items.push({ key: `director:shot-design:${shot.entity_id}`, label: String(parseJson<Record<string, unknown>>(shot.metadata, {}).name), detail: "镜头设计", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "shot-design", entityId: shot.entity_id } }));
         items.push({ key: "director:timeline", label: "时间线", detail: `REV ${state.timeline.revision}`, segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "timeline", entityId: "timeline" } });
     }
     if (sceneHasReference(scene, "asset")) listAgentCreativeAssets(userId, projectId).forEach((asset) => items.push({ key: `asset:${asset.id}`, label: asset.name, detail: asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具", segment: { type: "asset", mentionId: nanoid(), projectId, assetId: asset.id } }));
@@ -950,7 +954,7 @@ function validateMessageInput(input: AgentMessageInput) {
             z.object({ type: z.literal("canvas"), ...mention, nodeId: z.string().trim().min(1).max(128) }),
             z.object({ type: z.literal("asset"), ...mention, assetId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional(), path: z.string().trim().max(500).optional() }),
             z.object({ type: z.literal("style"), ...mention, styleId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
-            z.object({ type: z.literal("director"), ...mention, entityKind: z.enum(["story", "script", "directing-plan", "sequence", "video-segment", "timeline"]), entityId: z.string().trim().min(1).max(128) }),
+            z.object({ type: z.literal("director"), ...mention, entityKind: z.enum(["story", "script", "directing-plan", "sequence", "shot-design", "production-task", "video-segment", "timeline"]), entityId: z.string().trim().min(1).max(128) }),
         ])).min(1).max(200) }),
         attachmentFileIds: z.array(z.string().max(128)).max(20).optional().default([]),
     }).superRefine((value, issue) => {
@@ -1002,7 +1006,8 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
                 ? state.documents.find((item) => item.kind === segment.entityKind)
                 : segment.entityKind === "directing-plan" ? { workspace: state.workspace, activeStyleId: state.activeStyleId }
                 : segment.entityKind === "sequence" ? state.sequences.find((item) => item.id === segment.entityId)
-                : segment.entityKind === "video-segment" ? state.videoSegments.find((item) => item.id === segment.entityId)
+                : segment.entityKind === "shot-design" ? (() => { const row = db.prepare("SELECT path,sha256 FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=?").get(userId, projectId, segment.entityId) as { path: string; sha256: string } | undefined; return row ? { id: segment.entityId, path: row.path, hash: row.sha256 } : undefined; })()
+                : segment.entityKind === "video-segment" || segment.entityKind === "production-task" ? state.videoSegments.find((item) => item.id === segment.entityId)
                 : state.timeline;
             if (!entity) throw agentError(404, "AGENT_DIRECTOR_REFERENCE_NOT_FOUND", "导演台引用不存在或不属于当前项目");
             const label = segment.entityKind === "story" ? "故事" : segment.entityKind === "script" ? "剧本" : segment.entityKind === "directing-plan" ? "导演方案" : segment.entityKind === "timeline" ? "时间线" : "title" in entity ? String(entity.title) : segment.entityId;

@@ -138,7 +138,7 @@ export type H3FrameAlignment = { requestedSeconds: number; requestedFrames: numb
 export type DirectorH3PromptSnapshot = { mode: H3GenerationMode; qualityPreset: H3QualityPreset; prompt: string; references: Array<{ fileId: string; kind?: "image" | "video" | "audio"; role?: "reference" | "first-frame" | "last-frame" | "continuation" }>; storyboardRevision: number };
 export type DirectorDialogueCue = { speakerAssetId: string; speakerName: string; text: string; language: string; delivery: string; startSeconds: number; endSeconds: number; offScreen?: boolean };
 export type DirectorStoryboardFrame = { id: string; position: number; shotNumber: number; timeSeconds: number; kind: "shot-start" | "keyframe" | "shot-end"; description: string; action: string; cameraAngle: string; cameraMove: string; h3Visual?: string; dialogues?: DirectorDialogueCue[]; dialogue?: string; sound: string };
-export type DirectorStoryboardSheet = { revision: number; layout: "2x2" | "3x2" | "3x3"; frames: DirectorStoryboardFrame[]; imageFileId?: string; generationId?: string; promptSnapshot?: string; referenceSnapshot?: DirectorVideoSegmentPreflight; review?: DirectorVisualReview };
+export type DirectorStoryboardSheet = { revision: number; layout: "single" | `${number}x${number}`; frames: DirectorStoryboardFrame[]; imageFileId?: string; generationId?: string; promptSnapshot?: string; referenceSnapshot?: DirectorVideoSegmentPreflight; review?: DirectorVisualReview };
 export type DirectorSequence = {
     id: string;
     projectId: string;
@@ -209,10 +209,12 @@ export type DirectorVideoSegment = {
 };
 
 export type DirectorVideoSegmentPreflight = { guideFraming?: { input: { width: number; height: number }; target: { width: number; height: number }; crop: { x: number; y: number; width: number; height: number } }; acceleration?: "base" | "pdd-ref8"; storyboardFileId?: string; transitionInputs?: { firstFrameFileId?: string; lastFrameFileId?: string }; selected: Array<{ fileId: string; name: string; purpose: "主角色" | "出镜角色" | "场景" | "关键道具" | "视觉风格"; assetId?: string }>; omitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoSelected: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoOmitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; assetBlockedReasons: string[]; promptValidation: { blockedReasons: string[]; warnings: string[] }; blockedReasons: string[]; warnings: string[]; route: { mode: H3GenerationMode; reason: string }; capabilities: { turboPreview: boolean }; recipes: { preview: H3GenerationRecipe; final: H3GenerationRecipe }; frameAlignment: H3FrameAlignment };
-export type DirectorTimelineClip = { id: string; segmentId?: string; fileId?: string; start: number; duration: number; trimIn?: number; trimOut?: number; volume?: number; muted?: boolean; loop?: boolean };
+export type DirectorEditClip = { id: string; taskId: string; trimIn: number; trimOut: number; linkedAudio: boolean };
+export type DirectorShotDesign = { id: string; kind: "shot-design"; name: string; sequenceId: string; order: number; sourceSceneId?: string; sourceBeatIds: string[]; estimatedSeconds?: number; purpose: string; staging: string; camera: string; action: string; dialogue: string; sound: string; openingState: string; endingState: string; connection: string; referenceImages: string[]; content: string; path?: string; hash: string; revision?: number };
+export type DirectorTimelineClip = { id: string; taskId?: string; fadeIn?: number; fadeOut?: number; segmentId?: string; fileId?: string; start: number; duration: number; trimIn?: number; trimOut?: number; volume?: number; muted?: boolean; loop?: boolean };
 export type DirectorTimeline = {
     projectId: string;
-    payload: { segmentOrder?: string[]; tracks?: Array<{ id: string; kind: "dialogue" | "narration" | "ambient" | "sfx" | "music" | "model-original"; clips: DirectorTimelineClip[] }> };
+    payload: { videoClips?: DirectorEditClip[]; segmentOrder?: string[]; tracks?: Array<{ id: string; kind: "dialogue" | "narration" | "ambient" | "sfx" | "music" | "model-original"; clips: DirectorTimelineClip[] }> };
     revision: number;
     createdAt: string;
     updatedAt: string;
@@ -221,4 +223,4 @@ export type DirectorState = { activeStyleId: string | null; workspace: DirectorW
 
 export type DirectorRender = { id: string; projectId: string; status: "queued" | "running" | "succeeded" | "failed" | "canceled"; progress: number; outputFileId: string | null; error: string | null; createdAt: string; updatedAt: string };
 
-export type DirectorPlaybackPlan = { timelineRevision: number; segments: Array<{ segmentId: string; revision: number; fileId: string; trimIn: number; duration: number }> };
+export type DirectorPlaybackPlan = { warnings: string[]; timelineRevision: number; duration: number; audio: DirectorTimelineClip[]; segments: Array<{ clipId: string; taskId: string; start: number; segmentId: string; revision: number; fileId: string; trimIn: number; duration: number }> };

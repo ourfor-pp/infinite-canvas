@@ -9,6 +9,7 @@ import { after, before, test } from "node:test";
 import PDFDocument from "pdfkit";
 import AdmZip from "adm-zip";
 
+const fixtureSheet = (duration: number, count = 4) => ({ revision: 1, layout: count === 6 ? "3x2" : "2x2", frames: Array.from({ length: count }, (_, index) => ({ id: `frame-${index}`, position: index, shotNumber: 1, timeSeconds: index * duration / (count - 1), kind: index === 0 ? "shot-start" : index === count - 1 ? "shot-end" : "keyframe", description: "静态画面", action: "", cameraAngle: "", cameraMove: "", sound: "" })) });
 const testData = mkdtempSync(join(tmpdir(), "infinite-canvas-server-"));
 process.env.DATA_DIR = testData;
 process.env.AUTH_MODE = "fnos";
@@ -87,7 +88,7 @@ test("画布与导演 Agent 的 Skill 和工具清单完全隔离", () => {
     assert.equal(agentScenes.canvas.tools.some((item) => item.id.startsWith("director_")), false);
     assert.equal(agentScenes.director.tools.some((item) => item.id.startsWith("canvas_") || item.id.startsWith("creative_asset") || item.id.startsWith("visual_style") || String(item.id) === "site_navigate"), false);
     assert.equal(agentScenes.director.tools.map((item) => String(item.id)).some((id) => id === "director_list_video_segments" || id === "director_update_video_segment"), false, "导演内容读写应使用受控文件工具，不再暴露语义 CRUD");
-    assert.equal(agentScenes.director.tools.some((item) => item.id === "director_generate_video_segment"), true);
+    assert.equal(agentScenes.director.tools.some((item) => item.id === "director_generate_task"), true);
 });
 
 test("项目工作区只同步当前 Agent 场景 Skills 并清理旧场景", () => {
@@ -210,30 +211,34 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.equal(refreshedBreakdown.body.data.payload.review.status, "needs_revision");
     const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ id: "z-first-sequence", position: 0, title: "雨夜车站", summary: "线索出现", payload: { storyboard: Array.from({ length: 6 }, (_, position) => ({ id: `panel-${position}`, position, title: `镜头 ${position + 1}` })) } }) });
     assert.equal(sequence.response.status, 201);
-    const segment = await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "车站全景", payload: { durationSeconds: 8, boundary: "cut", characterRefs: [{ id: "character-stable-id", revision: 3 }] } }) });
+    const segment = await api(`/director/projects/${projectId}/production-tasks`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "车站全景", payload: { durationSeconds: 8, storyboardSheet: fixtureSheet(8, 6), boundary: "cut", characterRefs: [{ id: "character-stable-id", revision: 3 }] } }) });
     assert.equal(segment.response.status, 201);
     assert.equal(segment.body.data.payload.storyboardFrameCount, 6);
     assert.equal(segment.body.data.payload.storyboardSheet.layout, "3x2");
     assert.equal(segment.body.data.payload.storyboardSheet.frames.length, 6);
     const laterSequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ id: "a-later-sequence", position: 1, title: "清晨离站" }) });
-    await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ id: "a-later-segment", sequenceId: laterSequence.body.data.id, position: 0, title: "清晨站台", payload: { durationSeconds: 4, sourceSceneId: "S002", sourceBeatIds: ["S002-B01"], sourceDurationSeconds: 4, dramaticBeat: "林夏决定离开车站", openingState: "林夏停在空荡站台", endingState: "林夏提起行李走向出口" } }) });
+    await api(`/director/projects/${projectId}/production-tasks`, userOne, { method: "POST", body: JSON.stringify({ id: "a-later-segment", sequenceId: laterSequence.body.data.id, position: 0, title: "清晨站台", payload: { durationSeconds: 4, storyboardSheet: fixtureSheet(4), sourceSceneId: "S002", sourceBeatIds: ["S002-B01"], sourceDurationSeconds: 4, dramaticBeat: "林夏决定离开车站", openingState: "林夏停在空荡站台", endingState: "林夏提起行李走向出口" } }) });
     const orderedState = await api(`/director/projects/${projectId}`, userOne);
     assert.deepEqual(orderedState.body.data.videoSegments.map((item: { title: string }) => item.title), ["车站全景", "清晨站台"], "视频段必须按剧情段落位置和段内位置排序，而不是按随机 ID 排序");
     const promptSegment = orderedState.body.data.videoSegments[1];
-    const originalSheet = { ...promptSegment.payload.storyboardSheet, imageFileId: "existing-sheet", generationId: "existing-generation", promptSnapshot: "old prompt", frames: promptSegment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ ...frame, croppedFileId: `crop-${index}` })) };
+    const { ensureDirectorProjectWorkspace: promptRoot, reconcileDirectorProjectFiles: reconcilePromptFixture } = await import("./director-workspace.js");
+    writeFileSync(join(promptRoot(userOne["X-Trim-Userid"], projectId), `productions/${promptSegment.id}/storyboard.png`), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aVZ0AAAAASUVORK5CYII=", "base64"));
+    reconcilePromptFixture(userOne["X-Trim-Userid"], projectId);
+    const existingSheetId = JSON.parse((db.prepare("SELECT payload FROM director_shots WHERE id=?").get(promptSegment.id) as { payload: string }).payload).storyboardSheet.imageFileId;
+    const originalSheet = { ...promptSegment.payload.storyboardSheet, imageFileId: existingSheetId, generationId: "existing-generation", promptSnapshot: "old prompt", frames: promptSegment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ ...frame, croppedFileId: `crop-${index}` })) };
     db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, storyboardSheet: originalSheet, videoFileId: "existing-video" }), promptSegment.id, userOne["X-Trim-Userid"]);
     const guidePreflight = getDirectorVideoSegmentPreflight(userOne["X-Trim-Userid"], promptSegment.id, true);
-    assert.deepEqual(guidePreflight.storyboardStartGuide, { sourceFileId: "existing-sheet", layout: originalSheet.layout, frameIndex: 0 });
-    const framingPreflightResponse = await api(`/director/video-segments/${promptSegment.id}/preflight`, userOne);
-    assert.equal(framingPreflightResponse.body.data.storyboardFileId, "existing-sheet", "异步预检必须返回解析结果，不能序列化Promise为空对象");
+    assert.equal(guidePreflight.storyboardStartGuide, undefined, "普通任务不隐式裁切首格");
+    const framingPreflightResponse = await api(`/director/production-tasks/${promptSegment.id}/preflight`, userOne);
+    assert.equal(framingPreflightResponse.body.data.storyboardFileId, existingSheetId, "异步预检必须返回解析结果，不能序列化Promise为空对象");
     assert.equal(getDirectorVideoSegmentPreflight(userOne["X-Trim-Userid"], promptSegment.id, false).storyboardStartGuide, undefined);
     db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, boundary: "continue", storyboardSheet: originalSheet }), promptSegment.id, userOne["X-Trim-Userid"]);
     assert.equal(getDirectorVideoSegmentPreflight(userOne["X-Trim-Userid"], promptSegment.id, true).storyboardStartGuide, undefined, "连续段不得被新故事板起始画格覆盖前段起点");
     db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...promptSegment.payload, storyboardSheet: originalSheet, videoFileId: "existing-video" }), promptSegment.id, userOne["X-Trim-Userid"]);
-    const promptUpdate = updateDirectorStoryboardPrompts(userOne["X-Trim-Userid"], projectId, { items: [{ segmentId: promptSegment.id, revision: 1, frames: originalSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ id: frame.id, shotNumber: Number(frame.shotNumber || 1), timeSeconds: Number(frame.timeSeconds || 0), kind: String(frame.kind || "keyframe"), description: `画格 ${index + 1} 的明确画面`, action: "人物沿站台向前行走", cameraAngle: "平视中景", cameraMove: "缓慢跟拍", h3Visual: "A medium tracking shot follows the person walking forward along the wet platform.", dialogues: [], sound: "rainfall and synchronized footsteps" })) }] });
+    const promptUpdate = updateDirectorStoryboardPrompts(userOne["X-Trim-Userid"], projectId, { items: [{ segmentId: promptSegment.id, revision: (db.prepare("SELECT revision FROM director_shots WHERE id=?").get(promptSegment.id) as { revision: number }).revision, frames: originalSheet.frames.map((frame: Record<string, unknown>, index: number) => ({ id: frame.id, shotNumber: Number(frame.shotNumber || 1), timeSeconds: Number(frame.timeSeconds || 0), kind: String(frame.kind || "keyframe"), description: `画格 ${index + 1} 的明确画面`, action: "人物沿站台向前行走", cameraAngle: "平视中景", cameraMove: "缓慢跟拍", h3Visual: "A medium tracking shot follows the person walking forward along the wet platform.", dialogues: [], sound: "rainfall and synchronized footsteps" })) }] });
     assert.equal(promptUpdate.updated, 1);
     const updatedPromptSegment = (await api(`/director/projects/${projectId}`, userOne)).body.data.videoSegments[1];
-    assert.equal(updatedPromptSegment.payload.storyboardSheet.imageFileId, "existing-sheet", "安全提示词更新必须保留故事板媒体");
+    assert.equal(updatedPromptSegment.payload.storyboardSheet.imageFileId, existingSheetId, "安全提示词更新必须保留故事板媒体");
     assert.equal(updatedPromptSegment.payload.storyboardSheet.generationId, "existing-generation");
     assert.equal(updatedPromptSegment.payload.storyboardSheet.frames[0].croppedFileId, undefined, "画格裁切不再参与普通视频生成");
     assert.match(updatedPromptSegment.payload.storyboardSheet.promptSnapshot, /人物沿站台向前行走/);
@@ -245,7 +250,7 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.equal(promptView.items[0].payload.storyboardSheet.imageFileId, undefined, "精简提示词视图不得返回重媒体字段");
     assert.equal(promptView.items[0].payload.storyboardSheet.hasImage, true);
     const currentSegmentRevision = (db.prepare("SELECT revision FROM director_shots WHERE id=? AND user_id=?").get(segment.body.data.id, userOne["X-Trim-Userid"]) as { revision: number }).revision;
-    const storyboardWithoutStyle = await api(`/director/video-segments/${segment.body.data.id}/storyboard/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: currentSegmentRevision }) });
+    const storyboardWithoutStyle = await api(`/director/production-tasks/${segment.body.data.id}/storyboard/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: currentSegmentRevision }) });
     assert.equal(storyboardWithoutStyle.response.status, 409);
     assert.equal(storyboardWithoutStyle.body.error.code, "DIRECTOR_ASSET_MISSING", "付费生成应先报告视频段中已经失效的素材引用");
     const directorStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "雨夜冷调", mode: "custom", description: "冷灰雨夜电影风格" }) });
@@ -262,9 +267,9 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     assert.equal(confirmed.response.status, 200);
     assert.deepEqual(segment.body.data.payload.characterRefs, [{ id: "character-stable-id", revision: 3 }]);
     const lockRevision = (db.prepare("SELECT revision FROM director_shots WHERE id=? AND user_id=?").get(segment.body.data.id, userOne["X-Trim-Userid"]) as { revision: number }).revision;
-    const lockedShot = await api(`/director/video-segments/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: lockRevision, status: "locked" }) });
+    const lockedShot = await api(`/director/production-tasks/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: lockRevision, status: "locked" }) });
     assert.equal(lockedShot.response.status, 200);
-    const rejectedLockedEdit = await api(`/director/video-segments/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: lockedShot.body.data.revision, title: "未经审批的改名" }) });
+    const rejectedLockedEdit = await api(`/director/production-tasks/${segment.body.data.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: lockedShot.body.data.revision, title: "未经审批的改名" }) });
     assert.equal(rejectedLockedEdit.response.status, 423);
     await api(`/director/projects/${projectId}/documents/story`, userOne, { method: "PUT", body: JSON.stringify({ revision: 2, content: "# 故事\n林夏在雪夜追查旧怀表。" }) });
     const stale = await api(`/director/projects/${projectId}`, userOne);
@@ -363,9 +368,9 @@ test("导演文件工程支持哈希冲突、校验和 ZIP 往返", async () => 
     const audioUpload = await api("/files", userOne, { method: "POST", body: audioForm });
     const audioSequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ title: "声音参考" }) });
     assert.equal(audioSequence.response.status, 201, JSON.stringify(audioSequence.body));
-    const audioSegment = await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: audioSequence.body.data.id, title: "风声", payload: { durationSeconds: 4, audioReferences: [{ fileId: audioUpload.body.data.fileId, purpose: "sound", description: "soft wind" }] } }) });
+    const audioSegment = await api(`/director/projects/${projectId}/production-tasks`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: audioSequence.body.data.id, title: "风声", payload: { durationSeconds: 4, audioReferences: [{ fileId: audioUpload.body.data.fileId, purpose: "sound", description: "soft wind" }] } }) });
     assert.equal(audioSegment.response.status, 201, JSON.stringify(audioSegment.body));
-    const invalidAudioSegment = await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: audioSequence.body.data.id, title: "无效音频", payload: { audioReferences: [{ fileId: "missing-audio", purpose: "sound", description: "wind" }] } }) });
+    const invalidAudioSegment = await api(`/director/projects/${projectId}/production-tasks`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: audioSequence.body.data.id, title: "无效音频", payload: { audioReferences: [{ fileId: "missing-audio", purpose: "sound", description: "wind" }] } }) });
     assert.equal(invalidAudioSegment.response.status, 400);
 
     const exportResponse = await fetch(`${origin}/director/projects/${projectId}/export`, { headers: userOne });
@@ -398,7 +403,7 @@ test("导演分镜按需引用素材，保留媒体快照并检测冲突与跨�
     await api(`/director/projects/${projectId}/documents/script`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, content: "## 场 1\n人物停在岔路口，决定沿山路继续前行。" }) });
     const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ title: "山路" }) });
     assert.equal(sequence.response.status, 201, JSON.stringify(sequence.body));
-    const created = await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "停步问路", payload: { durationSeconds: 8, dramaticBeat: "从迷路转为找到方向", openingState: "人物走进山路", endingState: "人物指向出口" } }) });
+    const created = await api(`/director/projects/${projectId}/production-tasks`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "停步问路", payload: { durationSeconds: 8, dramaticBeat: "从迷路转为找到方向", openingState: "人物走进山路", endingState: "人物指向出口" } }) });
     assert.equal(created.response.status, 201, JSON.stringify(created.body));
     let segment = created.body.data;
     const imageForm = new FormData();
@@ -407,14 +412,14 @@ test("导演分镜按需引用素材，保留媒体快照并检测冲突与跨�
     const videoForm = new FormData();
     videoForm.set("file", new Blob(["test video snapshot"], { type: "video/mp4" }), "video.mp4");
     const video = await api("/files", userOne, { method: "POST", body: videoForm });
-    const withMedia = await api(`/director/video-segments/${segment.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: segment.revision, payload: { storyboardSheet: { ...segment.payload.storyboardSheet, imageFileId: uploaded.body.data.fileId, promptSnapshot: "Saved storyboard prompt" }, videoFileId: video.body.data.fileId, h3PromptSnapshot: { prompt: "Saved video prompt" } } }) });
+    const withMedia = await api(`/director/production-tasks/${segment.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: segment.revision, payload: { storyboardSheet: { ...segment.payload.storyboardSheet, imageFileId: uploaded.body.data.fileId, promptSnapshot: "Saved storyboard prompt" }, videoFileId: video.body.data.fileId, h3PromptSnapshot: { prompt: "Saved video prompt" } } }) });
     assert.equal(withMedia.response.status, 200, JSON.stringify(withMedia.body));
     segment = withMedia.body.data;
     const asset = (await api(`/projects/${projectId}/creative-assets`, userOne, { method: "POST", body: JSON.stringify({ kind: "scene", name: "荒山石道", payload: { description: "当前视频段需要的山路空间" } }) })).body.data;
     segment = (await api(`/director/projects/${projectId}`, userOne)).body.data.videoSegments.find((item: { id: string }) => item.id === segment.id);
     const originalRevision = segment.revision;
     const originalFrames = structuredClone(segment.payload.storyboardSheet.frames);
-    const bind = (value: Record<string, unknown>, user = userOne) => api(`/director/video-segments/${segment.id}/asset-reference`, user, { method: "PUT", body: JSON.stringify({ revision: segment.revision, kind: "scene", assetId: asset.id, ...value }) });
+    const bind = (value: Record<string, unknown>, user = userOne) => api(`/director/production-tasks/${segment.id}/asset-reference`, user, { method: "PUT", body: JSON.stringify({ revision: segment.revision, kind: "scene", assetId: asset.id, ...value }) });
     assert.equal((await bind({}, userTwo)).response.status, 404);
     assert.equal((await bind({ kind: "character" })).response.status, 404);
     assert.equal((await bind({ variantId: "foreign-variant" })).response.status, 400);
@@ -434,8 +439,8 @@ test("导演分镜按需引用素材，保留媒体快照并检测冲突与跨�
     const detail = (await api(`/director/assets/${asset.id}/detail`, userOne)).body.data;
     assert.ok(detail.usages.some((usage: { id: string }) => usage.id === segment.id));
     assert.equal(detail.primaryVisual.outputs.length, 0, "缺主图的素材档案也能登记文字分镜需求");
-    const missingPreflight = (await api(`/director/video-segments/${segment.id}/preflight`, userOne)).body.data;
-    assert.deepEqual(missingPreflight.assetBlockedReasons, ["荒山石道缺少主图，请补充素材"]);
+    const missingPreflight = (await api(`/director/production-tasks/${segment.id}/preflight`, userOne)).body.data;
+    assert.deepEqual(missingPreflight.assetBlockedReasons, [], "普通任务只校验显式输入，不以素材主图阻断");
     assert.equal(applyDirectorAssetGeneration(userOne["X-Trim-Userid"], { assetId: asset.id, target: "primary-visual", expectedHash: detail.primaryVisual.hash }, uploaded.body.data.fileId), true);
     const variantFolder = `${detail.folderPath}/variants/var-demand`;
     await api(`/director/projects/${projectId}/file`, userOne, { method: "PUT", body: JSON.stringify({ path: `${variantFolder}/variant.md`, content: "---\nid: var-demand\nkind: asset-variant\nname: 雨后山路\n---\n地面湿润。\n" }) });
@@ -448,16 +453,16 @@ test("导演分镜按需引用素材，保留媒体快照并检测冲突与跨�
     const variantLinked = await bind({ variantId: "var-demand" });
     assert.equal(variantLinked.response.status, 200, JSON.stringify(variantLinked.body));
     segment = variantLinked.body.data;
-    const variantPreflight = (await api(`/director/video-segments/${segment.id}/preflight`, userOne)).body.data;
-    assert.equal(variantPreflight.selected.find((reference: { assetId: string }) => reference.assetId === asset.id).fileId, variantDetail.variants[0].outputs[0].fileId, "生成输入必须使用本段所选变体");
+    const variantPreflight = (await api(`/director/production-tasks/${segment.id}/preflight`, userOne)).body.data;
+    assert.deepEqual(variantPreflight.selected, [], "只有显式图片路径进入任务输入");
     assert.notEqual(variantDetail.variants[0].outputs[0].fileId, variantDetail.primaryVisual.outputs[0].fileId);
 
-    const edited = await api(`/director/video-segments/${segment.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: segment.revision, payload: { dramaticBeat: "从停步犹豫转为决定前行", openingState: "停在岔路口", endingState: "选择山路", description: "向前走。" } }) });
+    const edited = await api(`/director/production-tasks/${segment.id}`, userOne, { method: "PUT", body: JSON.stringify({ revision: segment.revision, payload: { dramaticBeat: "从停步犹豫转为决定前行", openingState: "停在岔路口", endingState: "选择山路", description: "向前走。" } }) });
     assert.equal(edited.response.status, 200, JSON.stringify(edited.body));
     segment = edited.body.data;
     const archiveResponse = await fetch(`${origin}/director/projects/${projectId}/export`, { headers: userOne });
     const archive = new AdmZip(Buffer.from(await archiveResponse.arrayBuffer()));
-    const segmentFile = archive.getEntries().find((entry) => entry.entryName.endsWith("/segment.md"))!;
+    const segmentFile = archive.getEntries().find((entry) => entry.entryName.endsWith("/task.md"))!;
     const content = segmentFile.getData().toString("utf8");
     assert.match(content, /dramaticBeat: 从停步犹豫转为决定前行/);
     assert.match(content, /openingState: 停在岔路口/);
@@ -469,7 +474,7 @@ test("导演分镜按需引用素材，保留媒体快照并检测冲突与跨�
     const unlinked = await bind({ remove: true });
     assert.equal(unlinked.response.status, 200, JSON.stringify(unlinked.body));
     assert.deepEqual(unlinked.body.data.payload.sceneRefs, []);
-    assert.deepEqual((await api(`/director/video-segments/${segment.id}/preflight`, userOne)).body.data.assetBlockedReasons, [], "未声明独立素材需求时，不强制建立角色和场景图");
+    assert.deepEqual((await api(`/director/production-tasks/${segment.id}/preflight`, userOne)).body.data.assetBlockedReasons, [], "未声明独立素材需求时，不强制建立角色和场景图");
     assert.equal((await api(`/creative-assets/${asset.id}`, userOne)).response.status, 200, "移除段落引用不会删除素材库实体");
 });
 
@@ -1092,6 +1097,9 @@ test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接",
     assert.equal(cumulative.fileId, cumulativeSource.fileId);
     assert.equal(cumulative.frames, 107);
     assert.equal(cumulative.generationId, generationId);
+    const emptyEdit = (await api(`/director/projects/${projectId}`, userOne)).body.data.timeline;
+    assert.deepEqual(emptyEdit.payload.videoClips, [], "生成完成不自动选片");
+    await api(`/director/projects/${projectId}/timeline`, userOne, { method: "PUT", body: JSON.stringify({ revision: emptyEdit.revision, payload: { videoClips: [{ id: "binding-clip", taskId: segmentId, trimIn: 0, trimOut: 107 / 24, linkedAudio: false }], tracks: [{ id: "model-original", kind: "model-original", clips: [{ id: "binding-audio", taskId: segmentId, start: 0, trimIn: 0, duration: 107 / 24 }] }] } }) });
     const playback = await api(`/director/projects/${projectId}/playback-plan`, userOne);
     assert.equal(playback.response.status, 200);
     assert.equal(playback.body.data.segments[0].fileId, cumulativeSource.fileId);
@@ -1116,9 +1124,9 @@ test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接",
     const refreshedProject = await api(`/director/projects/${projectId}`, userOne);
     assert.equal(refreshedProject.response.status, 200);
     const refreshedTrack = refreshedProject.body.data.timeline.payload.tracks.find((track: { id: string }) => track.id === "model-original");
-    assert.equal(refreshedTrack?.clips.length, 1, "生成自动加入的模型原声必须在工程刷新后保留");
+    assert.equal(refreshedTrack?.clips.length, 1, "显式编排的模型原声必须在工程刷新后保留");
     const timelineRow = db.prepare("SELECT revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { revision: number };
-    const rendering = createDirectorRender(userId, projectId, { timelineRevision: timelineRow.revision });
+    const rendering = await createDirectorRender(userId, projectId, { timelineRevision: timelineRow.revision });
     let rendered = rendering;
     for (let attempt = 0; attempt < 100 && !["succeeded", "failed"].includes(rendered.status); attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -1162,7 +1170,8 @@ test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接",
     assert.equal(importedState.context.sourceId, context.sourceId, "保留状态中的原始来源标识，不改写 tensor 元数据");
     const importedCumulative = await resolveDirectorH3Cumulative(userTwo["X-Trim-Userid"], importedProjectId, importedSegment.id);
     assert.notEqual(importedCumulative.fileId, cumulativeSource.fileId);
-    assert.equal(importedProject.timeline.payload.tracks[0].clips[0].id, `model-original-${importedSegment.id}`);
+    assert.equal(importedProject.timeline.payload.tracks[0].clips[0].id, "binding-audio");
+    assert.equal(importedProject.timeline.payload.tracks[0].clips[0].taskId, importedSegment.id);
     assert.equal((await fetch(`${origin}/files/${importedState.fileId}/content`, { headers: userOne })).status, 404);
     const importedGeneration = db.prepare("SELECT request FROM generations WHERE user_id=? AND id=?").get(userTwo["X-Trim-Userid"], importedState.generationId) as { request: string };
     assert.equal(JSON.parse(importedGeneration.request).params.__h3ArchiveImport.sourceGenerationId, generationId);
@@ -1178,7 +1187,7 @@ test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接",
         invalidArchive.updateFile(".h3/manifest.json", Buffer.from(JSON.stringify({ ...manifest, entries: [{ ...manifest.entries[0], ...patch }] })));
         assert.equal((await importZip(invalidArchive)).status, 400, "拒绝循环来源或状态路径越界");
     }
-    const importedRendering = createDirectorRender(userTwo["X-Trim-Userid"], importedProjectId, { timelineRevision: importedProject.timeline.revision });
+    const importedRendering = await createDirectorRender(userTwo["X-Trim-Userid"], importedProjectId, { timelineRevision: importedProject.timeline.revision });
     let importedRendered = importedRendering;
     for (let attempt = 0; attempt < 100 && !["succeeded", "failed"].includes(importedRendered.status); attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -1216,7 +1225,7 @@ test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接",
     await assert.rejects(resolveDirectorH3Continuation(userId, projectId, segmentId, context), /发生变化/);
 });
 
-test("导演自动原声按默认叙事顺序定位并保留刷新及混音音量", async () => {
+test("导演显式原声编排保留刷新及混音音量", async () => {
     const { syncDirectorGeneration } = await import("./director-render.js");
     const { storeLocalFile } = await import("./file-store.js");
     const userId = userOne["X-Trim-Userid"], projectId = "native-audio-refresh", now = new Date().toISOString();
@@ -1237,6 +1246,10 @@ test("导演自动原声按默认叙事顺序定位并保留刷新及混音音�
         syncDirectorVideoSegmentFile(userId, projectId, segmentId);
         await syncDirectorGeneration(db.prepare("SELECT * FROM generations WHERE id=? AND user_id=?").get(generationId, userId) as import("./generation-service.js").GenerationRow);
     }
+    const beforeEdit = (await api(`/director/projects/${projectId}`, userOne)).body.data;
+    assert.deepEqual(beforeEdit.timeline.payload.videoClips, []);
+    const ids = ["native-audio-z", "native-audio-a"];
+    await api(`/director/projects/${projectId}/timeline`, userOne, { method: "PUT", body: JSON.stringify({ revision: beforeEdit.timeline.revision, payload: { videoClips: ids.map((taskId, index) => ({ id: `video-${index}`, taskId, trimIn: 0, trimOut: 4, linkedAudio: false })), tracks: [{ id: "model-original", kind: "model-original", clips: ids.map((taskId, index) => ({ id: `audio-${index}`, taskId, fileId: beforeEdit.videoSegments.find((task: {id:string}) => task.id === taskId).payload.nativeAudioFileId, start: index * 4, trimIn: 0, duration: 4 })) }] } }) });
     const refreshed = await api(`/director/projects/${projectId}`, userOne);
     assert.equal(refreshed.response.status, 200);
     const clips = refreshed.body.data.timeline.payload.tracks.find((track: { id: string }) => track.id === "model-original").clips;
@@ -1249,7 +1262,7 @@ test("导演自动原声按默认叙事顺序定位并保留刷新及混音音�
     const { stdout: nativeProbe } = await promisify(execFileCallback)("ffprobe", ["-v", "error", "-show_entries", "stream=codec_name:format=format_name", "-of", "json", nativeAudio.path]);
     assert.equal(JSON.parse(nativeProbe).format.format_name, "wav");
     assert.equal(JSON.parse(nativeProbe).streams[0].codec_name, "pcm_s16le");
-    assert.deepEqual(clips.map((clip: { segmentId: string; start: number }) => [clip.segmentId, clip.start]), [["native-audio-z", 0], ["native-audio-a", 4]]);
+    assert.deepEqual(clips.map((clip: { taskId: string; start: number }) => [clip.taskId, clip.start]), [["native-audio-z", 0], ["native-audio-a", 4]]);
     const plan = await api(`/director/projects/${projectId}/playback-plan`, userOne);
     assert.deepEqual(plan.body.data.segments.map((segment: { segmentId: string }) => segment.segmentId), ["native-audio-z", "native-audio-a"]);
     clips[1].volume = 0.5;
@@ -1451,21 +1464,21 @@ test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () 
         assert.equal(breakdown.response.status, 200, JSON.stringify(breakdown.body));
         const sequence = await api(`/director/projects/${projectId}/sequences`, userOne, { method: "POST", body: JSON.stringify({ title: "静室" }) });
         assert.equal(sequence.response.status, 201, JSON.stringify(sequence.body));
-        const created = await api(`/director/projects/${projectId}/video-segments`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "开门", payload: { durationSeconds: 4, boundary: "cut", sourceSceneId: "S1", sourceBeatIds: ["B1"], sourceDurationSeconds: 4, dramaticBeat: "门缓慢打开", openingState: "门关闭", endingState: "门打开" } }) });
+        const created = await api(`/director/projects/${projectId}/production-tasks`, userOne, { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "开门", payload: { durationSeconds: 4, boundary: "cut", sourceSceneId: "S1", sourceBeatIds: ["B1"], sourceDurationSeconds: 4, dramaticBeat: "门缓慢打开", openingState: "门关闭", endingState: "门打开" } }) });
         assert.equal(created.response.status, 201, JSON.stringify(created.body));
         const segment = created.body.data, boardPath = join(testData, "pdd-board.png");
         await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=white:s=64x64", "-frames:v", "1", boardPath]);
         const board = storeLocalFile(userId, boardPath, "board.png", "image/png");
-        const payload = { ...segment.payload, storyboardSheet: { ...segment.payload.storyboardSheet, imageFileId: board.fileId, frames: segment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>) => ({ ...frame, h3Visual: "A wooden door slowly opens in a quiet room. Fixed camera.", sound: "quiet room tone", dialogues: [] })) } };
+        const payload = { ...segment.payload, referenceImages: [`productions/${segment.id}/storyboard.png`], storyboardSheet: { ...segment.payload.storyboardSheet, imageFileId: board.fileId, frames: segment.payload.storyboardSheet.frames.map((frame: Record<string, unknown>) => ({ ...frame, h3Visual: "A wooden door slowly opens in a quiet room. Fixed camera.", sound: "quiet room tone", dialogues: [] })) } };
         db.prepare("UPDATE director_shots SET payload=? WHERE id=? AND user_id=?").run(JSON.stringify(payload), segment.id, userId);
         syncDirectorVideoSegmentFile(userId, projectId, segment.id);
         const generate = async (recipe?: string) => {
             const row = db.prepare("SELECT revision FROM director_shots WHERE id=? AND user_id=?").get(segment.id, userId) as { revision: number };
-            const result = await api(`/director/video-segments/${segment.id}/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: row.revision, qualityPreset: "preview", recipe }) });
+            const result = await api(`/director/production-tasks/${segment.id}/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: row.revision, qualityPreset: "preview", recipe }) });
             if (result.body.data?.id) cancelGeneration(userId, result.body.data.id);
             return result;
         };
-        const promptFile = join(ensureDirectorProjectWorkspace(userId, projectId), "videos", `seg-${segment.id}`, "video-prompt.md");
+        const promptFile = join(ensureDirectorProjectWorkspace(userId, projectId), "productions", segment.id, "video-prompt.md");
         const emptySubmission = await generate();
         assert.equal(emptySubmission.response.status, 409, JSON.stringify(emptySubmission.body));
         const finalPrompt = "  subject_definitions:\n<Picture 1> is the storyboard.\n\nsummary:\n[reference generation] A door opens.\n\nretention_analysis:\n<Picture 1>: partially_preserved.\n\ndetailed_description:\n[Shot 1] The door slowly opens. Keep its bottom edge touching the floor throughout.\n\noverall_soundscape:\nQuiet room tone.\n\nnon_diegetic_music:\nN/A\n";
@@ -1474,15 +1487,15 @@ test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () 
         const promptSource = readDirectorVideoPrompt(userId, projectId, segment.id);
         syncDirectorVideoSegmentFile(userId, projectId, segment.id);
         assert.equal(readFileSync(promptFile, "utf8"), finalPrompt, "同步不能覆盖Agent最终提示");
-        const preflight = await api(`/director/video-segments/${segment.id}/preflight`, userOne);
+        const preflight = await api(`/director/production-tasks/${segment.id}/preflight`, userOne);
         assert.equal(preflight.body.data.acceleration, "pdd-ref8");
         assert.equal(preflight.body.data.recipes.preview.steps, 8);
         const { buildAgentToolDefinitions } = await import("./agent/mcp/index.js");
         const { agentScenes } = await import("./agent/scenes/index.js");
         const context = { session: { projectId }, run: { userId }, appendEvent: () => {} } as unknown as Parameters<typeof buildAgentToolDefinitions>[0];
-        const validateTool = buildAgentToolDefinitions(context, agentScenes.director).find((tool) => tool.name === "director_validate_video_segments")!;
+        const validateTool = buildAgentToolDefinitions(context, agentScenes.director).find((tool) => tool.name === "director_preflight_tasks")!;
         const agentPreflight = async () => {
-            const result = await validateTool.handler({ segmentIds: [segment.id] });
+            const result = await validateTool.handler({ taskPaths: [`productions/${segment.id}/task.md`] });
             assert.equal(result.isError, undefined, JSON.stringify(result));
             return JSON.parse((result.content[0] as { text: string }).text).data[0];
         };
@@ -1627,45 +1640,49 @@ test("Skill 文件样例投影来源和 H3 字段，时间线使用相对媒体�
     await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "格式样例", kind: "director" }) });
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     const skill = (path: string) => new URL(`./agent/scenes/director/skills/${path}`, import.meta.url);
-    const sequence = join(root, "storyboards/seq-001-station"), segment = join(sequence, "seg-001-door");
+    const sequence = join(root, "storyboards/seq-001-station"), segment = join(root, "productions/task-001");
+    mkdirSync(join(sequence, "shot-001"), { recursive: true });
+    copyFileSync(skill("director-plan-storyboards/references/examples/shot.md"), join(sequence, "shot-001/shot.md"));
     mkdirSync(segment, { recursive: true });
     copyFileSync(skill("director-plan-storyboards/references/examples/sequence.md"), join(sequence, "sequence.md"));
-    for (const file of ["segment.md", "storyboard.yaml"]) copyFileSync(skill(`director-plan-storyboards/references/examples/${file}`), join(segment, file));
+    for (const file of ["task.md", "storyboard.yaml"]) copyFileSync(skill(`director-plan-storyboards/references/examples/${file}`), join(segment, file));
     copyFileSync(skill("director-breakdown-screenplay/references/scene-example.md"), join(root, "screenplay/breakdown/scene-001.md"));
     writeFileSync(join(root, "screenplay/breakdown/overview.md"), "---\nid: screenplay-breakdown\nkind: screenplay-breakdown\nreviewIssues: []\n---\n测试拆解\n");
     writeFileSync(join(segment, "storyboard-prompt.md"), "A single 2x2 storyboard sheet showing a wooden door opening.");
     const timelineFile = join(root, "timeline/timeline.json");
-    const audioPath = join(root, "videos/seg-segment-001/model-audio.wav");
-    mkdirSync(join(root, "videos/seg-segment-001"), { recursive: true });
+    const audioPath = join(segment, "model-audio.wav");
     await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=6", audioPath]);
-    copyFileSync(skill("director-arrange-timeline/references/timeline.json"), timelineFile);
-    assert.equal(validateDirectorProject(userId, projectId).valid, true);
+    const exampleEdit = JSON.parse(readFileSync(skill("director-arrange-timeline/references/timeline.json"), "utf8"));
+    exampleEdit.tracks[0].clips[0].path = "productions/task-001/model-audio.wav";
+    writeFileSync(timelineFile, JSON.stringify(exampleEdit));
+    assert.equal(validateDirectorProject(userId, projectId).valid, true, JSON.stringify(validateDirectorProject(userId, projectId).diagnostics));
     assert.equal(reconcileDirectorProjectFiles(userId, projectId).some((item) => item.severity === "error"), false);
     const readSegment = () => JSON.parse((db.prepare("SELECT payload FROM director_shots WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string }).payload);
     const payload = readSegment();
-    assert.equal(payload.sourceSceneId, "breakdown-scene-001");
-    assert.deepEqual(payload.sourceBeatIds, ["beat-001"]);
-    assert.match(payload.h3VisualDescription, /wooden door/);
+    assert.deepEqual(payload.shotIds, ["shot-001"]);
+    const designs = (await api(`/director/projects/${projectId}/shots`, userOne)).body.data.items;
+    assert.equal(designs[0].sourceSceneId, "breakdown-scene-001");
+    assert.deepEqual(designs[0].sourceBeatIds, ["beat-001"]);
     assert.equal(payload.storyboardSheet.frames[3].position, 3);
     const timeline = db.prepare("SELECT payload,revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string; revision: number };
     assert.ok(JSON.parse(timeline.payload).tracks[0].clips[0].fileId);
     assert.equal(JSON.parse(timeline.payload).tracks[0].clips[0].path, undefined);
     syncDirectorTimelineFile(userId, projectId, JSON.parse(timeline.payload));
-    assert.equal(JSON.parse(readFileSync(timelineFile, "utf8")).tracks[0].clips[0].path, "videos/seg-segment-001/model-audio.wav");
+    assert.equal(JSON.parse(readFileSync(timelineFile, "utf8")).tracks[0].clips[0].path, "productions/task-001/model-audio.wav");
     reconcileDirectorProjectFiles(userId, projectId);
     assert.equal((db.prepare("SELECT revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { revision: number }).revision, timeline.revision);
-    syncDirectorVideoSegmentFile(userId, projectId, "segment-001");
-    assert.equal(matter(readFileSync(join(segment, "segment.md"), "utf8")).data.sourceDurationSeconds, 6);
+    syncDirectorVideoSegmentFile(userId, projectId, "task-001");
+    assert.deepEqual(matter(readFileSync(join(segment, "task.md"), "utf8")).data.shotIds, ["shot-001"]);
     const zipResponse = await fetch(`${origin}/director/projects/${projectId}/export`, { headers: userOne });
     assert.equal(zipResponse.status, 200);
     const importedResponse = await fetch(`${origin}/director/projects/import`, { method: "POST", headers: { ...userOne, "Content-Type": "application/zip" }, body: new Uint8Array(await zipResponse.arrayBuffer()) });
     const imported = await importedResponse.json() as { data: { projectId: string } };
     assert.equal(importedResponse.status, 201, JSON.stringify(imported));
     const importedState = (await api(`/director/projects/${imported.data.projectId}`, userOne)).body.data;
-    assert.equal(importedState.timeline.payload.segmentOrder[0], importedState.videoSegments[0].id);
-    assert.notEqual(importedState.videoSegments[0].id, "segment-001", "同名工程实体必须隔离");
-    assert.equal(importedState.videoSegments[0].payload.sourceSceneId, "breakdown-scene-001");
-    assert.equal(importedState.timeline.payload.tracks[0].clips[0].segmentId, importedState.videoSegments[0].id);
+    assert.equal(importedState.timeline.payload.videoClips[0].taskId, importedState.videoSegments[0].id);
+    assert.notEqual(importedState.videoSegments[0].id, "task-001", "同名工程实体必须隔离");
+    assert.deepEqual(importedState.videoSegments[0].payload.shotIds, ["shot-001"]);
+    assert.equal(importedState.timeline.payload.tracks[0].clips[0].taskId, importedState.videoSegments[0].id);
     assert.notEqual(importedState.timeline.payload.tracks[0].clips[0].fileId, JSON.parse(timeline.payload).tracks[0].clips[0].fileId);
     writeFileSync(join(segment, "storyboard.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aVZ0AAAAASUVORK5CYII=", "base64"));
     reconcileDirectorProjectFiles(userId, projectId);
@@ -1675,16 +1692,16 @@ test("Skill 文件样例投影来源和 H3 字段，时间线使用相对媒体�
     writeFileSync(join(segment, "storyboard.yaml"), stringify(board));
     reconcileDirectorProjectFiles(userId, projectId);
     assert.equal(readSegment().storyboardStale, true);
-    assert.ok((await api(`/director/video-segments/segment-001/preflight`, userOne)).body.data.blockedReasons.includes("故事板提示词已经修改，请先重新生成整张故事板"), "预检必须报告生成入口同样检查的故事板过期阻断");
+    assert.ok(!(await api(`/director/production-tasks/task-001/preflight`, userOne)).body.data.blockedReasons.includes("故事板提示词已经修改，请先重新生成整张故事板"), "可选故事板过期不阻断独立任务输入");
     assert.equal(readSegment().storyboardSheet.imageFileId, imageId, "语义变更保留旧媒体并标记过期");
     const { createHash } = await import("node:crypto");
     const acceptancePath = join(segment, "quality-review.md");
-    const acceptCurrent = () => writeFileSync(acceptancePath, matter.stringify("已检查整张图，当前修订仅校正描述，成图仍符合动作与连续性。", { id: "segment-001-review", kind: "media-review", status: "accepted", acceptedInputs: Object.fromEntries(Object.entries({ image: "storyboard.png", storyboard: "storyboard.yaml", prompt: "storyboard-prompt.md", segment: "segment.md" }).map(([key, name]) => [key, createHash("sha256").update(readFileSync(join(segment, name))).digest("hex")])) }));
+    const acceptCurrent = () => writeFileSync(acceptancePath, matter.stringify("已检查整张图，当前修订仅校正描述，成图仍符合动作与连续性。", { id: "segment-001-review", kind: "media-review", status: "accepted", acceptedInputs: Object.fromEntries(Object.entries({ image: "storyboard.png", storyboard: "storyboard.yaml", prompt: "storyboard-prompt.md", segment: "task.md" }).map(([key, name]) => [key, createHash("sha256").update(readFileSync(join(segment, name))).digest("hex")])) }));
     acceptCurrent();
     const acceptanceDiagnostics = reconcileDirectorProjectFiles(userId, projectId);
     assert.equal(readSegment().storyboardStale, false, JSON.stringify(acceptanceDiagnostics));
     assert.equal(readSegment().storyboardSheet.imageFileId, imageId);
-    syncDirectorVideoSegmentFile(userId, projectId, "segment-001");
+    syncDirectorVideoSegmentFile(userId, projectId, "task-001");
     reconcileDirectorProjectFiles(userId, projectId);
     assert.equal(readSegment().storyboardStale, false, "无创作变更的媒体同步不得使采用失效");
     board.frames[1].action = "The door pauses halfway open.";
@@ -1697,7 +1714,7 @@ test("Skill 文件样例投影来源和 H3 字段，时间线使用相对媒体�
     writeFileSync(acceptancePath, "---\nid: segment-001-review\nkind: media-review\nstatus: accepted\n---\n未绑定文件的文字不能放行\n");
     reconcileDirectorProjectFiles(userId, projectId);
     assert.equal(readSegment().storyboardStale, true, "删除哈希绑定不能保留放行状态");
-    board.frames[2].dialogues = [{ speakerAssetId: "unknown", speakerName: "未知", text: "你好", language: "zh-CN", delivery: "quiet", startSeconds: 4, endSeconds: 7 }];
+    board.frames[2].dialogues = [{ speakerAssetId: "unknown", speakerName: "未知", text: "你好", language: "zh-CN", delivery: "quiet", startSeconds: 4, endSeconds: 9 }];
     writeFileSync(join(segment, "storyboard.yaml"), stringify(board));
     const invalid = validateDirectorProject(userId, projectId);
     assert.equal(invalid.valid, false);

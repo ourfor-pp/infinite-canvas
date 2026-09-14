@@ -1,9 +1,13 @@
+import { resolveEditPlan, type EditVideoClip, type EditAudioClip } from "./director-edit-plan.js";
+import { config } from "./config.js";
+import { mkdirSync, copyFileSync } from "node:fs";
 import { markDirectorProjectChanged } from "./director-sync.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectGuide } from "./h3-guide-framing.js";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { db, parseJson } from "./database.js";
@@ -15,23 +19,23 @@ import { getMediaExecutorCatalog } from "./media-executor-settings.js";
 import { alignH3Frames, h3Recipe, h3ContinuationFrames, h3VideoDimensions, selectH3Acceleration, type H3Acceleration, type H3QualityPreset, type H3TemporalGuide } from "./comfy-workflows.js";
 import { h3AudioReferencesInput, validateH3FinalPromptReferences, isH3TurboAudioSafe, validateH3PromptPlan, validateStoryboardNarrativePlan, type H3DialogueCue } from "./h3-prompt.js";
 import { createH3ContinuationBinding, createH3CumulativeBinding, h3StateContextSchema, validateH3NativeVideo, resolveDirectorH3Continuation, resolveDirectorH3Cumulative, verifyRequestedH3Continuation, isSameH3OwnedMedia } from "./h3-continuation.js";
-import { planH3CumulativeSources } from "./h3-media-plan.js";
+import { planH3TaskSources } from "./h3-media-plan.js";
 import { recommendedStoryboardFrameCount, storyboardLayout, type DirectorStoryboardLayout } from "./director.js";
-import { archiveDirectorRender, assertDirectorProjectValid, readDirectorVideoPrompt, getDirectorAssetReferenceImage, syncDirectorVideoSegmentFile, syncDirectorTimelineFile } from "./director-workspace.js";
+import { getDirectorTaskImageReferences, archiveDirectorRender, assertDirectorProjectValid, readDirectorVideoPrompt, getDirectorAssetReferenceImage, syncDirectorVideoSegmentFile, syncDirectorTimelineFile } from "./director-workspace.js";
 
 type RenderRow = { id: string; user_id: string; project_id: string; status: "queued" | "running" | "succeeded" | "failed" | "canceled"; payload: string; output_file_id: string | null; error: string | null; progress: number; created_at: string; updated_at: string };
 type ShotRow = { id: string; position: number; payload: string; revision: number };
 type TimelineRow = { payload: string; revision: number };
 type WorkspaceRow = { aspect_ratio: string; directing_rules: string; revision: number };
 type AudioClip = { id: string; segmentId?: string; fileId?: string; start: number; duration: number; trimIn?: number; fadeIn?: number; fadeOut?: number; volume?: number; muted?: boolean; loop?: boolean };
-type RenderPayload = { timelineRevision: number; segmentIds: string[]; duration: number; warnings: string[] };
+type RenderPayload = { timelineRevision: number; segmentIds: string[]; duration: number; warnings: string[]; snapshot?: { edit: unknown; aspectRatio: string; segments: Array<{ path: string; trimIn: number; duration: number }>; audio: Array<EditAudioClip & { path: string }> } };
 
 const renderInput = z.object({ timelineRevision: z.number().int().positive() });
 const shotGenerationInput = z.object({ revision: z.number().int().positive(), qualityPreset: z.enum(["preview", "final"]).default("preview"), recipe: z.enum(["base", "pdd-ref8"]).optional(), model: z.string().trim().optional() });
 const storyboardGenerationInput = z.object({ revision: z.number().int().positive(), model: z.string().trim().optional() });
 const dialogueCueInput = z.object({ speakerAssetId: z.string().min(1), speakerName: z.string().min(1).max(120), text: z.string().min(1).max(2_000), language: z.string().min(1).max(40).default("Chinese"), delivery: z.string().min(1).max(1_000), startSeconds: z.number().min(0).max(15), endSeconds: z.number().positive().max(15), offScreen: z.boolean().optional() });
-const storyboardPromptFrameInput = z.object({ id: z.string().min(1), shotNumber: z.number().int().min(1).max(3), timeSeconds: z.number().min(0).max(15), kind: z.enum(["shot-start", "keyframe", "shot-end"]), description: z.string().max(4_000), action: z.string().max(4_000), cameraAngle: z.string().max(1_000), cameraMove: z.string().max(1_000), h3Visual: z.string().min(1).max(6_000), dialogues: z.array(dialogueCueInput).max(8).default([]), sound: z.string().max(2_000), dialogue: z.never().optional() });
-const storyboardPromptUpdateInput = z.object({ items: z.array(z.object({ segmentId: z.string().min(1), revision: z.number().int().positive(), frames: z.array(storyboardPromptFrameInput).min(1).max(9) })).min(1).max(10) });
+const storyboardPromptFrameInput = z.object({ id: z.string().min(1), shotNumber: z.number().int().min(1), timeSeconds: z.number().min(0), kind: z.enum(["shot-start", "keyframe", "shot-end"]), description: z.string().max(4_000), action: z.string().max(4_000), cameraAngle: z.string().max(1_000), cameraMove: z.string().max(1_000), h3Visual: z.string().min(1).max(6_000), dialogues: z.array(dialogueCueInput).max(8).default([]), sound: z.string().max(2_000), dialogue: z.never().optional() });
+const storyboardPromptUpdateInput = z.object({ items: z.array(z.object({ segmentId: z.string().min(1), revision: z.number().int().positive(), frames: z.array(storyboardPromptFrameInput).min(1) })).min(1).max(10) });
 const running = new Map<string, AbortController>();
 let scheduled = false;
 let emitRender: (userId: string, entity: { type: string; projectId: string; data: unknown }) => void = () => undefined;
@@ -48,9 +52,7 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     validateShotAssetRefs(userId, shot.project_id, payload);
     const sheet = asSheet(payload.storyboardSheet) || defaultSheet(shotId, Number(payload.durationSeconds || 4), payload);
     const route = resolveH3Route(payload, sheet);
-    if (route.mode === "ref2va" && !sheet.imageFileId) throw renderError(409, "DIRECTOR_STORYBOARD_REQUIRED", "请先生成当前视频段的整张故事板");
-    if (route.mode === "ref2va" && payload.storyboardStale) throw renderError(409, "DIRECTOR_STORYBOARD_STALE", "故事板提示词已经修改，请先重新生成整张故事板");
-    if (route.mode === "ref2va" && !getStoredFile(userId, sheet.imageFileId!)) throw renderError(409, "DIRECTOR_STORYBOARD_FILE_MISSING", "故事板图片不存在，请重新生成整张故事板");
+    if (payload.useOpeningGuide === true && route.mode === "ref2va" && sheet.imageFileId && !getStoredFile(userId, sheet.imageFileId)) throw renderError(409, "DIRECTOR_STORYBOARD_FILE_MISSING", "故事板图片不存在，请重新生成整张故事板");
     const workspace = db.prepare("SELECT aspect_ratio FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, shot.project_id) as WorkspaceRow;
     const modelRef = value.model || `comfyui::minimax-h3-${route.mode}-local`;
     const selection = resolveSelectableModel(modelRef, "video");
@@ -71,7 +73,6 @@ export async function createDirectorShotGeneration(userId: string, shotId: strin
     if (preflight.blockedReasons.length) throw renderError(409, "DIRECTOR_H3_PROMPT_INVALID", preflight.blockedReasons.join("；"), preflight);
     const temporalGuides: H3TemporalGuide[] = [];
     if (route.mode === "ref2va") {
-        references.push({ fileId: String(sheet.imageFileId), kind: "image", role: "reference" });
         preflight.videoSelected.forEach((item) => references.push({ fileId: item.fileId, kind: "image", role: "reference" }));
         if (payload.boundary === "continue" && !nativeContinuation) {
             if (!priorPayload.videoFileId) throw renderError(409, "DIRECTOR_CONTINUATION_VIDEO_MISSING", "连续视频段需要先生成上一段视频");
@@ -124,30 +125,34 @@ export function getDirectorVideoSegmentPreflight(userId: string, segmentId: stri
     const segment = segmentRow(userId, segmentId);
     const payload = parseJson<Record<string, unknown>>(segment.payload, {});
     const style = activeStyle(userId, segment.project_id);
-    const { candidates, missing } = segmentReferenceCandidates(userId, segment.project_id, payload, style);
+    const candidates = getDirectorTaskImageReferences(userId, segment.project_id, payload.referenceImages);
+    const missing: string[] = [];
     const selected = candidates.slice(0, 6);
     const sheet = asSheet(payload.storyboardSheet);
     const route = resolveH3Route(payload, sheet);
     const acceleration = directorH3Acceleration(userId, segment.project_id, payload, route.mode, requestedRecipe);
     const auxiliaryFiles = (payload.boundary === "continue" && !supportsNativeState ? 1 : 0) + (Array.isArray(payload.audioReferences) ? payload.audioReferences.length : 0);
-    const storyboardStartGuide = route.mode === "ref2va" && payload.boundary !== "continue" && supportsTemporalGuides
+    const storyboardStartGuide = route.mode === "ref2va" && payload.boundary !== "continue" && supportsTemporalGuides && sheet?.imageFileId && payload.useOpeningGuide === true
         ? { sourceFileId: sheet?.imageFileId, layout: sheet?.layout, frameIndex: 0 } : undefined;
     const guideFiles = Number(Boolean(storyboardStartGuide));
-    const videoBudget = route.mode === "ref2va" ? Math.max(0, Math.min(8 - guideFiles, 11 - auxiliaryFiles - guideFiles)) : 0;
+    const videoBudget = route.mode === "ref2va" ? Math.max(0, Math.min(9 - guideFiles, 12 - auxiliaryFiles - guideFiles)) : 0;
     const videoSelected = candidates.slice(0, videoBudget);
     const assetBlockedReasons = route.mode === "fl2va" ? transitionBlockedReasons(userId, segment.project_id, payload) : missing;
-    const promptValidation = route.mode === "ref2va" ? validateH3PromptPlan(payload, sheet, videoSelected.filter((item) => item.purpose === "主角色" || item.purpose === "出镜角色").map((item) => String(item.assetId || "")).filter(Boolean)) : { blockedReasons: [], warnings: [] };
-    if (route.mode === "ref2va" && payload.storyboardStale) promptValidation.blockedReasons.push("故事板提示词已经修改，请先重新生成整张故事板");
+    const promptValidation: { blockedReasons: string[]; warnings: string[] } = { blockedReasons: [], warnings: [] };
+    const seconds = Number(payload.durationSeconds);
+    if (seconds < 4 || seconds > 15) promptValidation.blockedReasons.push("当前 H3 单次制作任务支持 4–15 秒，请调整任务；镜头设计时长无需改变");
+    if (candidates.length > videoBudget) promptValidation.blockedReasons.push(`当前任务最多采用 ${videoBudget} 张显式参考图，请调整输入`);
     if (supportsNativeState && payload.boundary === "continue" && Number(payload.durationSeconds || 4) > 340 / 24) promptValidation.blockedReasons.push("原生续接单次最多新增 14.167 秒，隐藏重叠需占用生成窗口，请调整视频段时长");
     let finalPrompt: { path: string; hash: string } | undefined;
     try {
         const source = readDirectorVideoPrompt(userId, segment.project_id, segmentId);
         finalPrompt = { path: source.path, hash: source.hash };
-        promptValidation.blockedReasons.push(...validateH3FinalPromptReferences(source.content, { image: route.mode === "ref2va" ? 1 + videoSelected.length + guideFiles : 2, video: Number(route.mode === "ref2va" && payload.boundary === "continue" && !supportsNativeState), audio: Array.isArray(payload.audioReferences) ? payload.audioReferences.length : 0 }));
+        promptValidation.blockedReasons.push(...validateH3FinalPromptReferences(source.content, { image: route.mode === "ref2va" ? videoSelected.length + guideFiles : 2, video: Number(route.mode === "ref2va" && payload.boundary === "continue" && !supportsNativeState), audio: Array.isArray(payload.audioReferences) ? payload.audioReferences.length : 0 }));
     } catch (error) {
         if (!["DIRECTOR_FILE_NOT_FOUND", "DIRECTOR_VIDEO_PROMPT_REQUIRED"].includes(String((error as { code?: string }).code))) throw error;
-        promptValidation.blockedReasons.push("请先在 videos/seg-<视频段ID>/video-prompt.md 编写官方格式最终提示正文");
+        promptValidation.blockedReasons.push("请先在 productions/<任务ID>/video-prompt.md 编写官方格式最终提示正文");
     }
+    if (Array.isArray(payload.audioReferences) && payload.audioReferences.length && !videoSelected.length && !guideFiles && !(payload.boundary === "continue" && !supportsNativeState)) promptValidation.blockedReasons.push("使用参考音频时还需要显式参考图片或视频");
     const turboEligible = isH3TurboAudioSafe(payload, sheet);
     const audioReferences = h3AudioReferencesInput.safeParse(payload.audioReferences);
     if (audioReferences.success) audioReferences.data.forEach(({ fileId }) => {
@@ -207,7 +212,7 @@ export function createDirectorStoryboardGeneration(userId: string, segmentId: st
     const prompt = compileDirectorStoryboardPrompt(segment.title, payload, sheet, style.description, parseJson<Record<string, string>>(workspace.directing_rules, {}));
     const references = modelPlan.references.map((item) => ({ fileId: item.fileId, kind: "image" as const, role: "reference" as const }));
     const generation = createGeneration(userId, { kind: "image", model: modelRef, prompt, references, params: { count: 1, size: storyboardImageSize(sheet.layout), quality: "high", imagePromptProfile: modelPlan.imagePromptProfile, __directorStoryboardSheet: { projectId: segment.project_id, segmentId, segmentRevision: segment.revision, storyboardRevision: sheet.revision, style: { id: style.id, revision: style.revision }, scriptRevision: script.revision, directingRulesRevision: workspace.revision } } });
-    const nextSheet = { ...sheet, generationId: generation.id, imageFileId: undefined, promptSnapshot: prompt, referenceSnapshot: preflight, review: { status: "pending", summary: "整张故事板生成中", issues: [] } };
+    const nextSheet = { ...sheet, generationId: generation.id, promptSnapshot: prompt, referenceSnapshot: preflight, review: { status: "pending", summary: "整张故事板生成中", issues: [] } };
     const nextPayload = { ...payload, storyboardSheet: nextSheet, storyboardStale: false, h3PromptStale: false, videoStale: Boolean(payload.videoFileId), dependencies: { documents: { script: script.revision }, style: { id: style.id, revision: style.revision }, directingRules: { revision: workspace.revision } } };
     db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(nextPayload), new Date().toISOString(), segmentId, userId);
     syncDirectorVideoSegmentFile(userId, segment.project_id, segmentId);
@@ -271,32 +276,32 @@ export const createDirectorVideoSegmentGeneration = createDirectorShotGeneration
 
 async function resolveH3MediaSources(userId: string, projectId: string, shots: ShotRow[]) {
     const cumulative = new Map<string, Awaited<ReturnType<typeof resolveDirectorH3Cumulative>>>();
-    const covered = new Set<string>();
-    for (let index = shots.length - 1; index >= 0; index--) {
-        const shot = shots[index];
-        if (covered.has(shot.id) || !parseJson<Record<string, unknown>>(shot.payload, {}).h3ContinuationState) continue;
-        const media = await resolveDirectorH3Cumulative(userId, projectId, shot.id);
-        cumulative.set(shot.id, media);
-        for (let chainIndex = media.chain.length - 1, position = index; chainIndex >= 0 && position >= 0 && media.chain[chainIndex].segmentId === shots[position].id; chainIndex--, position--) covered.add(shots[position].id);
+    for (const shot of shots) {
+        const payload = parseJson<Record<string, unknown>>(shot.payload, {});
+        if (!payload.h3ContinuationState || payload.videoStale) continue;
+        cumulative.set(shot.id, await resolveDirectorH3Cumulative(userId, projectId, shot.id));
     }
-    return planH3CumulativeSources(shots.map((shot) => shot.id), cumulative);
+    return planH3TaskSources(shots.map((shot) => shot.id), cumulative);
 }
 
 export async function getDirectorPlaybackPlan(userId: string, projectId: string) {
     assertDirector(userId, projectId);
     const timeline = db.prepare("SELECT payload,revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
     const rows = db.prepare("SELECT s.id,s.position,s.payload,s.revision FROM director_shots s JOIN director_sequences q ON q.id=s.sequence_id AND q.user_id=s.user_id WHERE s.user_id=? AND s.project_id=? ORDER BY q.position,s.position,s.id").all(userId, projectId) as ShotRow[];
-    const order = parseJson<{ segmentOrder?: string[] }>(timeline.payload, {}).segmentOrder;
-    const shots = order?.length ? order.map((id) => rows.find((shot) => shot.id === id)).filter(Boolean) as ShotRow[] : rows;
-    const native = await resolveH3MediaSources(userId, projectId, shots);
-    const segments = shots.map((shot) => {
+    const edit = parseJson<{ videoClips?: EditVideoClip[]; tracks?: Array<{ clips: EditAudioClip[] }> }>(timeline.payload, {});
+    const needed = new Set([...(edit.videoClips || []).map((clip) => clip.taskId), ...(edit.tracks || []).flatMap((track) => track.clips.map((clip) => clip.taskId || clip.segmentId).filter(Boolean))]);
+    const native = await resolveH3MediaSources(userId, projectId, rows.filter((row) => needed.has(row.id)));
+    const sources = rows.map((shot) => {
         const payload = parseJson<Record<string, unknown>>(shot.payload, {});
         const source = native.get(shot.id) || { fileId: String(payload.videoFileId || ""), trimIn: 0, duration: directorSegmentMediaDuration(payload) };
-        return { segmentId: shot.id, revision: shot.revision, ...source };
+        return { taskId: shot.id, revision: shot.revision, ...source, audioFileId: payload.nativeAudioFileId ? native.get(shot.id)?.fileId || String(payload.nativeAudioFileId) : undefined, audioTrimIn: native.get(shot.id)?.trimIn || 0 };
     });
+    let plan: ReturnType<typeof resolveEditPlan>;
+    try { plan = resolveEditPlan(edit, sources); } catch (error) { throw renderError(409, "DIRECTOR_EDIT_INVALID", error instanceof Error ? error.message : "剪辑引用无效"); }
     const current = db.prepare("SELECT revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
-    if (current.revision !== timeline.revision || shots.some((shot) => (db.prepare("SELECT payload,revision FROM director_shots WHERE id=? AND user_id=?").get(shot.id, userId) as ShotRow | undefined)?.payload !== shot.payload)) throw renderError(409, "DIRECTOR_PLAYBACK_STALE", "预览来源已变化，请刷新后重试");
-    return { timelineRevision: timeline.revision, segments };
+    if (current.revision !== timeline.revision || rows.some((shot) => (db.prepare("SELECT payload FROM director_shots WHERE id=? AND user_id=?").get(shot.id, userId) as ShotRow | undefined)?.payload !== shot.payload)) throw renderError(409, "DIRECTOR_PLAYBACK_STALE", "预览来源已变化，请刷新后重试");
+    return { timelineRevision: timeline.revision, warnings: rows.filter((row) => needed.has(row.id) && parseJson<Record<string, unknown>>(row.payload, {}).videoStale).map((row) => `任务 ${row.id} 的来源已变化，当前采用已有视频，请检查剪接`), ...plan };
+
 }
 
 export function listDirectorRenders(userId: string, projectId: string) {
@@ -304,29 +309,35 @@ export function listDirectorRenders(userId: string, projectId: string) {
     return (db.prepare("SELECT * FROM director_renders WHERE user_id=? AND project_id=? ORDER BY created_at DESC").all(userId, projectId) as RenderRow[]).map(renderResponse);
 }
 
-export function createDirectorRender(userId: string, projectId: string, input: unknown) {
+export async function createDirectorRender(userId: string, projectId: string, input: unknown) {
     assertDirector(userId, projectId);
     assertDirectorProjectValid(userId, projectId);
     const value = renderInput.parse(input);
-    const timeline = db.prepare("SELECT payload,revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow;
-    if (timeline.revision !== value.timelineRevision) throw renderError(409, "DIRECTOR_CONFLICT", "时间线已在其他页面更新");
-    const timelinePayload = parseJson<{ segmentOrder?: string[]; tracks?: Array<{ clips?: AudioClip[] }> }>(timeline.payload, {});
-    const rows = db.prepare("SELECT s.id,s.position,s.payload,s.revision FROM director_shots s JOIN director_sequences q ON q.id=s.sequence_id AND q.user_id=s.user_id WHERE s.user_id=? AND s.project_id=? ORDER BY q.position,s.position,s.id").all(userId, projectId) as ShotRow[];
-    const byId = new Map(rows.map((row) => [row.id, row]));
-    const segmentIds = timelinePayload.segmentOrder?.length ? timelinePayload.segmentOrder : rows.map((row) => row.id);
-    const shots = segmentIds.map((id) => byId.get(id)).filter(Boolean) as ShotRow[];
-    if (!shots.length) throw renderError(409, "DIRECTOR_RENDER_EMPTY", "时间线还没有视频段");
-    const missing = shots.filter((shot) => !parseJson<Record<string, unknown>>(shot.payload, {}).videoFileId);
-    if (missing.length) throw renderError(409, "DIRECTOR_RENDER_VIDEO_MISSING", `仍有 ${missing.length} 个视频段缺少视频`, { segmentIds: missing.map((shot) => shot.id) });
-    const clips = (timelinePayload.tracks || []).flatMap((track) => track.clips || []).filter((clip) => !clip.muted && clip.fileId);
-    const duration = shots.reduce((sum, shot) => sum + directorSegmentMediaDuration(parseJson<Record<string, unknown>>(shot.payload, {})), 0);
-    const previews = shots.filter((shot) => parseJson<Record<string, unknown>>(shot.payload, {}).videoQualityPreset !== "final").length;
-    const warnings = [...(clips.length ? [] : ["时间线没有声音，将导出静音 AAC 轨"]), ...(previews ? [`时间线包含 ${previews} 个快速预览片段`] : [])];
-    const payload: RenderPayload = { timelineRevision: timeline.revision, segmentIds, duration, warnings };
-    const id = nanoid(); const now = new Date().toISOString();
-    db.prepare("INSERT INTO director_renders(id,user_id,project_id,status,payload,created_at,updated_at) VALUES(?,?,?,'queued',?,?,?)").run(id, userId, projectId, JSON.stringify(payload), now, now);
-    schedule();
-    return renderResponse(renderRow(userId, id)!);
+    const plan = await getDirectorPlaybackPlan(userId, projectId);
+    if (plan.timelineRevision !== value.timelineRevision) throw renderError(409, "DIRECTOR_CONFLICT", "时间线已在其他页面更新");
+    if (!plan.segments.length) throw renderError(409, "DIRECTOR_RENDER_EMPTY", "时间线还没有选用视频");
+    const id = nanoid();
+    const directory = join(config.dataDir, "director-render-inputs", id);
+    mkdirSync(directory, { recursive: true });
+    try {
+        const paths = new Map<string, string>();
+        const snapshotFile = (fileId: string) => {
+            if (paths.has(fileId)) return paths.get(fileId)!;
+            const source = getStoredFile(userId, fileId);
+            if (!source) throw new Error(`合成媒体不存在：${fileId}`);
+            const path = join(directory, `${paths.size}.media`);
+            copyFileSync(source.path, path);
+            paths.set(fileId, path);
+            return path;
+        };
+        const aspectRatio = (db.prepare("SELECT aspect_ratio FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow).aspect_ratio;
+        const snapshot = { edit: parseJson((db.prepare("SELECT payload FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as TimelineRow).payload, {}), aspectRatio, segments: plan.segments.map((clip) => ({ path: snapshotFile(clip.fileId), trimIn: clip.trimIn, duration: clip.duration })), audio: plan.audio.map((clip) => ({ ...clip, path: snapshotFile(clip.fileId!) })) };
+        const payload: RenderPayload = { timelineRevision: plan.timelineRevision, segmentIds: plan.segments.map((clip) => clip.taskId), duration: plan.duration, warnings: plan.audio.length ? [] : ["时间线没有声音，将导出静音 AAC 轨"], snapshot };
+        const now = new Date().toISOString();
+        db.prepare("INSERT INTO director_renders(id,user_id,project_id,status,payload,created_at,updated_at) VALUES(?,?,?,'queued',?,?,?)").run(id, userId, projectId, JSON.stringify(payload), now, now);
+        schedule();
+        return renderResponse(renderRow(userId, id)!);
+    } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
 }
 
 export function cancelDirectorRender(userId: string, id: string) {
@@ -342,8 +353,7 @@ export function retryDirectorRender(userId: string, id: string) {
     const row = renderRow(userId, id);
     if (!row) throw renderError(404, "DIRECTOR_RENDER_NOT_FOUND", "合成任务不存在");
     if (!['failed', 'canceled'].includes(row.status)) throw renderError(409, "DIRECTOR_RENDER_ACTIVE", "只有失败或取消的任务可以重试");
-    const timeline = db.prepare("SELECT revision FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, row.project_id) as { revision: number } | undefined;
-    if (timeline?.revision !== parseJson<RenderPayload>(row.payload, {} as RenderPayload).timelineRevision) throw renderError(409, "DIRECTOR_RENDER_STALE", "时间线已变化，请创建新的合成任务");
+    if (!parseJson<RenderPayload>(row.payload, {} as RenderPayload).snapshot) throw renderError(409, "DIRECTOR_RENDER_STALE", "旧合成任务缺少媒体快照，请重新提交");
     db.prepare("UPDATE director_renders SET status='queued',error=NULL,progress=0,updated_at=? WHERE id=? AND user_id=?").run(new Date().toISOString(), id, userId);
     schedule();
     return renderResponse(renderRow(userId, id)!);
@@ -377,7 +387,8 @@ export async function syncDirectorGeneration(row: GenerationRow) {
         if (stateContext && (result.continuationStates?.length !== 1 || !result.continuationStates[0]?.fileId)) throw renderError(409, "DIRECTOR_H3_STATE_MISSING", "生成结果缺少唯一的原生续接状态");
         if (stateContext && (result.cumulativeVideos?.length !== 1 || !result.cumulativeVideos[0]?.fileId)) throw renderError(409, "DIRECTOR_H3_CUMULATIVE_MISSING", "生成结果缺少唯一的累计音视频");
         const duration = Number(currentPayload.durationSeconds || 4);
-        const renderedDuration = stateContext ? await validateH3NativeVideo(video.path, stateContext, request.params?.__h3PreviousFrames ?? 0) : duration;
+        const renderedDuration = stateContext ? await validateH3NativeVideo(video.path, stateContext, request.params?.__h3PreviousFrames ?? 0) : Number((await promisify(execFile)("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "default=nw=1:nk=1", video.path], { timeout: 10000 })).stdout.trim());
+        if (!Number.isFinite(renderedDuration) || renderedDuration <= 0) throw new Error("生成视频的实际时长无效，保留原结果");
         await ffmpeg(["-y", "-i", video.path, "-t", String(renderedDuration), "-vf", "fps=24,format=yuv420p", "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", trimmed], undefined);
         const storedVideo = storeLocalFile(row.user_id, trimmed, `${context.segmentId}-${context.qualityPreset || "preview"}.mp4`, "video/mp4");
         await ffmpeg(["-y", "-i", trimmed, "-frames:v", "1", first], undefined);
@@ -399,7 +410,6 @@ export async function syncDirectorGeneration(row: GenerationRow) {
             const updated = db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?").run(JSON.stringify(payload), new Date().toISOString(), context.segmentId, row.user_id, latestShot.revision);
             if (!updated.changes) return false;
             syncFileRefs(row.user_id, "director_shot", context.segmentId!, payload);
-            if (nativeAudioFileId) upsertNativeAudioClip(row.user_id, context.projectId!, context.segmentId!, nativeAudioFileId, renderedDuration);
             markContinuationStale(row.user_id, context.projectId!, context.segmentId!);
             return true;
         })();
@@ -483,54 +493,30 @@ function pump() {
 }
 
 async function runRender(row: RenderRow, signal: AbortSignal) {
-    const workspace = db.prepare("SELECT aspect_ratio FROM director_workspaces WHERE user_id=? AND project_id=?").get(row.user_id, row.project_id) as WorkspaceRow;
-    const timeline = db.prepare("SELECT payload,revision FROM director_timelines WHERE user_id=? AND project_id=?").get(row.user_id, row.project_id) as TimelineRow;
     const payload = parseJson<RenderPayload>(row.payload, { timelineRevision: 0, segmentIds: [], duration: 0, warnings: [] });
-    if (timeline.revision !== payload.timelineRevision) throw renderError(409, "DIRECTOR_RENDER_STALE", "时间线已变化，请创建新的合成任务");
-    const shots = payload.segmentIds.map((id) => db.prepare("SELECT id,position,payload,revision FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(id, row.user_id, row.project_id) as ShotRow | undefined).filter(Boolean) as ShotRow[];
-    const timelinePayload = parseJson<{ tracks?: Array<{ clips?: AudioClip[] }> }>(timeline.payload, {});
+    const snapshot = payload.snapshot;
+    if (!snapshot) throw new Error("合成任务缺少提交时媒体快照，请重新提交");
     const directory = await mkdtemp(join(tmpdir(), "director-render-"));
     try {
-        const nativeSources = await resolveH3MediaSources(row.user_id, row.project_id, shots);
-        const assertSourcesCurrent = () => {
-            const currentTimeline = db.prepare("SELECT payload,revision FROM director_timelines WHERE user_id=? AND project_id=?").get(row.user_id, row.project_id) as TimelineRow;
-            if (currentTimeline.revision !== timeline.revision || currentTimeline.payload !== timeline.payload || shots.some((shot) => {
-                const current = db.prepare("SELECT payload,revision FROM director_shots WHERE id=? AND user_id=? AND project_id=?").get(shot.id, row.user_id, row.project_id) as ShotRow | undefined;
-                return !current || current.revision !== shot.revision || current.payload !== shot.payload;
-            })) throw renderError(409, "DIRECTOR_RENDER_STALE", "合成期间视频段或时间线已变化，请重新合成");
-        };
-        assertSourcesCurrent();
-
-        const [width, height] = outputSize(workspace.aspect_ratio);
+        const [width, height] = outputSize(snapshot.aspectRatio);
         const normalized: string[] = [];
-        for (let index = 0; index < shots.length; index += 1) {
-            const shot = parseJson<Record<string, unknown>>(shots[index].payload, {});
-            const native = nativeSources.get(shots[index].id);
-            if (native && Math.abs(native.duration - directorSegmentMediaDuration(shot)) > 1e-6) throw new Error("累计视频与视频段实际时长不一致");
-            const source = getStoredFile(row.user_id, native?.fileId || String(shot.videoFileId || ""));
-            if (!source) throw new Error(`视频段 ${shots[index].id} 的视频文件不存在`);
-            const output = join(directory, `shot-${String(index).padStart(4, "0")}.mp4`);
-            await ffmpeg(["-y", ...(native ? ["-ss", String(native.trimIn)] : []), "-i", source.path, "-t", String(directorSegmentMediaDuration(shot)), "-an", "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,fps=24,format=yuv420p`, "-c:v", "libx264", "-preset", "medium", "-crf", "18", output], signal);
-            normalized.push(output); updateRender(row, { progress: .05 + .55 * ((index + 1) / shots.length) });
+        for (let index = 0; index < snapshot.segments.length; index++) {
+            const clip = snapshot.segments[index];
+            const output = join(directory, `clip-${index}.mp4`);
+            await ffmpeg(["-y", "-ss", String(clip.trimIn), "-i", clip.path, "-t", String(clip.duration), "-an", "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,fps=24,format=yuv420p`, "-c:v", "libx264", "-preset", "medium", "-crf", "18", output], signal);
+            normalized.push(output); updateRender(row, { progress: .05 + .55 * ((index + 1) / snapshot.segments.length) });
         }
         const concat = join(directory, "concat.txt"); await writeFile(concat, normalized.map((path) => `file '${path}'`).join("\n"));
         const silentVideo = join(directory, "video.mp4");
         await ffmpeg(["-y", "-f", "concat", "-safe", "0", "-i", concat, "-c", "copy", silentVideo], signal);
         updateRender(row, { progress: .7 });
         const output = join(directory, "final.mp4");
-        const clips = (timelinePayload.tracks || []).flatMap((track) => track.clips || []).filter((clip) => !clip.muted && clip.fileId);
         const args = ["-y", "-i", silentVideo];
         const usable: AudioClip[] = [];
-        for (const originalClip of clips) {
-            const native = originalClip.segmentId ? nativeSources.get(originalClip.segmentId) : undefined;
-            const segment = shots.find((shot) => shot.id === originalClip.segmentId);
-            const nativeAudioId = segment ? parseJson<Record<string, unknown>>(segment.payload, {}).nativeAudioFileId : undefined;
-            const clip = native && originalClip.id === `model-original-${originalClip.segmentId}` && typeof nativeAudioId === "string" && await isSameH3OwnedMedia(row.user_id, originalClip.fileId!, nativeAudioId)
-                ? { ...originalClip, fileId: native.fileId, trimIn: native.trimIn + (originalClip.trimIn || 0) } : originalClip;
-            const file = getStoredFile(row.user_id, clip.fileId!); if (!file) continue;
+        for (const clip of snapshot.audio) {
             if (clip.loop) args.push("-stream_loop", "-1");
             if (clip.trimIn) args.push("-ss", String(clip.trimIn));
-            args.push("-t", String(clip.duration), "-i", file.path); usable.push(clip);
+            args.push("-t", String(clip.duration), "-i", clip.path); usable.push(clip);
         }
         args.push("-f", "lavfi", "-t", String(payload.duration), "-i", "anullsrc=r=48000:cl=stereo");
         if (usable.length) {
@@ -540,10 +526,9 @@ async function runRender(row: RenderRow, signal: AbortSignal) {
         } else args.push("-map", "0:v:0", "-map", "1:a:0");
         args.push("-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", String(payload.duration), "-movflags", "+faststart", output);
         await ffmpeg(args, signal, (seconds) => updateRender(row, { progress: .7 + .28 * Math.min(1, seconds / Math.max(1, payload.duration)) }));
-        assertSourcesCurrent();
         const stored = storeLocalFile(row.user_id, output, `director-${row.project_id}-${row.id}.mp4`, "video/mp4");
         const current = renderRow(row.user_id, row.id); if (!current || current.status === "canceled") return;
-        archiveDirectorRender(row.user_id, row.project_id, row.id, output, { timelineRevision: payload.timelineRevision, segmentIds: payload.segmentIds, duration: payload.duration, width, height, fps: 24 });
+        archiveDirectorRender(row.user_id, row.project_id, row.id, output, { timelineRevision: payload.timelineRevision, segmentIds: payload.segmentIds, duration: payload.duration, width, height, fps: 24, timeline: snapshot.edit });
         db.prepare("UPDATE director_renders SET status='succeeded',output_file_id=?,error=NULL,progress=1,updated_at=? WHERE id=? AND user_id=?").run(stored.id, new Date().toISOString(), row.id, row.user_id);
         syncFileRefs(row.user_id, "director_render", row.id, { fileId: stored.id }); publish(renderRow(row.user_id, row.id)!);
     } finally { await rm(directory, { recursive: true, force: true }); }
@@ -592,11 +577,10 @@ function segmentRow(userId: string, segmentId: string) {
 function asSheet(value: unknown): StoryboardSheet | undefined {
     if (!value || typeof value !== "object") return undefined;
     const sheet = value as StoryboardSheet;
-    return Array.isArray(sheet.frames) ? { ...sheet, revision: Math.max(1, Number(sheet.revision) || 1), layout: storyboardLayout(sheet.frames.length), frames: sheet.frames.map((frame, index) => ({ id: String(frame.id || nanoid()), position: index, shotNumber: Math.max(1, Math.round(Number(frame.shotNumber || 1))), timeSeconds: Math.max(0, Number(frame.timeSeconds) || 0), kind: frame.kind === "shot-start" || frame.kind === "shot-end" ? frame.kind : "keyframe", description: String(frame.description || ""), action: String(frame.action || ""), cameraAngle: String(frame.cameraAngle || ""), cameraMove: String(frame.cameraMove || ""), h3Visual: String(frame.h3Visual || ""), dialogues: Array.isArray(frame.dialogues) ? frame.dialogues : [], dialogue: String(frame.dialogue || ""), sound: String(frame.sound || "") })) } : undefined;
+    return Array.isArray(sheet.frames) ? { ...sheet, revision: Math.max(1, Number(sheet.revision) || 1), layout: sheet.layout || "single", frames: sheet.frames.map((frame, index) => ({ id: String(frame.id || nanoid()), position: index, shotNumber: Math.max(1, Math.round(Number(frame.shotNumber || 1))), timeSeconds: Math.max(0, Number(frame.timeSeconds) || 0), kind: frame.kind === "shot-start" || frame.kind === "shot-end" ? frame.kind : "keyframe", description: String(frame.description || ""), action: String(frame.action || ""), cameraAngle: String(frame.cameraAngle || ""), cameraMove: String(frame.cameraMove || ""), h3Visual: String(frame.h3Visual || ""), dialogues: Array.isArray(frame.dialogues) ? frame.dialogues : [], dialogue: String(frame.dialogue || ""), sound: String(frame.sound || "") })) } : undefined;
 }
 function defaultSheet(segmentId: string, duration: number, payload: Record<string, unknown>): StoryboardSheet {
-    const requested = Number(payload.storyboardFrameCount); const frameCount = [4, 6, 9].includes(requested) ? requested : recommendedStoryboardFrameCount(duration);
-    return { revision: 1, layout: storyboardLayout(frameCount), frames: Array.from({ length: frameCount }, (_, position) => ({ id: `${segmentId}-frame-${position + 1}`, position, shotNumber: 1, timeSeconds: Number((duration * position / Math.max(1, frameCount - 1)).toFixed(2)), kind: position === 0 ? "shot-start" : position === frameCount - 1 ? "shot-end" : "keyframe", description: String(payload.description || ""), action: String(payload.action || ""), cameraAngle: String(payload.cameraAngle || ""), cameraMove: String(payload.cameraMove || ""), h3Visual: "", dialogues: [], sound: String(payload.sound || "") })) };
+    return { revision: 1, layout: "single", frames: [] };
 }
 function referencePurpose(purpose: string) {
     if (purpose === "主角色" || purpose === "出镜角色") return "preserve the character's face, body, hair, wardrobe, materials, and visual identity only";
@@ -636,8 +620,9 @@ function groupStoryboardShots(frames: StoryboardFrame[]) {
 }
 export function resolveH3Route(payload: Record<string, unknown>, sheet: StoryboardSheet | undefined) {
     if (payload.generationIntent === "transition") return { mode: "fl2va", reason: "视觉过渡使用前段尾帧与后段首帧生成" } as const;
-    if (payload.boundary === "continue") return { mode: "ref2va", reason: "连续视频段使用上一段尾部音视频与当前完整故事板续写" } as const;
+    if (payload.boundary === "continue") return { mode: "ref2va", reason: "连续任务使用上一任务的运动与原声状态续写" } as const;
     const shots = new Set((sheet?.frames || []).map((frame) => frame.shotNumber)).size;
+    if (!sheet?.frames.length) return { mode: "ref2va", reason: "按任务最终提示词与显式参考输入生成" } as const;
     return { mode: "ref2va", reason: shots > 1 ? `完整故事板包含 ${shots} 个镜头、${shots - 1} 次内部切镜，按整板时序生成` : "完整故事板作为视频段构图与动作参考" } as const;
 }
 function transitionFrame(userId: string, projectId: string, segmentId: string, field: "actualFirstFrameFileId" | "actualLastFrameFileId") {
@@ -651,7 +636,7 @@ function transitionBlockedReasons(userId: string, projectId: string, payload: Re
     const to = transitionFrame(userId, projectId, String(payload.transitionToSegmentId || ""), "actualFirstFrameFileId");
     return [!from ? "前一视频段缺少实际尾帧" : "", !to ? "后一视频段缺少实际首帧" : ""].filter(Boolean);
 }
-function storyboardLayoutLabel(layout: DirectorStoryboardLayout) { return layout === "3x3" ? "3 columns by 3 rows" : layout === "3x2" ? "3 columns by 2 rows" : "2 columns by 2 rows"; }
+function storyboardLayoutLabel(layout: DirectorStoryboardLayout) { const [columns, rows] = layout.split("x"); return layout === "single" ? "single image" : `${columns} columns by ${rows} rows`; }
 export function compileDirectorStoryboardPrompt(title: string, payload: Record<string, unknown>, sheet: StoryboardSheet, styleDescription: string, directingRules: Record<string, string> = {}) {
     const frameLines = sheet.frames.map((frame, index) => `Panel ${index + 1} | ${frame.timeSeconds}s | Shot ${frame.shotNumber} | ${frame.kind}: ${frame.description}; action: ${frame.action}; camera: ${frame.cameraAngle}, ${frame.cameraMove}`).join("\n");
     const shotGroups = groupStoryboardShots(sheet.frames).map(({ shotNumber, frames }) => `Shot ${shotNumber} uses panels ${frames.map((frame) => frame.position + 1).join(", ")} and begins at ${frames[0]?.timeSeconds || 0}s.`).join("\n");
@@ -669,9 +654,9 @@ export function compileDirectorStoryboardPrompt(title: string, payload: Record<s
 }
 function storyboardImageSize(layout: DirectorStoryboardLayout) { return layout === "3x3" ? "2304x1296" : layout === "3x2" ? "2304x864" : "2048x1152"; }
 export async function extractDirectorStoryboardOpeningFrame(sourcePath: string, outputPath: string, layout: DirectorStoryboardLayout) {
-    const columns = layout === "2x2" ? 2 : 3;
-    const rows = layout === "3x3" ? 3 : 2;
-    await ffmpeg(["-y", "-i", sourcePath, "-vf", `crop=floor(iw/${columns})-4:floor(ih/${rows})-4:1:1`, "-frames:v", "1", outputPath]);
+    const columns = layout === "single" ? 1 : Number(layout.split("x")[0]);
+    const rows = layout === "single" ? 1 : Number(layout.split("x")[1]);
+    await ffmpeg(["-y", "-i", sourcePath, ...(layout === "single" ? [] : ["-vf", `crop=floor(iw/${columns})-4:floor(ih/${rows})-4:1:1`]), "-frames:v", "1", outputPath]);
 }
 async function extractStoryboardStartGuide(userId: string, segmentId: string, sourceFileId: string, layout: DirectorStoryboardLayout) {
     const source = getStoredFile(userId, sourceFileId);
@@ -696,23 +681,11 @@ async function extractContinuationTail(userId: string, segmentId: string, videoF
 export function directorSegmentMediaDuration(payload: Record<string, unknown>) {
     return Number((payload.videoFileId && payload.videoDurationSeconds) || payload.durationSeconds || 4);
 }
-function upsertNativeAudioClip(userId: string, projectId: string, segmentId: string, fileId: string, duration: number) {
-    const row = db.prepare("SELECT payload FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string };
-    const payload = parseJson<{ segmentOrder?: string[]; tracks?: Array<{ id: string; kind: string; clips: Array<Record<string, unknown>> }> }>(row.payload, {});
-    const segments = db.prepare("SELECT s.id,s.payload FROM director_shots s JOIN director_sequences q ON q.id=s.sequence_id AND q.user_id=s.user_id WHERE s.user_id=? AND s.project_id=? ORDER BY q.position,s.position,s.id").all(userId, projectId) as Array<{ id: string; payload: string }>;
-    const order = payload.segmentOrder?.length ? payload.segmentOrder : segments.map((segment) => segment.id);
-    const byId = new Map(segments.map((item) => [item.id, item]));
-    const start = order.slice(0, Math.max(0, order.indexOf(segmentId))).reduce((sum, id) => sum + directorSegmentMediaDuration(parseJson<Record<string, unknown>>(byId.get(id)?.payload || "{}", {})), 0);
-    const tracks = payload.tracks || []; let track = tracks.find((item) => item.id === "model-original");
-    if (!track) { track = { id: "model-original", kind: "model-original", clips: [] }; tracks.push(track); }
-    track.clips = [...track.clips.filter((clip) => clip.segmentId !== segmentId), { id: `model-original-${segmentId}`, segmentId, fileId, start, duration, volume: 1, muted: false }];
-    db.prepare("UPDATE director_timelines SET payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=?").run(JSON.stringify({ ...payload, tracks }), new Date().toISOString(), userId, projectId);
-}
 function outputSize(ratio: string): [number, number] { if (ratio === "9:16") return [1080, 1920]; if (ratio === "1:1") return [1080, 1080]; if (ratio === "2.39:1") return [1920, 804]; return [1920, 1080]; }
 function updateRender(row: RenderRow, patch: { status?: RenderRow["status"]; progress?: number; error?: string }) { db.prepare("UPDATE director_renders SET status=coalesce(?,status),progress=coalesce(?,progress),error=?,updated_at=? WHERE id=? AND user_id=?").run(patch.status || null, patch.progress ?? null, patch.error || null, new Date().toISOString(), row.id, row.user_id); const next = renderRow(row.user_id, row.id); if (next) publish(next); }
 function publish(row: RenderRow) { markDirectorProjectChanged(row.user_id, row.project_id, ["renders"]); const data = renderResponse(row); emitRender(row.user_id, { type: "render", projectId: row.project_id, data }); return data; }
 function renderRow(userId: string, id: string) { return db.prepare("SELECT * FROM director_renders WHERE id=? AND user_id=?").get(id, userId) as RenderRow | undefined; }
-function renderResponse(row: RenderRow) { return { id: row.id, projectId: row.project_id, status: row.status, payload: parseJson(row.payload, {}), outputFileId: row.output_file_id, ...(row.status === "succeeded" ? { outputPath: `renders/${row.id}/final.mp4`, metadataPath: `renders/${row.id}/render.json` } : {}), error: row.error, progress: row.progress, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function renderResponse(row: RenderRow) { return { id: row.id, projectId: row.project_id, status: row.status, payload: (({ snapshot: _snapshot, ...value }) => value)(parseJson<RenderPayload>(row.payload, {} as RenderPayload)), outputFileId: row.output_file_id, ...(row.status === "succeeded" ? { outputPath: `renders/${row.id}/final.mp4`, metadataPath: `renders/${row.id}/render.json` } : {}), error: row.error, progress: row.progress, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function assertDirector(userId: string, projectId: string) { if (!db.prepare("SELECT 1 FROM projects WHERE id=? AND user_id=? AND kind='director'").get(projectId, userId)) throw renderError(404, "DIRECTOR_PROJECT_NOT_FOUND", "导演项目不存在"); }
 function renderError(status: number, code: string, message: string, details?: unknown) { return Object.assign(new Error(message), { status, code, details }); }
 

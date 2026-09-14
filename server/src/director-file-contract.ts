@@ -5,7 +5,8 @@ export const projectMediaPath = z.string().min(1).refine((path) => !path.startsW
 const id = z.string().min(1);
 const reference = z.union([id, z.object({ id, variantId: id.optional() }).passthrough()]);
 export const segmentFileSchema = z.object({
-    id, kind: z.literal("video-segment"), sequenceId: id, order: z.number().int().positive(), durationSeconds: z.number().min(4).max(15),
+    id, kind: z.literal("production-task"), sequenceId: id, order: z.number().int().positive(), durationSeconds: z.number().positive(),
+    shotIds: z.array(id).default([]), referenceImages: z.array(projectMediaPath).default([]),
     sourceSceneId: id.optional(), sourceBeatIds: z.array(id).optional(), sourceDurationSeconds: z.number().positive().optional(),
     dramaticBeat: z.string().optional(), openingState: z.string().optional(), endingState: z.string().optional(),
     boundary: z.enum(["cut", "continue"]).optional(), continuationFromSegmentId: id.optional(),
@@ -19,13 +20,12 @@ export const segmentFileSchema = z.object({
 });
 const dialogue = z.object({ speakerAssetId: id, speakerName: id, text: id, language: id, delivery: id, startSeconds: z.number().nonnegative(), endSeconds: z.number().positive(), offScreen: z.boolean().optional() }).refine((cue) => cue.endSeconds > cue.startSeconds, "对白结束时间必须晚于开始时间");
 export const storyboardFileSchema = z.object({
-    version: z.literal(1), segmentId: id, layout: z.enum(["2x2", "3x2", "3x3"]),
-    frames: z.array(z.object({ id, position: z.number().int().nonnegative().optional(), shotNumber: z.number().int().min(1).max(3), timeSeconds: z.number().min(0).max(15), kind: z.enum(["shot-start", "keyframe", "shot-end"]), description: z.string(), action: z.string(), cameraAngle: z.string(), cameraMove: z.string(), h3Visual: z.string().optional(), dialogues: z.array(dialogue).max(8).optional(), sound: z.string(), dialogue: z.never().optional() })).max(9),
+    version: z.literal(1), segmentId: id, layout: z.string().regex(/^(single|[1-9][0-9]*x[1-9][0-9]*)$/),
+    frames: z.array(z.object({ id, position: z.number().int().nonnegative().optional(), shotNumber: z.number().int().positive(), timeSeconds: z.number().nonnegative(), kind: z.enum(["shot-start", "keyframe", "shot-end"]), description: z.string(), action: z.string(), cameraAngle: z.string(), cameraMove: z.string(), h3Visual: z.string().optional(), dialogues: z.array(dialogue).max(8).optional(), sound: z.string(), dialogue: z.never().optional() })),
 }).superRefine((board, ctx) => {
-    if (board.frames.length !== ({ "2x2": 4, "3x2": 6, "3x3": 9 })[board.layout]) ctx.addIssue({ code: "custom", path: ["frames"], message: "画格数量必须与版式一致" });
     const ids = new Set<string>();
     board.frames.forEach((frame, index) => {
-        if (index === 0 && (frame.shotNumber !== 1 || frame.kind !== "shot-start") || index === board.frames.length - 1 && frame.kind !== "shot-end") ctx.addIssue({ code: "custom", path: ["frames", index, "kind"], message: "第一格必须从 Shot 1 的 shot-start 开始，最后一格必须为 shot-end" });
+        if (board.frames.length > 1 && (index === 0 && (frame.shotNumber !== 1 || frame.kind !== "shot-start") || index === board.frames.length - 1 && frame.kind !== "shot-end")) ctx.addIssue({ code: "custom", path: ["frames", index, "kind"], message: "第一格必须从 Shot 1 的 shot-start 开始，最后一格必须为 shot-end" });
         if (ids.has(frame.id)) ctx.addIssue({ code: "custom", path: ["frames", index, "id"], message: "画格 ID 重复" });
         ids.add(frame.id);
         if (index === 0 ? frame.timeSeconds !== 0 : frame.timeSeconds <= board.frames[index - 1].timeSeconds) ctx.addIssue({ code: "custom", path: ["frames", index, "timeSeconds"], message: "画格时间必须从 0 开始并严格递增" });
@@ -33,13 +33,13 @@ export const storyboardFileSchema = z.object({
     });
 });
 export const timelineFileSchema = z.object({
-    segmentOrder: z.array(id).optional(),
-    tracks: z.array(z.object({ id, kind: z.enum(["dialogue", "narration", "ambient", "sfx", "music", "model-original"]), clips: z.array(z.object({ id, segmentId: id.optional(), path: projectMediaPath.optional(), fileId: z.never().optional(), start: z.number().nonnegative(), duration: z.number().positive(), trimIn: z.number().nonnegative().optional(), fadeIn: z.number().nonnegative().optional(), fadeOut: z.number().nonnegative().optional(), trimOut: z.number().nonnegative().optional(), volume: z.number().nonnegative().optional(), muted: z.boolean().optional(), loop: z.boolean().optional() }).superRefine((clip, ctx) => {
+    videoClips: z.array(z.object({ id, taskId: id, trimIn: z.number().nonnegative(), trimOut: z.number().positive(), linkedAudio: z.boolean().default(true) }).refine((clip) => clip.trimOut > clip.trimIn, "出点必须晚于入点")).default([]),
+    tracks: z.array(z.object({ id, kind: z.enum(["dialogue", "narration", "ambient", "sfx", "music", "model-original"]), clips: z.array(z.object({ id, taskId: id.optional(), path: projectMediaPath.optional(), fileId: z.never().optional(), start: z.number().nonnegative(), duration: z.number().positive(), trimIn: z.number().nonnegative().optional(), fadeIn: z.number().nonnegative().optional(), fadeOut: z.number().nonnegative().optional(), trimOut: z.number().nonnegative().optional(), volume: z.number().nonnegative().optional(), muted: z.boolean().optional(), loop: z.boolean().optional() }).superRefine((clip, ctx) => {
         for (const field of ["fadeIn", "fadeOut"] as const) if ((clip[field] || 0) > clip.duration) ctx.addIssue({ code: "custom", path: [field], message: "淡入淡出时长不能超过声音片段时长" });
     })) })).optional(),
 }).strict().superRefine((timeline, ctx) => {
     const unique = (values: string[], path: (string | number)[]) => { if (new Set(values).size !== values.length) ctx.addIssue({ code: "custom", path, message: "ID 不得重复" }); };
-    unique(timeline.segmentOrder || [], ["segmentOrder"]);
+    unique(timeline.videoClips.map((clip) => clip.id), ["videoClips"]);
     unique((timeline.tracks || []).map((track) => track.id), ["tracks"]);
     unique((timeline.tracks || []).flatMap((track) => track.clips.map((clip) => clip.id)), ["tracks"]);
 });
@@ -57,3 +57,15 @@ export const screenplayReviewIssue = z.object({
     type: z.enum(["duration", "repetition", "causality", "scene_function", "coverage"]),
     sceneIds: z.array(id).max(100), summary: z.string().trim().min(1).max(2_000), suggestion: z.string().trim().min(1).max(2_000),
 });
+
+export const shotDesignFileSchema = z.object({
+    id, kind: z.literal("shot-design"), name: z.string().min(1), sequenceId: id, order: z.number().int().positive(),
+    sourceSceneId: id.optional(), sourceBeatIds: z.array(id).default([]), estimatedSeconds: z.number().positive().optional(),
+    purpose: z.string().default(""), staging: z.string().default(""), camera: z.string().default(""),
+    action: z.string().default(""), dialogue: z.string().default(""), sound: z.string().default(""),
+    openingState: z.string().default(""), endingState: z.string().default(""), connection: z.string().default(""),
+    referenceImages: z.array(projectMediaPath).default([]),
+}).passthrough();
+export type ShotDesignFile = z.infer<typeof shotDesignFileSchema>;
+export type ProductionTaskFile = z.infer<typeof segmentFileSchema>;
+export type DirectorEdit = z.infer<typeof timelineFileSchema>;

@@ -1,18 +1,13 @@
-# 视频段文件契约
+# v2 工程格式
 
-相对路径均从工程根目录解析，ID 来自对应 Markdown 的 Frontmatter，不能填数据库 fileId 或 revision。目录名用于组织，引用使用稳定 ID。先读取本页，再复制同目录 examples/ 中的文件并改写内容；不要照抄示例 ID 到已有工程。
+- `storyboards/scene-001/sequence.md`：场景容器，稳定 id、kind: sequence、name、order。
+- `storyboards/scene-001/shot-001/shot.md`：镜头设计，参见 [镜头样例](examples/shot.md)。
+- `productions/task-001/task.md`：制作任务，参见 [任务样例](examples/task.md)。
+- 任务最终提示：同目录 `video-prompt.md`，正文原样发送给模型。
+- 可选参考说明：同目录 `storyboard.yaml`；图片可命名 `storyboard.png`，但只有列入任务 `referenceImages` 才会提交。
+- 当前视频仍命名 `preview.mp4` 或 `final.mp4`，原声为 `model-audio.wav`。它们由服务端写入，不手工修改原生状态。
+- `timeline/timeline.json` 使用独立片段的 `videoClips` 和声音 `tracks`，参见时间线 Skill。
 
-- `sequence.md`：必填 `id`、`kind: sequence`、`name`、从 1 开始的 `order`；正文为段落概述。
-- `segment.md`：必填 `id`、`kind: video-segment`、`sequenceId`、唯一正整数 `order`、4–15 秒 `durationSeconds`。生产前必须补齐来源、戏剧变化、开始/结束状态和英文 H3 字段。
-- `sourceSceneId`、`sourceBeatIds` 对应制作拆解场次及其 `beats[].id`，`sourceDurationSeconds` 是本段覆盖节拍的预计总时长。
-- `references.characters/locations/props` 为稳定 ID 数组，或 `{ id, variantId }` 对象数组；角色必须引用 character，场景引用 scene，道具引用 prop。这些列表用于追加独立视觉参考，每一项都需要实际可用主图或指定形象，不是剧本全部出场物件的清单。普通物件若已在采用故事板中清楚呈现且无需额外身份图，应保留剧本、关键时刻与最终提示中的叙事，并明确其视觉依据来自整板；不要把没有主图的物件机械加入额外参考。需要独立身份约束的角色或关键道具仍应准备真实参考，不得静默丢弃缺失输入。
-- `boundary` 为 `cut` 或 `continue`；续接填写 `continuationFromSegmentId`。独立视觉过渡填写 `generationIntent: transition` 和 `transitionFromSegmentId` / `transitionToSegmentId`，无需故事板文件。
-- `audioReferences` 最多三项，每项为工程相对 `path`、`purpose: voice|dialogue|sound|music`、英文 `description`；voice/dialogue 额外填写本段角色 `speakerAssetId`。
-- `storyboard.yaml` 必填 `version: 1`、当前 `segmentId`、`layout`、`frames`。版式 2x2 / 3x2 / 3x3 分别对应 4 / 6 / 9 格。
-- 每格必填 `id`、`shotNumber`（1–3）、`timeSeconds`、`kind`、`description`、`action`、`cameraAngle`、`cameraMove`、`sound`；生产前填写英文 `h3Visual`。格序为数组顺序，从 0 秒严格递增到段末；Shot 从 1 开始连续编号。
-- `dialogues` 可为空；每条必填 `speakerAssetId`、`speakerName`、`text`、`language`、英文 `delivery`、`startSeconds`、`endSeconds`，可选 `offScreen`。时间为本段局部秒数，必须在本段时长内，角色必须属于本段引用。
-- `storyboard-prompt.md` 是整板生图提示词；`storyboard.png` 是一次生成的完整故事板。媒体快照由服务端维护，不写进 YAML。
+镜头与任务的 ID 均稳定。`shotIds` 只引用本工程镜头 ID；`sequenceId` 对应本工程场景。任务 `durationSeconds` 是这次生成目标，镜头 `estimatedSeconds` 是创作估计，成片片段 `trimIn/trimOut` 是实际素材时间，三者不混用。
 
-完整样例：[sequence.md](examples/sequence.md)、[segment.md](examples/segment.md)、[storyboard.yaml](examples/storyboard.yaml)。该例引用 [制作拆解样例](../../director-breakdown-screenplay/references/scene-example.md) 的 `scene-001/beat-001`，无对白和素材引用；文字规划可通过结构校验，媒体生成仍需补齐对应提示词和媒体。
-
-写完调用 `director_validate`，诊断给出文件路径与具体字段。生成前调用 `director_validate_video_segments({ segmentPaths: ["storyboards/seq-001-station/seg-001-door/segment.md"] })`，它额外检查叙事、英文提示、素材和媒体是否满足生产要求。
+故事板结构如 [参考说明样例](examples/storyboard.yaml)，允许单图 `layout: single` 或多宫格版式。结构化时点是计划，不自动生成时间线裁切。
