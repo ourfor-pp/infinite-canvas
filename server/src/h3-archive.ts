@@ -36,7 +36,7 @@ export async function addH3Archive(zip: AdmZip, userId: string, projectId: strin
         const cumulative = await resolveDirectorH3Cumulative(userId, projectId, row.id);
         const state = await resolveDirectorH3Continuation(userId, projectId, row.id, cumulative.context);
         const generation = db.prepare("SELECT model_id,request FROM generations WHERE user_id=? AND id=?").get(userId, state.generationId) as { model_id: string; request: string };
-        const request = parseJson<{ prompt?: string; params?: { __h3PreviousState?: { segmentId: string }; __h3ArchiveImport?: { sourceGenerationId: string } } }>(generation.request, {});
+        const request = parseJson<{ prompt?: string; metadata?: { directorSegment?: { previousState?: { segmentId: string } }; archiveImport?: { sourceGenerationId: string } } }>(generation.request, {});
         const folder = `.h3/${entries.length}`;
         const add = (fileId: string, name: string, expected: string) => {
             const file = getStoredFile(userId, fileId);
@@ -46,7 +46,7 @@ export async function addH3Archive(zip: AdmZip, userId: string, projectId: strin
             const path = `${folder}/${name}`; zip.addFile(path, data);
             return { path, sha256: expected };
         };
-        entries.push({ segmentId: externalId(row.id), ...(request.params?.__h3PreviousState ? { parentSegmentId: externalId(request.params.__h3PreviousState.segmentId) } : {}), sourceGenerationId: request.params?.__h3ArchiveImport?.sourceGenerationId || state.generationId, model: generation.model_id, prompt: String(request.prompt || ""), qualityPreset: payload.videoQualityPreset === "final" ? "final" : "preview", context: state.context,
+        entries.push({ segmentId: externalId(row.id), ...(request.metadata?.directorSegment?.previousState ? { parentSegmentId: externalId(request.metadata!.directorSegment!.previousState.segmentId) } : {}), sourceGenerationId: request.metadata?.archiveImport?.sourceGenerationId || state.generationId, model: generation.model_id, prompt: String(request.prompt || ""), qualityPreset: payload.videoQualityPreset === "final" ? "final" : "preview", context: state.context,
             video: add(state.videoFileId, "source.mp4", state.videoSha256), state: add(state.fileId, "state.safetensors", state.stateSha256), cumulative: add(cumulative.fileId, "cumulative.mp4", cumulative.sha256) });
     }
     if (rows.some((row) => (db.prepare("SELECT payload FROM director_shots WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, row.id) as { payload: string } | undefined)?.payload !== row.payload)) invalid("导出期间视频段发生变化");
@@ -91,8 +91,8 @@ export function restoreH3Archive(userId: string, projectId: string, root: string
             const binding = { projectId, segmentId: id, generationId, videoFileId: adoptedVideo.id, fileId: state.fileId, videoSha256: entry.video.sha256, stateSha256: entry.state.sha256, context: entry.context };
             const parent = entry.parentSegmentId ? bindings.get(entry.parentSegmentId) : undefined;
             if (entry.parentSegmentId && !parent) invalid("原生工程前段未恢复");
-            const request = { kind: "video", prompt: entry.prompt, params: { __directorSegment: { projectId, segmentId: id }, __h3StateContext: entry.context, __h3ArchiveImport: { version: 1, sourceGenerationId: entry.sourceGenerationId }, ...(parent ? { __h3PreviousFrames: parent.context.frames, __h3PreviousState: parent } : {}) } };
-            const result = { imported: true, files: [{ fileId: adoptedVideo.id }], continuationStates: [state], cumulativeVideos: [cumulative] };
+            const request = { kind: "video", prompt: entry.prompt, metadata: { directorSegment: { projectId, segmentId: id, previousState: parent }, archiveImport: { version: 1, sourceGenerationId: entry.sourceGenerationId } }, ...(parent ? { continuation: { generationId: parent.generationId, fileId: parent.fileId } } : {}) };
+            const result = { imported: true, files: [{ fileId: adoptedVideo.id }], continuationStates: [{ ...state, sha256: entry.state.sha256, context: entry.context }], cumulativeVideos: [cumulative], execution: { context: entry.context } };
             db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,progress,created_at,updated_at) VALUES(?,?,'video','succeeded',?,?,?,1,?,?)").run(generationId, userId, entry.model, JSON.stringify(request), JSON.stringify(result), now, now);
             const next = { ...payload, videoGenerationId: generationId, videoStale: false, videoQualityPreset: entry.qualityPreset, videoDurationSeconds: (entry.context.frames - Number(parent?.context.frames || 0)) / 24, h3ContinuationState: binding, h3CumulativeVideo: { fileId: cumulative.fileId, sha256: entry.cumulative.sha256, generationId, stateSha256: entry.state.sha256, frames: entry.context.frames } };
             db.prepare("UPDATE director_shots SET payload=?,revision=revision+1 WHERE user_id=? AND project_id=? AND id=?").run(JSON.stringify(next), userId, projectId, id);

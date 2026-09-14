@@ -36,7 +36,8 @@ test("v2 镜头多对多任务、保存恢复、无图预检、独立选片与�
     let task = await request(`/director/projects/${projectId}/production-tasks`, { id: "task", sequenceId: sequence.id, title: "主画面与反应", payload: { durationSeconds: 8, shotIds: ["main", "reaction"], referenceImages: [] } });
     const long = await request(`/director/projects/${projectId}/production-tasks`, { id: "long", sequenceId: sequence.id, title: "长镜头后半", payload: { durationSeconds: 30, shotIds: ["main"] } });
     const checked = await request(`/director/production-tasks/${long.id}/preflight`);
-    assert.ok(checked.blockedReasons.some((reason: string) => reason.includes("4–15")));
+    assert.equal(long.payload.durationSeconds, 30, "镜头与任务保留创作时长，执行限制交给媒体能力预检");
+    assert.ok(checked.blockedReasons.length > 0, "缺少最终提示或执行器时不得声称可提交");
     assert.ok(!checked.blockedReasons.some((reason: string) => reason.includes("缺少故事板")));
     state = await request(`/director/projects/${projectId}`);
     assert.deepEqual(state.videoSegments.find((item: any) => item.id === "task").payload.shotIds, ["main", "reaction"]);
@@ -66,7 +67,7 @@ test("v2 镜头多对多任务、保存恢复、无图预检、独立选片与�
     const mediaBefore = (db.prepare("SELECT payload FROM director_shots WHERE id='task'").get() as { payload: string }).payload;
     const { syncDirectorGeneration } = await import("./director-render.js");
     for (const status of ["running", "failed", "canceled"]) {
-        await syncDirectorGeneration({ user_id: "dev-admin", id: "unsuccessful", status, request: JSON.stringify({ params: { __directorSegment: { projectId, segmentId: "task" } } }) } as import("./generation-service.js").GenerationRow);
+        await syncDirectorGeneration({ user_id: "dev-admin", id: "unsuccessful", status, request: JSON.stringify({ metadata: { directorSegment: { projectId, segmentId: "task" } } }) } as import("./generation-service.js").GenerationRow);
         assert.equal((db.prepare("SELECT payload FROM director_shots WHERE id='task'").get() as { payload: string }).payload, mediaBefore, `${status} 保留现有媒体`);
     }
     const fullPayload = JSON.parse(mediaBefore);

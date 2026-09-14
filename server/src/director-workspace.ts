@@ -1884,10 +1884,10 @@ export function readDirectorMusicPrompt(userId: string, projectId: string, promp
 }
 
 export function materializeDirectorMusic(userId: string, projectId: string, generationId: string) {
-    const row = db.prepare("SELECT status,request,result FROM generations WHERE id=? AND user_id=? AND json_extract(request,'$.params.__directorMusic.projectId')=?").get(generationId, userId, projectId) as { status: string; request: string; result: string } | undefined;
+    const row = db.prepare("SELECT status,request,result FROM generations WHERE id=? AND user_id=? AND json_extract(request,'$.metadata.directorMusic.projectId')=?").get(generationId, userId, projectId) as { status: string; request: string; result: string } | undefined;
     if (!row || row.status !== "succeeded") return undefined;
     const request = JSON.parse(row.request);
-    const source = request.params.__directorMusic;
+    const source = request.metadata.directorMusic;
     if (!/^audio\/music\/[a-zA-Z0-9_-]+\/prompt\.md$/.test(source.promptPath) || !/^[a-zA-Z0-9_-]+$/.test(generationId)) throw workspaceError(400, "DIRECTOR_MUSIC_PATH", "配乐任务路径无效");
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     const promptPath = safeWorkspacePath(root, source.promptPath);

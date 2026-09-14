@@ -968,7 +968,7 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     assert.equal((await api("/agent/projects/project-1/capabilities", userTwo)).response.status, 404);
     const directorCapabilities = await api("/agent/projects/director-project-1/capabilities", userOne);
     assert.equal(directorCapabilities.body.data.sceneId, "director");
-    assert.equal(directorCapabilities.body.data.skills.every((skill: { id: string }) => skill.id === "media-understand" || skill.id.startsWith("director-")), true);
+    assert.equal(directorCapabilities.body.data.skills.every((skill: { id: string }) => ["media-understand", "media-generation"].includes(skill.id) || skill.id.startsWith("director-")), true);
     assert.equal(directorCapabilities.body.data.skills.some((skill: { id: string }) => skill.id === "media-understand"), true);
     assert.equal(directorCapabilities.body.data.skills.some((skill: { id: string }) => skill.id === "write-story"), false);
     const directorReferences = await api("/agent/projects/director-project-1/references?limit=100", userOne);
@@ -1080,8 +1080,8 @@ test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接",
     const cumulativeSource = storeLocalFile(userId, cumulativePath, "cumulative.mp4", "video/mp4");
 
     const context = { schemaVersion: 1 as const, fps: 24 as const, modelRevision: "model-sha", videoVaeRevision: "video-vae-sha", audioVaeRevision: "audio-vae-sha", sourceId: "test-source", width: 64, height: 64, frames: 107 };
-    const request = { params: { __directorSegment: { projectId, segmentId, storyboardRevision: 1 }, __h3StateContext: context } };
-    db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES(?,?,'video','succeeded','minimax-h3-ref2va-local',?,?,?,?)").run(generationId, userId, JSON.stringify(request), JSON.stringify({ files: [video], continuationStates: [state], cumulativeVideos: [cumulativeSource] }), now, now);
+    const request = { metadata: { directorSegment: { projectId, segmentId, storyboardRevision: 1 } } };
+    db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES(?,?,'video','succeeded','minimax-h3-ref2va-local',?,?,?,?)").run(generationId, userId, JSON.stringify(request), JSON.stringify({ files: [video], continuationStates: [state], cumulativeVideos: [cumulativeSource], execution: { context } }), now, now);
     const generation = db.prepare("SELECT * FROM generations WHERE id=? AND user_id=?").get(generationId, userId) as import("./generation-service.js").GenerationRow;
     const readPayload = () => JSON.parse((db.prepare("SELECT payload FROM director_shots WHERE id=? AND user_id=?").get(segmentId, userId) as { payload: string }).payload);
     const writePayload = (payload: unknown) => db.prepare("UPDATE director_shots SET payload=?,revision=revision+1 WHERE id=? AND user_id=?").run(JSON.stringify(payload), segmentId, userId);
@@ -1117,7 +1117,7 @@ test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接",
     const timeline = JSON.parse((db.prepare("SELECT payload FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string }).payload);
     assert.equal(timeline.tracks.find((track: { id: string }) => track.id === "model-original").clips[0].duration, 107 / 24);
     assert.deepEqual(cumulative.chain.map((item) => item.segmentId), [segmentId]);
-    db.prepare("UPDATE generations SET request=? WHERE id=?").run(JSON.stringify({ ...request, params: { ...request.params, __h3PreviousFrames: binding.context.frames, __h3PreviousState: binding } }), generationId);
+    db.prepare("UPDATE generations SET request=? WHERE id=?").run(JSON.stringify({ ...request, metadata: { directorSegment: { ...request.metadata.directorSegment, previousState: binding } } }), generationId);
     await assert.rejects(resolveDirectorH3Cumulative(userId, projectId, segmentId), /来源链无效/);
     db.prepare("UPDATE generations SET request=? WHERE id=?").run(JSON.stringify(request), generationId);
     const { createDirectorRender, listDirectorRenders } = await import("./director-render.js");
@@ -1174,7 +1174,7 @@ test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接",
     assert.equal(importedProject.timeline.payload.tracks[0].clips[0].taskId, importedSegment.id);
     assert.equal((await fetch(`${origin}/files/${importedState.fileId}/content`, { headers: userOne })).status, 404);
     const importedGeneration = db.prepare("SELECT request FROM generations WHERE user_id=? AND id=?").get(userTwo["X-Trim-Userid"], importedState.generationId) as { request: string };
-    assert.equal(JSON.parse(importedGeneration.request).params.__h3ArchiveImport.sourceGenerationId, generationId);
+    assert.equal(JSON.parse(importedGeneration.request).metadata.archiveImport.sourceGenerationId, generationId);
     const reexported = await fetch(`${origin}/director/projects/${importedProjectId}/export`, { headers: userTwo });
     assert.equal(reexported.status, 200);
     assert.equal(JSON.parse(new AdmZip(Buffer.from(await reexported.arrayBuffer())).readAsText(".h3/manifest.json")).entries[0].sourceGenerationId, generationId, "反复导入导出保留原始来源生成标识");
@@ -1238,7 +1238,7 @@ test("导演显式原声编排保留刷新及混音音量", async () => {
         const segmentId = `native-audio-${suffix}`, sequenceId = `native-sequence-${suffix}`, generationId = `native-audio-generation-${suffix}`;
         db.prepare("INSERT INTO director_sequences(id,user_id,project_id,position,title,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").run(sequenceId, userId, projectId, position, "场次", now, now);
         db.prepare("INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,payload,created_at,updated_at) VALUES(?,?,?,?,0,'片段',?,?,?)").run(segmentId, userId, projectId, sequenceId, JSON.stringify({ durationSeconds: 4, videoGenerationId: generationId, storyboardSheet: { revision: 1, layout: "2x2", frames: Array.from({ length: 4 }, (_, index) => ({ id: `${segmentId}-frame-${index}`, shotNumber: 1, timeSeconds: index * 4 / 3, kind: index === 0 ? "shot-start" : index === 3 ? "shot-end" : "keyframe", description: "静态画面", action: "", cameraAngle: "", cameraMove: "", sound: "" })) } }), now, now);
-        db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES(?,?,'video','succeeded','test',?,?,?,?)").run(generationId, userId, JSON.stringify({ params: { __directorSegment: { projectId, segmentId } } }), JSON.stringify({ files: [video] }), now, now);
+        db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES(?,?,'video','succeeded','test',?,?,?,?)").run(generationId, userId, JSON.stringify({ metadata: { directorSegment: { projectId, segmentId } } }), JSON.stringify({ files: [video] }), now, now);
         // These fixtures model production entities, whose files exist before the
         // asynchronous generation callback yields to the workspace watcher.
         const { syncDirectorSequenceFile, syncDirectorVideoSegmentFile } = await import("./director-workspace.js");
@@ -1444,8 +1444,17 @@ test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () 
     const original = settings.getMediaExecutorSettings();
     const identity = { ready: true, schemaVersion: 1, modelId: "minimax-h3-ref2va-local", modelRevision: `${"a".repeat(64)}:pipeline:${"b".repeat(64)}`, videoVaeRevision: "c".repeat(64), audioVaeRevision: "d".repeat(64), implementationRevision: "b".repeat(64) };
     let ready = true;
-    const executor = createServer((request, response) => {
+    const executor = createServer(async (request, response) => {
         if (request.url === "/health") json(response, { models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, nativeState: true, pddRef8: ready }, h3Runtime: identity, h3PddRuntime: ready ? { ...identity, modelRevision: `${identity.modelRevision}:pdd-ref8:${"e".repeat(64)}` } : null });
+        else if (request.url === "/v1/files") { for await (const _chunk of request) { /* consume upload */ } json(response, { id: "uploaded-reference" }); }
+        else if (request.url === "/v1/jobs/validate") {
+            const chunks = []; for await (const chunk of request) chunks.push(chunk);
+            const value = JSON.parse(Buffer.concat(chunks).toString());
+            assert.equal(Object.keys(value.params).some((key) => key.startsWith("__")), false);
+            const recipe = value.params.recipe || (ready ? "pdd-ref8" : "base");
+            if (!ready && recipe === "pdd-ref8") { response.writeHead(409, { "Content-Type": "application/json" }); response.end(JSON.stringify({ detail: "requested recipe unavailable" })); return; }
+            json(response, { valid: true, plan: { capabilityVersion: "1", mode: value.mode, recipe, seed: 42, width: 864, height: 480, outputFrames: 107, outputSeconds: 107 / 24 } });
+        }
         else { response.writeHead(503); response.end("No GPU execution in transport fixture"); }
     });
     await new Promise<void>((resolve) => executor.listen(0, "127.0.0.1", resolve));
@@ -1488,8 +1497,8 @@ test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () 
         syncDirectorVideoSegmentFile(userId, projectId, segment.id);
         assert.equal(readFileSync(promptFile, "utf8"), finalPrompt, "同步不能覆盖Agent最终提示");
         const preflight = await api(`/director/production-tasks/${segment.id}/preflight`, userOne);
-        assert.equal(preflight.body.data.acceleration, "pdd-ref8");
-        assert.equal(preflight.body.data.recipes.preview.steps, 8);
+        assert.equal(preflight.body.data.plan.recipe, "pdd-ref8");
+        assert.equal(preflight.body.data.plan.outputFrames, 107);
         const { buildAgentToolDefinitions } = await import("./agent/mcp/index.js");
         const { agentScenes } = await import("./agent/scenes/index.js");
         const context = { session: { projectId }, run: { userId }, appendEvent: () => {} } as unknown as Parameters<typeof buildAgentToolDefinitions>[0];
@@ -1500,21 +1509,23 @@ test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () 
             return JSON.parse((result.content[0] as { text: string }).text).data[0];
         };
         const accelerated = await agentPreflight();
-        assert.equal(accelerated.acceleration, "pdd-ref8");
+        assert.equal(accelerated.plan.recipe, "pdd-ref8");
         assert.deepEqual(accelerated.finalPrompt, { path: promptSource.path, hash: promptSource.hash });
-        assert.deepEqual(accelerated.recipes, preflight.body.data.recipes);
+        assert.deepEqual(accelerated.plan, preflight.body.data.plan);
 
         for (const recipe of [undefined, "base"] as const) {
             const result = await generate(recipe);
             assert.equal(result.response.status, 201, JSON.stringify(result.body));
             const params = result.body.data.request.params;
+            const { getDirectorGenerationTasks } = await import("./agent/director-tools.js");
+            assert.equal((getDirectorGenerationTasks(userId, projectId, { id: result.body.data.id }) as { id: string }).id, result.body.data.id);
             assert.equal(result.body.data.request.prompt, finalPrompt, "官方格式最终稿必须逐字提交而非重新编译");
-            assert.equal(result.body.data.request.params.__directorSegment.promptHash, promptSource.hash);
-            assert.equal(result.body.data.request.params.__directorSegment.promptPath, promptSource.path);
+            assert.equal(result.body.data.request.metadata.directorSegment.promptHash, promptSource.hash);
+            assert.equal(result.body.data.request.metadata.directorSegment.promptPath, promptSource.path);
             assert.equal(readFileSync(promptFile, "utf8"), finalPrompt, "生成回写不能清空提示文件");
-            assert.equal(params.h3Recipe, recipe || "pdd-ref8");
-            assert.equal(params.__directorSegment.recipe.steps, recipe ? 20 : 8);
-            assert.equal(params.__h3StateContext.modelRevision, recipe ? identity.modelRevision : `${identity.modelRevision}:pdd-ref8:${"e".repeat(64)}`);
+            assert.equal(params.recipe, recipe || "pdd-ref8");
+            assert.equal(params.seed, 42);
+            assert.equal(Object.keys(params).some((key) => key.startsWith("__")), false);
             const stored = db.prepare("SELECT request FROM generations WHERE id=? AND user_id=?").get(result.body.data.id, userId) as { request: string };
             assert.deepEqual(JSON.parse(stored.request).params, params);
         }
@@ -1522,11 +1533,10 @@ test("导演 HTTP 默认 PDD 和基础重做保存真实配方参数", async () 
         await settings.refreshMediaExecutorCatalog();
         const fallback = await generate();
         assert.equal(fallback.response.status, 201, JSON.stringify(fallback.body));
-        assert.equal(fallback.body.data.request.params.h3Recipe, "base");
+        assert.equal(fallback.body.data.request.params.recipe, "base");
         const basePreflight = await agentPreflight();
-        assert.equal(basePreflight.acceleration, "base");
-        assert.equal(basePreflight.recipes.preview.steps, 20);
-        assert.equal(basePreflight.recipes.final.resolution, "768p");
+        assert.equal(basePreflight.plan.recipe, "base");
+        assert.equal(basePreflight.plan.width, 864);
         const count = () => (db.prepare("SELECT count(*) AS count FROM generations WHERE user_id=?").get(userId) as { count: number }).count;
         const beforeRejected = count();
         assert.equal((await generate("pdd-ref8")).response.status, 409);

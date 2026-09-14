@@ -1,6 +1,10 @@
 # Infinite Media Executor
 
-部署在 GPU 机器上的单卡媒体任务执行器。它不保存业务数据，只保留可恢复任务和待业务服务器拉取的临时结果。
+部署在 GPU 机器上的单卡媒体能力执行器。H3 与 Music3 的配方、工作流、输入校验和续接计算由执行器维护；它不读取导演项目，只保留可恢复任务和待应用服务器拉取的临时结果。
+
+中立接口为 `GET /v1/capabilities`、`POST /v1/jobs/validate`、`POST /v1/jobs`、`GET/DELETE /v1/jobs/:id` 及结果下载/ACK。请求包含 model、mode、operation、prompt、params、references，可选 continuation={fileId,sha256}；应用私有参数不得发送。H3 返回本次新增 `files`、累计 `cumulativeVideos`、原生 `continuationStates` 和执行快照 `execution`。上传输入是临时文件，任务回收后需要重新上传；应用保存结果后才 ACK。
+
+统一的 `media-generation` Skill 列出服务能力并按需引用模型说明，与实现一起位于 `src/media_executor/skills/`，构建 wheel 时随包发布。应用通过 `MEDIA_CAPABILITY_SKILLS_DIR` 读取同版本 Skill；仓库部署默认读取这一目录，独立部署应用时需复制对应版本的目录并配置路径。协议版本不匹配时预检拒绝提交。完整边界与验收见 [中立媒体能力](../docs/content/docs/development/media-capabilities.mdx)。
 
 ```bash
 uv sync --extra test

@@ -97,7 +97,7 @@ export function upgradeDirectorV2(userId: string, projectId: string, root: strin
     const manifest = parse(readFileSync(join(root, "project.yaml"), "utf8"));
     if (manifest.version === 2) return;
     if (manifest.version !== 1) throw new Error("不支持的导演工程版本");
-    const busy = db.prepare(`SELECT 1 FROM generations WHERE user_id=? AND status IN ('queued','running') AND (json_extract(request,'$.params.__directorSegment.projectId')=? OR json_extract(request,'$.params.__directorStoryboardSheet.projectId')=?) UNION ALL SELECT 1 FROM director_renders WHERE user_id=? AND project_id=? AND status IN ('queued','running') LIMIT 1`).get(userId, projectId, projectId, userId, projectId);
+    const busy = db.prepare(`SELECT 1 FROM generations WHERE user_id=? AND status IN ('queued','running') AND (json_extract(request,'$.metadata.directorSegment.projectId')=? OR json_extract(request,'$.params.__directorStoryboardSheet.projectId')=?) UNION ALL SELECT 1 FROM director_renders WHERE user_id=? AND project_id=? AND status IN ('queued','running') LIMIT 1`).get(userId, projectId, projectId, userId, projectId);
     if (busy || db.inTransaction) throw Object.assign(new Error("工程有运行任务，完成后再转换 v2"), { status: 409, code: "DIRECTOR_UPGRADE_BUSY" });
     const backup = `${root}.v1-backup`, staging = `${root}.v2-${randomUUID()}`;
     if (existsSync(backup) || existsSync(`${backup}.sqlite`)) throw Object.assign(new Error("已有 v1 备份，请检查前次转换，拒绝覆盖"), { status: 409, code: "DIRECTOR_UPGRADE_BACKUP_EXISTS" });

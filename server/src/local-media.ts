@@ -1,53 +1,73 @@
-import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
 import type { AiGenerationRequest } from "./ai-adapters.js";
-import { getStoredFile, storeRemoteFile } from "./file-store.js";
+import { storeRemoteFile } from "./file-store.js";
 import type { GenerationRow } from "./generation-service.js";
 import { getMediaExecutorSettings } from "./media-executor-settings.js";
+import { executorRequest, ownedMediaHash, prepareExecutorRequest } from "./media-capabilities.js";
 
-const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` });
+type ExecutorFile = { name: string; sha256?: string; context?: Record<string, unknown>; media?: Record<string, unknown> };
+type ExecutorJob = { status: string; progress: number; error?: string; result?: { files?: ExecutorFile[]; continuationStates?: ExecutorFile[]; cumulativeVideos?: ExecutorFile[]; execution?: Record<string, unknown> } };
+
+async function observe<T>(read: () => Promise<T>, signal: AbortSignal): Promise<T> {
+    for (;;) {
+        signal.throwIfAborted();
+        try { return await read(); }
+        catch (error) {
+            const status = (error as { status?: number }).status;
+            if (signal.aborted || !(error instanceof TypeError || status && status >= 500)) throw error;
+            await new Promise<void>((resolve, reject) => {
+                const abort = () => { clearTimeout(timer); reject(signal.reason); };
+                const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, 1000);
+                signal.addEventListener("abort", abort, { once: true });
+            });
+        }
+    }
+}
 
 export async function runLocalMediaGeneration(row: GenerationRow, request: AiGenerationRequest, signal: AbortSignal, onRemoteTask: (id: string) => void, onProgress: (value: number) => void) {
-    const executor = getMediaExecutorSettings();
-    if (!executor.url || !executor.token) throw localError("MEDIA_EXECUTOR_UNAVAILABLE", "媒体执行器尚未配置");
-    const params = request.params || {};
+    const path = `/v1/jobs/${encodeURIComponent(row.id)}`;
+    // A response can be lost after POST. Look up the same id before uploading or submitting again.
     if (!row.remote_task_id) {
-        const references = await Promise.all((request.references || []).map(async (reference) => {
-            const stored = getStoredFile(row.user_id, reference.fileId);
-            if (!stored) throw localError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
-            const form = new FormData();
-            form.set("upload", await openAsBlob(stored.path, { type: stored.mime_type }), stored.original_name);
-            const uploaded = await executorJson<{ id: string }>(executor, "/v1/files", { method: "POST", headers: authHeaders(executor.token), body: form, signal });
-            return { fileId: uploaded.id, kind: reference.kind || "audio", transcript: reference.transcript };
-        }));
-        const created = await executorJson<{ id: string }>(executor, "/v1/jobs", { method: "POST", headers: { ...authHeaders(executor.token), "Content-Type": "application/json" }, signal, body: JSON.stringify({ id: row.id, model: row.model_id, mode: params.audioMode || "speech", operation: params.audioOperation || (references.length ? "clone" : "generate"), prompt: request.prompt || "", params, references }) });
-        onRemoteTask(created.id);
+        try { await observe(() => executorRequest<ExecutorJob>(path, { signal }), signal); }
+        catch (error) {
+            if ((error as { status?: number }).status !== 404) throw error;
+            const input = await prepareExecutorRequest(row.user_id, row.id, row.model_id, request, signal);
+            try { await executorRequest("/v1/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal }); }
+            catch (error) {
+                if (signal.aborted || !(error instanceof TypeError || Number((error as { status?: number }).status) >= 500)) throw error;
+                // A lost submit response is reconciled by id, never by submitting again.
+                await observe(() => executorRequest<ExecutorJob>(path, { signal }), signal);
+            }
+        }
+        onRemoteTask(row.id);
     }
     for (;;) {
-        const job = await executorJson<{ status: string; progress: number; error?: string; result?: { files?: Array<{ name: string }> } }>(executor, `/v1/jobs/${encodeURIComponent(row.id)}`, { headers: authHeaders(executor.token), signal });
+        const job = await observe(() => executorRequest<ExecutorJob>(path, { signal }), signal);
         onProgress(job.progress || 0);
-        if (["failed", "canceled"].includes(job.status)) throw localError("MEDIA_EXECUTOR_FAILED", job.error || "媒体执行任务失败");
+        if (["failed", "canceled"].includes(job.status)) throw Object.assign(new Error(job.error || "媒体执行任务失败"), { code: "MEDIA_EXECUTOR_FAILED" });
         if (job.status === "succeeded") {
-            const files = await Promise.all((job.result?.files || []).map(async (file) => storeRemoteFile(row.user_id, await fetch(`${executor.url}/v1/jobs/${encodeURIComponent(row.id)}/files/${encodeURIComponent(file.name)}`, { headers: authHeaders(executor.token), signal }), basename(file.name))));
-            return { files };
+            const executor = getMediaExecutorSettings();
+            const download = async (file: ExecutorFile) => {
+                const response = await observe(async () => {
+                    const downloaded = await fetch(`${executor.url}${path}/files/${encodeURIComponent(file.name)}`, { headers: { Authorization: `Bearer ${executor.token}` }, signal, redirect: "error" });
+                    if (!downloaded.ok) throw Object.assign(new Error(`媒体结果下载失败（${downloaded.status}）`), { status: downloaded.status });
+                    return downloaded;
+                }, signal);
+                const stored = await storeRemoteFile(row.user_id, response, basename(file.name));
+                if (file.sha256 && await ownedMediaHash(row.user_id, stored.id) !== file.sha256) throw new Error("媒体结果哈希不一致");
+                return { ...stored, fileId: stored.id, ...(file.sha256 ? { sha256: file.sha256 } : {}), ...(file.context ? { context: file.context } : {}), ...(file.media ? { media: file.media } : {}) };
+            };
+            const [files, continuationStates, cumulativeVideos] = await Promise.all([Promise.all((job.result?.files || []).map(download)), Promise.all((job.result?.continuationStates || []).map(download)), Promise.all((job.result?.cumulativeVideos || []).map(download))]);
+            return { files, ...(continuationStates.length ? { continuationStates } : {}), ...(cumulativeVideos.length ? { cumulativeVideos } : {}), ...(job.result?.execution ? { execution: job.result.execution } : {}) };
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 }
 
 export async function cancelLocalMediaGeneration(row: GenerationRow) {
-    const executor = getMediaExecutorSettings();
-    if (executor.url && executor.token) await fetch(`${executor.url}/v1/jobs/${encodeURIComponent(row.id)}`, { method: "DELETE", headers: authHeaders(executor.token), signal: AbortSignal.timeout(5000) }).catch(() => undefined);
+    await executorRequest(`/v1/jobs/${encodeURIComponent(row.id)}`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => undefined);
 }
 
 export async function acknowledgeLocalMediaGeneration(id: string) {
-    const executor = getMediaExecutorSettings();
-    if (executor.url && executor.token) await fetch(`${executor.url}/v1/jobs/${encodeURIComponent(id)}/ack`, { method: "POST", headers: authHeaders(executor.token), signal: AbortSignal.timeout(5000) }).catch(() => undefined);
+    await executorRequest(`/v1/jobs/${encodeURIComponent(id)}/ack`, { method: "POST", signal: AbortSignal.timeout(5000) }).catch(() => undefined);
 }
-
-async function executorJson<T>(executor: { url: string }, path: string, init: RequestInit) {
-    const response = await fetch(`${executor.url}${path}`, init);
-    if (!response.ok) throw localError("MEDIA_EXECUTOR_REQUEST_FAILED", `媒体执行器请求失败（${response.status}）`);
-    return await response.json() as T;
-}
-function localError(code: string, message: string) { return Object.assign(new Error(message), { code }); }

@@ -325,7 +325,9 @@ function agentToolError(code: string, message: string) {
 }
 
 function generationProjectId(request: string) {
-    const params = parseJson<{ params?: Record<string, { projectId?: string } | null> }>(request, {}).params;
+    const value = parseJson<{ metadata?: { mediaProjectId?: string; directorSegment?: { projectId?: string } }; params?: Record<string, { projectId?: string } | null> }>(request, {});
+    if (value.metadata?.mediaProjectId || value.metadata?.directorSegment?.projectId) return value.metadata.mediaProjectId || value.metadata.directorSegment!.projectId!;
+    const params = value.params;
     for (const key of ["__agentCanvas", "__creativeAsset", "__directorShot", "__directorSegment", "__directorStoryboardSheet"]) {
         if (params?.[key]?.projectId) return params[key].projectId;
     }

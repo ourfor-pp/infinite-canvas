@@ -11,12 +11,14 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
+from .capabilities.catalog import COMFY_MODELS as CAPABILITY_COMFY_MODELS, describe as describe_capabilities, prepare as prepare_model
+from . import comfy_jobs
 
 ROOT = Path(os.getenv("MEDIA_EXECUTOR_DATA_DIR", "./data")).resolve()
 FILES = ROOT / "files"
@@ -58,18 +60,27 @@ if os.getenv("STABLE_AUDIO_3_LICENSE_ACCEPTED") == "1":
 
 class Reference(BaseModel):
     fileId: str
-    kind: str = "audio"
+    kind: Literal["image", "video", "audio"] = "audio"
     transcript: str | None = None
+    role: Literal["reference", "first-frame", "last-frame", "continuation"] = "reference"
+    frameIndex: int | None = None
+    includeAudio: bool = True
+
+
+class Continuation(BaseModel):
+    fileId: str
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 class JobInput(BaseModel):
-    id: str = Field(min_length=1, max_length=128)
+    id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     model: str
     mode: str
     operation: str = "generate"
     prompt: str = ""
     params: dict[str, Any] = Field(default_factory=dict)
     references: list[Reference] = Field(default_factory=list)
+    continuation: Continuation | None = None
 
 
 def connect() -> sqlite3.Connection:
@@ -89,10 +100,13 @@ def init_db() -> None:
           cancel_requested INTEGER NOT NULL DEFAULT 0,
           created_at REAL NOT NULL, updated_at REAL NOT NULL)""")
         db.execute("UPDATE jobs SET status='queued', progress=0 WHERE status='running'")
+        db.execute("""CREATE TABLE IF NOT EXISTS comfy_executions (
+          job_id TEXT PRIMARY KEY, plan TEXT NOT NULL, graph TEXT,
+          submitted INTEGER NOT NULL DEFAULT 0, prompt_id TEXT, history TEXT)""")
         referenced = {
             str(reference.get("fileId", ""))
             for row in db.execute("SELECT request FROM jobs WHERE status IN ('queued','running','succeeded')")
-            for reference in json.loads(row["request"]).get("references", [])
+            for reference in (json.loads(row["request"]).get("references", []) + ([json.loads(row["request"])["continuation"]] if json.loads(row["request"]).get("continuation") else []))
         }
     cutoff = time.time() - TEMP_FILE_TTL_SECONDS
     for path in FILES.iterdir():
@@ -122,9 +136,12 @@ def runtime_for(model: str) -> str:
 
 
 def cleanup_job_files(job_id: str, request: dict[str, Any]) -> None:
-    for reference in request.get("references", []):
+    with connect() as db:
+        others = [json.loads(row["request"]) for row in db.execute("SELECT request FROM jobs WHERE id<>? AND status IN ('queued','running')", (job_id,))]
+    retained = {ref["fileId"] for other in others for ref in other.get("references", []) + ([other["continuation"]] if other.get("continuation") else [])}
+    for reference in request.get("references", []) + ([request["continuation"]] if request.get("continuation") else []):
         path = (FILES / str(reference.get("fileId", ""))).resolve()
-        if path.is_file() and FILES in path.parents:
+        if reference.get("fileId") not in retained and path.is_file() and FILES in path.parents:
             path.unlink()
     shutil.rmtree(RESULTS / job_id, ignore_errors=True)
 
@@ -227,6 +244,19 @@ def restore_after_h3_when_idle() -> None:
 
 
 def run_job(job_id: str, request: dict[str, Any]) -> None:
+    if request["model"] in CAPABILITY_COMFY_MODELS:
+        import sys
+        with connect() as db:
+            execution = db.execute("SELECT submitted FROM comfy_executions WHERE job_id=?", (job_id,)).fetchone()
+        if not execution or not execution["submitted"]:
+            wait_for_comfy_idle()
+        owner = begin_h3()
+        try:
+            comfy_jobs.run(sys.modules[__name__], job_id, request)
+        finally:
+            if owner:
+                threading.Thread(target=restore_after_h3_when_idle, daemon=True, name="capability-gpu-restore").start()
+        return
     engine = runtime_for(request["model"])
     payload = {**request, "outputDir": str((RESULTS / job_id).resolve())}
     for ref in payload.get("references", []):
@@ -326,6 +356,7 @@ def health(_: None = Depends(authorize)):
     comfy_features = {"temporalGuides": False, "turboPreview": False, "pddRef8": False, "music3": False}
     h3_runtime = None
     h3_pdd_runtime = None
+    info = {}
     try:
         with httpx.Client(timeout=httpx.Timeout(2, connect=.5), trust_env=False) as client:
             info = client.get(f"{COMFY_URL}/object_info").json()
@@ -354,12 +385,35 @@ def health(_: None = Depends(authorize)):
 
     except (httpx.HTTPError, ValueError):
         pass
+    for mode in ("ref2va", "fl2va"):
+        needed = {"UNETLoader", "CLIPLoader", "VAELoader", "BasicGuider", "KSamplerSelect", "BasicScheduler", "RandomNoise", "SamplerCustomAdvanced", "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo", "PathchSageAttentionKJ", "MiniMaxH3ReferenceToVideo" if mode == "ref2va" else "MiniMaxH3ImageToVideo"}
+        weights = [("UNETLoader", "unet_name", f"minimax_h3_{mode}_pruned_int8_convrot.safetensors"), ("CLIPLoader", "clip_name", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"), ("VAELoader", "vae_name", "minimax_h3_video_vae_fp16.safetensors"), ("VAELoader", "vae_name", "minimax_h3_audio_vae_fp32.safetensors")]
+        comfy_features["h3Ref2va" if mode == "ref2va" else "h3Fl2va"] = needed.issubset(info) and all(name in info.get(loader, {}).get("input", {}).get("required", {}).get(field, [[]])[0] for loader, field, name in weights)
     return {"ok": True, "models": MODELS, "runtimes": runtimes, "comfyUrl": bool(COMFY_URL), "comfyFeatures": comfy_features, "h3Runtime": h3_runtime, "h3PddRuntime": h3_pdd_runtime}
+
+
+def prepare_capability(request):
+    try:
+        return prepare_model(request, health(), FILES)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/v1/capabilities")
+def capabilities(_: None = Depends(authorize)):
+    return describe_capabilities(health())
+
+
+@app.post("/v1/jobs/validate")
+def validate_job(value: JobInput, _: None = Depends(authorize)):
+    return {"valid": True, "plan": prepare_capability(value.model_dump())}
 
 
 @app.post("/v1/files")
 def upload_file(upload: Annotated[UploadFile, File()], _: None = Depends(authorize)):
-    file_id = os.urandom(16).hex()
+    suffix = Path(upload.filename or "").suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov", ".webm", ".wav", ".mp3", ".flac", ".ogg", ".m4a", ".safetensors"}: suffix = ""
+    file_id = os.urandom(16).hex() + suffix
     target = FILES / file_id
     with target.open("wb") as output:
         shutil.copyfileobj(upload.file, output)
@@ -395,9 +449,6 @@ async def comfy_proxy(path: str, request: Request, _: None = Depends(authorize))
 
 @app.post("/v1/jobs", status_code=202)
 def create_job(value: JobInput, _: None = Depends(authorize)):
-    definition = MODELS.get(value.model)
-    if not definition or value.mode not in definition["modes"] or value.operation not in definition["operations"]:
-        raise HTTPException(400, "model capability mismatch")
     request = value.model_dump()
     now = time.time()
     with connect() as db:
@@ -406,7 +457,17 @@ def create_job(value: JobInput, _: None = Depends(authorize)):
             if json.loads(row["request"]) != request:
                 raise HTTPException(409, "job id already belongs to another request")
             return row_payload(row)
+    plan = prepare_capability(request)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM jobs WHERE id=?", (value.id,)).fetchone()
+        if row:
+            if json.loads(row["request"]) != request:
+                raise HTTPException(409, "job id already belongs to another request")
+            return row_payload(row)
         db.execute("INSERT INTO jobs(id,status,request,created_at,updated_at) VALUES(?,'queued',?,?,?)", (value.id, json.dumps(request), now, now))
+        if value.model in CAPABILITY_COMFY_MODELS:
+            db.execute("INSERT INTO comfy_executions(job_id,plan) VALUES(?,?)", (value.id, json.dumps(plan)))
     return {"id": value.id, "status": "queued", "progress": 0}
 
 

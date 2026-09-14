@@ -6,9 +6,9 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__directo
 
 # 视频制作任务
 
-先读 [官方 H3 提示规则](references/official-h3-prompt.md) 和 [任务交接](references/shot-handoff.md)。按需读取镜头设计、素材、导演规则和当前能力，把拍摄需求转换为 `productions/<任务ID>/task.md`。任务用 `shotIds` 声明覆盖镜头，可多对多；镜头的预计时长不因此改变。
+先使用 `media-generation` Skill 了解当前媒体能力和官方提示规则，再读 [任务交接](references/shot-handoff.md)。按需读取镜头设计、素材、导演规则和当前能力，把拍摄需求转换为 `productions/<任务ID>/task.md`。任务用 `shotIds` 声明覆盖镜头，可多对多；镜头的预计时长不因此改变。
 
-选择单镜生成、多镜生成、同镜头原生续接或已有首尾帧过渡。单次窗口以预检返回的 durationLimits/nativeWindow 为准。普通参考图可留空、可为单图或多宫格，采用的图片必须在 `referenceImages` 显式列出。声音参考仍写 `audioReferences`（工程相对 path、purpose、英文 description；音色/对白参考还需 speakerAssetId）。程序不自动选角色图或风格板，不隐藏添加创作语义。
+选择单镜生成、多镜生成、同镜头原生续接或已有首尾帧过渡。单次窗口以预检返回的 plan 为准。普通参考图可留空、可为单图或多宫格，采用的图片必须在 `referenceImages` 显式列出。声音参考仍写 `audioReferences`（工程相对 path、purpose、英文 description；音色/对白参考还需 speakerAssetId）。程序不自动选角色图或风格板，不隐藏添加创作语义。
 
 最终提示写入同目录 `video-prompt.md`，正文就是原样发送给模型的文本。核对预检返回的路径、hash、引用顺序和数量；无需故事板结构即可写最终提示，不把标题和剧情摘要当作可观察的表演。官方格式要求英文描述时，中文只保留在对白原文、歌词或画面文字中。
 
@@ -18,7 +18,7 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__directo
 
 首尾帧过渡声明 `generationIntent: transition`、`transitionFromSegmentId`、`transitionToSegmentId`；使用两端任务的实际尾帧与首帧。J-cut/L-cut 是独立声音编排，不因此生成画面过渡。
 
-预检通过后调用 `director_generate_task`，默认先生成预览；要求交付或最终质量时选择 final。复用预检给出的加速配方，recipe=base 表示用户显式选择基础版重做。按生成 ID 查询状态，未知或运行中结果不得重复提交。
+预检通过后调用 `director_generate_task`，默认先生成预览；要求交付或最终质量时选择 final。生成沿用执行器预检给出的配方，recipe=base 表示用户显式选择基础版重做。按生成 ID 查询状态，未知或运行中结果不得重复提交。
 
 成功且校验媒体后替换任务当前结果；失败、取消和生成中保留旧媒体。替换后旧裁切超出新结果会明确报错，需要重新选片。没有候选版本管理；需要保留旧方案时先按用户意图另建任务。
 

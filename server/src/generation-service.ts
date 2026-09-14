@@ -1,4 +1,3 @@
-import { markDirectorGenerationChanged } from "./director-sync.js";
 import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
 import { nanoid } from "nanoid";
@@ -6,16 +5,12 @@ import { adapterFor, type AiGenerationRequest, type ProviderContext } from "./ai
 import { config } from "./config.js";
 import { decryptJson } from "./crypto.js";
 import { db, parseJson } from "./database.js";
-import { h3StateContextSchema, verifyRequestedH3Continuation } from "./h3-continuation.js";
+import { executorComfyModels } from "./media-capabilities.js";
 import { buildComfyWorkflow, type GenerationPurpose } from "./comfy-workflows.js";
 import { getStoredFile, storeRemoteFile, syncFileRefs } from "./file-store.js";
 import { decryptCredentials, getProviderRow, resolveImageModel, resolveMediaUnderstandingModel, resolveProviderModel, resolvePurposeModel, resolveSelectableModel, type AiModelDefinition, type AudioMode, type AudioOperation, type MediaKind } from "./provider-service.js";
-import { syncAgentGenerationCanvas } from "./agent/generation-canvas.js";
-import { creativeAssetAutomaticReviewRequest, syncCreativeAssetGeneration } from "./creative-assets.js";
-import { syncVisualStyleGeneration } from "./visual-styles.js";
 import { acknowledgeLocalMediaGeneration, cancelLocalMediaGeneration, runLocalMediaGeneration } from "./local-media.js";
 import { getMediaExecutorSettings } from "./media-executor-settings.js";
-import { syncDirectorGeneration } from "./director-render.js";
 
 export type GenerationRow = {
     id: string;
@@ -39,6 +34,9 @@ type ComfyServerRow = { id: string; name: string; encrypted_url: string; enabled
 type ComfyOutputFile = { filename: string; subfolder?: string; type?: string };
 
 const running = new Map<string, { controller: AbortController; row: GenerationRow }>();
+function usesMediaExecutorJobs(row: GenerationRow) {
+    return row.provider_id === "local-media" || row.comfy_server_id === "media-executor" && executorComfyModels.has(row.model_id);
+}
 let emitEvent: (userId: string, type: "generation.updated" | "generation.delta", value: unknown) => void = () => undefined;
 let pumpScheduled = false;
 
@@ -59,12 +57,16 @@ export function generationResponse(row: GenerationRow) {
         errorCode: row.error_code,
         progress: row.progress,
         usage: parseJson(row.usage, null),
+        effects: db.prepare("SELECT handler,status,attempts,error FROM generation_effects WHERE generation_id=? ORDER BY handler").all(row.id),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
 }
 
-export function createGeneration(userId: string, input: AiGenerationRequest) {
+let observeGeneration: (row: GenerationRow) => void = () => undefined;
+export function setGenerationObserver(observer: typeof observeGeneration) { observeGeneration = observer; }
+
+export function createGeneration(userId: string, input: AiGenerationRequest, id = nanoid()) {
     const purpose = (input.purpose || "default") as GenerationPurpose;
     const selection = purpose === "default"
         ? input.kind === "image"
@@ -77,8 +79,8 @@ export function createGeneration(userId: string, input: AiGenerationRequest) {
     if (purpose === "default" && input.kind === "image" && selection.model.maxReferenceImages && imageReferenceCount > selection.model.maxReferenceImages) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选图生图模型最多支持 ${selection.model.maxReferenceImages} 张参考图`);
     if (input.kind === "audio") {
         const audioModel = selection.model as AiModelDefinition;
-        const mode = String(input.params?.audioMode || "speech");
-        const operation = String(input.params?.audioOperation || (audioReferenceCount ? "clone" : "generate"));
+        const mode = String(input.mode || input.params?.audioMode || "speech");
+        const operation = String(input.operation || input.params?.audioOperation || (audioReferenceCount ? "clone" : "generate"));
         if (audioModel.audioModes?.length && !audioModel.audioModes.includes(mode as AudioMode)) throw generationError("AI_MODEL_AUDIO_MODE_UNSUPPORTED", "所选模型不支持当前声音类型");
         if (audioModel.audioOperations?.length && !audioModel.audioOperations.includes(operation as AudioOperation)) throw generationError("AI_MODEL_AUDIO_OPERATION_UNSUPPORTED", "所选模型不支持当前声音操作");
         if (audioModel.maxReferenceAudios && audioReferenceCount > audioModel.maxReferenceAudios) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选模型最多支持 ${audioModel.maxReferenceAudios} 段参考音频`);
@@ -104,14 +106,13 @@ export function createGeneration(userId: string, input: AiGenerationRequest) {
         if (["first-frame", "last-frame"].includes(role) && kind !== "image") throw generationError("AI_VIDEO_FRAME_KIND", "首帧和尾帧引用必须是图片");
         if (!getStoredFile(userId, reference.fileId)) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
     }
-    const id = nanoid();
     const now = new Date().toISOString();
     db.transaction(() => {
         db.prepare(`INSERT INTO generations(id, user_id, kind, status, provider_id, model_id, request, progress, comfy_server_id, created_at, updated_at)
             VALUES(?, ?, ?, 'queued', ?, ?, ?, 0, ?, ?, ?)`).run(id, userId, input.kind, selection.providerId, selection.modelId, JSON.stringify(input), selection.comfyServerId || null, now, now);
         syncFileRefs(userId, "generation", id, input);
+        observeGeneration(getGenerationRow(userId, id)!);
     })();
-    markDirectorGenerationChanged(userId, id);
     schedulePump();
     return generationResponse(getGenerationRow(userId, id)!);
 }
@@ -127,8 +128,8 @@ export function cancelGenerationByAdmin(id: string) {
 function cancelRow(row: GenerationRow | undefined) {
     if (!row || !["queued", "running"].includes(row.status)) return null;
     running.get(row.id)?.controller.abort(new DOMException("Aborted", "AbortError"));
-    if (row.provider_id === "comfyui" && row.remote_task_id) void cancelComfyPrompt(row);
-    else if (row.provider_id === "local-media") void cancelLocalMediaGeneration(row);
+    if (usesMediaExecutorJobs(row)) void cancelLocalMediaGeneration(row);
+    else if (row.provider_id === "comfyui" && row.remote_task_id) void cancelComfyPrompt(row);
     else if (row.provider_id && row.remote_task_id) void cancelProviderTask(row);
     updateGeneration(row, { status: "canceled", error: "用户已取消任务", errorCode: "GENERATION_CANCELED" });
     schedulePump();
@@ -138,7 +139,7 @@ function cancelRow(row: GenerationRow | undefined) {
 export function resumeGenerations() {
     const rows = db.prepare("SELECT * FROM generations WHERE status IN ('queued','running') ORDER BY created_at").all() as GenerationRow[];
     rows.forEach((row) => {
-        if (row.status === "running" && !row.remote_task_id) updateGeneration(row, { status: "failed", error: "服务重启中断，任务无法安全恢复", errorCode: "SERVICE_RESTART_INTERRUPTED" });
+        if (row.status === "running" && !row.remote_task_id && !usesMediaExecutorJobs(row)) updateGeneration(row, { status: "failed", error: "服务重启中断，任务无法安全恢复", errorCode: "SERVICE_RESTART_INTERRUPTED" });
         else if (row.status === "running") updateGeneration(row, { status: "queued" });
     });
     schedulePump();
@@ -188,16 +189,16 @@ async function runGeneration(initialRow: GenerationRow, controller: AbortControl
         const row = getGenerationRow(initialRow.user_id, initialRow.id);
         if (!row || row.status === "canceled") return;
         const request = parseJson<AiGenerationRequest>(row.request, {} as AiGenerationRequest);
-        const result = row.provider_id === "comfyui"
+        const result = usesMediaExecutorJobs(row)
+            ? await runLocalMediaGeneration(row, request, controller.signal, (id) => updateGeneration(row, { remoteTaskId: id }), (progress) => updateGeneration(row, { progress }))
+            : row.provider_id === "comfyui"
             ? await runComfyGeneration(row, request, controller.signal)
-            : row.provider_id === "local-media"
-                ? await runLocalMediaGeneration(row, request, controller.signal, (id) => updateGeneration(row, { remoteTaskId: id }), (progress) => updateGeneration(row, { progress }))
             : await runPublicGeneration(row, request, controller.signal);
         const current = getGenerationRow(row.user_id, row.id);
         if (!current || current.status === "canceled") return;
         updateGeneration(current, { status: "succeeded", result, progress: 1, usage: asUsage((result as Record<string, unknown>).usage) });
         syncFileRefs(row.user_id, "generation", row.id, { request, result });
-        if (row.provider_id === "local-media") void acknowledgeLocalMediaGeneration(row.id);
+        if (usesMediaExecutorJobs(row)) void acknowledgeLocalMediaGeneration(row.id);
     } catch (error) {
         const row = getGenerationRow(initialRow.user_id, initialRow.id);
         if (!row || row.status === "canceled") return;
@@ -270,6 +271,7 @@ async function cancelProviderTask(row: GenerationRow) {
 }
 
 async function runComfyGeneration(row: GenerationRow, request: AiGenerationRequest, signal: AbortSignal) {
+    if (executorComfyModels.has(row.model_id)) throw generationError("MEDIA_EXECUTOR_REQUIRED", "该媒体能力由执行器独立提供，请选择媒体执行器节点");
     const server = selectComfyServer(row.comfy_server_id, row.model_id);
     if (!server) throw generationError("COMFY_UNAVAILABLE", "没有可用的 ComfyUI 节点");
     const baseUrl = decryptJson<{ url: string }>(server.encrypted_url, config.appSecret).url.replace(/\/+$/, "");
@@ -277,13 +279,10 @@ async function runComfyGeneration(row: GenerationRow, request: AiGenerationReque
     let promptId = row.remote_task_id;
     if (!promptId) {
         const uploaded = await uploadComfyReferences(baseUrl, row.user_id, request.references || [], signal);
-        const previousState = request.params?.__h3PreviousState as { fileId?: string } | undefined;
-        if (previousState) await verifyRequestedH3Continuation(row.user_id, previousState, h3StateContextSchema.parse(request.params?.__h3StateContext));
-        const stateUpload = previousState ? await uploadComfyFile(baseUrl, row.user_id, String(previousState.fileId || ""), signal) : undefined;
         const workflow = buildComfyWorkflow({
             model: row.model_id,
             prompt: request.prompt || "",
-            params: { ...(request.params || {}), __h3StateInputName: stateUpload?.name, referenceTranscript: request.references?.find((reference) => reference.kind === "audio")?.transcript || request.params?.referenceTranscript },
+            params: { ...(request.params || {}), referenceTranscript: request.references?.find((reference) => reference.kind === "audio")?.transcript || request.params?.referenceTranscript },
             files: uploaded,
         });
         const created = await comfyJson<{ prompt_id?: string; node_errors?: unknown }>(`${baseUrl}/prompt`, { method: "POST", headers: { ...comfyHeaders, "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow, client_id: `infinite-canvas-${row.id}` }), signal });
@@ -391,6 +390,7 @@ async function comfyJson<T>(url: string, init?: RequestInit) {
 }
 
 function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["status"]; result?: unknown; error?: string; errorCode?: string; remoteTaskId?: string; progress?: number; usage?: unknown }) {
+    db.transaction(() => {
     const now = new Date().toISOString();
     db.prepare(`UPDATE generations SET
         status=COALESCE(?, status), result=COALESCE(?, result), error=?, error_code=?,
@@ -407,20 +407,11 @@ function updateGeneration(row: GenerationRow, patch: { status?: GenerationRow["s
         row.id,
         row.user_id,
     );
+        const updated = getGenerationRow(row.user_id, row.id);
+        if (updated) observeGeneration(updated);
+    })();
     const updated = getGenerationRow(row.user_id, row.id);
-    if (updated) {
-        markDirectorGenerationChanged(row.user_id, row.id);
-        emitEvent(row.user_id, "generation.updated", generationResponse(updated));
-        try { syncAgentGenerationCanvas(updated); } catch { /* 结果已持久化，画布回写可由刷新恢复。 */ }
-        try {
-            syncCreativeAssetGeneration(updated);
-            const review = creativeAssetAutomaticReviewRequest(updated);
-            if (review) createGeneration(updated.user_id, review);
-        } catch { /* 保留已完成任务，避免回写冲突改写任务终态。 */ }
-        try { syncVisualStyleGeneration(updated); } catch { /* 保留已完成任务，风格卡可重新生成缺失样张。 */ }
-        void syncDirectorGeneration(updated).catch(() => undefined);
-        void import("./director-cast-review.js").then(({ syncDirectorCastReviewGeneration }) => syncDirectorCastReviewGeneration(updated)).catch(() => undefined);
-    }
+    if (updated) emitEvent(row.user_id, "generation.updated", generationResponse(updated));
 }
 
 function getGenerationRow(userId: string, id: string) {

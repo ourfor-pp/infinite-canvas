@@ -44,13 +44,12 @@ export async function resolveDirectorH3Cumulative(userId: string, projectId: str
     let current = state;
     for (;;) {
         const source = db.prepare("SELECT request FROM generations WHERE user_id=? AND id=?").get(userId, current.generationId) as { request: string };
-        const request = parseJson<{ params?: { __h3PreviousFrames?: number; __h3PreviousState?: unknown } }>(source.request, {});
-        if (!request.params?.__h3PreviousState) {
-            if (Number(request.params?.__h3PreviousFrames || 0) !== 0) throw stateError("累计音视频的首段来源帧数无效");
+        const request = parseJson<{ metadata?: { directorSegment?: { previousState?: unknown } } }>(source.request, {});
+        if (!request.metadata?.directorSegment?.previousState) {
             break;
         }
-        const previous = bindingSchema.parse(request.params.__h3PreviousState);
-        if (previous.projectId !== projectId || previous.context.frames >= current.context.frames || request.params.__h3PreviousFrames !== previous.context.frames || chain.some((item) => item.segmentId === previous.segmentId)) throw stateError("累计音视频来源链无效");
+        const previous = bindingSchema.parse(request.metadata!.directorSegment!.previousState);
+        if (previous.projectId !== projectId || previous.context.frames >= current.context.frames || chain.some((item) => item.segmentId === previous.segmentId)) throw stateError("累计音视频来源链无效");
         const priorRow = db.prepare("SELECT payload FROM director_shots WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, previous.segmentId) as { payload: string } | undefined;
         if (!priorRow) throw stateError("累计音视频的前段不存在");
         snapshots.push({ segmentId: previous.segmentId, payload: priorRow.payload });
@@ -75,7 +74,7 @@ export async function createH3ContinuationBinding(userId: string, input: Omit<z.
     return bindingSchema.parse({ ...input, videoSha256, stateSha256 });
 }
 
-export async function resolveDirectorH3Continuation(userId: string, projectId: string, segmentId: string, runtime: H3RuntimeIdentity) {
+export async function resolveDirectorH3Continuation(userId: string, projectId: string, segmentId: string, runtime?: H3RuntimeIdentity) {
     const read = () => db.prepare("SELECT payload FROM director_shots WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, segmentId) as { payload: string } | undefined;
     const row = read();
     if (!row) throw stateError("续接来源视频段不存在，或不属于当前项目");
@@ -85,11 +84,11 @@ export async function resolveDirectorH3Continuation(userId: string, projectId: s
     const binding = parsed.data;
     if (binding.projectId !== projectId || binding.segmentId !== segmentId || typeof payload.videoFileId !== "string" || binding.generationId !== payload.videoGenerationId || payload.videoStale) throw stateError("来源视频已变化，原生续接状态已失效");
     const generation = db.prepare("SELECT status,request,result FROM generations WHERE user_id=? AND id=?").get(userId, binding.generationId) as { status: string; request: string; result: string | null } | undefined;
-    const request = parseJson<{ params?: { __directorSegment?: { projectId?: string; segmentId?: string }; __h3StateContext?: unknown } }>(generation?.request || "{}", {});
-    const result = parseJson<{ continuationStates?: Array<{ fileId?: string }> }>(generation?.result || "{}", {});
-    const context = h3StateContextSchema.safeParse(request.params?.__h3StateContext);
-    if (generation?.status !== "succeeded" || request.params?.__directorSegment?.projectId !== projectId || request.params?.__directorSegment?.segmentId !== segmentId || !result.continuationStates?.some((file) => file.fileId === binding.fileId) || !context.success || Object.keys(context.data).some((key) => context.data[key as keyof H3StateContext] !== binding.context[key as keyof H3StateContext])) throw stateError("原生续接状态与来源生成记录不一致");
-    if (runtimeKeys.some((key) => runtime[key] !== binding.context[key])) throw stateError("原生续接的模型、VAE、分辨率或帧率与前段不一致");
+    const request = parseJson<{ metadata?: { directorSegment?: { projectId?: string; segmentId?: string } } }>(generation?.request || "{}", {});
+    const result = parseJson<{ continuationStates?: Array<{ fileId?: string }>; execution?: { context?: unknown } }>(generation?.result || "{}", {});
+    const context = h3StateContextSchema.safeParse(result.execution?.context);
+    if (generation?.status !== "succeeded" || request.metadata?.directorSegment?.projectId !== projectId || request.metadata?.directorSegment?.segmentId !== segmentId || !result.continuationStates?.some((file) => file.fileId === binding.fileId) || !context.success || Object.keys(context.data).some((key) => context.data[key as keyof H3StateContext] !== binding.context[key as keyof H3StateContext])) throw stateError("原生续接状态与来源生成记录不一致");
+    if (runtime && runtimeKeys.some((key) => runtime[key] !== binding.context[key])) throw stateError("原生续接的模型、VAE、分辨率或帧率与前段不一致");
     const [videoHash, stateHash] = await Promise.all([ownedHash(userId, payload.videoFileId as string), ownedHash(userId, binding.fileId)]);
     if (videoHash !== binding.videoSha256 || stateHash !== binding.stateSha256 || read()?.payload !== row.payload) throw stateError("续接校验期间来源视频或状态发生变化");
     return { ...binding, videoFileId: payload.videoFileId as string };

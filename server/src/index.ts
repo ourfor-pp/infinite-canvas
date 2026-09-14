@@ -1,3 +1,4 @@
+import { resumeGenerationEffects } from "./generation-effects.js";
 import { setDirectorSyncEmitter } from "./director-sync.js";
 import { chmodSync, existsSync, lstatSync, unlinkSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
@@ -99,6 +100,8 @@ setDirectorWorkspaceEmitter((userId, projectId, diagnostics) => {
 });
 
 resumeGenerations();
+void resumeGenerationEffects();
+setInterval(() => { void resumeGenerationEffects(); }, 30_000).unref();
 resumeDirectorSourceProcessing();
 resumeDirectorRenders();
 recoverAgentRuns();

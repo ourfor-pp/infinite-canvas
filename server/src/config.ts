@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -57,6 +58,7 @@ export const config = {
     agentUserConcurrency: Math.max(1, Number(process.env.AGENT_USER_CONCURRENCY) || 2),
     agentRoot: resolve(dataDir, "agent"),
     directorProjectsDir: resolve(dataDir, "director-projects"),
+    mediaCapabilitySkillsDir: resolve(process.env.MEDIA_CAPABILITY_SKILLS_DIR || fileURLToPath(new URL("../../media-executor/src/media_executor/skills", import.meta.url))),
     agentSkillsDir: resolve(process.env.AGENT_SKILLS_DIR || "./src/agent/scenes"),
 };
 

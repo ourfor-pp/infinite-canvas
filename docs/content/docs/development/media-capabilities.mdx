@@ -1,0 +1,36 @@
+---
+title: 中立媒体能力
+description: H3、Music3 的执行器边界、Skill 与验收
+---
+
+# 中立媒体能力
+
+`media-executor` 独立部署并拥有 H3 和 Music3 的生产工作流、参数校验、默认配方、原生续接窗口和运行时指纹。Express 应用负责用户鉴权、文件归属、生成记录与结果下载；导演负责镜头、制作任务、原样提示、显式参考和剪辑。执行器不读取导演数据库、项目路径或镜头字段。
+
+## 请求与结果
+
+执行器使用带 Bearer 认证的 `/v1/capabilities` 与 `/v1/jobs/validate`，后者只返回计划，不创建推理任务。提交沿用 `/v1/jobs`，任务 ID 是幂等键，不允许同 ID 换请求。中立请求包含 model、mode、operation、prompt、params、references 和可选 continuation；没有 `__director*` 或 `__h3*` 执行参数。
+
+H3 模式为 Ref2VA、FL2VA；原生续接是 Ref2VA 的 extend 操作。普通参考图可为空，也可显式采用单图或多图；首尾帧和时间锚点用 role、frameIndex 表达。执行器校验当前运行时、实际状态文件哈希和张量形状，不允许用普通视频冒充原生状态，也不跨配方混用续接。
+
+结果分为本次新增 `files`、累计 `cumulativeVideos` 和原生 `continuationStates`。`execution` 保留能力版本、种子、配方、实际窗口、上下文和 Comfy prompt ID。上传文件保留受支持扩展名；临时文件回收后需重新上传。应用下载并持久化结果后才 ACK，归档可携带状态、累计视频及其来源。
+
+应用提供 `/api/media/capabilities`、`/api/media/generations/validate`、`/api/media/generations`。引用以应用 fileId 表达，续接还需来源 generationId；应用先验证用户归属和结果哈希，再上传执行器。浏览器与 Agent 不接收执行器凭据。
+
+## Agent 与工程采用
+
+统一的 `media-generation` Skill 位于执行器包的 `src/media_executor/skills/`，随代码发布，通过应用 `AgentScene` 注册。仓库部署自动定位该目录；独立部署需设置 `MEDIA_CAPABILITY_SKILLS_DIR` 为对应版本的目录。当前能力协议版本为 1，预检拒绝不匹配版本。入口列出视频、语音、环境声、音效和音乐等能力范围，运行时目录决定实际可用项；H3、Music3 专用输入及提示规则放在按需读取的参考文档中，不按模型注册 Skill。
+
+场景注册的工具为 `media_list_capabilities`、`media_validate_generation`、`media_generate`、`media_get_generation_status`、`media_cancel_generation`、`media_import_reference`、`media_save_result`。工程保存只接受当前项目已完成任务的结果和新相对路径，不覆盖文件。导演原有制作按钮经同一中立预检与执行路径生成，再由应用层采用当前任务结果；普通 Codex 图片生成仍使用原生生图能力。
+
+生成核心不导入导演、创作素材或画布回写模块。应用层登记 `generation_effects`，生成终态与待回写项一起持久化；错误保留在回写记录，不把已经成功的推理改成失败。定时恢复待处理项，导演重复采用由 generationId 阻止。生成完成不自动加入时间线。
+
+## 恢复与验收边界
+
+执行器在提交 Comfy 前记录提交意图，保存 prompt ID，重启后查原任务；提交结果未知时不盲目再生成。应用在提交响应丢失后按同 ID 查询，临时观察失败继续等待，取消仅针对所属 Comfy prompt。
+
+隔离验收产物位于 `.tmp/neutral-media/live/`：H3 首段 107 帧、续段新增 102 帧、累计 209 帧，均为 864×480、24 fps；Music3 通过同一任务接口输出 FLAC。真实 Codex 在独立项目中读取能力 Skill，完成查询、预检、一次生成、状态读取与工程保存。续接验证还发现并修复了上传状态扩展名丢失，已补回归测试。
+
+迁移阶段回归通过：服务端 135 项、执行器 27 项，前后端构建通过。统一 Skill 后，场景与应用相关测试 53 项、执行器相关测试 19 项及 Skill 校验通过；本次合并未重复发起真实推理。真实续接状态中的原视频和音频 latent 前缀逐项一致。
+
+上述证据证明接口、实际推理与 Agent 工具链可运行；单组抽帧不代表完整运动、声音或短片质量验收。正式服务尚未切换，部署与回滚、导演页面完整操作和视听质量仍分别验收。实验配方只通过离线导出调用执行器图，不保留第二套应用生产图。

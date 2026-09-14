@@ -1,17 +1,9 @@
-import { h3StateContextSchema, type H3StateContext } from "./h3-state-context.js";
 type NodeInput = Record<string, unknown>;
 export type Workflow = Record<string, { class_type: string; inputs: NodeInput }>;
 export type ComfyUploadedInput = { fileId: string; kind: "image" | "video" | "audio"; name: string; role?: "reference" | "first-frame" | "last-frame" | "continuation" };
 type WorkflowInput = { model: string; prompt: string; params: Record<string, unknown>; files: ComfyUploadedInput[] };
 export type H3QualityPreset = "preview" | "final";
 export type H3Acceleration = "base" | "pdd-ref8";
-export function selectH3Acceleration(input: { mode: "fl2va" | "ref2va"; requested?: H3Acceleration; pddReady: boolean; continuing: boolean; previousModelRevision?: string; hasAudioReferences: boolean }): H3Acceleration {
-    const previous = input.previousModelRevision?.includes(":pdd-ref8:") ? "pdd-ref8" : "base";
-    const selected = input.requested ?? (input.continuing ? previous : input.mode === "ref2va" && input.pddReady && !input.hasAudioReferences ? "pdd-ref8" : "base");
-    if (selected === "pdd-ref8" && (input.mode !== "ref2va" || !input.pddReady)) throw Object.assign(new Error("当前生成节点的 Ref2VA 加速配方尚未就绪"), { status: 409 });
-    if (input.continuing && input.previousModelRevision && selected !== previous) throw Object.assign(new Error("续接必须沿用前段配方；切换配方请从连续镜头首段重新生成"), { status: 409 });
-    return selected;
-}
 export type H3TemporalGuide = { fileId: string; frameIndex: number; includeAudio?: boolean };
 export type H3GenerationRecipe = { qualityPreset: H3QualityPreset; resolution: "480p" | "768p"; steps: number; sampler: string; scheduler: string; refImageSize: "match" | "max"; attention: string; turbo: boolean };
 export type H3FrameAlignment = { requestedSeconds: number; requestedFrames: number; modelFrames: number; trimFrames: number; fps: 24; stride: 17; base: 5 };
@@ -77,24 +69,6 @@ export const COMFY_REQUIREMENTS: Partial<Record<ComfyModel, { nodes: string[]; m
     "minimax-h3-ref2va-local": { nodes: ["MiniMaxH3ReferenceToVideo", "PathchSageAttentionKJ"], models: [{ loader: "UNETLoader", name: "minimax_h3_ref2va_pruned_int8_convrot.safetensors" }, { loader: "CLIPLoader", name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" }] },
 };
 
-export function alignH3Frames(seconds: number): H3FrameAlignment {
-    const requestedSeconds = Math.max(4, Math.min(15, seconds));
-    const requestedFrames = Math.max(5, Math.round(requestedSeconds * 24));
-    let modelFrames = requestedFrames;
-    while (modelFrames % 17 !== 5) modelFrames += 1;
-    return { requestedSeconds, requestedFrames, modelFrames, trimFrames: requestedFrames, fps: 24, stride: 17, base: 5 };
-}
-
-export function h3Recipe(mode: "fl2va" | "ref2va", qualityPreset: H3QualityPreset, turboAvailable = false, acceleration: "base" | "pdd-ref8" = "base"): H3GenerationRecipe {
-    if (acceleration === "pdd-ref8") {
-        if (mode !== "ref2va") throw new Error("PDD Ref2VA 配方不能用于首尾帧模型");
-        return { qualityPreset, resolution: qualityPreset === "preview" ? "480p" : "768p", steps: 8, sampler: "euler", scheduler: "pdd", refImageSize: "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: false };
-    }
-    if (qualityPreset === "preview" && mode === "fl2va" && turboAvailable) return { qualityPreset, resolution: "480p", steps: 8, sampler: "h3-turbo", scheduler: "simple", refImageSize: "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: true };
-    if (qualityPreset === "preview") return { qualityPreset, resolution: "480p", steps: 20, sampler: "res_multistep", scheduler: "simple", refImageSize: "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: false };
-    return { qualityPreset, resolution: "768p", steps: 20, sampler: "res_multistep", scheduler: mode === "ref2va" ? "beta" : "simple", refImageSize: mode === "ref2va" ? "max" : "match", attention: "sageattn_qk_int8_pv_fp16_cuda", turbo: false };
-}
-
 export function buildComfyWorkflow(input: WorkflowInput): Workflow {
     if (input.model === "qwen-image-2512-local") return qwenTextToImage(input);
     if (input.model === "z-image-turbo-local") return zImageTextToImage(input);
@@ -104,8 +78,7 @@ export function buildComfyWorkflow(input: WorkflowInput): Workflow {
     if (input.model === "z-image-upscale-local") return zImageUpscale(input);
     if (input.model === "hidream-o1-full-fp8-local") return hiDream(input);
     if (input.model === "flux2-dev-fp8-local") return flux2Dev(input);
-    if (input.model === "minimax-h3-fl2va-local" || input.model === "minimax-h3-ref2va-local") return miniMaxH3(input);
-    if (input.model === "minimax-music3-local") return miniMaxMusic3(input);
+    if (["minimax-h3-fl2va-local", "minimax-h3-ref2va-local", "minimax-music3-local"].includes(input.model)) throw Object.assign(new Error("此能力由媒体执行器构建工作流"), { code: "MEDIA_EXECUTOR_REQUIRED" });
     if (input.model === "voxcpm2-local") return voxCpm(input);
     throw Object.assign(new Error("不支持的 ComfyUI 模型"), { code: "COMFY_MODEL_UNSUPPORTED", status: 400 });
 }
@@ -354,164 +327,9 @@ function flux2Dev(input: WorkflowInput): Workflow {
     return graph;
 }
 
-function miniMaxH3(input: WorkflowInput): Workflow {
-    const imageFiles = input.files.filter((file) => file.kind === "image");
-    const videoFiles = input.files.filter((file) => file.kind === "video");
-    const audioFiles = input.files.filter((file) => file.kind === "audio");
-    const guides = Array.isArray(input.params.temporalGuides) ? input.params.temporalGuides.slice(0, 4) as H3TemporalGuide[] : [];
-    const guideIds = new Set(guides.map((guide) => guide.fileId));
-    const images = imageFiles.filter((file) => !guideIds.has(file.fileId)).map((file) => file.name);
-    const videos = videoFiles.filter((file) => !guideIds.has(file.fileId)).map((file) => file.name);
-    const audios = audioFiles.filter((file) => !guideIds.has(file.fileId)).map((file) => file.name);
-    const { width, height } = h3VideoDimensions(input.params);
-    const duration = Math.max(4, Math.min(15, Number(input.params.seconds || input.params.videoSeconds) || 5));
-    const referenceMode = input.model === "minimax-h3-ref2va-local";
-    if (!referenceMode && input.params.__h3StateContext !== undefined) throw new Error("Native H3 state workflow currently requires Ref2VA");
-    const qualityPreset = input.params.qualityPreset === "final" ? "final" : "preview";
-    const acceleration = input.params.h3Recipe ?? "base";
-    if (acceleration !== "base" && acceleration !== "pdd-ref8") throw new Error("不支持的 H3 生成配方");
-    const recipe = h3Recipe(referenceMode ? "ref2va" : "fl2va", qualityPreset, input.params.turboAvailable === true, acceleration);
-    if (input.params.__h3StateContext !== undefined) {
-        const context = h3StateContextSchema.parse(input.params.__h3StateContext);
-        if (context.modelRevision.includes(":pdd-ref8:") !== (acceleration === "pdd-ref8")) throw new Error("H3 配方与续接状态身份不一致");
-    }
-    const alignment = alignH3Frames(duration);
-    const graph: Workflow = {
-        "1": node("UNETLoader", { unet_name: referenceMode ? "minimax_h3_ref2va_pruned_int8_convrot.safetensors" : "minimax_h3_fl2va_pruned_int8_convrot.safetensors", weight_dtype: "default" }),
-        "2": node("CLIPLoader", { clip_name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", type: "minimax", device: "default" }),
-        "3": node("VAELoader", { vae_name: "minimax_h3_video_vae_fp16.safetensors" }), "4": node("VAELoader", { vae_name: "minimax_h3_audio_vae_fp32.safetensors" }),
-        "6": node("BasicGuider", { model: ["15", 0], conditioning: ["5", 0] }), "7": recipe.turbo ? node("MiniMaxH3TurboSampler", {}) : node("KSamplerSelect", { sampler_name: recipe.sampler }), "8": node("BasicScheduler", { model: ["15", 0], scheduler: recipe.scheduler, steps: recipe.steps, denoise: 1 }), "9": node("RandomNoise", { noise_seed: seed() }),
-        "10": node("SamplerCustomAdvanced", { noise: ["9", 0], guider: ["6", 0], sampler: ["7", 0], sigmas: ["8", 0], latent_image: ["5", 1] }), "11": node("VAEDecode", { samples: ["10", 0], vae: ["3", 0] }), "12": node("VAEDecodeAudio", { samples: ["10", 0], vae: ["4", 0] }), "13": node("CreateVideo", { images: ["11", 0], audio: ["12", 0], fps: 24, bit_depth: 8 }), "14": node("SaveVideo", { video: ["13", 0], filename_prefix: "InfiniteCanvas/MiniMax-H3", format: "auto", codec: "auto" }), "15": node("PathchSageAttentionKJ", { model: [recipe.turbo ? "16" : "1", 0], sage_attention: recipe.attention, allow_compile: false }),
-    };
-    if (recipe.turbo) graph["16"] = node("MiniMaxH3TurboLoRA", { model: ["1", 0], lora_name: "minimax_h3_turbo_v4_step600_ema.safetensors", strength: 1, low_vram: false });
-    const inputs: NodeInput = { clip: ["2", 0], vae: ["3", 0], prompt: input.prompt.trim(), width, height, length: alignment.modelFrames };
-    if (!referenceMode) {
-        if (videos.length || audios.length) throw Object.assign(new Error("H3 FL2VA 不支持参考视频或音频"), { status: 400 });
-        const first = imageFiles.find((file) => file.role === "first-frame") || imageFiles.find((file) => !file.role || file.role === "reference");
-        const last = imageFiles.find((file) => file.role === "last-frame") || imageFiles.filter((file) => !file.role || file.role === "reference")[first ? 1 : 0];
-        if (!guides.length && first) { graph["20"] = node("LoadImage", { image: first.name }); inputs.first_frame = ["20", 0]; }
-        if (!guides.length && last) { graph["21"] = node("LoadImage", { image: last.name }); inputs.last_frame = ["21", 0]; }
-        graph["5"] = node("MiniMaxH3ImageToVideo", inputs);
-        addH3Guides(graph, input.files, guides);
-        return graph;
-    }
-    if (images.length > 9 || videos.length > 3 || audios.length > 3 || images.length + videos.length + audios.length > 12) throw Object.assign(new Error("H3 Ref2VA 参考素材数量超限"), { status: 400 });
-    if (audios.length && !images.length && !videos.length) throw Object.assign(new Error("使用参考音频时还需要参考图片或视频"), { status: 400 });
-    Object.assign(inputs, { audio_vae: ["4", 0], ref_image_size: recipe.refImageSize });
-    images.forEach((image, index) => { const id = String(21 + index); graph[id] = node("LoadImage", { image }); inputs[`ref_images.ref_image_${index}`] = [id, 0]; });
-    audios.forEach((audio, index) => { const id = String(41 + index); graph[id] = node("LoadAudio", { audio }); inputs[`ref_audios.ref_audio_${index}`] = [id, 0]; });
-    videos.forEach((video, index) => { const loadId = String(61 + index * 2); const componentsId = String(62 + index * 2); graph[loadId] = node("LoadVideo", { file: video }); graph[componentsId] = node("GetVideoComponents", { video: [loadId, 0] }); inputs[`ref_videos.ref_video_${index}`] = [componentsId, 0]; inputs[`ref_video_audios.ref_video_audio_${index}`] = [componentsId, 1]; });
-    graph["5"] = node("MiniMaxH3ReferenceToVideo", inputs);
-    if (acceleration === "pdd-ref8") applyH3PddRef8(graph);
-    addH3Guides(graph, input.files, guides);
-    addH3NativeState(graph, input, { width, height, frames: alignment.modelFrames });
-    return graph;
-}
-
-export function applyH3PddRef8(graph: Workflow) {
-    if (graph["5"]?.class_type !== "MiniMaxH3ReferenceToVideo") throw new Error("PDD Ref2VA 配方需要参考生成工作流");
-    graph["16"] = node("MiniMaxH3PDDAccApply", { model: ["1", 0], pdd_file: "MiniMax-H3-Ref2VA-Acc-8Step.safetensors", nfe: "8", lora_strength: 1, head_strength: 1, on_off_grid: "error", partition_check: "error" });
-    graph["15"].inputs.model = ["16", 0];
-    graph["10"].inputs.sigmas = ["16", 1];
-    graph["7"].inputs.sampler_name = "euler";
-    delete graph["8"];
-}
-
-function addH3Guides(graph: Workflow, files: ComfyUploadedInput[], guides: H3TemporalGuide[]) {
-    let positive: [string, number] = ["5", 0];
-    guides.forEach((guide, index) => {
-        const file = files.find((item) => item.fileId === guide.fileId);
-        if (!file) throw Object.assign(new Error("H3 时间锚点引用不存在"), { status: 400 });
-        const base = 100 + index * 3;
-        const inputs: NodeInput = { positive, latent: ["5", 1], vae: ["3", 0], audio_vae: ["4", 0], frame_idx: Math.round(Number(guide.frameIndex) || 0) };
-        if (file.kind === "image") { graph[String(base)] = node("LoadImage", { image: file.name }); inputs.image = [String(base), 0]; }
-        else if (file.kind === "video") {
-            graph[String(base)] = node("LoadVideo", { file: file.name });
-            graph[String(base + 1)] = node("GetVideoComponents", { video: [String(base), 0] });
-            inputs.image = [String(base + 1), 0];
-            if (guide.includeAudio !== false) inputs.audio = [String(base + 1), 1];
-        } else { graph[String(base)] = node("LoadAudio", { audio: file.name }); inputs.audio = [String(base), 0]; }
-        const guideId = String(base + 2); graph[guideId] = node("MiniMaxH3AddGuide", inputs); positive = [guideId, 0];
-    });
-    graph["6"].inputs.conditioning = positive;
-}
-
 function voxCpm(input: WorkflowInput): Workflow {
     const reference = input.files.find((file) => file.kind === "audio");
     const graph: Workflow = { "1": node("RunningHub_VoxCPM_LoadModel", { model_name: "VoxCPM2", optimize: false, lora_name: "None" }), "2": node("RunningHub_VoxCPM_Generate", { model: ["1", 0], control_instruction: String(input.params.instructions || "自然、清晰、有感染力的中文旁白声音").trim(), text: input.prompt.trim(), cfg_value: Math.max(1, Math.min(5, Number(input.params.cfgValue) || 2)), inference_steps: Math.max(4, Math.min(50, Number(input.params.steps) || 10)), seed: Number.isFinite(Number(input.params.seed)) ? Number(input.params.seed) : seed(), ultimate_clone: input.params.ultimateClone === true, reference_audio_text: String(input.params.referenceTranscript || "").trim(), normalize_text: input.params.normalizeText !== false, denoise_reference: Boolean(reference) && input.params.denoiseReference !== false, max_len: Math.max(256, Math.min(8192, Number(input.params.maxLength) || 4096)), retry_badcase: input.params.retryBadcase !== false }), "3": node("SaveAudio", { audio: ["2", 0], filename_prefix: "InfiniteCanvas/VoxCPM2" }) };
     if (reference) { graph["4"] = node("LoadAudio", { audio: reference.name }); graph["2"].inputs.reference_audio = ["4", 0]; }
     return graph;
-}
-
-
-export function h3ContinuationFrames(seconds: number) {
-    if (!Number.isFinite(seconds) || seconds < 4 || seconds > 15) throw new Error("H3 continuation request must be between 4 and 15 seconds");
-    return Math.min(340, Math.max(17, Math.round(seconds * 24 / 17) * 17));
-}
-
-function addH3NativeState(graph: Workflow, input: WorkflowInput, dimensions: { width: number; height: number; frames: number }) {
-    if (input.params.__h3StateContext === undefined) {
-        if (input.params.__h3PreviousState || input.params.__h3StateInputName || input.params.__h3PreviousFrames) throw new Error("H3 continuation requires an explicit state context");
-        return;
-    }
-    const context = h3StateContextSchema.parse(input.params.__h3StateContext);
-    if (context.width !== dimensions.width || context.height !== dimensions.height) throw new Error("H3 state dimensions do not match generation");
-    const previous = input.params.__h3PreviousState as { fileId: string; context: H3StateContext } | undefined;
-    let samples: [string, number] = ["10", 0];
-    if (previous) {
-        const prior = h3StateContextSchema.parse(previous.context);
-        const extension = h3ContinuationFrames(Number(input.params.seconds || 5));
-        if (["modelRevision", "videoVaeRevision", "audioVaeRevision", "width", "height", "fps"].some((key) => prior[key as keyof H3StateContext] !== context[key as keyof H3StateContext]) || context.frames !== prior.frames + extension || input.params.__h3PreviousFrames !== prior.frames) throw new Error("H3 continuation context does not match source or extension");
-        const name = input.params.__h3StateInputName;
-        if (typeof name !== "string" || !/^[^/\\]+\.safetensors$/.test(name)) throw new Error("H3 continuation state upload is missing or invalid");
-        if (Array.isArray(input.params.temporalGuides) && input.params.temporalGuides.length) throw new Error("Native continuation cannot override its previous tail with another temporal guide");
-        graph["80"] = node("H3LoadContinuationState", { state_name: name, expected_context: JSON.stringify(prior) });
-        graph["81"] = node("MiniMaxH3GuidedContinuationWindow", { previous_av_latent: ["80", 0], overlap_frames: 22, extension_frames: extension });
-        graph["5"].inputs.length = ["81", 1];
-        graph["82"] = node("MiniMaxH3LatentTailGuide", { positive: ["5", 0], previous_av_latent: ["80", 0], target_av_latent: ["81", 0], overlap_video_tokens: ["81", 2], overlap_audio_tokens: ["81", 3] });
-        graph["6"].inputs.conditioning = ["82", 0];
-        graph["10"].inputs.latent_image = ["81", 0];
-        graph["83"] = node("MiniMaxH3AppendContinuation", { previous_av_latent: ["80", 0], sampled_window: ["10", 0], overlap_video_tokens: ["81", 2], overlap_audio_tokens: ["81", 3], transition_video_tokens: ["81", 4], transition_audio_tokens: ["81", 5] });
-        samples = ["83", 0];
-    } else if (context.frames !== dimensions.frames || Number(input.params.__h3PreviousFrames || 0) !== 0) throw new Error("H3 initial state frame count does not match generation");
-    graph["70"] = node("H3SaveContinuationState", { latent: samples, context: JSON.stringify(context) });
-    graph["11"].inputs.samples = ["70", 0];
-    graph["12"].inputs.samples = ["70", 0];
-    graph["85"] = node("H3NewAVSegment", { images: ["11", 0], audio: ["12", 0], previous_frames: previous?.context.frames || 0 });
-    graph["13"].inputs.images = ["85", 0];
-    graph["13"].inputs.audio = ["85", 1];
-    // Keep the latest full decode: appending changes the previous VAE tail.
-    graph["86"] = node("H3NewAVSegment", { images: ["11", 0], audio: ["12", 0], previous_frames: 0 });
-    graph["87"] = node("CreateVideo", { images: ["86", 0], audio: ["86", 1], fps: 24, bit_depth: 8 });
-    graph["h3_cumulative"] = node("SaveVideo", { video: ["87", 0], filename_prefix: "InfiniteCanvas/H3-Cumulative", format: "auto", codec: "auto" });
-}
-
-export function h3VideoDimensions(params: Record<string, unknown>) {
-    const ratioParts = String(params.ratio || params.size || "16:9").split(":").map(Number);
-    const ratio = ratioParts.length === 2 && ratioParts.every((value) => value > 0) ? ratioParts[0] / ratioParts[1] : 16 / 9;
-    const shortEdge = String(params.resolution || params.vquality).toLowerCase() === "480p" ? 480 : 768;
-    let width = ratio >= 1 ? shortEdge * ratio : shortEdge; let height = ratio >= 1 ? shortEdge : shortEdge / ratio;
-    const maxPixels = shortEdge * (shortEdge === 480 ? 864 : 1344);
-    if (width * height > maxPixels) { const scale = Math.sqrt(maxPixels / (width * height)); width *= scale; height *= scale; }
-    width = Math.max(32, Math.round(width / 32) * 32); height = Math.max(32, Math.round(height / 32) * 32);
-    return { width, height };
-}
-
-function miniMaxMusic3({ prompt, params, files }: WorkflowInput): Workflow {
-    const seconds = Number(params.seconds ?? 30);
-    if (!prompt.trim() || files.length || !Number.isFinite(seconds) || seconds < 1 || seconds > 300) throw Object.assign(new Error("Music3 需要音乐提示、1–300 秒时长，且不支持参考媒体"), { status: 400 });
-    if (params.audioMode !== undefined && params.audioMode !== "music" || params.audioOperation !== undefined && params.audioOperation !== "generate") throw Object.assign(new Error("Music3 当前仅支持音乐生成"), { status: 400 });
-    const generationSeed = Number(params.seed ?? seed());
-    if (!Number.isSafeInteger(generationSeed) || generationSeed < 0) throw Object.assign(new Error("Music3 种子必须是非负安全整数"), { status: 400 });
-    return {
-        "1": node("UNETLoader", { unet_name: "minimax_music3_dit_fp16.safetensors", weight_dtype: "default" }),
-        "2": node("CLIPLoader", { clip_name: "minimax_music3_text_encoder_pruned_int8_convrot.safetensors", type: "minimax", device: "default" }),
-        "3": node("VAELoader", { vae_name: "minimax_music3_dav.safetensors" }),
-        "4": node("MiniMaxMusic3TextEncode", { clip: ["2", 0], caption: prompt, lyrics: String(params.lyrics ?? "[Instrumental]"), seed: generationSeed, max_duration: seconds, cfg_scale: 1.7, top_k: 50 }),
-        "5": node("ConditioningZeroOut", { conditioning: ["4", 0] }),
-        "6": node("EmptyMiniMaxMusic3LatentAudio", { seconds: ["4", 1], batch_size: 1 }),
-        "7": node("KSampler", { model: ["1", 0], positive: ["4", 0], negative: ["5", 0], latent_image: ["6", 0], seed: generationSeed, steps: 30, cfg: 1.7, sampler_name: "euler", scheduler: "simple", denoise: 1 }),
-        "8": node("VAEDecodeAudio", { samples: ["7", 0], vae: ["3", 0] }),
-        "14": node("SaveAudio", { audio: ["8", 0], filename_prefix: "InfiniteCanvas/MiniMax-Music3" }),
-    };
 }

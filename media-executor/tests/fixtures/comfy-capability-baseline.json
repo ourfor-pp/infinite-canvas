@@ -1,0 +1,1887 @@
+[
+  {
+    "name": "fl2va",
+    "model": "minimax-h3-fl2va-local",
+    "prompt": "A still room.",
+    "params": {
+      "seconds": 5,
+      "resolution": "480p"
+    },
+    "files": [
+      {
+        "fileId": "a",
+        "kind": "image",
+        "name": "first.png",
+        "role": "first-frame"
+      },
+      {
+        "fileId": "b",
+        "kind": "image",
+        "name": "last.png",
+        "role": "last-frame"
+      }
+    ],
+    "graph": {
+      "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+          "unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+          "weight_dtype": "default"
+        }
+      },
+      "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+          "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "type": "minimax",
+          "device": "default"
+        }
+      },
+      "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+        }
+      },
+      "4": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+        }
+      },
+      "5": {
+        "class_type": "MiniMaxH3ImageToVideo",
+        "inputs": {
+          "clip": [
+            "2",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ],
+          "prompt": "A still room.",
+          "width": 864,
+          "height": 480,
+          "length": 124,
+          "first_frame": [
+            "20",
+            0
+          ],
+          "last_frame": [
+            "21",
+            0
+          ]
+        }
+      },
+      "6": {
+        "class_type": "BasicGuider",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "conditioning": [
+            "5",
+            0
+          ]
+        }
+      },
+      "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+          "sampler_name": "res_multistep"
+        }
+      },
+      "8": {
+        "class_type": "BasicScheduler",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "scheduler": "simple",
+          "steps": 20,
+          "denoise": 1
+        }
+      },
+      "9": {
+        "class_type": "RandomNoise",
+        "inputs": {
+          "noise_seed": 42
+        }
+      },
+      "10": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+          "noise": [
+            "9",
+            0
+          ],
+          "guider": [
+            "6",
+            0
+          ],
+          "sampler": [
+            "7",
+            0
+          ],
+          "sigmas": [
+            "8",
+            0
+          ],
+          "latent_image": [
+            "5",
+            1
+          ]
+        }
+      },
+      "11": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ]
+        }
+      },
+      "12": {
+        "class_type": "VAEDecodeAudio",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "4",
+            0
+          ]
+        }
+      },
+      "13": {
+        "class_type": "CreateVideo",
+        "inputs": {
+          "images": [
+            "11",
+            0
+          ],
+          "audio": [
+            "12",
+            0
+          ],
+          "fps": 24,
+          "bit_depth": 8
+        }
+      },
+      "14": {
+        "class_type": "SaveVideo",
+        "inputs": {
+          "video": [
+            "13",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/MiniMax-H3",
+          "format": "auto",
+          "codec": "auto"
+        }
+      },
+      "15": {
+        "class_type": "PathchSageAttentionKJ",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+          "allow_compile": false
+        }
+      },
+      "20": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "first.png"
+        }
+      },
+      "21": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "last.png"
+        }
+      }
+    }
+  },
+  {
+    "name": "ref2va",
+    "model": "minimax-h3-ref2va-local",
+    "prompt": "A still room.",
+    "params": {
+      "seconds": 5,
+      "resolution": "480p"
+    },
+    "files": [
+      {
+        "fileId": "a",
+        "kind": "image",
+        "name": "first.png"
+      }
+    ],
+    "graph": {
+      "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+          "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+          "weight_dtype": "default"
+        }
+      },
+      "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+          "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "type": "minimax",
+          "device": "default"
+        }
+      },
+      "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+        }
+      },
+      "4": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+        }
+      },
+      "5": {
+        "class_type": "MiniMaxH3ReferenceToVideo",
+        "inputs": {
+          "clip": [
+            "2",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ],
+          "prompt": "A still room.",
+          "width": 864,
+          "height": 480,
+          "length": 124,
+          "audio_vae": [
+            "4",
+            0
+          ],
+          "ref_image_size": "match",
+          "ref_images.ref_image_0": [
+            "21",
+            0
+          ]
+        }
+      },
+      "6": {
+        "class_type": "BasicGuider",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "conditioning": [
+            "5",
+            0
+          ]
+        }
+      },
+      "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+          "sampler_name": "res_multistep"
+        }
+      },
+      "8": {
+        "class_type": "BasicScheduler",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "scheduler": "simple",
+          "steps": 20,
+          "denoise": 1
+        }
+      },
+      "9": {
+        "class_type": "RandomNoise",
+        "inputs": {
+          "noise_seed": 42
+        }
+      },
+      "10": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+          "noise": [
+            "9",
+            0
+          ],
+          "guider": [
+            "6",
+            0
+          ],
+          "sampler": [
+            "7",
+            0
+          ],
+          "sigmas": [
+            "8",
+            0
+          ],
+          "latent_image": [
+            "5",
+            1
+          ]
+        }
+      },
+      "11": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ]
+        }
+      },
+      "12": {
+        "class_type": "VAEDecodeAudio",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "4",
+            0
+          ]
+        }
+      },
+      "13": {
+        "class_type": "CreateVideo",
+        "inputs": {
+          "images": [
+            "11",
+            0
+          ],
+          "audio": [
+            "12",
+            0
+          ],
+          "fps": 24,
+          "bit_depth": 8
+        }
+      },
+      "14": {
+        "class_type": "SaveVideo",
+        "inputs": {
+          "video": [
+            "13",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/MiniMax-H3",
+          "format": "auto",
+          "codec": "auto"
+        }
+      },
+      "15": {
+        "class_type": "PathchSageAttentionKJ",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+          "allow_compile": false
+        }
+      },
+      "21": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "first.png"
+        }
+      }
+    }
+  },
+  {
+    "name": "ref2va-final",
+    "model": "minimax-h3-ref2va-local",
+    "prompt": "A still room.",
+    "params": {
+      "seconds": 5,
+      "qualityPreset": "final",
+      "resolution": "768p"
+    },
+    "files": [
+      {
+        "fileId": "a",
+        "kind": "image",
+        "name": "first.png"
+      }
+    ],
+    "graph": {
+      "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+          "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+          "weight_dtype": "default"
+        }
+      },
+      "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+          "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "type": "minimax",
+          "device": "default"
+        }
+      },
+      "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+        }
+      },
+      "4": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+        }
+      },
+      "5": {
+        "class_type": "MiniMaxH3ReferenceToVideo",
+        "inputs": {
+          "clip": [
+            "2",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ],
+          "prompt": "A still room.",
+          "width": 1344,
+          "height": 768,
+          "length": 124,
+          "audio_vae": [
+            "4",
+            0
+          ],
+          "ref_image_size": "max",
+          "ref_images.ref_image_0": [
+            "21",
+            0
+          ]
+        }
+      },
+      "6": {
+        "class_type": "BasicGuider",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "conditioning": [
+            "5",
+            0
+          ]
+        }
+      },
+      "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+          "sampler_name": "res_multistep"
+        }
+      },
+      "8": {
+        "class_type": "BasicScheduler",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "scheduler": "beta",
+          "steps": 20,
+          "denoise": 1
+        }
+      },
+      "9": {
+        "class_type": "RandomNoise",
+        "inputs": {
+          "noise_seed": 42
+        }
+      },
+      "10": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+          "noise": [
+            "9",
+            0
+          ],
+          "guider": [
+            "6",
+            0
+          ],
+          "sampler": [
+            "7",
+            0
+          ],
+          "sigmas": [
+            "8",
+            0
+          ],
+          "latent_image": [
+            "5",
+            1
+          ]
+        }
+      },
+      "11": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ]
+        }
+      },
+      "12": {
+        "class_type": "VAEDecodeAudio",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "4",
+            0
+          ]
+        }
+      },
+      "13": {
+        "class_type": "CreateVideo",
+        "inputs": {
+          "images": [
+            "11",
+            0
+          ],
+          "audio": [
+            "12",
+            0
+          ],
+          "fps": 24,
+          "bit_depth": 8
+        }
+      },
+      "14": {
+        "class_type": "SaveVideo",
+        "inputs": {
+          "video": [
+            "13",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/MiniMax-H3",
+          "format": "auto",
+          "codec": "auto"
+        }
+      },
+      "15": {
+        "class_type": "PathchSageAttentionKJ",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+          "allow_compile": false
+        }
+      },
+      "21": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "first.png"
+        }
+      }
+    }
+  },
+  {
+    "name": "ref2va-multimodal",
+    "model": "minimax-h3-ref2va-local",
+    "prompt": "A still room.",
+    "params": {
+      "seconds": 5,
+      "resolution": "480p"
+    },
+    "files": [
+      {
+        "fileId": "a",
+        "kind": "image",
+        "name": "first.png"
+      },
+      {
+        "fileId": "b",
+        "kind": "video",
+        "name": "motion.mp4"
+      },
+      {
+        "fileId": "c",
+        "kind": "audio",
+        "name": "voice.wav"
+      }
+    ],
+    "graph": {
+      "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+          "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+          "weight_dtype": "default"
+        }
+      },
+      "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+          "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "type": "minimax",
+          "device": "default"
+        }
+      },
+      "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+        }
+      },
+      "4": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+        }
+      },
+      "5": {
+        "class_type": "MiniMaxH3ReferenceToVideo",
+        "inputs": {
+          "clip": [
+            "2",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ],
+          "prompt": "A still room.",
+          "width": 864,
+          "height": 480,
+          "length": 124,
+          "audio_vae": [
+            "4",
+            0
+          ],
+          "ref_image_size": "match",
+          "ref_images.ref_image_0": [
+            "21",
+            0
+          ],
+          "ref_audios.ref_audio_0": [
+            "41",
+            0
+          ],
+          "ref_videos.ref_video_0": [
+            "62",
+            0
+          ],
+          "ref_video_audios.ref_video_audio_0": [
+            "62",
+            1
+          ]
+        }
+      },
+      "6": {
+        "class_type": "BasicGuider",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "conditioning": [
+            "5",
+            0
+          ]
+        }
+      },
+      "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+          "sampler_name": "res_multistep"
+        }
+      },
+      "8": {
+        "class_type": "BasicScheduler",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "scheduler": "simple",
+          "steps": 20,
+          "denoise": 1
+        }
+      },
+      "9": {
+        "class_type": "RandomNoise",
+        "inputs": {
+          "noise_seed": 42
+        }
+      },
+      "10": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+          "noise": [
+            "9",
+            0
+          ],
+          "guider": [
+            "6",
+            0
+          ],
+          "sampler": [
+            "7",
+            0
+          ],
+          "sigmas": [
+            "8",
+            0
+          ],
+          "latent_image": [
+            "5",
+            1
+          ]
+        }
+      },
+      "11": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ]
+        }
+      },
+      "12": {
+        "class_type": "VAEDecodeAudio",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "4",
+            0
+          ]
+        }
+      },
+      "13": {
+        "class_type": "CreateVideo",
+        "inputs": {
+          "images": [
+            "11",
+            0
+          ],
+          "audio": [
+            "12",
+            0
+          ],
+          "fps": 24,
+          "bit_depth": 8
+        }
+      },
+      "14": {
+        "class_type": "SaveVideo",
+        "inputs": {
+          "video": [
+            "13",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/MiniMax-H3",
+          "format": "auto",
+          "codec": "auto"
+        }
+      },
+      "15": {
+        "class_type": "PathchSageAttentionKJ",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+          "allow_compile": false
+        }
+      },
+      "21": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "first.png"
+        }
+      },
+      "41": {
+        "class_type": "LoadAudio",
+        "inputs": {
+          "audio": "voice.wav"
+        }
+      },
+      "61": {
+        "class_type": "LoadVideo",
+        "inputs": {
+          "file": "motion.mp4"
+        }
+      },
+      "62": {
+        "class_type": "GetVideoComponents",
+        "inputs": {
+          "video": [
+            "61",
+            0
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ref2va-pdd-guide",
+    "model": "minimax-h3-ref2va-local",
+    "prompt": "A still room.",
+    "params": {
+      "seconds": 5,
+      "resolution": "480p",
+      "h3Recipe": "pdd-ref8",
+      "temporalGuides": [
+        {
+          "fileId": "b",
+          "frameIndex": 0
+        }
+      ]
+    },
+    "files": [
+      {
+        "fileId": "a",
+        "kind": "image",
+        "name": "first.png"
+      },
+      {
+        "fileId": "b",
+        "kind": "image",
+        "name": "guide.png"
+      }
+    ],
+    "graph": {
+      "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+          "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+          "weight_dtype": "default"
+        }
+      },
+      "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+          "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "type": "minimax",
+          "device": "default"
+        }
+      },
+      "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+        }
+      },
+      "4": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+        }
+      },
+      "5": {
+        "class_type": "MiniMaxH3ReferenceToVideo",
+        "inputs": {
+          "clip": [
+            "2",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ],
+          "prompt": "A still room.",
+          "width": 864,
+          "height": 480,
+          "length": 124,
+          "audio_vae": [
+            "4",
+            0
+          ],
+          "ref_image_size": "match",
+          "ref_images.ref_image_0": [
+            "21",
+            0
+          ]
+        }
+      },
+      "6": {
+        "class_type": "BasicGuider",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "conditioning": [
+            "102",
+            0
+          ]
+        }
+      },
+      "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+          "sampler_name": "euler"
+        }
+      },
+      "9": {
+        "class_type": "RandomNoise",
+        "inputs": {
+          "noise_seed": 42
+        }
+      },
+      "10": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+          "noise": [
+            "9",
+            0
+          ],
+          "guider": [
+            "6",
+            0
+          ],
+          "sampler": [
+            "7",
+            0
+          ],
+          "sigmas": [
+            "16",
+            1
+          ],
+          "latent_image": [
+            "5",
+            1
+          ]
+        }
+      },
+      "11": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ]
+        }
+      },
+      "12": {
+        "class_type": "VAEDecodeAudio",
+        "inputs": {
+          "samples": [
+            "10",
+            0
+          ],
+          "vae": [
+            "4",
+            0
+          ]
+        }
+      },
+      "13": {
+        "class_type": "CreateVideo",
+        "inputs": {
+          "images": [
+            "11",
+            0
+          ],
+          "audio": [
+            "12",
+            0
+          ],
+          "fps": 24,
+          "bit_depth": 8
+        }
+      },
+      "14": {
+        "class_type": "SaveVideo",
+        "inputs": {
+          "video": [
+            "13",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/MiniMax-H3",
+          "format": "auto",
+          "codec": "auto"
+        }
+      },
+      "15": {
+        "class_type": "PathchSageAttentionKJ",
+        "inputs": {
+          "model": [
+            "16",
+            0
+          ],
+          "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+          "allow_compile": false
+        }
+      },
+      "16": {
+        "class_type": "MiniMaxH3PDDAccApply",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "pdd_file": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors",
+          "nfe": "8",
+          "lora_strength": 1,
+          "head_strength": 1,
+          "on_off_grid": "error",
+          "partition_check": "error"
+        }
+      },
+      "21": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "first.png"
+        }
+      },
+      "100": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "guide.png"
+        }
+      },
+      "102": {
+        "class_type": "MiniMaxH3AddGuide",
+        "inputs": {
+          "positive": [
+            "5",
+            0
+          ],
+          "latent": [
+            "5",
+            1
+          ],
+          "vae": [
+            "3",
+            0
+          ],
+          "audio_vae": [
+            "4",
+            0
+          ],
+          "frame_idx": 0,
+          "image": [
+            "100",
+            0
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "ref2va-state",
+    "model": "minimax-h3-ref2va-local",
+    "prompt": "A still room.",
+    "params": {
+      "seconds": 5,
+      "resolution": "480p",
+      "__h3StateContext": {
+        "schemaVersion": 1,
+        "fps": 24,
+        "modelRevision": "base:pipeline:core",
+        "videoVaeRevision": "video-vae",
+        "audioVaeRevision": "audio-vae",
+        "sourceId": "fixture",
+        "width": 864,
+        "height": 480,
+        "frames": 124
+      },
+      "__h3PreviousFrames": 0
+    },
+    "files": [
+      {
+        "fileId": "a",
+        "kind": "image",
+        "name": "first.png"
+      }
+    ],
+    "graph": {
+      "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+          "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+          "weight_dtype": "default"
+        }
+      },
+      "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+          "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "type": "minimax",
+          "device": "default"
+        }
+      },
+      "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+        }
+      },
+      "4": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+        }
+      },
+      "5": {
+        "class_type": "MiniMaxH3ReferenceToVideo",
+        "inputs": {
+          "clip": [
+            "2",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ],
+          "prompt": "A still room.",
+          "width": 864,
+          "height": 480,
+          "length": 124,
+          "audio_vae": [
+            "4",
+            0
+          ],
+          "ref_image_size": "match",
+          "ref_images.ref_image_0": [
+            "21",
+            0
+          ]
+        }
+      },
+      "6": {
+        "class_type": "BasicGuider",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "conditioning": [
+            "5",
+            0
+          ]
+        }
+      },
+      "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+          "sampler_name": "res_multistep"
+        }
+      },
+      "8": {
+        "class_type": "BasicScheduler",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "scheduler": "simple",
+          "steps": 20,
+          "denoise": 1
+        }
+      },
+      "9": {
+        "class_type": "RandomNoise",
+        "inputs": {
+          "noise_seed": 42
+        }
+      },
+      "10": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+          "noise": [
+            "9",
+            0
+          ],
+          "guider": [
+            "6",
+            0
+          ],
+          "sampler": [
+            "7",
+            0
+          ],
+          "sigmas": [
+            "8",
+            0
+          ],
+          "latent_image": [
+            "5",
+            1
+          ]
+        }
+      },
+      "11": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "70",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ]
+        }
+      },
+      "12": {
+        "class_type": "VAEDecodeAudio",
+        "inputs": {
+          "samples": [
+            "70",
+            0
+          ],
+          "vae": [
+            "4",
+            0
+          ]
+        }
+      },
+      "13": {
+        "class_type": "CreateVideo",
+        "inputs": {
+          "images": [
+            "85",
+            0
+          ],
+          "audio": [
+            "85",
+            1
+          ],
+          "fps": 24,
+          "bit_depth": 8
+        }
+      },
+      "14": {
+        "class_type": "SaveVideo",
+        "inputs": {
+          "video": [
+            "13",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/MiniMax-H3",
+          "format": "auto",
+          "codec": "auto"
+        }
+      },
+      "15": {
+        "class_type": "PathchSageAttentionKJ",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+          "allow_compile": false
+        }
+      },
+      "21": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "first.png"
+        }
+      },
+      "70": {
+        "class_type": "H3SaveContinuationState",
+        "inputs": {
+          "latent": [
+            "10",
+            0
+          ],
+          "context": "{\"schemaVersion\":1,\"fps\":24,\"modelRevision\":\"base:pipeline:core\",\"videoVaeRevision\":\"video-vae\",\"audioVaeRevision\":\"audio-vae\",\"sourceId\":\"fixture\",\"width\":864,\"height\":480,\"frames\":124}"
+        }
+      },
+      "85": {
+        "class_type": "H3NewAVSegment",
+        "inputs": {
+          "images": [
+            "11",
+            0
+          ],
+          "audio": [
+            "12",
+            0
+          ],
+          "previous_frames": 0
+        }
+      },
+      "86": {
+        "class_type": "H3NewAVSegment",
+        "inputs": {
+          "images": [
+            "11",
+            0
+          ],
+          "audio": [
+            "12",
+            0
+          ],
+          "previous_frames": 0
+        }
+      },
+      "87": {
+        "class_type": "CreateVideo",
+        "inputs": {
+          "images": [
+            "86",
+            0
+          ],
+          "audio": [
+            "86",
+            1
+          ],
+          "fps": 24,
+          "bit_depth": 8
+        }
+      },
+      "h3_cumulative": {
+        "class_type": "SaveVideo",
+        "inputs": {
+          "video": [
+            "87",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/H3-Cumulative",
+          "format": "auto",
+          "codec": "auto"
+        }
+      }
+    }
+  },
+  {
+    "name": "ref2va-extend",
+    "model": "minimax-h3-ref2va-local",
+    "prompt": "A still room.",
+    "params": {
+      "seconds": 5,
+      "resolution": "480p",
+      "__h3StateContext": {
+        "schemaVersion": 1,
+        "fps": 24,
+        "modelRevision": "base:pipeline:core",
+        "videoVaeRevision": "video-vae",
+        "audioVaeRevision": "audio-vae",
+        "sourceId": "fixture",
+        "width": 864,
+        "height": 480,
+        "frames": 243
+      },
+      "__h3PreviousFrames": 124,
+      "__h3PreviousState": {
+        "fileId": "state",
+        "context": {
+          "schemaVersion": 1,
+          "fps": 24,
+          "modelRevision": "base:pipeline:core",
+          "videoVaeRevision": "video-vae",
+          "audioVaeRevision": "audio-vae",
+          "sourceId": "fixture",
+          "width": 864,
+          "height": 480,
+          "frames": 124
+        }
+      },
+      "__h3StateInputName": "state.safetensors"
+    },
+    "files": [
+      {
+        "fileId": "a",
+        "kind": "image",
+        "name": "first.png"
+      }
+    ],
+    "graph": {
+      "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+          "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+          "weight_dtype": "default"
+        }
+      },
+      "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+          "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+          "type": "minimax",
+          "device": "default"
+        }
+      },
+      "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+        }
+      },
+      "4": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+        }
+      },
+      "5": {
+        "class_type": "MiniMaxH3ReferenceToVideo",
+        "inputs": {
+          "clip": [
+            "2",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ],
+          "prompt": "A still room.",
+          "width": 864,
+          "height": 480,
+          "length": [
+            "81",
+            1
+          ],
+          "audio_vae": [
+            "4",
+            0
+          ],
+          "ref_image_size": "match",
+          "ref_images.ref_image_0": [
+            "21",
+            0
+          ]
+        }
+      },
+      "6": {
+        "class_type": "BasicGuider",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "conditioning": [
+            "82",
+            0
+          ]
+        }
+      },
+      "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+          "sampler_name": "res_multistep"
+        }
+      },
+      "8": {
+        "class_type": "BasicScheduler",
+        "inputs": {
+          "model": [
+            "15",
+            0
+          ],
+          "scheduler": "simple",
+          "steps": 20,
+          "denoise": 1
+        }
+      },
+      "9": {
+        "class_type": "RandomNoise",
+        "inputs": {
+          "noise_seed": 42
+        }
+      },
+      "10": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+          "noise": [
+            "9",
+            0
+          ],
+          "guider": [
+            "6",
+            0
+          ],
+          "sampler": [
+            "7",
+            0
+          ],
+          "sigmas": [
+            "8",
+            0
+          ],
+          "latent_image": [
+            "81",
+            0
+          ]
+        }
+      },
+      "11": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "70",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ]
+        }
+      },
+      "12": {
+        "class_type": "VAEDecodeAudio",
+        "inputs": {
+          "samples": [
+            "70",
+            0
+          ],
+          "vae": [
+            "4",
+            0
+          ]
+        }
+      },
+      "13": {
+        "class_type": "CreateVideo",
+        "inputs": {
+          "images": [
+            "85",
+            0
+          ],
+          "audio": [
+            "85",
+            1
+          ],
+          "fps": 24,
+          "bit_depth": 8
+        }
+      },
+      "14": {
+        "class_type": "SaveVideo",
+        "inputs": {
+          "video": [
+            "13",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/MiniMax-H3",
+          "format": "auto",
+          "codec": "auto"
+        }
+      },
+      "15": {
+        "class_type": "PathchSageAttentionKJ",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "sage_attention": "sageattn_qk_int8_pv_fp16_cuda",
+          "allow_compile": false
+        }
+      },
+      "21": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "first.png"
+        }
+      },
+      "70": {
+        "class_type": "H3SaveContinuationState",
+        "inputs": {
+          "latent": [
+            "83",
+            0
+          ],
+          "context": "{\"schemaVersion\":1,\"fps\":24,\"modelRevision\":\"base:pipeline:core\",\"videoVaeRevision\":\"video-vae\",\"audioVaeRevision\":\"audio-vae\",\"sourceId\":\"fixture\",\"width\":864,\"height\":480,\"frames\":243}"
+        }
+      },
+      "80": {
+        "class_type": "H3LoadContinuationState",
+        "inputs": {
+          "state_name": "state.safetensors",
+          "expected_context": "{\"schemaVersion\":1,\"fps\":24,\"modelRevision\":\"base:pipeline:core\",\"videoVaeRevision\":\"video-vae\",\"audioVaeRevision\":\"audio-vae\",\"sourceId\":\"fixture\",\"width\":864,\"height\":480,\"frames\":124}"
+        }
+      },
+      "81": {
+        "class_type": "MiniMaxH3GuidedContinuationWindow",
+        "inputs": {
+          "previous_av_latent": [
+            "80",
+            0
+          ],
+          "overlap_frames": 22,
+          "extension_frames": 119
+        }
+      },
+      "82": {
+        "class_type": "MiniMaxH3LatentTailGuide",
+        "inputs": {
+          "positive": [
+            "5",
+            0
+          ],
+          "previous_av_latent": [
+            "80",
+            0
+          ],
+          "target_av_latent": [
+            "81",
+            0
+          ],
+          "overlap_video_tokens": [
+            "81",
+            2
+          ],
+          "overlap_audio_tokens": [
+            "81",
+            3
+          ]
+        }
+      },
+      "83": {
+        "class_type": "MiniMaxH3AppendContinuation",
+        "inputs": {
+          "previous_av_latent": [
+            "80",
+            0
+          ],
+          "sampled_window": [
+            "10",
+            0
+          ],
+          "overlap_video_tokens": [
+            "81",
+            2
+          ],
+          "overlap_audio_tokens": [
+            "81",
+            3
+          ],
+          "transition_video_tokens": [
+            "81",
+            4
+          ],
+          "transition_audio_tokens": [
+            "81",
+            5
+          ]
+        }
+      },
+      "85": {
+        "class_type": "H3NewAVSegment",
+        "inputs": {
+          "images": [
+            "11",
+            0
+          ],
+          "audio": [
+            "12",
+            0
+          ],
+          "previous_frames": 124
+        }
+      },
+      "86": {
+        "class_type": "H3NewAVSegment",
+        "inputs": {
+          "images": [
+            "11",
+            0
+          ],
+          "audio": [
+            "12",
+            0
+          ],
+          "previous_frames": 0
+        }
+      },
+      "87": {
+        "class_type": "CreateVideo",
+        "inputs": {
+          "images": [
+            "86",
+            0
+          ],
+          "audio": [
+            "86",
+            1
+          ],
+          "fps": 24,
+          "bit_depth": 8
+        }
+      },
+      "h3_cumulative": {
+        "class_type": "SaveVideo",
+        "inputs": {
+          "video": [
+            "87",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/H3-Cumulative",
+          "format": "auto",
+          "codec": "auto"
+        }
+      }
+    }
+  },
+  {
+    "name": "music3",
+    "model": "minimax-music3-local",
+    "prompt": "Soft piano.",
+    "params": {
+      "seconds": 30,
+      "seed": 42
+    },
+    "files": [],
+    "graph": {
+      "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+          "unet_name": "minimax_music3_dit_fp16.safetensors",
+          "weight_dtype": "default"
+        }
+      },
+      "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+          "clip_name": "minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
+          "type": "minimax",
+          "device": "default"
+        }
+      },
+      "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "minimax_music3_dav.safetensors"
+        }
+      },
+      "4": {
+        "class_type": "MiniMaxMusic3TextEncode",
+        "inputs": {
+          "clip": [
+            "2",
+            0
+          ],
+          "caption": "Soft piano.",
+          "lyrics": "[Instrumental]",
+          "seed": 42,
+          "max_duration": 30,
+          "cfg_scale": 1.7,
+          "top_k": 50
+        }
+      },
+      "5": {
+        "class_type": "ConditioningZeroOut",
+        "inputs": {
+          "conditioning": [
+            "4",
+            0
+          ]
+        }
+      },
+      "6": {
+        "class_type": "EmptyMiniMaxMusic3LatentAudio",
+        "inputs": {
+          "seconds": [
+            "4",
+            1
+          ],
+          "batch_size": 1
+        }
+      },
+      "7": {
+        "class_type": "KSampler",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "positive": [
+            "4",
+            0
+          ],
+          "negative": [
+            "5",
+            0
+          ],
+          "latent_image": [
+            "6",
+            0
+          ],
+          "seed": 42,
+          "steps": 30,
+          "cfg": 1.7,
+          "sampler_name": "euler",
+          "scheduler": "simple",
+          "denoise": 1
+        }
+      },
+      "8": {
+        "class_type": "VAEDecodeAudio",
+        "inputs": {
+          "samples": [
+            "7",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ]
+        }
+      },
+      "14": {
+        "class_type": "SaveAudio",
+        "inputs": {
+          "audio": [
+            "8",
+            0
+          ],
+          "filename_prefix": "InfiniteCanvas/MiniMax-Music3"
+        }
+      }
+    }
+  }
+]

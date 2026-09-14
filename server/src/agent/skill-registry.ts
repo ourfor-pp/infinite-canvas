@@ -76,7 +76,7 @@ function hashDirectory(hash: ReturnType<typeof createHash>, directory: string, p
 }
 
 function readSourceSkills(): SourceSkill[] {
-    return findSkillDirectories(config.agentSkillsDir)
+    return [...findSkillDirectories(config.agentSkillsDir), ...findSkillDirectories(config.mediaCapabilitySkillsDir)]
         .map((directory) => {
             const source = readFileSync(resolve(directory, "SKILL.md"), "utf8");
             const metadata = parseSkillMetadata(source);

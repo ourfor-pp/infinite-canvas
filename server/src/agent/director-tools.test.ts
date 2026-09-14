@@ -85,7 +85,7 @@ test("独立配乐按项目查询并保存每次产物，提示改动不覆盖�
     execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.1", wave]);
     const file = storeLocalFile("u", wave, "music.wav", "audio/wav");
     db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES('music-1','u','audio','succeeded','test',?,?,'now','now')")
-        .run(JSON.stringify({ prompt: "Quiet piano.", model: "test", params: { __directorMusic: { projectId: "p", promptPath, promptHash: saved.hash } } }), JSON.stringify({ files: [{ fileId: file.fileId }] }));
+        .run(JSON.stringify({ prompt: "Quiet piano.", model: "test", params: { seconds: 30 }, metadata: { directorMusic: { projectId: "p", promptPath, promptHash: saved.hash } } }), JSON.stringify({ files: [{ fileId: file.fileId }] }));
     const result = tasks.getDirectorGenerationTasks("u", "p", { id: "music-1" }) as any;
     assert.equal(result.music.path, "audio/music/cue-1/outputs/music-1.wav");
     assert.deepEqual(readFileSync(join(projectRoot, result.music.path)), readFileSync(wave));

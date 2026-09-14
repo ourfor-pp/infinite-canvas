@@ -1,3 +1,5 @@
+import { directorGenerationProjectSql } from "../director-sync.js";
+import { prepareMediaGeneration } from "../media-generation.js";
 import { createGeneration } from "../generation-service.js";
 import { z } from "zod";
 import { db, parseJson } from "../database.js";
@@ -9,7 +11,7 @@ export const directorTaskQuery = z.object({ id: z.string().min(1).optional(), of
 
 type GenerationSummary = { id: string; kind: string; status: string; modelId: string; error: string | null; errorCode: string | null; progress: number; createdAt: string; updatedAt: string; result: string | null };
 // Filter by project before paging; requests are never returned to the agent.
-const generationProjectSql = `COALESCE(${["__directorMusic", "__agentCanvas", "__creativeAsset", "__directorShot", "__directorSegment", "__directorStoryboardSheet"].map((key) => `NULLIF(json_extract(request, '$.params.${key}.projectId'), '')`).join(",")}, '')`;
+const generationProjectSql = directorGenerationProjectSql;
 
 export function getDirectorGenerationTasks(userId: string, projectId: string, input: unknown) {
     assertProject(userId, projectId);
@@ -51,8 +53,9 @@ function assertProject(userId: string, projectId: string) {
 }
 function notFound(subject: string) { return Object.assign(new Error(`${subject}不存在或不属于当前项目`), { status: 404, code: "DIRECTOR_TASK_NOT_FOUND" }); }
 
-export function createDirectorMusicGeneration(userId: string, projectId: string, input: { promptPath: string; expectedHash: string }) {
+export async function createDirectorMusicGeneration(userId: string, projectId: string, input: { promptPath: string; expectedHash: string }) {
     assertProject(userId, projectId);
     const music = readDirectorMusicPrompt(userId, projectId, input.promptPath, input.expectedHash);
-    return createGeneration(userId, { kind: "audio", model: music.model, prompt: music.prompt, params: { audioMode: "music", audioOperation: "generate", seconds: music.seconds, seed: music.seed, lyrics: music.lyrics, __directorMusic: { projectId, promptPath: music.promptPath, promptHash: music.promptHash } } });
+    const { id, request } = await prepareMediaGeneration(userId, { kind: "audio", model: music.model, mode: "music", operation: "generate", prompt: music.prompt, params: { seconds: music.seconds, seed: music.seed, lyrics: music.lyrics } });
+    return createGeneration(userId, { ...request, metadata: { directorMusic: { projectId, promptPath: music.promptPath, promptHash: music.promptHash } } }, id);
 }

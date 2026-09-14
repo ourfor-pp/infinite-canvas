@@ -17,7 +17,9 @@ export type AgentSceneDefinition = {
   composer: { placeholder: string; referenceLabel: string; emptyTitle: string; emptyDescription: string; suggestions: readonly string[] };
 };
 
+const mediaToolIds = ["media_list_capabilities", "media_validate_generation", "media_generate", "media_get_generation_status", "media_cancel_generation", "media_import_reference", "media_save_result"] as const;
 const canvasToolIds = [
+    ...mediaToolIds,
     "canvas_list_projects", "canvas_get_state", "canvas_apply_ops", "canvas_create_text_nodes", "canvas_delete_nodes", "canvas_delete_connections", "canvas_connect_nodes",
     "assets_list", "assets_add", "assets_delete", "prompts_search", "generation_list_models", "generation_get_status", "generation_create",
     "creative_assets_list", "creative_asset_get", "creative_assets_create_batch", "creative_asset_update", "creative_asset_place", "creative_asset_generate", "creative_asset_set_primary", "creative_asset_delete",
@@ -27,6 +29,7 @@ const canvasToolIds = [
 const canvasPolicy = new Set(["canvas_delete_nodes", "canvas_delete_connections", "assets_delete", "creative_asset_set_primary", "creative_asset_delete", "visual_style_delete"]);
 
 const directorToolIds = [
+    ...mediaToolIds,
     "director_generate_music",
     "director_validate",
     "director_trash",
@@ -46,14 +49,14 @@ const definitions = {
     director: {
         id: "director", projectKind: "director", systemPrompt: directorSystemPrompt,
         skillIds: ["director-write-story", "director-adapt-long-fiction", "director-write-screenplay", "director-breakdown-screenplay", "director-breakdown-assets", "director-design-character", "director-design-scene", "director-design-prop", "director-design-style", "director-generate-assets", "director-plan-storyboards", "director-generate-video-segments", "director-check-continuity", "director-arrange-timeline"],
-        codexTools: ["director_validate", "director_trash", "director_generate_sound", "director_generate_music", "director_read_shots", "director_read_tasks", "director_read_edit", "director_edit_timeline", "director_preflight_tasks", "director_generate_task", "director_list_models", "director_get_generation_status", "director_list_renders", "director_start_render", "director_cancel_render", "director_retry_render", "media_understand_audios", "media_sample_video"].map((id) => ({ id, policy: "auto" as const })),
+        codexTools: [...mediaToolIds, "director_validate", "director_trash", "director_generate_sound", "director_generate_music", "director_read_shots", "director_read_tasks", "director_read_edit", "director_edit_timeline", "director_preflight_tasks", "director_generate_task", "director_list_models", "director_get_generation_status", "director_list_renders", "director_start_render", "director_cancel_render", "director_retry_render", "media_understand_audios", "media_sample_video"].map((id) => ({ id, policy: "auto" as const })),
         tools: directorToolIds.map((id) => ({ id, policy: "auto" as const })),
         referenceKinds: ["director", "asset", "style"],
         composer: { placeholder: "描述导演任务，输入 / 调用 Skill，@ 引用故事、制作任务或素材…", referenceLabel: "引用导演台内容", emptyTitle: "和导演台一起创作", emptyDescription: "Agent 已绑定当前导演项目，可以创作或改编章节式故事、编写剧本、规划分镜并按需补充素材和制作成片。", suggestions: ["把创意写成可直接阅读的章节式故事", "从故事改写可拍摄的分场剧本", "规划场景镜头与制作任务"] },
     },
 } satisfies Record<AgentSceneId, AgentSceneDefinition>;
 
-const sharedSkillIds = ["media-understand"] as const;
+const sharedSkillIds = ["media-understand", "media-generation"] as const;
 
 export const agentScenes = definitions;
 

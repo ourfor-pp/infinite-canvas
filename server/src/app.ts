@@ -1,3 +1,6 @@
+import { registerGenerationEffects } from "./generation-effects.js";
+import { listMediaCapabilities } from "./media-capabilities.js";
+import { createMediaGeneration, prepareMediaGeneration } from "./media-generation.js";
 import { getDirectorSyncSnapshot } from "./director-sync-snapshot.js";
 import { markDirectorProjectChanged } from "./director-sync.js";
 import express, { type NextFunction, type Request, type Response } from "express";
@@ -61,14 +64,19 @@ const generationParamsSchema = jsonRecord.superRefine((value, context) => {
         if (key in value) context.addIssue({ code: "custom", path: [key], message: "生成参数不能包含渠道或请求配置" });
     });
 });
+registerGenerationEffects();
+
 const generationSchema = z.object({
     kind: z.enum(["image", "video", "audio", "text"]),
     model: z.string().trim().min(3).optional(),
     purpose: z.enum(["default", "image-inpaint", "image-upscale-faithful", "image-upscale-generative", "image-angle"]).default("default"),
     prompt: z.string().max(200_000).optional(),
+    mode: z.string().optional(),
+    operation: z.string().optional(),
+    continuation: z.object({ generationId: idSchema, fileId: idSchema }).optional(),
     messages: z.array(z.object({ role: z.enum(["system", "user", "assistant"]), content: z.string().max(200_000) })).max(500).optional(),
     params: generationParamsSchema.optional(),
-    references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional(), role: z.enum(["reference", "first-frame", "last-frame", "continuation"]).optional(), transcript: z.string().max(20_000).optional() })).optional(),
+    references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional(), role: z.enum(["reference", "first-frame", "last-frame", "continuation"]).optional(), transcript: z.string().max(20_000).optional(), frameIndex: z.number().int().min(-1).optional(), includeAudio: z.boolean().optional() })).optional(),
 }).superRefine((value, context) => {
     if (value.purpose === "default" && !value.model) context.addIssue({ code: "custom", path: ["model"], message: "普通生成必须指定模型" });
     if (!value.prompt?.trim() && !value.messages?.length && !value.purpose.startsWith("image-upscale-")) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });
@@ -435,6 +443,9 @@ api.get("/generations/:id", route((req) => {
     if (!row) throw apiError(404, "GENERATION_NOT_FOUND", "生成任务不存在");
     return generationResponse(row);
 }));
+api.get("/media/capabilities", asyncRoute(() => listMediaCapabilities()));
+api.post("/media/generations/validate", asyncRoute(async (req) => ({ valid: true, plan: (await prepareMediaGeneration(req.user.id, req.body)).plan })));
+api.post("/media/generations", asyncRoute((req) => createMediaGeneration(req.user.id, req.body), 201));
 api.post("/generations", route((req) => createGeneration(req.user.id, generationSchema.parse(req.body)), 201));
 api.post("/generations/:id/cancel", route((req) => {
     const updated = cancelGeneration(req.user.id, routeId(req));

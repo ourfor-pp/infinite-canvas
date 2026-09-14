@@ -18,7 +18,7 @@ export function syncAgentGenerationCanvas(row: GenerationRow) {
         const node = payload.nodes.find((item) => item.id === context.nodeId);
         if (!node) return null;
         const prior = node.metadata || {};
-        if (prior.agentGenerationId === row.id && prior.agentGenerationStatus === row.status && !["succeeded", "failed", "canceled"].includes(row.status)) return null;
+        if (prior.agentGenerationId === row.id && prior.agentGenerationStatus === row.status) return null;
         const file = result?.files?.[0];
         node.metadata = {
             ...prior,

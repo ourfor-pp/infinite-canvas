@@ -1,3 +1,6 @@
+import { listMediaCapabilities } from "../../media-capabilities.js";
+import { createMediaGeneration, prepareMediaGeneration, mediaGenerationShape } from "../../media-generation.js";
+import { mediaGenerationStatus, cancelProjectMedia, importMediaReference, saveMediaResult } from "../media-tools.js";
 import { h3AudioReferencesInput } from "../../h3-prompt.js";
 import { basename } from "node:path";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
@@ -232,6 +235,15 @@ export function buildAgentToolDefinitions(
       throw mcpError(403, "AGENT_PROJECT_ISOLATED", "项目会话不能操作其他项目");
     return input.projectId || projectId;
   };
+  const mediaCapabilityTools = [
+    call("media_list_capabilities", "读取媒体执行器的模型、输入限制、生成与续接操作及运行时可用性。可用不代表质量验收通过。", {}, () => listMediaCapabilities()),
+    call("media_validate_generation", "校验中立媒体请求并返回执行计划；不创建生成任务。", mediaGenerationShape, async (input) => ({ valid: true, plan: (await prepareMediaGeneration(run.userId, input)).plan })),
+    call("media_generate", "提交中立媒体任务；返回任务 ID。结果需显式保存或由项目工作流采用，不自动加入时间线。", mediaGenerationShape, (input) => createMediaGeneration(run.userId, input, projectId)),
+    call("media_get_generation_status", "读取当前项目媒体任务状态、结果文件和执行快照。", { generationId: z.string().min(1) }, (input: { generationId: string }) => mediaGenerationStatus(run.userId, projectId, input.generationId)),
+    call("media_cancel_generation", "取消当前项目的媒体任务。", { generationId: z.string().min(1) }, (input: { generationId: string }) => cancelProjectMedia(run.userId, projectId, input.generationId)),
+    call("media_import_reference", "将工程内媒体文件登记为显式参考，返回 fileId。", { path: z.string().min(1).max(500) }, (input: { path: string }) => importMediaReference(run.userId, projectId, context.resolveWorkspacePath(input.path))),
+    call("media_save_result", "把当前项目已完成任务的指定结果保存到工程相对路径；保留扩展名，不覆盖已有文件。", { generationId: z.string().min(1), fileId: z.string().min(1), path: z.string().min(1).max(500) }, (input: { generationId: string; fileId: string; path: string }) => ({ ...saveMediaResult(run.userId, projectId, input.generationId, input.fileId, context.resolveWorkspacePath(input.path)), path: input.path })),
+  ];
   const sharedMediaTools = engine === "codex" ? [
     call("media_understand_audios", "理解工程内声音的语音、语气、音乐、环境声与声音事件；不提供精确逐词时间。", {
       items: z.array(z.object({ path: z.string().min(1).max(500), prompt: z.string().max(4_000).optional() })).min(1).max(8),
@@ -271,6 +283,7 @@ export function buildAgentToolDefinitions(
       name: "infinite_canvas",
       tools: [
         ...sharedMediaTools,
+        ...mediaCapabilityTools,
         call(
           "director_validate",
           "检查当前文件工程或指定相对目录的结构、Frontmatter、引用和媒体依赖；校验会更新索引，不改创作正文，也不代表画面或叙事质量验收通过。",
@@ -596,7 +609,7 @@ export function buildAgentToolDefinitions(
             for (const segmentId of ids) {
               const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
               const preflight = await getDirectorVideoSegmentPreflightWithFraming(run.userId, segmentId);
-              results.push({ segmentId, title: segment.title, revision: segment.revision, ready: preflight.blockedReasons.length === 0, finalPrompt: preflight.finalPrompt, blockedReasons: preflight.blockedReasons, warnings: preflight.warnings, route: preflight.route, acceleration: preflight.acceleration, recipes: preflight.recipes, capabilities: preflight.capabilities, nativeWindow: preflight.nativeWindow, durationLimits: { minSeconds: 4, maxSeconds: preflight.capabilities.nativeState && (segment.payload as Record<string, unknown>).boundary === "continue" ? 340 / 24 : 15 }, usesStoryboardStartGuide: Boolean(preflight.storyboardStartGuide), guideFraming: preflight.guideFraming, referenceBudget: { selected: preflight.videoSelected.map(({ name, purpose }) => ({ name, purpose })), omitted: preflight.videoOmitted.map(({ name, purpose }) => ({ name, purpose })) }, previewAudioPolicy: preflight.previewAudioPolicy });
+              results.push({ segmentId, title: segment.title, revision: segment.revision, ready: preflight.blockedReasons.length === 0, finalPrompt: preflight.finalPrompt, blockedReasons: preflight.blockedReasons, warnings: preflight.warnings, route: preflight.route, plan: preflight.plan, capabilities: preflight.capabilities, usesStoryboardStartGuide: Boolean(preflight.storyboardStartGuide), guideFraming: preflight.guideFraming, referenceBudget: { selected: preflight.videoSelected.map(({ name, purpose }) => ({ name, purpose })), omitted: preflight.videoOmitted.map(({ name, purpose }) => ({ name, purpose })) }, previewAudioPolicy: preflight.previewAudioPolicy });
             }
             return results;
           },
@@ -1092,6 +1105,7 @@ export function buildAgentToolDefinitions(
     name: "infinite_canvas",
     tools: [
       ...sharedMediaTools,
+        ...mediaCapabilityTools,
       call(
         "canvas_list_projects",
         "列出当前会话允许访问的画布项目。项目会话只返回当前画布。",

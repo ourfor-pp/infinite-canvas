@@ -233,13 +233,22 @@ test("Codex 移除四项重复 MCP，内置 Agent 保留；同步 Skill 只引�
     for (const id of ["director_analyze_style", "media_understand_images", "director_navigate", "ask_user"]) {
         assert.ok(!native.includes(id)); assert.ok(builtin.includes(id));
     }
-    assert.equal(native.length, 14);
+    assert.equal(new Set(native).size, native.length);
+    for (const id of ["media_list_capabilities", "media_validate_generation", "media_generate", "media_get_generation_status", "media_save_result"]) assert.ok(native.includes(id));
     assert.ok(native.includes("director_generate_music"));
     assert.ok(native.includes("media_sample_video"));
     assert.ok(!native.includes("media_prepare_video_overview"));
     assert.ok(!native.includes("media_sample_video_frames"));
     for (const id of ["director_start_render", "director_cancel_render", "director_retry_render", "director_list_renders"]) assert.ok(native.includes(id));
     syncBuiltInAgentSkills(root, sceneSkillIds(agentScenes.director), "codex");
+    for (const scene of [agentScenes.canvas, agentScenes.director]) {
+        assert.equal(sceneSkillIds(scene).filter((id) => id === "media-generation").length, 1);
+        assert.ok(!sceneSkillIds(scene).some((id) => id.startsWith("minimax-")));
+    }
+    const mediaSkill = join(root, ".agents", "skills", "media-generation");
+    for (const reference of ["h3.md", "music3.md", "official-h3-prompt.md"]) assert.ok(existsSync(join(mediaSkill, "references", reference)));
+    assert.match(readFileSync(join(mediaSkill, "SKILL.md"), "utf8"), /media_list_capabilities/);
+
     for (const id of sceneSkillIds(agentScenes.director)) {
         const content = readFileSync(join(root, ".agents", "skills", id, "SKILL.md"), "utf8");
         assert.doesNotMatch(content, /director_analyze_style|media_understand_images|director_navigate|ask_user/);

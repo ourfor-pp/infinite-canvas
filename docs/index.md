@@ -15,6 +15,8 @@
 
 ## Development and Data
 
+- [中立媒体能力与执行器边界](/docs/development/media-capabilities)
+
 - [Local Development](/docs/development/local-development)
 - [Testing Strategy](/docs/development/testing-strategy)
 - [fnOS Application Deployment and Unified Gateway](/docs/development/fnos-application-deployment)

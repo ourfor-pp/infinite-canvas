@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS file_refs (
   owner_id TEXT NOT NULL,
   PRIMARY KEY (file_id, user_id, owner_type, owner_id)
 );
+CREATE TABLE IF NOT EXISTS generation_effects (
+    generation_id TEXT NOT NULL,
+    handler TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    retry_after INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(generation_id,handler)
+);
 CREATE TABLE IF NOT EXISTS generations (
   id TEXT NOT NULL,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
