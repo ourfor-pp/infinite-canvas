@@ -1,0 +1,79 @@
+---
+title: Qwen 音色设计与复用
+---
+
+Qwen VoiceDesign 设计参考声音，Base 用已保存参考声音朗读新正文。角色命名、音色采用和长期保存由调用项目负责，服务只提供临时任务与文件。
+
+## 模型与参数
+
+直接执行器使用下列 ID；应用 `/api/media/generations` 和 Agent 工具使用 `local-media::` 前缀及 `kind: audio`。所有模式均为 `speech`，正文放 `prompt`。
+
+| 模型 ID | operation | 参数 | 参考音频 |
+| --- | --- | --- | --- |
+| `qwen3-tts-1.7b-voicedesign-local` | generate | instructions 必填，language、seed 可选 | 禁止 |
+| `qwen3-tts-1.7b-customvoice-local` | generate | speaker 默认 Vivian；instructions、language、seed 可选 | 禁止 |
+| `qwen3-tts-1.7b-base-local` | clone | language、seed 可选 | 恰好一段，transcript 可选 |
+
+VoiceDesign 对应官方 `Qwen3-TTS-12Hz-1.7B-VoiceDesign`，实际调用 `generate_voice_design(text, language, instruct)`。自然语言音色描述通过 `params.instructions` 原样传递。正文和描述必须非空；不接受 speaker。
+
+语言默认 Auto，可选 Chinese、English、Japanese、Korean、German、French、Russian、Portuguese、Spanish、Italian。CustomVoice 的 speaker 可选 Vivian、Serena、Ryan、Aiden、Dylan、Eric、Ono_Anna、Sohee、Uncle_Fu。seed 是 0–9007199254740991 的整数，缺省值由执行器预检生成；不保证跨环境逐样本一致。
+
+VoiceDesign、CustomVoice 可以通过 instructions 描述舒缓语速、清晰吐字、自然停顿或情绪，但不提供数值语速保证。Base 不支持独立的这些指令；有参考原文使用文本与音频参考克隆，无原文或空白原文使用 embedding-only 模式。长期复用推荐提供准确原文。
+
+`speed`、`emotion` 等未支持参数，以及 Base 的 `instructions`，都会在执行器预检返回 400 错误，例如 `unsupported Qwen parameters for qwen3-tts-1.7b-base-local: instructions`，不会静默忽略。不要把参考音频影响表达误称为 Base 接受情绪参数。本版没有后处理变速。
+
+## 协议 2 请求示例
+
+所有请求携带 `Authorization: Bearer <token>` 与 `X-Media-Protocol: 2`。先查询 `GET /v1/capabilities`，确认对应模型 available，再向 `POST /v1/jobs/validate` 和 `POST /v1/jobs` 提交同一请求：
+
+```json
+{
+  "id": "design-example-001",
+  "model": "qwen3-tts-1.7b-voicedesign-local",
+  "mode": "speech",
+  "operation": "generate",
+  "prompt": "窗外的雨渐渐停了。我们慢慢打开窗户，听见树叶上的水滴轻轻落下。",
+  "params": {
+    "language": "Chinese",
+    "instructions": "温和自然的成年旁白，语速舒缓，吐字清楚，句间自然停顿。",
+    "seed": 1531
+  }
+}
+```
+
+查询 `GET /v1/jobs/design-example-001`。成功后按返回文件名下载 `/v1/jobs/design-example-001/files/speech.wav`，把 WAV、准确原文和设计请求保存在项目长期目录，再 `POST /v1/jobs/design-example-001/ack`。ACK 会删除执行器临时输入与输出，不能依赖旧 fileId。
+
+通过 `POST /v1/files`、multipart 字段 `upload` 重新上传保存的 WAV，取响应 id 替换下例的 `上传返回的ID`：
+
+```json
+{
+  "id": "clone-example-001",
+  "model": "qwen3-tts-1.7b-base-local",
+  "mode": "speech",
+  "operation": "clone",
+  "prompt": "傍晚，我们把书放回架子。今天的故事讲完了，明天还会有新的发现。",
+  "params": { "language": "Chinese", "seed": 1531 },
+  "references": [{
+    "kind": "audio",
+    "fileId": "上传返回的ID",
+    "transcript": "窗外的雨渐渐停了。我们慢慢打开窗户，听见树叶上的水滴轻轻落下。"
+  }]
+}
+```
+
+任务 ID 用于请求去重，每次新生成使用新 ID；提交响应不确定时先查原任务，不另建任务重试。Base 的 prompt 是新正文，transcript 是参考音频原文，二者不得混用。
+
+仓库提供完整可执行示例（需要 httpx；执行器现有 Python 环境已包含）：
+
+```bash
+# 预先在环境中设置 MEDIA_EXECUTOR_URL 与 MEDIA_EXECUTOR_TOKEN，不把凭据写进工程。
+media-executor/.venv/bin/python media-executor/scripts/qwen-voice-reuse.py --output .tmp/qwen-reuse
+```
+
+Agent 使用服务自带 `media-generation` Skill 的 `references/qwen.md`，依次调用能力发现、预检、生成、保存和重新导入工具；无须新增业务角色 Skill。
+
+## 就绪与维护
+
+Qwen 模型逐一维护就绪记录，官方权重校验与真实试生成成功后才 available。记录绑定模型文件、Qwen 适配代码及安装依赖；工作进程空闲退出不影响就绪，权重或运行时变更后需重新校验。
+
+执行器数据目录存在 `maintenance` 文件时，新任务提交返回 503 与 Retry-After，既有任务继续执行，查询、下载和 ACK 保持可用。部署必须等队列及代理任务排空才停止服务。模型验收工具和回滚说明见媒体执行器 README。

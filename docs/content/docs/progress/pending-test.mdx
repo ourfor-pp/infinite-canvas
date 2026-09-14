@@ -5,6 +5,8 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- Qwen v0.15.3 已部署 VoiceDesign 音色设计、逐模型就绪和参数预检，保留 CustomVoice/Base；16 条节奏对照、保存后 Base 复用及真实进程重启通过，正式应用设计→落库→重新上传→Base→ACK 链路通过。执行器 68 项、服务端 42 项相关回归及类型检查通过；音色一致性、情绪与停顿自然度仍待调用项目试听采用。见 `docs/research/qwen-v0153-acceptance.md`。
+
 - 中立音频 v0.15.2 已正式部署：执行器统一管理私有 Unix Socket 音频进程，ASR/Vox 应用真实任务落库与下载通过，88 项固定模型对照完成（四项 ACE 冷启动失败修复后重试成功），H3 旧状态续接前缀完全保留、Music3 重启恢复与小模型驻留复用通过。执行器最终 53 项回归通过；完整听感、克隆音色与 H3 声画仍待人工验收，默认音乐/TTS 不变。详见 `docs/research/audio-v0152-acceptance.md`。
 
 

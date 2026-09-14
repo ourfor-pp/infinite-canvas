@@ -23,6 +23,7 @@ from . import comfy_jobs, native_jobs
 from .gpu import Nvml, Scheduler, PeakMonitor, profile_key
 from .lifecycle import ManagedRuntime
 from .worker_runtime import WorkerRuntime, RUNTIME_FOLDERS, RUNTIME_ROOT
+from . import qwen
 
 ROOT = Path(os.getenv("MEDIA_EXECUTOR_DATA_DIR", "./data")).resolve()
 FILES = ROOT / "files"
@@ -41,10 +42,9 @@ MODELS = {
     "qwen3-asr-1.7b-local": {"engine": "asr", "output": "text", "modes": ["transcription"], "operations": ["transcribe", "align"], "inputs": ["text", "audio"], "maxReferenceAudios": 1, "default": True},
     "qwen3-asr-0.6b-local": {"engine": "asr", "output": "text", "modes": ["transcription"], "operations": ["transcribe", "align"], "inputs": ["text", "audio"], "maxReferenceAudios": 1},
     "voxcpm2-local": {"engine": "vox", "modes": ["speech"], "operations": ["generate", "clone"], "inputs": ["text", "audio"], "maxReferenceAudios": 1},
-    "qwen3-tts-1.7b-customvoice-local": {"engine": "qwen", "modes": ["speech"], "operations": ["generate"], "inputs": ["text"]},
-    "qwen3-tts-1.7b-base-local": {"engine": "qwen", "modes": ["speech"], "operations": ["clone"], "inputs": ["text", "audio"], "maxReferenceAudios": 1},
     "moss-soundeffect-v2-local": {"engine": "moss", "modes": ["ambient", "sfx"], "operations": ["generate"], "inputs": ["text"], "maxDurationSeconds": 30},
 }
+MODELS.update({model: qwen.describe(model) for model in qwen.MODELS})
 if os.getenv("ACE_STEP_ENABLED") == "1":
     MODELS["ace-step-v15-xl-sft-local"] = {"engine": "ace", "modes": ["music"], "operations": ["generate", "cover", "remix"], "inputs": ["text", "audio"], "maxReferenceAudios": 1}
 if os.getenv("STABLE_AUDIO_3_LICENSE_ACCEPTED") == "1":
@@ -393,7 +393,7 @@ def health(_: None = Depends(authorize)):
                     saved = json.loads(cached[0])
                     comfy_features, h3_runtime, h3_pdd_runtime = saved["features"], saved["h3"], saved["pdd"]
     configured = {name: bool((RUNTIME_ROOT / folder / ".venv/bin/python").is_file() and os.getenv(f"MEDIA_EXECUTOR_{name.upper()}_REVISION")) for name, folder in RUNTIME_FOLDERS.items()}
-    return {"ok": True, "protocolVersion": "2", "models": MODELS, "runtimes": runtimes, "configuredRuntimes": configured, "comfyUrl": bool(COMFY_URL), "comfyFeatures": comfy_features, "h3Runtime": h3_runtime, "h3PddRuntime": h3_pdd_runtime}
+    return {"ok": True, "protocolVersion": "2", "models": MODELS, "runtimes": runtimes, "configuredRuntimes": configured, "modelReadiness": qwen.readiness(ROOT, Path(os.getenv("MEDIA_MODEL_ROOT", "/data/sas/models")), RUNTIME_ROOT), "maintenance": (ROOT / "maintenance").exists(), "comfyUrl": bool(COMFY_URL), "comfyFeatures": comfy_features, "h3Runtime": h3_runtime, "h3PddRuntime": h3_pdd_runtime}
 
 
 def prepare_capability(request):
@@ -451,7 +451,6 @@ async def comfy_proxy(path: str, request: Request, _: None = Depends(authorize))
     body = await request.body()
     owner = None
     if path == "prompt" and request.method == "POST":
-        gpu = scheduler()
         graph = json.loads(body)
         client_id = graph.get("client_id")
         if not isinstance(client_id, str) or not client_id:
@@ -466,6 +465,8 @@ async def comfy_proxy(path: str, request: Request, _: None = Depends(authorize))
             if previous["prompt_id"]:
                 return Response(content=json.dumps({"prompt_id": previous["prompt_id"]}), media_type="application/json")
             raise HTTPException(409, "proxy submission is being reconciled", headers={"Retry-After": "2"})
+        require_accepting_jobs()
+        gpu = scheduler()
         if not gpu.acquire(owner):
             raise HTTPException(409, "GPU busy; keep the application task queued", headers={"Retry-After": "2"})
         try:
@@ -509,6 +510,11 @@ async def comfy_proxy(path: str, request: Request, _: None = Depends(authorize))
     return Response(content=upstream.content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))
 
 
+def require_accepting_jobs():
+    if (ROOT / "maintenance").exists():
+        raise HTTPException(503, "Media executor is under maintenance; retry after maintenance", headers={"Retry-After": "30"})
+
+
 @app.post("/v1/jobs", status_code=202)
 def create_job(value: JobInput, _: None = Depends(authorize)):
     request = value.model_dump()
@@ -519,6 +525,7 @@ def create_job(value: JobInput, _: None = Depends(authorize)):
             if json.loads(row["request"]) != request:
                 raise HTTPException(409, "job id already belongs to another request")
             return row_payload(row)
+    require_accepting_jobs()
     plan = prepare_capability(request)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -527,6 +534,7 @@ def create_job(value: JobInput, _: None = Depends(authorize)):
             if json.loads(row["request"]) != request:
                 raise HTTPException(409, "job id already belongs to another request")
             return row_payload(row)
+        require_accepting_jobs()
         db.execute("INSERT INTO jobs(id,status,request,created_at,updated_at) VALUES(?,'queued',?,?,?)", (value.id, json.dumps(request), now, now))
         if value.model in CAPABILITY_COMFY_MODELS:
             db.execute("INSERT INTO comfy_executions(job_id,plan) VALUES(?,?)", (value.id, json.dumps(plan)))

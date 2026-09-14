@@ -99,3 +99,11 @@ python3 media-executor/scripts/benchmark-h3-suite.py --inputs /absolute/referenc
 ```
 
 转写对比仅忽略标点和空白，保留原始转写；时间检查要求首尾边界分别落在目标的 ±0.25 秒内，并记录偏差；另输出 `speechWithinWindow`，单独判断是否在容差范围内开始且按时说完，允许提前结束。该阈值是本套件预先规定的评测标准，不是模型能力保证。无对白场景检查转写是否为空；ASR 可能对非语言声音误识别，任何结果均不自动设置 `audioAccepted=true`，也不能替代完整听音和口型验收。
+
+## Qwen 音色设计与就绪
+
+VoiceDesign 使用 `qwen3-tts-1.7b-voicedesign-local`；正文和 `params.instructions` 必填。CustomVoice 保留固定 speaker，Base 保留参考声音克隆；Base 不接受独立情绪或语速指令。完整参数与协议示例见 [Qwen 音色设计与复用](../docs/content/docs/development/qwen-voice-design.mdx)。
+
+下载仅新增模型：`scripts/download-audio-models.py --model Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign --ssd-root <SSD目录> --entry-root <模型入口>`。固定官方 revision 为 `8dd530dbed7fda907a15ac48d7f78742cc90a065`。
+
+维护时先创建执行器数据目录的 `maintenance` 文件，等待 queued/running 和未完成代理任务排空，再变更运行时。带执行器环境运行 `scripts/qualify-qwen.py --model <模型ID>`；Base 追加 `--reference <WAV> --transcript <准确原文>`。工具核对官方权重、在 GPU 调度下试生成并保存逐模型就绪记录；记录匹配后才 available，不能只凭环境存在判断。保持模型、代码与依赖不变时，进程空闲退出不影响就绪。完成验收或回滚后移除 maintenance 文件恢复接单。

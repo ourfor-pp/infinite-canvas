@@ -1,0 +1,202 @@
+[
+  {
+    "id": "design-0-1531-normal",
+    "model": "qwen3-tts-1.7b-voicedesign-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "清晨，窗外传来轻轻的鸟鸣。我们先停一停，听听风吹过树叶的声音。然后，慢慢翻开书，开始今天的故事。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。使用正常语速。",
+      "seed": 1531
+    }
+  },
+  {
+    "id": "design-0-1531-slow",
+    "model": "qwen3-tts-1.7b-voicedesign-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "清晨，窗外传来轻轻的鸟鸣。我们先停一停，听听风吹过树叶的声音。然后，慢慢翻开书，开始今天的故事。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。语速舒缓，比日常说话慢一些，吐字清楚，逗号处轻停，句间自然停顿，不要赶着说完。",
+      "seed": 1531
+    }
+  },
+  {
+    "id": "design-0-1532-normal",
+    "model": "qwen3-tts-1.7b-voicedesign-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "清晨，窗外传来轻轻的鸟鸣。我们先停一停，听听风吹过树叶的声音。然后，慢慢翻开书，开始今天的故事。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。使用正常语速。",
+      "seed": 1532
+    }
+  },
+  {
+    "id": "design-0-1532-slow",
+    "model": "qwen3-tts-1.7b-voicedesign-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "清晨，窗外传来轻轻的鸟鸣。我们先停一停，听听风吹过树叶的声音。然后，慢慢翻开书，开始今天的故事。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。语速舒缓，比日常说话慢一些，吐字清楚，逗号处轻停，句间自然停顿，不要赶着说完。",
+      "seed": 1532
+    }
+  },
+  {
+    "id": "design-1-1531-normal",
+    "model": "qwen3-tts-1.7b-voicedesign-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "雨停以后，小路旁留下了几颗晶亮的水珠。请不要着急，我们一起数一数。一颗，两颗，三颗。原来，安静地观察，也能发现许多有趣的事情。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。使用正常语速。",
+      "seed": 1531
+    }
+  },
+  {
+    "id": "design-1-1531-slow",
+    "model": "qwen3-tts-1.7b-voicedesign-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "雨停以后，小路旁留下了几颗晶亮的水珠。请不要着急，我们一起数一数。一颗，两颗，三颗。原来，安静地观察，也能发现许多有趣的事情。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。语速舒缓，比日常说话慢一些，吐字清楚，逗号处轻停，句间自然停顿，不要赶着说完。",
+      "seed": 1531
+    }
+  },
+  {
+    "id": "design-1-1532-normal",
+    "model": "qwen3-tts-1.7b-voicedesign-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "雨停以后，小路旁留下了几颗晶亮的水珠。请不要着急，我们一起数一数。一颗，两颗，三颗。原来，安静地观察，也能发现许多有趣的事情。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。使用正常语速。",
+      "seed": 1532
+    }
+  },
+  {
+    "id": "design-1-1532-slow",
+    "model": "qwen3-tts-1.7b-voicedesign-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "雨停以后，小路旁留下了几颗晶亮的水珠。请不要着急，我们一起数一数。一颗，两颗，三颗。原来，安静地观察，也能发现许多有趣的事情。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。语速舒缓，比日常说话慢一些，吐字清楚，逗号处轻停，句间自然停顿，不要赶着说完。",
+      "seed": 1532
+    }
+  },
+  {
+    "id": "custom-0-1531-normal",
+    "model": "qwen3-tts-1.7b-customvoice-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "清晨，窗外传来轻轻的鸟鸣。我们先停一停，听听风吹过树叶的声音。然后，慢慢翻开书，开始今天的故事。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。使用正常语速。",
+      "seed": 1531,
+      "speaker": "Vivian"
+    }
+  },
+  {
+    "id": "custom-0-1531-slow",
+    "model": "qwen3-tts-1.7b-customvoice-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "清晨，窗外传来轻轻的鸟鸣。我们先停一停，听听风吹过树叶的声音。然后，慢慢翻开书，开始今天的故事。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。语速舒缓，比日常说话慢一些，吐字清楚，逗号处轻停，句间自然停顿，不要赶着说完。",
+      "seed": 1531,
+      "speaker": "Vivian"
+    }
+  },
+  {
+    "id": "custom-0-1532-normal",
+    "model": "qwen3-tts-1.7b-customvoice-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "清晨，窗外传来轻轻的鸟鸣。我们先停一停，听听风吹过树叶的声音。然后，慢慢翻开书，开始今天的故事。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。使用正常语速。",
+      "seed": 1532,
+      "speaker": "Vivian"
+    }
+  },
+  {
+    "id": "custom-0-1532-slow",
+    "model": "qwen3-tts-1.7b-customvoice-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "清晨，窗外传来轻轻的鸟鸣。我们先停一停，听听风吹过树叶的声音。然后，慢慢翻开书，开始今天的故事。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。语速舒缓，比日常说话慢一些，吐字清楚，逗号处轻停，句间自然停顿，不要赶着说完。",
+      "seed": 1532,
+      "speaker": "Vivian"
+    }
+  },
+  {
+    "id": "custom-1-1531-normal",
+    "model": "qwen3-tts-1.7b-customvoice-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "雨停以后，小路旁留下了几颗晶亮的水珠。请不要着急，我们一起数一数。一颗，两颗，三颗。原来，安静地观察，也能发现许多有趣的事情。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。使用正常语速。",
+      "seed": 1531,
+      "speaker": "Vivian"
+    }
+  },
+  {
+    "id": "custom-1-1531-slow",
+    "model": "qwen3-tts-1.7b-customvoice-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "雨停以后，小路旁留下了几颗晶亮的水珠。请不要着急，我们一起数一数。一颗，两颗，三颗。原来，安静地观察，也能发现许多有趣的事情。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。语速舒缓，比日常说话慢一些，吐字清楚，逗号处轻停，句间自然停顿，不要赶着说完。",
+      "seed": 1531,
+      "speaker": "Vivian"
+    }
+  },
+  {
+    "id": "custom-1-1532-normal",
+    "model": "qwen3-tts-1.7b-customvoice-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "雨停以后，小路旁留下了几颗晶亮的水珠。请不要着急，我们一起数一数。一颗，两颗，三颗。原来，安静地观察，也能发现许多有趣的事情。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。使用正常语速。",
+      "seed": 1532,
+      "speaker": "Vivian"
+    }
+  },
+  {
+    "id": "custom-1-1532-slow",
+    "model": "qwen3-tts-1.7b-customvoice-local",
+    "mode": "speech",
+    "operation": "generate",
+    "prompt": "雨停以后，小路旁留下了几颗晶亮的水珠。请不要着急，我们一起数一数。一颗，两颗，三颗。原来，安静地观察，也能发现许多有趣的事情。",
+    "params": {
+      "language": "Chinese",
+      "instructions": "温和自然的成年旁白，用普通话讲述。语速舒缓，比日常说话慢一些，吐字清楚，逗号处轻停，句间自然停顿，不要赶着说完。",
+      "seed": 1532,
+      "speaker": "Vivian"
+    }
+  }
+]

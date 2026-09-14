@@ -3,6 +3,7 @@ import hashlib
 from pathlib import Path
 
 from . import h3, music
+from .. import qwen
 
 COMFY_MODELS = {*h3.MODELS, music.MODEL}
 
@@ -26,6 +27,8 @@ def describe(runtime):
     for model, definition in runtime.get("models", {}).items():
         if model not in COMFY_MODELS:
             available = runtime.get("runtimes", {}).get(definition.get("engine")) or runtime.get("configuredRuntimes", {}).get(definition.get("engine"))
+            if definition.get("engine") == "qwen":
+                available = runtime.get("modelReadiness", {}).get(model, False)
             items.append({"id": model, "version": "1", "output": "audio", **definition, "available": bool(available), "qualityAccepted": False, "skill": "media-generation"})
     return {"version": "2", "capabilities": items}
 
@@ -60,6 +63,8 @@ def prepare(request, runtime, files: Path):
             raise ValueError("model capability mismatch")
         if any(ref["kind"] not in definition["inputs"] for ref in request.get("references", [])) or len(request.get("references", [])) > definition.get("maxReferenceAudios", 0):
             raise ValueError("audio reference capability mismatch")
+        if definition.get("engine") == "qwen":
+            qwen.validate(request["model"], request.get("prompt", ""), request.get("params", {}), request.get("references", []))
         if definition.get("engine") == "asr":
             if len(request.get("references", [])) != 1:
                 raise ValueError("ASR requires exactly one audio file")

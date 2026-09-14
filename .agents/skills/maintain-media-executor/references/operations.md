@@ -6,7 +6,7 @@ Pin code and model revisions. Install into a new checkout or revisioned model di
 
 ## Rollback
 
-Drain or cancel work, restore the previous code/model paths, restart affected units, and verify health plus one minimal generation. Do not mutate application-server generation history.
+Drain work without canceling active tasks, restore the previous code/model paths, restart affected units, and verify health plus one minimal generation. Do not mutate application-server generation history.
 
 ## Offline runtime
 
@@ -25,3 +25,7 @@ If VoxCPM2 fails during AudioVAE decode with `failed to open libnvrtc-builtins.s
 ## OOM
 
 Confirm only one executor GPU job is active. Check NVML and map every PID to its actual cgroup. Configure the exact managed runtime units and revisions. Inspect task diagnostics for free memory, foreign allocations, estimated requirement and eviction decisions. Known profiles retain idle models when possible; unknown profiles conservatively evict non-target idle runtimes. Never stop foreign processes or busy runtimes. Verify unload reduces allocation; incomplete release falls back to stopping that managed idle unit, with lazy start on its next task. Do not reduce quality parameters as a hidden OOM fallback.
+
+## Qwen readiness and maintenance
+
+Create `<MEDIA_EXECUTOR_DATA_DIR>/maintenance` before deployment, wait for both queued/running jobs and unfinished `proxy_executions`, and back up environment, database and `qwen-readiness/`. New submissions return 503/Retry-After; identical existing job IDs remain queryable. After initial imports and official weight checks, run `media-executor/scripts/qualify-qwen.py` with the executor environment for each Qwen model. It uses the existing GPU scheduler and private worker, checks a real non-silent WAV, and atomically saves a fingerprint-bound record. Run `qwen-voice-reuse.py` against protocol 2 to prove download/ACK/re-upload/Base reuse. Restore old records only with matching old code/model paths on rollback; never relabel fingerprints.

@@ -70,3 +70,7 @@
 - [导演 Agent 长视频落地路线](research/h3-agent-production-roadmap.md)：默认 Ref2VA 加速接入、配方身份和创作 Skills 研究入口。
 
 - `research/audio-v0152-acceptance.md`：音频固定输入对照、GPU 调度恢复及正式部署验收与听审边界。
+
+- `content/docs/development/qwen-voice-design.mdx`：Qwen VoiceDesign、CustomVoice、Base 参数边界与参考声音保存复用协议示例。
+
+- `research/qwen-v0153-acceptance.md`：Qwen 节奏配对、真实重启复用、正式应用传输及试听边界。

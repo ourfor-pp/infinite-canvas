@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from qwen_tts import Qwen3TTSModel
 from media_executor.runtime import Runtime
+from media_executor.qwen import MODELS, validate
 
 app = FastAPI()
 runtime = Runtime()
@@ -24,7 +25,9 @@ class Request(BaseModel):
 
 
 def load(model: str):
-    folder = "Qwen3-TTS-12Hz-1.7B-Base" if "base" in model else "Qwen3-TTS-12Hz-1.7B-CustomVoice"
+    if model not in MODELS:
+        raise ValueError("unknown Qwen model")
+    folder = MODELS[model][0]
     attention = "flash_attention_2" if importlib.util.find_spec("flash_attn") else "sdpa"
     return runtime.load(folder, lambda: Qwen3TTSModel.from_pretrained(str(MODEL_ROOT / folder), device_map="cuda:0", dtype=torch.bfloat16, attn_implementation=attention))
 
@@ -35,16 +38,20 @@ def generate(value: Request):
 
 
 def synthesize(value: Request):
+    validate(value.model, value.prompt, value.params, value.references)
     torch.manual_seed(int(value.params.get("seed", 0)))
     torch.cuda.manual_seed_all(int(value.params.get("seed", 0)))
     model = load(value.model)
     language = str(value.params.get("language", "Auto"))
-    if "base" in value.model:
+    method = MODELS[value.model][1]
+    if method == "generate_voice_clone":
         if not value.references:
             raise HTTPException(400, "voice clone requires reference audio")
         reference = value.references[0]
         transcript = str(reference.get("transcript") or "").strip()
         wavs, sample_rate = model.generate_voice_clone(text=value.prompt, language=language, ref_audio=reference["path"], **({"ref_text": transcript} if transcript else {"x_vector_only_mode": True}))
+    elif method == "generate_voice_design":
+        wavs, sample_rate = model.generate_voice_design(text=value.prompt, language=language, instruct=value.params["instructions"])
     else:
         wavs, sample_rate = model.generate_custom_voice(text=value.prompt, language=language, speaker=str(value.params.get("speaker", "Vivian")), instruct=str(value.params.get("instructions", "")))
     target = Path(value.outputDir) / "speech.wav"

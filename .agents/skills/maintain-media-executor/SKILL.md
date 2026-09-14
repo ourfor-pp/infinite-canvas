@@ -30,11 +30,15 @@ Qwen3-ASR and VoxCPM2 use separate Python 3.12 environments at `runtimes/qwen_as
 
 Deploy application and executor together with transport protocol 2 (`X-Media-Protocol: 2`). Link `media-executor/comfy-runtime` into ComfyUI custom nodes for lifecycle status; do not change the H3 workflow plugin or continuation identity to add lifecycle endpoints. Record actual queue termination before releasing a canceled task's GPU lease. Check result download, authoritative application storage and ACK, not only engine health.
 
+Qwen VoiceDesign、CustomVoice 和 Base 必须分别通过 `scripts/qualify-qwen.py --model <id>` 校验官方权重并执行真实试生成；Base 还需 `--reference` 与准确 `--transcript`。命令使用执行器环境、数据目录和 GPU 调度，只在 `maintenance` 标记存在且队列及代理任务全部排空时运行。就绪记录位于 `qwen-readiness/`，绑定权重文件状态、运行时代码与安装依赖；不得手工写入 smokePassed 或把一种模型的记录复制给另一种。模型卸载不撤销已验证就绪，文件或代码改变后重新验收。VoiceDesign 官方下载使用 `download-audio-models.py --model Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`，不重下载其他已部署模型。
+
+Qwen Base 不接受 instructions、speed 或 emotion，不能声称情绪指令生效；VoiceDesign/CustomVoice 仅支持通过 instructions 自然语言描述节奏和表达，不提供数值语速。部署需验证“VoiceDesign 下载保存、ACK、重新上传、Base 新正文复用”并保留试听待确认边界。
+
 ## Safety
 
 - Never delete model directories during an upgrade. Download into a revisioned sibling directory, verify it, then switch the environment path.
 - Only the executor is public. Do not add TCP ports or separate systemd services for native audio workers. Keep existing ComfyUI/ACE engine ports on loopback.
-- Stop or drain generation work before restarting a GPU runtime.
+- Create the executor data-directory `maintenance` marker to reject new jobs, wait for queued/running jobs and unfinished proxy submissions to drain, then restart affected processes. Keep queries, downloads and ACK available while draining; do not cancel active work for upgrades. Remove the marker only after acceptance or rollback.
 - Never move or replace an ACE `checkpoints` directory while its API process is alive; stop and kill the complete unit cgroup first. A ModelScope snapshot thread may otherwise continue writing through the old directory inode.
 - Diagnose `runtime offline` by checking the runtime unit, import errors, model path, CUDA visibility, and port binding in that order.
 - Treat gateway health as insufficient: a declared model is usable only when its engine health is online and a smoke generation succeeds.

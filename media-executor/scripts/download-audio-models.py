@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 MODELS = [
+    ("Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", "8dd530dbed7fda907a15ac48d7f78742cc90a065", ""),
     ("Qwen/Qwen3-ASR-1.7B", "a04930dbe5419bfee073f7cade734f572689a3a8", "/home/cec/ASRServer/models/Qwen/Qwen3-ASR-1___7B"),
     ("Qwen/Qwen3-ASR-0.6B", "4ce9cc728b473a5aedbe7b6e1ea45646316824dc", "/home/cec/ASRServer/models/Qwen/Qwen3-ASR-0___6B"),
     ("Qwen/Qwen3-ForcedAligner-0.6B", "cf1c50164ea3ac48240d12bef5ead74aee0720cc", "/home/cec/ASRServer/models/Qwen/Qwen3-ForcedAligner-0___6B"),
@@ -20,11 +21,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ssd-root", type=Path, required=True)
     parser.add_argument("--entry-root", type=Path, required=True)
+    parser.add_argument("--model", choices=[item[0] for item in MODELS], help="Download only this model, preserving other manifest entries")
     args = parser.parse_args()
     args.ssd_root.mkdir(parents=True, exist_ok=True)
     args.entry_root.mkdir(parents=True, exist_ok=True)
-    records = []
+    manifest = args.entry_root / "audio-models.json"
+    records = json.loads(manifest.read_text())["models"] if manifest.exists() else []
     for repository, revision, cache in MODELS:
+        if args.model and repository != args.model:
+            continue
         name = repository.split("/")[-1]
         target = args.ssd_root / f"{name}-{revision[:12]}"
         url = f"https://modelscope.cn/{repository}.git"
@@ -61,7 +66,7 @@ def main():
         else:
             link.symlink_to(target.resolve())
         record = {"name": name, "source": url, "revision": revision, "physicalPath": str(target.resolve()), "files": entries}
-        records.append(record)
+        records = [item for item in records if item["name"] != name] + [record]
         print(f"Verified {repository}@{revision}", flush=True)
     (args.entry_root / "audio-models.json").write_text(json.dumps({"schemaVersion": 1, "models": records}, indent=2) + "\n")
 

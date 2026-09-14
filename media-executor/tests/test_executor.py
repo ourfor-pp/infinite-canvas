@@ -18,7 +18,7 @@ def test_auth_and_idempotency(tmp_path, monkeypatch):
         assert client.get("/health", headers={"Authorization": "Bearer secret"}).status_code == 426
         assert client.get("/health", headers={**headers, "X-Media-Protocol": "1"}).status_code == 426
         assert client.get("/health", headers=headers).status_code == 200
-        monkeypatch.setattr(module, "health", lambda: {"models": module.MODELS, "runtimes": {"qwen": True}})
+        monkeypatch.setattr(module, "health", lambda: {"models": module.MODELS, "runtimes": {"qwen": True}, "modelReadiness": {"qwen3-tts-1.7b-customvoice-local": True}})
         job = {"id": "one", "model": "qwen3-tts-1.7b-customvoice-local", "mode": "speech", "operation": "generate", "prompt": "你好"}
         assert client.post("/v1/jobs", json=job, headers=headers).status_code == 202
         assert client.post("/v1/jobs", json=job, headers=headers).status_code == 202

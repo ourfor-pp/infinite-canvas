@@ -13,7 +13,7 @@ const schema = z.object({
 export type MediaExecutorSettings = z.infer<typeof schema>;
 export type MediaExecutorModel = { engine?: string; [key: string]: unknown };
 export const MEDIA_PROTOCOL = "2";
-export type MediaExecutorHealth = { protocolVersion?: string; configuredRuntimes?: Record<string, boolean>; h3Runtime?: H3RuntimeCatalog; h3PddRuntime?: H3RuntimeCatalog; available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean; nativeState?: boolean; pddRef8?: boolean; music3?: boolean } };
+export type MediaExecutorHealth = { modelReadiness?: Record<string, boolean>; protocolVersion?: string; configuredRuntimes?: Record<string, boolean>; h3Runtime?: H3RuntimeCatalog; h3PddRuntime?: H3RuntimeCatalog; available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean; nativeState?: boolean; pddRef8?: boolean; music3?: boolean } };
 
 const emptyCatalog = (): MediaExecutorHealth => ({ available: false, models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, turboPreview: false } });
 let catalog: MediaExecutorHealth = emptyCatalog();
@@ -41,7 +41,7 @@ export function getMediaExecutorCatalog() {
 
 export function isMediaExecutorModelAvailable(id: string) {
     const model = catalog.models[id];
-    return Boolean(model && (!model.engine || (catalog.runtimes[model.engine] || catalog.configuredRuntimes?.[model.engine])));
+    return Boolean(model && (model.engine === "qwen" || !model.engine || (catalog.runtimes[model.engine] || catalog.configuredRuntimes?.[model.engine])));
 }
 
 export async function refreshMediaExecutorCatalog(value = getMediaExecutorSettings()) {
@@ -53,7 +53,7 @@ export async function refreshMediaExecutorCatalog(value = getMediaExecutorSettin
         if (health.protocolVersion !== MEDIA_PROTOCOL) return catalog = emptyCatalog();
         const configuredRuntimes = health.configuredRuntimes || {};
         const runtimes = health.runtimes && typeof health.runtimes === "object" ? health.runtimes : {};
-        const models = Object.fromEntries(Object.entries(health.models && typeof health.models === "object" ? health.models : {}).filter(([, model]) => !model.engine || runtimes[model.engine] || configuredRuntimes[model.engine]));
+        const models = Object.fromEntries(Object.entries(health.models && typeof health.models === "object" ? health.models : {}).filter(([id, model]) => model.engine === "qwen" ? health.modelReadiness?.[id] === true : !model.engine || runtimes[model.engine] || configuredRuntimes[model.engine]));
         const features = health.comfyFeatures && typeof health.comfyFeatures === "object" ? health.comfyFeatures : { temporalGuides: false, turboPreview: false };
         const h3Runtime = h3RuntimeCatalogSchema.safeParse(health.h3Runtime);
         const h3PddRuntime = h3RuntimeCatalogSchema.safeParse(health.h3PddRuntime);
