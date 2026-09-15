@@ -230,7 +230,7 @@ test("Codex 移除四项重复 MCP，内置 Agent 保留；同步 Skill 只引�
     const context = { session: { projectId: "p" }, run: { userId: "u" } } as Parameters<typeof buildAgentToolDefinitions>[0];
     const native = buildAgentToolDefinitions(context, agentScenes.director, "codex").map((tool) => tool.name);
     const builtin = buildAgentToolDefinitions(context, agentScenes.director).map((tool) => tool.name);
-    for (const id of ["director_analyze_style", "media_understand_images", "director_navigate", "ask_user"]) {
+    for (const id of ["director_analyze_style", "director_navigate", "ask_user"]) {
         assert.ok(!native.includes(id)); assert.ok(builtin.includes(id));
     }
     assert.equal(new Set(native).size, native.length);
@@ -281,4 +281,56 @@ test("Codex 请求可读摘要并登记原生看图和上下文整理，空摘�
         assert.deepEqual(lifecycle.map((event) => event.kind), ["tool_call", "tool_result"]);
         assert.ok(lifecycle.every((event) => event.payload.toolName === name));
     }
+});
+
+test("画布 Codex 使用原生看图，保留其他画布工具与 fileId 媒体接口", async () => {
+    const { buildAgentToolDefinitions } = await import("./mcp/index.js");
+    const context = { session: { projectId: "p" }, run: { userId: "u" } } as Parameters<typeof buildAgentToolDefinitions>[0];
+    const tools = buildAgentToolDefinitions(context, agentScenes.canvas, "codex");
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), agentScenes.canvas.tools.filter((tool) => !["media_understand_images", "workspace_write_text", "ask_user"].includes(tool.id)).map((tool) => tool.id).sort());
+    assert.ok(!buildAgentToolDefinitions(context, agentScenes.canvas).some((tool) => tool.name === "media_understand_images"));
+    const { sceneSkillIds } = await import("./scenes/index.js");
+    const workspace = join(root, "canvas-native-images");
+    syncBuiltInAgentSkills(workspace, sceneSkillIds(agentScenes.canvas), "codex");
+    const skill = readFileSync(join(workspace, ".agents/skills/media-understand/SKILL.md"), "utf8");
+    assert.match(skill, /使用原生看图/);
+    assert.doesNotMatch(skill, /media_understand_images/);
+    assert.ok(!tools.some((tool) => tool.name.startsWith("director_")));
+    const audio = z.object(tools.find((tool) => tool.name === "media_understand_audios")!.inputSchema).strict();
+    assert.equal(audio.safeParse({ items: [{ fileId: "audio-file" }] }).success, true);
+    assert.equal(audio.safeParse({ items: [{ path: "audio.wav" }] }).success, false);
+    const generate = z.object(tools.find((tool) => tool.name === "media_generate")!.inputSchema);
+    assert.equal(generate.safeParse({ request: { source: "channel", kind: "image", model: "test", prompt: "test" } }).success, false);
+    for (const engine of ["builtin", "codex"] as const) {
+        const definitions = buildAgentToolDefinitions(context, agentScenes.canvas, engine);
+        for (const name of ["media_generate", "media_validate_generation"]) {
+            const definition = definitions.find((item) => item.name === name)!;
+            const schema = z.object(definition.inputSchema);
+            assert.equal(schema.safeParse({ request: { source: "channel", kind: "image", model: "test", prompt: "test" } }).success, engine === "builtin");
+            assert.equal(schema.safeParse({ request: { source: "channel", kind: "video", model: "test", prompt: "test" } }).success, true);
+            if (engine === "codex") assert.throws(() => definition.handler({ request: { source: "channel", kind: "image", model: "test", prompt: "test" } }));
+        }
+    }
+    assert.match(agentScenes.canvas.systemPrompt("p", "codex"), /图片生成与编辑只使用原生生图/);
+    assert.match(agentScenes.canvas.systemPrompt("p", "codex"), /服务端数据库为准/);
+});
+
+test("画布两种引擎均移除业务节点工具和 Skill，导演能力保留", async () => {
+    const { buildAgentToolDefinitions } = await import("./mcp/index.js");
+    const { sceneSkillIds } = await import("./scenes/index.js");
+    const context = { session: { projectId: "p" }, run: { userId: "u" } } as Parameters<typeof buildAgentToolDefinitions>[0];
+    for (const engine of ["builtin", "codex"] as const) {
+        const names = buildAgentToolDefinitions(context, agentScenes.canvas, engine).map((tool) => tool.name);
+        assert.ok(!names.some((name) => /^(creative_asset|visual_style)/.test(name)));
+        for (const name of ["canvas_adopt_result", "canvas_apply_ops", "media_generate"]) assert.ok(names.includes(name));
+        const workspace = join(root, `canvas-skills-${engine}`);
+        syncBuiltInAgentSkills(workspace, sceneSkillIds(agentScenes.canvas), engine);
+        const directory = join(workspace, engine === "codex" ? ".agents" : ".claude", "skills");
+        assert.ok(!existsSync(join(directory, "design-character")));
+        assert.ok(existsSync(join(directory, "canvas-edit", "SKILL.md")));
+    }
+    assert.deepEqual(sceneSkillIds(agentScenes.canvas), ["media-understand", "media-generation", "canvas-edit"]);
+    assert.deepEqual(agentScenes.canvas.referenceKinds, ["canvas"]);
+    assert.ok(sceneSkillIds(agentScenes.director).includes("director-design-character"));
+    assert.ok(buildAgentToolDefinitions(context, agentScenes.director).some((tool) => tool.name === "director_generate_asset"));
 });

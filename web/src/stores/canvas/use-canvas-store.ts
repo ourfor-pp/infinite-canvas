@@ -19,7 +19,6 @@ export type CanvasProject = {
     activeChatId: string | null;
     backgroundMode: CanvasBackgroundMode;
     showImageInfo: boolean;
-    defaultVisualStyleId: string | null;
     viewport: ViewportTransform;
 };
 
@@ -61,7 +60,6 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             activeChatId: null,
             backgroundMode: "lines",
             showImageInfo: false,
-            defaultVisualStyleId: null,
             viewport: initialViewport,
         };
         set((state) => ({ projects: [project, ...state.projects] }));
@@ -83,7 +81,6 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             activeChatId: source.activeChatId || null,
             backgroundMode: source.backgroundMode || "lines",
             showImageInfo: source.showImageInfo || false,
-            defaultVisualStyleId: source.defaultVisualStyleId || null,
             viewport: source.viewport || initialViewport,
         };
         set((state) => ({ projects: [project, ...state.projects] }));

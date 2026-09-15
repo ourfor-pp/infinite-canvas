@@ -138,9 +138,8 @@ export const CanvasNode = React.memo(function CanvasNode({
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
     const isGroup = data.type === CanvasNodeType.Group;
-    const isBusinessNode = data.type === "character" || data.type === "scene" || data.type === "prop" || data.type === "visual-style";
     const ports = definition?.ports ? (typeof definition.ports === "function" ? definition.ports(data) : definition.ports) : [];
-    const visiblePorts = isBusinessNode ? ports.filter((port) => port.direction === "output" || port.id === "input") : ports;
+    const visiblePorts = ports;
     const nodeRadius = data.type === "scene" ? "rounded-[18px]" : data.type === "prop" ? "rounded-md" : "rounded-3xl";
     const batchCount = data.type === CanvasNodeType.Image ? data.metadata?.images?.length || 0 : 0;
     const isBatchRoot = batchCount > 1;
@@ -331,7 +330,7 @@ export const CanvasNode = React.memo(function CanvasNode({
             }}
             onContextMenu={(event) => onContextMenu(event, data.id)}
         >
-            {!isBusinessNode && (isSelected || hovered || isEditingTitle) && (
+            {(isSelected || hovered || isEditingTitle) && (
                 <div className="absolute left-3 top-[-28px] z-[65] max-w-[calc(100%-24px)]" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
                     {isEditingTitle ? (
                         <input
@@ -854,7 +853,7 @@ function ResizeHandle({ corner, onMouseDown }: { corner: ResizeCorner; onMouseDo
 function ConnectionHandleDot({ port, visible, onMouseDown }: { port: CanvasNodePort; visible: boolean; onMouseDown: (event: React.MouseEvent) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const side = port.direction === "input" ? "left" : "right";
-    const accent = { text: "#64748b", image: "#10b981", audio: "#a855f7", video: "#f97316", "visual-style": "#d26b98", "creative-asset": "#c58a3d" }[port.dataType];
+    const accent = { text: "#64748b", image: "#10b981", audio: "#a855f7", video: "#f97316" }[port.dataType];
 
     return (
         <div

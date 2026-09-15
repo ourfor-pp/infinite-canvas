@@ -15,7 +15,7 @@ process.env.DATA_DIR = testData;
 process.env.AUTH_MODE = "fnos";
 process.env.APP_SECRET = "test-secret";
 
-const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch, createTextNodes }, { isRetriableAgentDiagnostic, recoverAgentRuns, resolveAgentNativeTools, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }, { getDirectorVideoSegmentPreflight, updateDirectorStoryboardPrompts }, { listDirectorVideoSegments }, { applyDirectorAssetGeneration }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js"), import("./director-render.js"), import("./director.js"), import("./director-workspace.js")]);
+const [{ app }, { db }, { parseGatewayUser }, { applyCanvasOps, createAgentCreativeAssetBatch }, { isRetriableAgentDiagnostic, recoverAgentRuns, resolveAgentNativeTools, resolveAgentToolSearchMode }, { parseSkillAllowedTools, syncBuiltInAgentSkills }, { providerInputSchema }, { agentScenes }, { getDirectorVideoSegmentPreflight, updateDirectorStoryboardPrompts }, { listDirectorVideoSegments }, { applyDirectorAssetGeneration }] = await Promise.all([import("./app.js"), import("./database.js"), import("./auth.js"), import("./agent/canvas-tools.js"), import("./agent/service.js"), import("./agent/skill-registry.js"), import("./provider-service.js"), import("./agent/scenes/index.js"), import("./director-render.js"), import("./director.js"), import("./director-workspace.js")]);
 let origin = "";
 const server = app.listen(0, "127.0.0.1");
 
@@ -98,7 +98,7 @@ test("项目工作区只同步当前 Agent 场景 Skills 并清理旧场景", ()
     syncBuiltInAgentSkills(workspace, agentScenes.director.skillIds);
     const directorSkills = readdirSync(join(workspace, ".claude", "skills")).filter((name) => !name.startsWith(".")).sort();
     assert.deepEqual(directorSkills, [...agentScenes.director.skillIds].sort());
-    assert.equal(directorSkills.includes("write-story"), false);
+    assert.equal(directorSkills.includes("canvas-edit"), false);
     assert.equal(directorSkills.includes("director-write-story"), true);
     syncBuiltInAgentSkills(workspace, agentScenes.director.skillIds);
     assert.deepEqual(readdirSync(join(workspace, ".claude", "skills")).filter((name) => !name.startsWith(".")).sort(), directorSkills);
@@ -585,31 +585,12 @@ test("创作资产按项目隔离、保存自然语言描述并检测 revision",
     assert.equal(invalidPrimary.response.status, 400);
     assert.equal(invalidPrimary.body.error.code, "CREATIVE_ASSET_REFERENCE_NOT_PRIMARY");
 
-    const firstView = await api(`/creative-assets/${assetId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 120, y: 160 }) });
-    const secondView = await api(`/creative-assets/${assetId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 520, y: 160 }) });
-    assert.notEqual(firstView.body.data.nodeId, secondView.body.data.nodeId);
-    const project = await api("/projects/project-1", userOne);
-    assert.equal(project.body.data.nodes.filter((node: { metadata?: { assetId?: string } }) => node.metadata?.assetId === assetId).length, 2);
-    assert.equal(project.body.data.nodes.some((node: { type: string; title: string }) => node.type === "group" && node.title === "角色设定"), false);
-    const businessNode = project.body.data.nodes.find((node: { id: string }) => node.id === firstView.body.data.nodeId);
-    assert.deepEqual({ type: businessNode.type, width: businessNode.width, height: businessNode.height }, { type: "character", width: 420, height: 540 });
-
-    const disposable = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "character", name: "删除即消失", payload: { description: "临时角色" } }) });
-    const disposableId = disposable.body.data.id;
-    const disposableViewA = await api(`/creative-assets/${disposableId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 80, y: 900 }) });
-    await api(`/creative-assets/${disposableId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 520, y: 900 }) });
-    const beforeNodeDelete = await api("/projects/project-1", userOne);
-    const nodeDelete = await api("/projects/project-1/nodes", userOne, { method: "DELETE", body: JSON.stringify({ ids: [disposableViewA.body.data.nodeId], revision: beforeNodeDelete.body.data.revision }) });
-    assert.equal(nodeDelete.response.status, 200);
-    assert.equal(nodeDelete.body.data.nodes.some((node: { metadata?: { assetId?: string } }) => node.metadata?.assetId === disposableId), false);
-    assert.equal((await api(`/creative-assets/${disposableId}`, userOne)).response.status, 404);
-
     assert.equal((await api(`/creative-assets/${assetId}`, userOne, { method: "DELETE" })).response.status, 200);
     const afterDelete = await api("/projects/project-1", userOne);
     assert.equal(afterDelete.body.data.nodes.some((node: { metadata?: { assetId?: string } }) => node.metadata?.assetId === assetId), false);
 });
 
-test("视觉风格支持项目默认、画布放置、隔离和删除回收", async () => {
+test("视觉风格保留默认和隔离，画布放置接口已移除", async () => {
     const projectId = "visual-style-project";
     await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "风格测试", nodes: [], connections: [] }) });
     const created = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "冷峻悬疑", mode: "custom", description: "低饱和冷灰色调，硬朗侧光。" }) });
@@ -621,14 +602,14 @@ test("视觉风格支持项目默认、画布放置、隔离和删除回收", as
     assert.equal((await api(`/visual-styles/${styleId}`, userTwo)).response.status, 404);
 
     const placed = await api(`/visual-styles/${styleId}/place`, userOne, { method: "POST", body: JSON.stringify({ x: 100, y: 200 }) });
-    assert.equal(placed.response.status, 201);
+    assert.equal(placed.response.status, 404);
     assert.equal((await api(`/visual-styles/${styleId}/default`, userOne, { method: "POST" })).response.status, 409);
     const confirmed = await api(`/visual-styles/${styleId}`, userOne, { method: "PUT", body: JSON.stringify({ revision: 1, status: "confirmed" }) });
     assert.equal(confirmed.response.status, 200);
     await api(`/visual-styles/${styleId}/default`, userOne, { method: "POST" });
     const project = await api(`/projects/${projectId}`, userOne);
     assert.equal(project.body.data.defaultVisualStyleId, styleId);
-    assert.equal(project.body.data.nodes.some((node: { metadata?: { visualStyleId?: string } }) => node.metadata?.visualStyleId === styleId), true);
+    assert.equal(project.body.data.nodes.some((node: { metadata?: { visualStyleId?: string } }) => node.metadata?.visualStyleId === styleId), false);
 
     assert.equal((await api(`/visual-styles/${styleId}`, userOne, { method: "DELETE" })).response.status, 200);
     const deleted = await api(`/projects/${projectId}`, userOne);
@@ -717,20 +698,24 @@ test("导演风格板在文字和规则修改后保留且支持显式替换", as
     assert.notDeepEqual(Buffer.from(await (await fetch(`${origin}/director/projects/${projectId}/direction/style-board`, { headers: userOne })).arrayBuffer()), originalBytes);
 });
 
-test("Agent 画布操作校验语义端口类型和单连接限制", async () => {
+test("Agent 保留通用节点连线并拒绝已移除的业务节点", async () => {
     const projectId = "semantic-port-project";
     await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "端口测试", nodes: [], connections: [] }) });
     const created = applyCanvasOps(userOne["X-Trim-Userid"], projectId, [
         { type: "add_node", id: "text-source", nodeType: "text" },
-        { type: "add_node", id: "style-source", nodeType: "visual-style" },
-        { type: "add_node", id: "style-source-2", nodeType: "visual-style" },
-        { type: "add_node", id: "character-target", nodeType: "character" },
-        { type: "connect_nodes", fromNodeId: "text-source", fromPortId: "output", toNodeId: "character-target", toPortId: "setting" },
-        { type: "connect_nodes", fromNodeId: "style-source", fromPortId: "style", toNodeId: "character-target", toPortId: "style" },
+        { type: "add_node", id: "image-target", nodeType: "image" },
+        { type: "connect_nodes", fromNodeId: "text-source", fromPortId: "output", toNodeId: "image-target", toPortId: "input" },
     ], 1);
     assert.equal(created.revision, 2);
-    assert.throws(() => applyCanvasOps(userOne["X-Trim-Userid"], projectId, [{ type: "connect_nodes", fromNodeId: "text-source", fromPortId: "output", toNodeId: "character-target", toPortId: "reference-image" }], 2), /类型不兼容/);
-    assert.throws(() => applyCanvasOps(userOne["X-Trim-Userid"], projectId, [{ type: "connect_nodes", fromNodeId: "style-source-2", fromPortId: "style", toNodeId: "character-target", toPortId: "style" }], 2), /只允许一条连接/);
+    assert.throws(() => applyCanvasOps(userOne["X-Trim-Userid"], projectId, [{ type: "connect_nodes", fromNodeId: "text-source", fromPortId: "output", toNodeId: "image-target", toPortId: "setting" }], 2), /类型不兼容/);
+    for (const type of ["character", "scene", "prop", "visual-style"]) {
+        assert.throws(() => applyCanvasOps(userOne["X-Trim-Userid"], projectId, [{ type: "add_node", nodeType: type }], 2), /通用节点/);
+        assert.throws(() => applyCanvasOps(userOne["X-Trim-Userid"], projectId, [{ type: "update_node", id: "image-target", patch: { type } }], 2), /通用节点/);
+        const saved = await api(`/projects/${projectId}`, userOne, { method: "PUT", body: JSON.stringify({ title: "端口测试", revision: 2, nodes: [{ id: "retired", type }] }) });
+        assert.equal(saved.response.status, 400);
+    }
+    assert.equal((await api("/creative-assets/retired/place", userOne, { method: "POST", body: "{}" })).response.status, 404);
+    assert.equal((await api("/visual-styles/retired/place", userOne, { method: "POST", body: "{}" })).response.status, 404);
 });
 
 test("Agent 使用通用文本工具将多章节故事保存为一个节点", async () => {
@@ -738,7 +723,7 @@ test("Agent 使用通用文本工具将多章节故事保存为一个节点", as
     await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "故事画布", nodes: [], connections: [] }) });
     const markdown = "# 山海回声\n\n## 第一章\n\n潮水退去。\n\n## 第二章\n\n灯塔重新亮起。";
 
-    const created = createTextNodes(userOne["X-Trim-Userid"], projectId, { expectedRevision: 1, items: [{ title: "山海回声", text: markdown, width: 520, height: 680, fontSize: 15 }] });
+    const created = applyCanvasOps(userOne["X-Trim-Userid"], projectId, [{ type: "add_node", nodeType: "text", title: "山海回声", position: { x: 420, y: 0 }, width: 520, height: 680, metadata: { content: markdown, status: "success", fontSize: 15 } }], 1);
     assert.equal(created.applied, 1);
     assert.equal(created.project.nodes.length, 1);
     assert.deepEqual(created.project.nodes[0], {
@@ -750,7 +735,7 @@ test("Agent 使用通用文本工具将多章节故事保存为一个节点", as
         height: 680,
         metadata: { content: markdown, status: "success", fontSize: 15 },
     });
-    assert.throws(() => createTextNodes(userOne["X-Trim-Userid"], projectId, { expectedRevision: 1, items: [{ title: "重复故事", text: markdown }] }), /画布版本已从 1 更新为 2/);
+    assert.throws(() => applyCanvasOps(userOne["X-Trim-Userid"], projectId, [{ type: "add_node", nodeType: "text", metadata: { content: markdown } }], 1), /画布版本已从 1 更新为 2/);
 });
 
 test("素材 CRUD 不能跨用户读取或修改", async () => {
@@ -963,23 +948,23 @@ test("Agent 配置、会话和 Skill 由后端鉴权并按项目隔离", async (
     const capabilities = await api("/agent/projects/project-1/capabilities", userOne);
     assert.equal(capabilities.response.status, 200);
     assert.equal(capabilities.body.data.sceneId, "canvas");
-    assert.equal(capabilities.body.data.skills.some((skill: { id: string }) => skill.id === "write-story"), true);
+    assert.equal(capabilities.body.data.skills.some((skill: { id: string }) => skill.id === "canvas-edit"), true);
     assert.equal(capabilities.body.data.skills.some((skill: { id: string }) => skill.id === "media-understand"), true);
     assert.equal((await api("/agent/projects/project-1/capabilities", userTwo)).response.status, 404);
     const directorCapabilities = await api("/agent/projects/director-project-1/capabilities", userOne);
     assert.equal(directorCapabilities.body.data.sceneId, "director");
     assert.equal(directorCapabilities.body.data.skills.every((skill: { id: string }) => ["media-understand", "media-generation"].includes(skill.id) || skill.id.startsWith("director-")), true);
     assert.equal(directorCapabilities.body.data.skills.some((skill: { id: string }) => skill.id === "media-understand"), true);
-    assert.equal(directorCapabilities.body.data.skills.some((skill: { id: string }) => skill.id === "write-story"), false);
+    assert.equal(directorCapabilities.body.data.skills.some((skill: { id: string }) => skill.id === "canvas-edit"), false);
     const directorReferences = await api("/agent/projects/director-project-1/references?limit=100", userOne);
     assert.equal(directorReferences.response.status, 200);
     assert.equal(directorReferences.body.data.some((item: { segment: { type: string } }) => item.segment.type === "canvas"), false);
     const directorProjectBefore = JSON.parse((db.prepare("SELECT payload FROM projects WHERE id='director-project-1'").get() as { payload: string }).payload);
-    const directorAsset = createAgentCreativeAssetBatch("user-1", "director-project-1", [{ kind: "prop", name: "导演测试道具", payload: { description: "只属于导演资产" } }], undefined, false)[0];
+    const directorAsset = createAgentCreativeAssetBatch("user-1", "director-project-1", [{ kind: "prop", name: "导演测试道具", payload: { description: "只属于导演资产" } }])[0];
     const directorProjectAfter = JSON.parse((db.prepare("SELECT payload FROM projects WHERE id='director-project-1'").get() as { payload: string }).payload);
     assert.equal(directorAsset.name, "导演测试道具");
     assert.deepEqual(directorProjectAfter, directorProjectBefore);
-    const forgedCanvasSkill = await api("/agent/projects/director-project-1/messages", userOne, { method: "POST", body: JSON.stringify({ clientMessageId: "forged-canvas-skill", submissionMode: "direct", content: { version: 1, segments: [{ type: "skill", mentionId: "skill-1", skillId: "write-story" }] } }) });
+    const forgedCanvasSkill = await api("/agent/projects/director-project-1/messages", userOne, { method: "POST", body: JSON.stringify({ clientMessageId: "forged-canvas-skill", submissionMode: "direct", content: { version: 1, segments: [{ type: "skill", mentionId: "skill-1", skillId: "canvas-edit" }] } }) });
     assert.equal(forgedCanvasSkill.response.status, 400);
     assert.equal(forgedCanvasSkill.body.error.code, "AGENT_SKILL_NOT_AVAILABLE_IN_SCENE");
     const forgedDirectorReference = await api("/agent/projects/project-1/messages", userOne, { method: "POST", body: JSON.stringify({ clientMessageId: "forged-director-reference", submissionMode: "direct", content: { version: 1, segments: [{ type: "director", mentionId: "reference-1", projectId: "project-1", entityKind: "story", entityId: "story" }] } }) });
@@ -1023,6 +1008,30 @@ test("公网图片生成由后端执行并把结果回存到用户媒体库", as
         assert.equal((await fetch(`${origin}/files/${generation.result.files[0].fileId}/content`, { headers: userTwo })).status, 200);
 
         const model = `${provider.body.data.id}::test-image-model`;
+        const { buildAgentToolDefinitions } = await import("./agent/mcp/index.js");
+        const toolContext = { session: { projectId: "story-project" }, run: { userId: "user-1" }, resolveWorkspacePath: (path: string) => join(testData, "workspace", path), appendEvent() {} } as unknown as Parameters<typeof buildAgentToolDefinitions>[0];
+        const tools = buildAgentToolDefinitions(toolContext, agentScenes.canvas);
+        const callTool = async (name: string, input: Record<string, unknown>) => {
+            const response = await tools.find((item) => item.name === name)!.handler(input);
+            assert.equal(response.isError, undefined, JSON.stringify(response));
+            return JSON.parse((response.content[0] as { text: string }).text).data;
+        };
+        const beforeCount = (db.prepare("SELECT COUNT(*) AS n FROM generations").get() as { n: number }).n;
+        const request = { source: "channel", kind: "image", model, prompt: "画布统一接口" };
+        assert.equal((await callTool("media_validate_generation", { request })).valid, true);
+        assert.equal((db.prepare("SELECT COUNT(*) AS n FROM generations").get() as { n: number }).n, beforeCount);
+        const canvasTask = await callTool("media_generate", { request });
+        let canvasStatus = canvasTask;
+        for (let index = 0; index < 30 && !["succeeded", "failed"].includes(canvasStatus.status); index++) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            canvasStatus = await callTool("media_get_generation_status", { generationId: canvasTask.id });
+        }
+        assert.equal(canvasStatus.status, "succeeded");
+        const state = await callTool("canvas_get_state", { view: "summary" });
+        assert.equal(state.nodeCount, 1, "生成完成不自动创建节点");
+        const adopted = await callTool("canvas_adopt_result", { generationId: canvasTask.id, fileId: canvasStatus.result.files[0].fileId, expectedRevision: state.revision });
+        assert.ok(adopted.nodeId);
+        assert.equal((await callTool("canvas_get_state", { view: "summary" })).nodeCount, 2);
         const creative = await api("/projects/project-1/creative-assets", userOne, { method: "POST", body: JSON.stringify({ kind: "scene", name: "雨夜车站", payload: { description: "潮湿、冷色调的旧车站", mediaDrafts: { image: { model, prompt: "雨幕中的站台与冷白灯光" } } } }) });
         const generationRequest = { kind: "image", revision: creative.body.data.revision };
         const preview = await api(`/creative-assets/${creative.body.data.id}/generation-preview`, userOne, { method: "POST", body: JSON.stringify(generationRequest) });
@@ -1597,7 +1606,7 @@ async function nextSseMatching(stream: AsyncGenerator<TestSseEvent>, predicate: 
     }
 }
 
-test("Codex 会话只属于导演项目，默认内置引擎且不允许跨用户或分叉", async () => {
+test("画布与导演支持 Codex 会话，默认内置引擎且不允许跨用户或分叉", async () => {
     const projectId = "codex-engine-test";
     await api("/projects", userOne, { method: "POST", body: JSON.stringify({ id: projectId, title: "Codex 验收", kind: "director" }) });
     const standard = await api(`/agent/projects/${projectId}/sessions`, userOne, { method: "POST", body: "{}" });
@@ -1607,7 +1616,13 @@ test("Codex 会话只属于导演项目，默认内置引擎且不允许跨用�
     assert.equal(codex.body.data.engine, "codex");
     assert.equal((await api(`/agent/sessions/${codex.body.data.id}/fork`, userOne, { method: "POST", body: "{}" })).response.status, 409);
     assert.equal((await api(`/agent/projects/${projectId}/conversation?sessionId=${codex.body.data.id}`, userTwo)).response.status, 404);
-    assert.equal((await api("/agent/projects/project-1/sessions", userOne, { method: "POST", body: JSON.stringify({ engine: "codex" }) })).response.status, 400);
+    const canvas = await api("/agent/projects/project-1/sessions", userOne, { method: "POST", body: JSON.stringify({ engine: "codex" }) });
+    assert.equal(canvas.response.status, 201);
+    assert.equal(canvas.body.data.engine, "codex");
+    assert.equal((await api(`/agent/projects/project-1/conversation?sessionId=${canvas.body.data.id}`, userTwo)).response.status, 404);
+    const canvasCapabilities = await api("/agent/projects/project-1/capabilities", userOne);
+    assert.equal(canvasCapabilities.body.data.sceneId, "canvas");
+    assert.ok(canvasCapabilities.body.data.engines.some((item: { id: string }) => item.id === "codex"));
     assert.equal((await api("/admin/ai/codex", userTwo)).response.status, 403);
     const capabilities = await api(`/agent/projects/${projectId}/capabilities`, userOne);
     assert.equal(capabilities.body.data.engines.find((item: { id: string }) => item.id === "codex").ready, false);

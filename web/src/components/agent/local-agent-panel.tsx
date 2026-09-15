@@ -536,7 +536,7 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
                     </button>
                 </div>
                 {session?.engine === "codex" ? <span className="text-xs opacity-50">Codex</span> : null}
-                {capabilities?.sceneId === "director" ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "builtin", label: "新建内置 Agent 对话" }, { key: "codex", label: "新建 Codex 对话" }], onClick: ({ key }) => void newSession(key as AgentEngine) }}><Button type="text" shape="circle" aria-label="选择引擎新建会话" icon={<Plus className="size-4" />} disabled={busy} /></Dropdown> : <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={() => void newSession()} disabled={busy} /></Tooltip>}
+                {capabilities?.engines?.some((item) => item.id === "codex") ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "builtin", label: "新建内置 Agent 对话" }, { key: "codex", label: "新建 Codex 对话" }], onClick: ({ key }) => void newSession(key as AgentEngine) }}><Button type="text" shape="circle" aria-label="选择引擎新建会话" icon={<Plus className="size-4" />} disabled={busy} /></Dropdown> : <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={() => void newSession()} disabled={busy} /></Tooltip>}
                 <Tooltip title="历史会话"><Button type="text" shape="circle" icon={<History className="size-4" />} onClick={() => setHistoryOpen(true)} /></Tooltip>
             </header>
 

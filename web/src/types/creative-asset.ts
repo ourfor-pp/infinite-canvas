@@ -21,16 +21,6 @@ export type CharacterDesignProfile = {
     uncertainties: string[];
 };
 
-export const CREATIVE_ASSET_NODE_LAYOUT = {
-    character: { width: 420, height: 540, title: "角色" },
-    scene: { width: 420, height: 540, title: "场景" },
-    prop: { width: 420, height: 540, title: "道具" },
-} satisfies Record<CreativeAssetKind, { width: number; height: number; title: string }>;
-
-export function isCreativeAssetNodeType(type: string): type is CreativeAssetKind {
-    return type === "character" || type === "scene" || type === "prop";
-}
-
 export type CreativeAssetVariant = {
     id: string;
     kind: "image" | "audio";

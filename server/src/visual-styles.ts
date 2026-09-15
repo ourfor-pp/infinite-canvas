@@ -259,9 +259,6 @@ export function updateVisualStyle(userId: string, styleId: string, raw: unknown)
 export function deleteVisualStyle(userId: string, styleId: string) {
     const current = getVisualStyle(userId, styleId);
     const project = projectPayload(userId, current.projectId);
-    project.nodes = project.nodes.filter((node) => node.metadata?.visualStyleId !== styleId);
-    const nodeIds = new Set(project.nodes.map((node) => String(node.id || "")));
-    project.connections = project.connections.filter((connection) => nodeIds.has(String(connection.fromNodeId || "")) && nodeIds.has(String(connection.toNodeId || "")));
     if (project.defaultVisualStyleId === styleId) project.defaultVisualStyleId = null;
     db.transaction(() => {
         db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='visual_style' AND owner_id=?").run(userId, styleId);
@@ -270,14 +267,6 @@ export function deleteVisualStyle(userId: string, styleId: string) {
     })();
     emitStyle(userId, { id: styleId, projectId: current.projectId, deleted: true });
     return { id: styleId, projectId: current.projectId };
-}
-export function placeVisualStyle(userId: string, styleId: string, position: { x?: number; y?: number }) {
-    const style = getVisualStyle(userId, styleId);
-    const project = projectPayload(userId, style.projectId);
-    const nodeId = `visual-style-${nanoid()}`;
-    project.nodes.push({ id: nodeId, type: "visual-style", title: style.name, position: { x: position.x ?? 0, y: position.y ?? 0 }, width: 420, height: 615, metadata: { visualStyleId: style.id } });
-    saveProject(userId, style.projectId, project);
-    return { nodeId, projectId: style.projectId };
 }
 export function setDefaultVisualStyle(userId: string, styleId: string) {
     const style = getVisualStyle(userId, styleId);
@@ -310,32 +299,13 @@ function markDirectorStyleDependents(userId: string, projectId: string, styleId:
         if (dependency?.id === styleId && dependency.revision !== revision) updateAsset.run(JSON.stringify({ ...payload, needsReview: true, staleReason: `视觉风格已更新到 revision ${revision}` }), now, row.id, userId);
     });
 }
-export function resolveVisualStyleForNode(userId: string, projectId: string, nodeId?: string) {
+export function resolveProjectVisualStyle(userId: string, projectId: string) {
     const project = projectPayload(userId, projectId);
-    const linked = nodeId ? project.connections.find((connection) => connection.toNodeId === nodeId && connection.toPortId === "style") : null;
-    const source = linked ? project.nodes.find((node) => node.id === linked.fromNodeId) : null;
-    const styleId = String(source?.metadata?.visualStyleId || project.defaultVisualStyleId || "");
+    const styleId = String(project.defaultVisualStyleId || "");
     if (!styleId) return null;
     const style = getVisualStyle(userId, styleId);
     if (style.projectId !== projectId) throw styleError(404, "VISUAL_STYLE_NOT_FOUND", "视觉风格不属于当前项目");
     return style;
-}
-export function resolveCreativeAssetNodeInputs(userId: string, projectId: string, assetId: string, nodeId?: string) {
-    const project = projectPayload(userId, projectId);
-    const target = nodeId ? project.nodes.find((node) => node.id === nodeId && node.metadata?.assetId === assetId) : null;
-    if (nodeId && !target) throw styleError(404, "CREATIVE_ASSET_NODE_NOT_FOUND", "创作资产节点不存在或不属于当前资产");
-    const inbound = target ? project.connections.filter((connection) => connection.toNodeId === target.id) : [];
-    const source = (connection: (typeof inbound)[number]) => project.nodes.find((node) => node.id === connection.fromNodeId);
-    const texts = inbound.filter((item) => item.toPortId === "setting").map(source).filter((node) => node?.type === "text").map((node) => String(node?.metadata?.content || node?.metadata?.prompt || "").trim()).filter(Boolean);
-    const imageNodes = project.nodes.filter((node) => node.type === "image" && serverFileId(node.metadata?.storageKey));
-    const audioNodes = project.nodes.filter((node) => node.type === "audio" && serverFileId(node.metadata?.storageKey));
-    const imageReferences = inbound.filter((item) => item.toPortId === "reference-image").map(source).filter((node) => node?.type === "image").map((node) => ({ nodeId: String(node?.id), fileId: serverFileId(node?.metadata?.storageKey), label: `图片${imageNodes.findIndex((item) => item.id === node?.id) + 1}`, title: String(node?.title || "画布图片") })).filter((value) => Boolean(value.fileId));
-    const audioReferences = inbound.filter((item) => item.toPortId === "reference-audio").map(source).filter((node) => node?.type === "audio").map((node) => ({ nodeId: String(node?.id), fileId: serverFileId(node?.metadata?.storageKey), label: `音频${audioNodes.findIndex((item) => item.id === node?.id) + 1}`, title: String(node?.title || "画布音频") })).filter((value) => Boolean(value.fileId));
-    const imageFileIds = imageReferences.map((item) => item.fileId);
-    const audioFileIds = audioReferences.map((item) => item.fileId);
-    imageFileIds.forEach((fileId) => assertReferenceKind(userId, fileId, "image/"));
-    audioFileIds.forEach((fileId) => assertReferenceKind(userId, fileId, "audio/"));
-    return { texts, imageFileIds, audioFileIds, imageReferences, audioReferences, style: resolveVisualStyleForNode(userId, projectId, nodeId) };
 }
 
 export function syncVisualStyleGeneration(row: { id: string; user_id: string; status: string; request: string; result: string | null }) {
@@ -437,7 +407,6 @@ function assertProject(userId: string, projectId: string) { if (!db.prepare("SEL
 function assertReferenceKind(userId: string, fileId: string, prefix: string) { const row = db.prepare("SELECT mime_type FROM stored_files WHERE id=? AND user_id=?").get(fileId, userId) as { mime_type: string } | undefined; if (!row || !row.mime_type.startsWith(prefix)) throw styleError(400, "CANVAS_REFERENCE_TYPE_INVALID", "连接文件类型与语义端口不匹配"); }
 function assertStyleReferences(userId: string, references: VisualStyleReferences) { Object.values(references).forEach((fileId) => fileId && assertReferenceKind(userId, fileId, "image/")); }
 function syncStyleRefs(userId: string, styleId: string, references: VisualStyleReferences) { syncFileRefs(userId, "visual_style", styleId, references); }
-function serverFileId(value: unknown) { const key = String(value || ""); return key.startsWith("server:") ? key.slice(7) : ""; }
 function projectPayload(userId: string, projectId: string) { const row = db.prepare("SELECT payload FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as { payload: string } | undefined; if (!row) throw styleError(404, "PROJECT_NOT_FOUND", "画布不存在或无权访问"); const project = parseJson<ProjectPayload>(row.payload, { nodes: [], connections: [] }); project.nodes = Array.isArray(project.nodes) ? project.nodes : []; project.connections = Array.isArray(project.connections) ? project.connections.filter((item) => typeof item.fromPortId === "string" && typeof item.toPortId === "string") : []; return project; }
 function saveProject(userId: string, projectId: string, project: ProjectPayload) { const now = new Date().toISOString(); db.prepare("UPDATE projects SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...project, updatedAt: now }), now, projectId, userId); syncFileRefs(userId, "project", projectId, project); const row = db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as { id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string }; publishAgentProject(userId, { ...parseJson<Record<string, unknown>>(row.payload, {}), id: row.id, title: row.title, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }); }
 function styleError(status: number, code: string, message: string, details?: unknown) { return Object.assign(new Error(message), { status, code, details }); }

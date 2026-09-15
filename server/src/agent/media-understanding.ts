@@ -28,15 +28,6 @@ export async function sampleDirectorVideo(userId: string, projectId: string, inp
     return { path: input.path, mode: input.mode, probe: result.probe, frames: result.frames.map(({ timeSeconds, file }) => ({ timeSeconds, ...cacheDirectorMediaFile(userId, projectId, file.fileId) })) };
 }
 
-export async function understandProjectImages(userId: string, projectId: string, modelRef: string, input: { fileIds: string[]; prompt?: string; detail?: "low" | "high" | "xhigh" }) {
-    requireMediaModel(modelRef);
-    const files = input.fileIds.map((id) => requireMediaFile(userId, projectId, id, "image"));
-    const detail = input.detail || "low";
-    const prompt = `${input.prompt?.trim() || "客观描述这些图片的主体、构图、风格、可见文字、明显缺陷和不确定之处。"}\n\n按输入顺序分析 ${files.length} 张图片。只根据可见证据回答，不要臆测。输出简洁 JSON：{"observations":[{"inputIndex":0,"observation":"...","visibleText":[],"uncertainty":[]}],"sequenceSummary":"..."}。视觉细节等级：${detail}。`;
-    const result = await runTextModelOnce(userId, modelRef, { prompt, references: input.fileIds.map((fileId) => ({ fileId, kind: "image" as const })), params: { temperature: 0.1 } });
-    return mediaUnderstandingResult(modelRef, input.fileIds, result);
-}
-
 export async function understandProjectAudios(userId: string, projectId: string, modelRef: string, input: { items: Array<{ fileId: string; prompt?: string }> }) {
     requireMediaModel(modelRef);
     return Promise.all(input.items.map(async (item) => {

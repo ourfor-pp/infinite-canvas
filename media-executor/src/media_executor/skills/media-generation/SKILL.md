@@ -25,6 +25,8 @@ allowed-tools: [mcp__infinite_canvas__media_list_capabilities, mcp__infinite_can
 
 表格说明服务已有能力范围，不保证全部在线。新增或调整的能力以查询结果为准，不为每个模型创建独立 Skill。H3、Music3 的应用模型标识见对应参考文档，其余声音模型使用 `local-media::<目录中的 id>`。
 
+调用宿主可能将请求包装在 request 字段并用 source 选择执行入口，以当前工具 schema 为准。领域参数保持相同；结果采用由宿主提供。
+
 ## 统一调用流程
 
 1. 准备 kind、model、mode、operation、prompt、params 和显式 references。项目中的参考媒体先用 `media_import_reference` 登记为 fileId；不传执行器路径、凭据或项目私有执行字段。提示正文原样提交，不隐藏追加创作语义。

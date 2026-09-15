@@ -45,12 +45,9 @@ import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
 import { AgentPanel } from "@/components/agent/agent-panel";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { cancelProjectServerMutation, prepareProjectServerMutation, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
-import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
-import { useVisualStyleStore } from "@/stores/use-visual-style-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
-import { editCreativeAssetMediaEvent, focusVisualStyleEvent } from "@/lib/canvas/canvas-ui-events";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, normalizeConnection, snapNodesIntoGroup, viewportForCanvasBounds } from "@/lib/canvas/canvas-node-geometry";
@@ -97,7 +94,6 @@ import {
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio } from "@/types/media";
 import { serverApi } from "@/services/api/server";
-import { CREATIVE_ASSET_NODE_LAYOUT, isCreativeAssetNodeType, type CreativeAssetKind, type CreativeAssetSnapshot } from "@/types/creative-asset";
 
 // Register built-in nodes in the shared registry once when the module loads.
 registerBuiltinNodes();
@@ -259,9 +255,6 @@ function InfiniteCanvasPage() {
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
 
-    useEffect(() => {
-        if (projectId) void Promise.all([useCreativeAssetStore.getState().load(projectId), useVisualStyleStore.getState().load(projectId)]);
-    }, [projectId]);
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -738,27 +731,6 @@ function InfiniteCanvasPage() {
         [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
     );
 
-    const createCreativeAssetNode = useCallback(async (kind: CreativeAssetKind, snapshot?: CreativeAssetSnapshot, topLeft?: Position) => {
-        const center = getCanvasCenter();
-        const layout = CREATIVE_ASSET_NODE_LAYOUT[kind];
-        const name = snapshot?.name || (kind === "character" ? "未命名角色" : kind === "scene" ? "未命名场景" : "未命名道具");
-        try {
-            const asset = await serverApi.createCreativeAsset(projectId, { kind, name, status: "draft", payload: snapshot?.payload || {} });
-            useCreativeAssetStore.getState().apply(asset);
-            const placed = await serverApi.placeCreativeAsset(asset.id, topLeft || { x: center.x - layout.width / 2, y: center.y - layout.height / 2 });
-            window.setTimeout(() => { setSelectedNodeIds(new Set([placed.nodeId])); setSelectedConnectionId(null); }, 120);
-        } catch (error) { message.error(error instanceof Error ? error.message : `创建${layout.title}节点失败`); }
-    }, [getCanvasCenter, message, projectId]);
-
-    const createVisualStyleNode = useCallback(async () => {
-        const center = getCanvasCenter();
-        try {
-            const style = await useVisualStyleStore.getState().create(projectId, { name: "克制当代电影", mode: "template", templateId: "contemporary-naturalism", description: "" });
-            const placed = await serverApi.placeVisualStyle(style.id, { x: center.x - 190, y: center.y - 310 });
-            window.setTimeout(() => { setSelectedNodeIds(new Set([placed.nodeId])); setSelectedConnectionId(null); }, 120);
-        } catch (error) { message.error(error instanceof Error ? error.message : "创建视觉风格节点失败"); }
-    }, [getCanvasCenter, message, projectId]);
-
     const deleteNodes = useCallback(
         (ids: Set<string>) => {
             if (!ids.size) return;
@@ -817,12 +789,6 @@ function InfiniteCanvasPage() {
     const duplicateNode = useCallback((nodeId: string) => {
         const source = nodesRef.current.find((node) => node.id === nodeId);
         if (!source) return;
-        if (isCreativeAssetNodeType(source.type) && source.metadata?.assetId) {
-            const asset = useCreativeAssetStore.getState().assets.find((item) => item.id === source.metadata?.assetId);
-            if (asset) void createCreativeAssetNode(source.type, { kind: asset.kind, name: `${asset.name} 副本`, status: "draft", payload: structuredClone(asset.payload) }, { x: source.position.x + 36, y: source.position.y + 36 });
-            return;
-        }
-
         const id = `${source.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const next: CanvasNodeData = {
             ...source,
@@ -835,14 +801,14 @@ function InfiniteCanvasPage() {
         setSelectedNodeIds(new Set([id]));
         setSelectedConnectionId(null);
         if (next.type !== CanvasNodeType.Group) setDialogNodeId(id);
-    }, [createCreativeAssetNode]);
+    }, []);
 
     const copySelectedNodes = useCallback(() => {
         const selectedIds = selectedNodeIdsRef.current;
         if (!selectedIds.size) return;
 
         const copiedNodes = nodesRef.current
-            .filter((node) => selectedIds.has(node.id) && !isCreativeAssetNodeType(node.type))
+            .filter((node) => selectedIds.has(node.id))
             .map((node) => ({
                 ...node,
                 position: { ...node.position },
@@ -975,25 +941,7 @@ function InfiniteCanvasPage() {
         setSelectedConnectionId(null);
         setContextMenu(null);
         window.requestAnimationFrame(() => window.requestAnimationFrame(() => focusNode(node.id, { includePanel, maxZoom: 2 })));
-        if (isCreativeAssetNodeType(node.type)) {
-            window.setTimeout(() => window.dispatchEvent(new CustomEvent(editCreativeAssetMediaEvent, { detail: { nodeId: node.id, kind: "image" } })), 470);
-        }
     }, [focusNode]);
-
-    useEffect(() => {
-        const focusStyle = (event: Event) => {
-            const styleId = (event as CustomEvent<{ styleId?: string }>).detail?.styleId;
-            const node = nodesRef.current.find((item) => item.metadata?.visualStyleId === styleId) || (!styleId ? nodesRef.current.find((item) => item.type === "visual-style") : undefined);
-            if (node) return focusNode(node.id);
-            if (styleId) {
-                void serverApi.placeVisualStyle(styleId, getCanvasCenter()).then((placed) => window.setTimeout(() => focusNode(placed.nodeId), 180)).catch((error) => message.error(error instanceof Error ? error.message : "无法打开视觉风格"));
-                return;
-            }
-            void createVisualStyleNode();
-        };
-        window.addEventListener(focusVisualStyleEvent, focusStyle);
-        return () => window.removeEventListener(focusVisualStyleEvent, focusStyle);
-    }, [createVisualStyleNode, focusNode, getCanvasCenter, message]);
 
     useEffect(() => () => void (focusAnimRef.current && cancelAnimationFrame(focusAnimRef.current)), []);
 
@@ -1568,10 +1516,6 @@ function InfiniteCanvasPage() {
     }, []);
 
     const handleNodeTitleChange = useCallback((nodeId: string, title: string) => {
-        const node = nodesRef.current.find((item) => item.id === nodeId);
-        if (node && isCreativeAssetNodeType(node.type) && node.metadata?.assetId) {
-            void useCreativeAssetStore.getState().update(node.metadata.assetId, { name: title }).catch((error) => message.error(error instanceof Error ? error.message : "重命名业务节点失败"));
-        }
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, title } : node)));
     }, [message]);
 
@@ -2839,34 +2783,9 @@ function InfiniteCanvasPage() {
 
     const handleAssetInsert = useCallback(
         (payload: InsertAssetPayload) => {
-            if (payload.kind === "creative") {
-                void createCreativeAssetNode(payload.snapshot.kind, payload.snapshot);
-            } else if (payload.kind === "text") {
-                insertAssistantText(payload.content, payload.title);
-            } else if (payload.kind === "video") {
-                const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Video];
-                const center = screenToCanvas((containerRef.current?.getBoundingClientRect().left || 0) + size.width / 2, (containerRef.current?.getBoundingClientRect().top || 0) + size.height / 2);
-                const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-                const nextSize = fitNodeSize(payload.width || spec.width, payload.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                setNodes((prev) => [
-                    ...prev,
-                    {
-                        id,
-                        type: CanvasNodeType.Video,
-                        title: payload.title,
-                        position: { x: center.x - nextSize.width / 2, y: center.y - nextSize.height / 2 },
-                        width: nextSize.width,
-                        height: nextSize.height,
-                        metadata: { content: payload.url, storageKey: payload.storageKey, status: NODE_STATUS_SUCCESS, naturalWidth: payload.width, naturalHeight: payload.height },
-                    },
-                ]);
-                setSelectedNodeIds(new Set([id]));
-            } else {
-                insertAssistantImage({ id: `asset-${Date.now()}`, prompt: payload.title, dataUrl: payload.dataUrl, storageKey: payload.storageKey });
-            }
             setAssetPickerOpen(false);
         },
-        [createCreativeAssetNode, insertAssistantImage, insertAssistantText, screenToCanvas, size.height, size.width],
+        [insertAssistantImage, insertAssistantText, screenToCanvas, size.height, size.width],
     );
 
     // Memoize every callback and render function passed to CanvasNode.
@@ -3126,8 +3045,6 @@ function InfiniteCanvasPage() {
                     onAddText={() => createNode(CanvasNodeType.Text)}
                     onAddConfig={() => createNode(CanvasNodeType.Config)}
                     onAddGroup={() => createNode(CanvasNodeType.Group)}
-                    onAddCreativeAsset={(kind) => void createCreativeAssetNode(kind)}
-                    onAddVisualStyle={() => void createVisualStyleNode()}
                     onAddExtensionNode={(type) => createNode(type)}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}

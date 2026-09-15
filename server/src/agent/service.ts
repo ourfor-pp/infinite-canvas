@@ -150,7 +150,7 @@ export function getConversation(userId: string, projectId: string, sessionId?: s
 export function createSession(userId: string, projectId: string, title = "新对话", engine: AgentEngine = "builtin") {
     assertProject(userId, projectId);
     z.enum(["builtin", "codex"]).parse(engine);
-    if (engine === "codex" && resolveAgentScene(userId, projectId).id !== "director") throw agentError(400, "CODEX_DIRECTOR_ONLY", "Codex 仅支持导演项目");
+    resolveAgentScene(userId, projectId);
     const session = createSessionRecord(userId, projectId, title, engine);
     publishProjectSnapshot(userId, projectId);
     return session;
@@ -370,7 +370,7 @@ export function respondDecision(userId: string, sessionId: string, input: { deci
     if (!waiter || waiter.sessionId !== sessionId) throw agentError(409, "AGENT_DECISION_INTERRUPTED", "审批对应的任务已经中断，请重新发起任务");
     const scope = input.scope || "once";
     if (pending.scopes?.length && !pending.scopes.includes(scope)) throw agentError(400, "AGENT_DECISION_SCOPE_INVALID", "当前操作不支持该授权范围");
-    const proposalEdits = ["creative_assets_create_batch", "director_create_assets"].includes(pending.toolName || "") && input.proposalEdits !== undefined
+    const proposalEdits = pending.toolName === "director_create_assets" && input.proposalEdits !== undefined
         ? z.array(creativeAssetInputSchema).min(1).max(200).parse(input.proposalEdits)
         : undefined;
     db.prepare("UPDATE agent_sessions SET status='running', pending_decision=NULL, updated_at=? WHERE id=? AND user_id=?").run(new Date().toISOString(), sessionId, userId);
@@ -419,7 +419,7 @@ export function getSessionEvents(userId: string, sessionId: string, beforeSeq?: 
 export async function getAgentCapabilities(userId: string, projectId: string) {
     const scene = resolveAgentScene(userId, projectId);
     if (scene.id === "director" && getCodexSettings().enabled) await readCodexStatus();
-    return { engines: [{ id: "builtin", ready: getAgentSettings().ready, reason: getAgentSettings().ready ? "" : "管理员尚未配置内置 Agent" }, ...(scene.id === "director" ? [{ id: "codex", ...codexPublicStatus() }] : [])], sceneId: scene.id, skills: listBuiltInAgentSkills(sceneSkillIds(scene)), referenceKinds: scene.referenceKinds, composer: { ...scene.composer, suggestions: [...scene.composer.suggestions] } };
+    return { engines: [{ id: "builtin", ready: getAgentSettings().ready, reason: getAgentSettings().ready ? "" : "管理员尚未配置内置 Agent" }, { id: "codex", ...codexPublicStatus() }], sceneId: scene.id, skills: listBuiltInAgentSkills(sceneSkillIds(scene)), referenceKinds: scene.referenceKinds, composer: { ...scene.composer, suggestions: [...scene.composer.suggestions] } };
 }
 
 export function listAgentReferences(userId: string, projectId: string, query: { q?: string; limit?: number } = {}) {
@@ -812,18 +812,18 @@ function mergeAllowedTools(...lists: string[][]) {
 
 type ProviderNonNull = NonNullable<ReturnType<typeof getProviderRow>>;
 
-function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; path?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
+export function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; path?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
     const sections = [context.input || "请处理本次请求。"];
     if (skill && session.engine === "codex") sections.unshift(`读取并遵循 .agents/skills/${skill.id}/SKILL.md（${skill.name}）完成本次请求。`);
     else if (skill) sections.unshift(`使用原生 Skill 工具加载并遵循“${skill.id}”（${skill.name}）完成本次请求。Skill 已同步到当前会话，不要使用 Read 查找服务端 Skill 源文件。`);
-    if (context.references?.length) sections.push(`## 本次画布引用\n${JSON.stringify(context.references, null, 2)}`);
+    if (context.references?.length) sections.push(`## 本次画布引用（仅摘要；正文通过 canvas_get_state 按需分页读取）\n${JSON.stringify(context.references, null, 2)}`);
     if (context.assetReferences?.length) sections.push(`## 本次创作资产引用\n${JSON.stringify(context.assetReferences, null, 2)}\n修改前读取最新 revision；不要把新增媒体静默设为主版本。`);
     if (context.styleReferences?.length) sections.push(`## 本次视觉风格引用\n${JSON.stringify(context.styleReferences, null, 2)}\n修改前读取最新 revision；资产生成时优先沿用这个风格。`);
     if (context.directorReferences?.length) sections.push(`## 本次导演台引用\n${JSON.stringify(context.directorReferences, null, 2)}\n修改前读取最新 revision；交给 Agent 只表示把引用放入本次输入，不代表用户已经确认修改。`);
     const readableAttachments = context.attachments?.filter((file) => isAgentContextFile(file.mimeType)) || [];
     const savedOnlyAttachments = context.attachments?.filter((file) => !isAgentContextFile(file.mimeType)) || [];
-    if (readableAttachments.length) sections.push(`## 本次附件\n${readableAttachments.map((file) => `- ${file.name}（fileId=${file.fileId}，${file.mimeType}）：${file.path}`).join("\n")}\n只允许通过受控上下文使用这些文件。`);
-    if (savedOnlyAttachments.length) sections.push(`## 本次媒体附件\n${savedOnlyAttachments.map((file) => `- ${file.name}（fileId=${file.fileId}，${file.mimeType}）`).join("\n")}\n图片和声音使用媒体理解工具；视频先生成联系表或抽帧。不要用 Read 读取二进制文件。`);
+    if (readableAttachments.length) sections.push(`## 本次附件\n${readableAttachments.map((file) => `- ${file.name}（fileId=${file.fileId}，${file.mimeType}）：${file.path}`).join("\n")}\n图片使用原生看图读取上述路径；文本和 PDF 使用原生文件读取。`);
+    if (savedOnlyAttachments.length) sections.push(`## 本次媒体附件\n${savedOnlyAttachments.map((file) => `- ${file.name}（fileId=${file.fileId}，${file.mimeType}）`).join("\n")}\n声音使用声音理解工具；视频先生成联系表或抽帧，再用原生看图读取返回的图片路径。不要把音视频文件作为文本读取。`);
     sections.push(`当前项目 projectId：${session.project_id}。操作前先读取最新 revision。`);
     return sections.join("\n\n");
 }
@@ -889,7 +889,7 @@ function serializeWorkspacePath<T>(target: string, action: () => Promise<T>) {
     return current;
 }
 
-function workspaceReadHooks(workspace: string): NonNullable<Options["hooks"]> {
+export function workspaceReadHooks(workspace: string): NonNullable<Options["hooks"]> {
     return { PreToolUse: [{ hooks: [async (value: unknown) => {
         const event = value && typeof value === "object" ? value as { tool_name?: string; tool_input?: Record<string, unknown> } : {};
         if (!["Read", "Write", "Edit", "Glob", "Grep", "LS"].includes(String(event.tool_name))) return {};
@@ -924,7 +924,7 @@ function assertNoWorkspaceSymlink(workspace: string, target: string) {
 }
 
 function isAgentContextFile(mimeType: string) {
-    return mimeType.startsWith("text/") || mimeType === "application/pdf" || ["application/json", "application/xml"].includes(mimeType);
+    return mimeType.startsWith("image/") || mimeType.startsWith("text/") || mimeType === "application/pdf" || ["application/json", "application/xml"].includes(mimeType);
 }
 
 function settleSessionWaiters(sessionId: string, error: string) {
@@ -986,7 +986,7 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
         if (segment.type === "canvas") {
             const node = getCanvasState(userId, projectId).nodes.find((item) => item.id === segment.nodeId);
             if (!node) throw agentError(404, "AGENT_REFERENCE_NOT_FOUND", `引用节点 ${segment.nodeId} 不存在`);
-            references.push({ projectId, nodeId: segment.nodeId, node }); displayParts.push(`@${node.title || "画布节点"}`); displaySegments.push({ ...segment, label: node.title || "画布节点" });
+            references.push({ projectId, nodeId: segment.nodeId, node: { id: node.id, type: node.type, title: node.title, metadata: { storageKey: node.metadata?.storageKey, mimeType: node.metadata?.mimeType }, contentLength: String(node.metadata?.content || "").length } }); displayParts.push(`@${node.title || "画布节点"}`); displaySegments.push({ ...segment, label: node.title || "画布节点" });
         } else if (segment.type === "asset") {
             const asset = getCreativeAsset(userId, segment.assetId);
             if (asset.projectId !== projectId) throw agentError(404, "AGENT_ASSET_REFERENCE_NOT_FOUND", "创作资产不存在或不属于当前项目");

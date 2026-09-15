@@ -23,7 +23,7 @@ description: Planned follow-up work
 - H3 四任务对照与独立语音复核已完成，后续补充多种子、多图/整张故事板、长片段和多角色音色验收。LightX2V Ref2V v0.1 四步出现重复画外音，含对白默认路由暂不提升；作者原生 Ref2V v1.0 八步版已完成四任务对照，单种子泳池重复未复现；三种子追加已发现 v1.0 八步短句重复，PDD 暂为加速候选；新增整板同条件样例出现额外人物与 2×2 分屏，单次 1.606 倍速度未通过质量门槛；新增尾帧锚点后，两项同条件对照的 PDD 抽帧未再见分屏／额外人物，单次约 1.764 倍仍待质量验收，原生 768p 同条件对照已完成，单次约 2.184 倍且抽帧保持单画面，该锚定状态已完成原生 768p 续接至 15.792 秒，继续完整视听、完整样章与修正时间映射后的真实入口验证；尾帧提取已修复并通过真实 379 帧视频校验，正式入口上线仍待批准；继续完整视听、动作、机位与实际发声时间验收。社区异常及历史修复适用范围见 `docs/research/minimax-h3-community-anomalies.md`。VDN 先解决剪枝基座跳过 51 项 AdaLN 增量的问题，Ref2VA 保持社区适配实验。
 
 - Run the fixed 10-scene H3 baseline across silent Turbo preview, audio-sensitive base preview, final and Sage modes on the deployed RTX 5090 checkout; record quality/audio gates and exercise rollback before treating Turbo preview as production-approved.
-- Add named/versioned creative-asset snapshots, linked cross-project creative-asset/style libraries, audio-result quality review, and media-version deletion management.
+- Director: add named/versioned asset snapshots, linked cross-project asset/style libraries, audio-result quality review, and media-version deletion management.
 - Add Skill installation from web search, Skill resource-file management, and controlled local-memory persistence.
 - Add Agent knowledge bases, controlled browser automation, Office editing, scheduled tasks, application runs, and messaging-channel integrations.
 - Add Agent knowledge-base citations, cross-project conversations, and a dedicated mobile layout.

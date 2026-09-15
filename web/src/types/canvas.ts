@@ -75,9 +75,6 @@ export type CanvasNodeMetadata = {
     durationMs?: number;
     groupId?: string;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
-    assetId?: string;
-    assetKind?: "character" | "scene" | "prop";
-    visualStyleId?: string;
 };
 
 export type CanvasNodeData = {
@@ -98,7 +95,7 @@ export type CanvasConnection = {
     toPortId: string;
 };
 
-export type CanvasPortDataType = "text" | "image" | "audio" | "video" | "visual-style" | "creative-asset";
+export type CanvasPortDataType = "text" | "image" | "audio" | "video";
 export type CanvasNodePort = {
     id: string;
     label: string;

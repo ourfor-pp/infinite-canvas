@@ -1,3 +1,7 @@
+import { exposeImagePaths } from "../image-files.js";
+import { listPublicModels } from "../../provider-service.js";
+import { validateGenerationRequest } from "../../generation-service.js";
+import { executorComfyModels } from "../../media-capabilities.js";
 import { listMediaCapabilities } from "../../media-capabilities.js";
 import { createMediaGeneration, prepareMediaGeneration, mediaGenerationShape } from "../../media-generation.js";
 import { mediaGenerationStatus, cancelProjectMedia, importMediaReference, saveMediaResult, readMediaTranscription } from "../media-tools.js";
@@ -49,21 +53,17 @@ import {
   applyCanvasOps,
   canvasToolSchemas,
   createAgentGeneration,
-  createTextNodes,
+  readCanvasState,
+  canvasMutationSummary,
+  adoptCanvasResult,
   deleteAssets,
   generationModels,
-  generationStatus,
   getCanvasState,
   listAssets,
-  searchPrompts,
   createAgentCreativeAssetBatch,
   deleteAgentCreativeAsset,
-  deleteAgentCanvasNodes,
-  generateAgentCreativeAsset,
   getAgentCreativeAsset,
   listAgentCreativeAssets,
-  placeAgentCreativeAsset,
-  setAgentCreativeAssetPrimary,
   updateAgentCreativeAsset,
   createAgentVisualStyle,
   defaultAgentVisualStyle,
@@ -71,13 +71,12 @@ import {
   getAgentVisualStyle,
   listAgentVisualStyleTemplates,
   listAgentVisualStyles,
-  placeAgentVisualStyle,
   updateAgentVisualStyle,
   analyzeAgentVisualStyle,
   generateAgentVisualStyleReferences,
 } from "../canvas-tools.js";
 import { createDirectorMusicGeneration, directorMediaModels, directorTaskQuery, getDirectorGenerationTasks, getDirectorRenderTasks } from "../director-tools.js";
-import { sampleDirectorVideo, understandDirectorAudios, prepareProjectVideoOverview, sampleProjectVideoFrames, understandProjectAudios, understandProjectImages } from "../media-understanding.js";
+import { sampleDirectorVideo, understandDirectorAudios, prepareProjectVideoOverview, sampleProjectVideoFrames, understandProjectAudios } from "../media-understanding.js";
 
 type AgentMcpContext = {
   session: { id: string; projectId: string };
@@ -193,7 +192,7 @@ export function buildAgentToolDefinitions(
         startedAt: new Date().toISOString(),
       });
       try {
-        const result = await handler(typedInput);
+        const result = exposeImagePaths(run.userId, await handler(typedInput), context.resolveWorkspacePath);
         context.appendEvent("tool_result", {
           toolId,
           toolName: name,
@@ -245,7 +244,29 @@ export function buildAgentToolDefinitions(
     call("media_import_reference", "将工程内媒体文件登记为显式参考，返回 fileId。", { path: z.string().min(1).max(500) }, (input: { path: string }) => importMediaReference(run.userId, projectId, context.resolveWorkspacePath(input.path))),
     call("media_save_result", "把当前项目已完成任务的指定结果保存到工程相对路径；保留扩展名，不覆盖已有文件。", { generationId: z.string().min(1), fileId: z.string().min(1), path: z.string().min(1).max(500) }, (input: { generationId: string; fileId: string; path: string }) => ({ ...saveMediaResult(run.userId, projectId, input.generationId, input.fileId, context.resolveWorkspacePath(input.path)), path: input.path })),
   ];
-  const sharedMediaTools = engine === "codex" ? [
+  const canvasGenerationShape = { request: z.discriminatedUnion("source", [
+    z.object({ source: z.literal("executor"), ...mediaGenerationShape }),
+    canvasToolSchemas.generation_create.omit({ projectId: true, nodeId: true }).extend({ source: z.literal("channel"), kind: engine === "codex" ? z.enum(["text", "video", "audio"]) : canvasToolSchemas.generation_create.shape.kind }),
+  ]) };
+  type CanvasGenerationInput = z.infer<z.ZodObject<typeof canvasGenerationShape>>;
+  const checkChannel = (request: Extract<CanvasGenerationInput["request"], { source: "channel" }>) => {
+    const { source: _source, ...value } = request;
+    const selection = validateGenerationRequest(run.userId, value);
+    if (selection.providerId === "local-media" || (selection.comfyServerId === "media-executor" && executorComfyModels.has(selection.modelId))) throw new Error("媒体执行器模型必须选择 source=executor，提交能力目录要求的参数");
+    return value;
+  };
+  const canvasMediaTools = [
+    ...mediaCapabilityTools.filter((item) => !["media_list_capabilities", "media_validate_generation", "media_generate"].includes(item.name)),
+    call("media_list_capabilities", "统一发现管理员渠道模型与中立执行器能力；提交时使用对应 source。执行器离线不影响渠道模型查询。", {}, async () => ({
+      channels: listPublicModels().filter((item) => (engine !== "codex" || item.output !== "image") && !item.value.startsWith("local-media::") && ![...executorComfyModels].some((id) => item.value.endsWith(`::${id}`))).map((item) => ({ ...item, source: "channel" })),
+      executor: await listMediaCapabilities().then((result) => ({ ...result, source: "executor", available: true })).catch((error: unknown) => ({ source: "executor", available: false, error: error instanceof Error ? error.message : "执行器不可用" })),
+    })),
+    call("media_validate_generation", "校验生成请求；request.source=channel 使用管理员模型，executor 使用中立能力参数。不会创建任务。", canvasGenerationShape,
+      async ({ request }: CanvasGenerationInput) => request.source === "executor" ? { valid: true, plan: (await prepareMediaGeneration(run.userId, request)).plan } : { valid: true, request: checkChannel(request) }),
+    call("media_generate", "提交当前画布生成任务。request.source 区分 channel 与 executor；查询统一用 media_get_generation_status，成功后用 canvas_adopt_result 显式采用。", canvasGenerationShape,
+      ({ request }: CanvasGenerationInput) => request.source === "executor" ? createMediaGeneration(run.userId, request, projectId) : createAgentGeneration(run.userId, checkChannel(request), projectId)),
+  ];
+  const sharedMediaTools = engine === "codex" && scene.id === "director" ? [
     call("media_understand_audios", "理解工程内声音的语音、语气、音乐、环境声与声音事件；不提供精确逐词时间。", {
       items: z.array(z.object({ path: z.string().min(1).max(500), prompt: z.string().max(4_000).optional() })).min(1).max(8),
     }, (input) => understandDirectorAudios(run.userId, projectId, run.mediaModelRef, input as { items: Array<{ path: string; prompt?: string }> })),
@@ -254,12 +275,6 @@ export function buildAgentToolDefinitions(
     }, (input) => sampleDirectorVideo(run.userId, projectId, input as { path: string; mode: "overview" | "frames"; count?: number; timesSeconds?: number[] })),
   ] : [
     call(
-      "media_understand_images",
-      "使用管理员配置的媒体理解模型分析一组图片。适合描述、比较、识别可见文字、检查风格或质量；同组图片共享上下文。",
-      { fileIds: z.array(z.string().min(1)).min(1).max(8), prompt: z.string().max(4_000).optional(), detail: z.enum(["low", "high", "xhigh"]).optional() },
-      (input) => understandProjectImages(run.userId, projectId, run.mediaModelRef, input as { fileIds: string[]; prompt?: string; detail?: "low" | "high" | "xhigh" }),
-    ),
-    call(
       "media_understand_audios",
       "使用同一个媒体理解模型批量理解音频的语音、语气、音乐、环境声和声音事件；只做声音语义，不提供精确逐词时间。",
       { items: z.array(z.object({ fileId: z.string().min(1), prompt: z.string().max(4_000).optional() })).min(1).max(8) },
@@ -267,18 +282,27 @@ export function buildAgentToolDefinitions(
     ),
     call(
       "media_prepare_video_overview",
-      "使用本地 FFprobe/FFmpeg 探测视频并生成一张均匀覆盖全片的联系表，不调用模型；随后可把 contactSheet.fileId 交给图片理解工具。",
+      "使用本地 FFprobe/FFmpeg 探测视频并生成一张均匀覆盖全片的联系表，不调用模型；随后用原生看图读取返回的图片路径。",
       { fileId: z.string().min(1), frameCount: z.number().int().min(4).max(20).optional() },
       (input) => prepareProjectVideoOverview(run.userId, projectId, input as { fileId: string; frameCount?: number }),
     ),
     call(
       "media_sample_video_frames",
-      "使用本地 FFmpeg 从视频均匀抽帧或按明确秒数抽帧，不调用模型；返回的每张帧图可继续交给图片理解工具。",
+      "使用本地 FFmpeg 从视频均匀抽帧或按明确秒数抽帧，不调用模型；返回的每张帧图可用原生看图读取。",
       { fileId: z.string().min(1), count: z.number().int().min(1).max(16).optional(), timesSeconds: z.array(z.number().min(0)).min(1).max(16).optional() },
       (input) => sampleProjectVideoFrames(run.userId, projectId, input as { fileId: string; count?: number; timesSeconds?: number[] }),
     ),
   ];
 
+  const canvasVideoTool = call("media_sample_video", "视频取样：overview 返回全片联系表，frames 按时间或均匀抽帧；用原生看图读取返回的图片路径。", {
+    fileId: z.string().min(1), mode: z.enum(["overview", "frames"]), count: z.number().int().min(1).max(16).optional(), timesSeconds: z.array(z.number().min(0)).min(1).max(16).optional(),
+  }, (input: { fileId: string; mode: "overview" | "frames"; count?: number; timesSeconds?: number[] }) => {
+    if (input.mode === "overview") {
+      if (input.timesSeconds || (input.count !== undefined && input.count < 4)) throw new Error("联系表至少 4 帧，不接受指定时间点");
+      return prepareProjectVideoOverview(run.userId, projectId, { fileId: input.fileId, frameCount: input.count });
+    }
+    return sampleProjectVideoFrames(run.userId, projectId, input);
+  });
   if (scene.id === "director")
     return registeredTools({
       name: "infinite_canvas",
@@ -756,8 +780,6 @@ export function buildAgentToolDefinitions(
                   run.userId,
                   projectId,
                   value.items,
-                  undefined,
-                  false,
                 ),
               };
               context.appendEvent("tool_result", {
@@ -856,8 +878,6 @@ export function buildAgentToolDefinitions(
                   payload: asset.payload,
                 },
               ],
-              undefined,
-              false,
             )[0];
           },
         ),
@@ -1106,113 +1126,24 @@ export function buildAgentToolDefinitions(
     name: "infinite_canvas",
     tools: [
       ...sharedMediaTools,
-        ...mediaCapabilityTools,
-      call(
-        "canvas_list_projects",
-        "列出当前会话允许访问的画布项目。项目会话只返回当前画布。",
-        canvasToolSchemas.canvas_list_projects.shape,
-        (input) => {
-          const state = getCanvasState(run.userId, projectId);
-          return [
-            {
-              id: state.id,
-              title: state.title,
-              revision: state.revision,
-              updatedAt: state.updatedAt,
-            },
-          ];
-        },
-      ),
-      call(
-        "canvas_get_state",
-        "读取画布的权威节点、连线和 revision。修改前必须先调用。",
-        canvasToolSchemas.canvas_get_state.shape,
-        (input) =>
-          getCanvasState(run.userId, project(input as { projectId?: string })),
-      ),
-      call(
-        "canvas_apply_ops",
-        "按 revision 批量新增、更新节点或新增连线；删除必须使用独立工具。",
-        canvasToolSchemas.canvas_apply_ops.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.canvas_apply_ops
-          >;
-          return applyCanvasOps(
-            run.userId,
-            project(value),
-            value.ops,
-            value.expectedRevision,
-          );
-        },
-      ),
-      call(
-        "canvas_create_text_nodes",
-        "创建一个或多个通用 Markdown 文本节点，可指定尺寸和字号。每个 item 必须是一份语义完整的文档；一篇故事的标题、章节和尾声必须放进同一个 item，禁止拆分。",
-        canvasToolSchemas.canvas_create_text_nodes.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.canvas_create_text_nodes
-          >;
-          return createTextNodes(run.userId, project(value), value);
-        },
-      ),
-      call(
-        "canvas_delete_nodes",
-        "按 revision 删除节点及关联连线；角色、场景和道具节点会同时删除其业务资产及全部视图，执行前需要业务确认。",
-        canvasToolSchemas.canvas_delete_nodes.shape,
+      canvasVideoTool,
+      ...canvasMediaTools,
+      call("canvas_get_state", "分页读取当前画布的节点摘要、连线或指定节点正文；summary 返回统计和 revision。翻页时传 expectedRevision 防止混用版本。", canvasToolSchemas.canvas_get_state.shape,
+        (input) => readCanvasState(run.userId, project(input as { projectId?: string }), input as z.infer<typeof canvasToolSchemas.canvas_get_state>)),
+      call("canvas_apply_ops", "按 revision 批量新增或修改通用节点、连接节点。文本写入 metadata.content，一篇完整作品只创建一个文本节点；返回新 revision。", canvasToolSchemas.canvas_apply_ops.shape,
+        (input) => { const value = input as z.infer<typeof canvasToolSchemas.canvas_apply_ops>; return canvasMutationSummary(applyCanvasOps(run.userId, project(value), value.ops, value.expectedRevision)); }),
+      call("canvas_delete", "按 revision 一次删除指定节点及其关联连线、指定连线；执行前需要业务确认。", canvasToolSchemas.canvas_delete.shape,
         async (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.canvas_delete_nodes
-          >;
-          await context.requireDecision("canvas_delete_nodes", value);
-          return deleteAgentCanvasNodes(
-            run.userId,
-            project(value),
-            value.ids,
-            value.expectedRevision,
-          );
-        },
-      ),
-      call(
-        "canvas_delete_connections",
-        "按 revision 删除指定连线，执行前需要业务确认。",
-        canvasToolSchemas.canvas_delete_connections.shape,
-        async (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.canvas_delete_connections
-          >;
-          await context.requireDecision("canvas_delete_connections", value);
-          return applyCanvasOps(
-            run.userId,
-            project(value),
-            [{ type: "delete_connections", ids: value.ids }],
-            value.expectedRevision,
-          );
-        },
-      ),
-      call(
-        "canvas_connect_nodes",
-        "按 revision 批量连接画布节点。",
-        canvasToolSchemas.canvas_connect_nodes.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.canvas_connect_nodes
-          >;
-          return applyCanvasOps(
-            run.userId,
-            project(value),
-            value.connections.map((item) => ({
-              type: "connect_nodes",
-              ...item,
-            })),
-            value.expectedRevision,
-          );
-        },
-      ),
+          const value = input as z.infer<typeof canvasToolSchemas.canvas_delete>;
+          if (!value.nodeIds.length && !value.connectionIds.length) throw new Error("请指定要删除的节点或连线");
+          await context.requireDecision("canvas_delete", value);
+          return canvasMutationSummary(applyCanvasOps(run.userId, project(value), [{ type: "delete_node", ids: value.nodeIds }, { type: "delete_connections", ids: value.connectionIds }], value.expectedRevision));
+        }),
+      call("canvas_adopt_result", "将当前项目已完成任务的指定媒体文件或文本结果采用到通用节点；可创建新节点或替换同类型节点。必须传最新 revision，不自动采用。", canvasToolSchemas.canvas_adopt_result.shape,
+        (input) => adoptCanvasResult(run.userId, projectId, input as z.infer<typeof canvasToolSchemas.canvas_adopt_result>)),
       call(
         "assets_list",
-        "列出当前用户的素材。",
+        "分页搜索当前用户素材；keyword 匹配标题及文本正文，kind=text 可搜索已保存的提示词。",
         canvasToolSchemas.assets_list.shape,
         (input) =>
           listAssets(
@@ -1242,391 +1173,11 @@ export function buildAgentToolDefinitions(
           return deleteAssets(run.userId, value);
         },
       ),
-      call(
-        "prompts_search",
-        "搜索当前用户已保存到素材库的文本提示词。",
-        canvasToolSchemas.prompts_search.shape,
-        (input) =>
-          searchPrompts(
-            run.userId,
-            input as z.infer<typeof canvasToolSchemas.prompts_search>,
-          ),
-      ),
-      call(
-        "generation_list_models",
-        "列出后端已启用且能力匹配的生成模型。",
-        canvasToolSchemas.generation_list_models.shape,
-        (input) =>
-          generationModels(
-            input as z.infer<typeof canvasToolSchemas.generation_list_models>,
-          ),
-      ),
-      call(
-        "generation_get_status",
-        "查询当前会话范围内的生成任务状态。",
-        canvasToolSchemas.generation_get_status.shape,
-        (input) =>
-          generationStatus(
-            run.userId,
-            input as z.infer<typeof canvasToolSchemas.generation_get_status>,
-            projectId || undefined,
-          ),
-      ),
-      call(
-        "generation_create",
-        "通过后端队列创建文本、图片、视频或音频生成任务；传 nodeId 可将状态和结果回写画布。",
-        canvasToolSchemas.generation_create.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.generation_create
-          >;
-          return createAgentGeneration(
-            run.userId,
-            {
-              ...value,
-              ...(value.projectId || projectId
-                ? { projectId: project(value) }
-                : {}),
-            },
-            projectId || undefined,
-          );
-        },
-      ),
-      call(
-        "creative_assets_list",
-        "列出当前项目的角色、场景和道具设定。",
-        canvasToolSchemas.creative_assets_list.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.creative_assets_list
-          >;
-          return listAgentCreativeAssets(
-            run.userId,
-            project(value),
-            value.kind,
-          );
-        },
-      ),
-      call(
-        "creative_asset_get",
-        "读取一项创作资产的权威设定、revision 和媒体变体。",
-        canvasToolSchemas.creative_asset_get.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.creative_asset_get
-          >;
-          return getAgentCreativeAsset(
-            run.userId,
-            project(value),
-            value.assetId,
-          );
-        },
-      ),
-      tool(
-        "creative_assets_create_batch",
-        "把小说拆解候选提交为可编辑清单；用户确认后批量创建独立的角色、场景和道具业务卡片。",
-        canvasToolSchemas.creative_assets_create_batch.shape,
-        async (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.creative_assets_create_batch
-          >;
-          const toolId = nanoid();
-          context.appendEvent("tool_call", {
-            toolId,
-            toolName: "creative_assets_create_batch",
-            input: value,
-            startedAt: new Date().toISOString(),
-          });
-          try {
-            const targetProjectId = project(value);
-            const decision = await context.requireDecision(
-              "creative_assets_create_batch",
-              value,
-              "proposal",
-            );
-            const items = decision.proposalEdits || value.items;
-            const result = createAgentCreativeAssetBatch(
-              run.userId,
-              targetProjectId,
-              items,
-              value.sourceNodeId,
-            );
-            const output = { assets: result };
-            context.appendEvent("tool_result", {
-              toolId,
-              toolName: "creative_assets_create_batch",
-              output,
-              isError: false,
-              finishedAt: new Date().toISOString(),
-            });
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify({ ok: true, data: output }, null, 2),
-                },
-              ],
-            };
-          } catch (error) {
-            const message =
-              error instanceof Error ? error.message : String(error);
-            context.appendEvent("tool_result", {
-              toolId,
-              toolName: "creative_assets_create_batch",
-              output: message,
-              isError: true,
-              finishedAt: new Date().toISOString(),
-            });
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify({ ok: false, error: message }),
-                },
-              ],
-              isError: true,
-            };
-          }
-        },
-      ),
-      call(
-        "creative_asset_update",
-        "按 revision 更新角色、场景或道具的文字设定及图片、音频媒体草稿；修改已确认或锁定设定时请求审批。",
-        canvasToolSchemas.creative_asset_update.shape,
-        async (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.creative_asset_update
-          >;
-          const targetProjectId = project(value);
-          const asset = getAgentCreativeAsset(
-            run.userId,
-            targetProjectId,
-            value.assetId,
-          );
-          if (asset.status !== "draft")
-            await context.requireDecision("creative_asset_update", value);
-          return updateAgentCreativeAsset(run.userId, targetProjectId, value);
-        },
-      ),
-      call(
-        "creative_asset_place",
-        "把已有创作资产重新放到画布，不复制实体。",
-        canvasToolSchemas.creative_asset_place.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.creative_asset_place
-          >;
-          return placeAgentCreativeAsset(run.userId, project(value), value);
-        },
-      ),
-      call(
-        "creative_asset_generate",
-        "使用创作资产已保存的媒体草稿生成设计图、角色声音、环境声或道具音效；结果会直接替换该资产的当前主媒体。",
-        canvasToolSchemas.creative_asset_generate.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.creative_asset_generate
-          >;
-          return generateAgentCreativeAsset(run.userId, project(value), value);
-        },
-      ),
-      call(
-        "creative_asset_set_primary",
-        "选择创作资产的主图片或主声音；已确认或锁定资产执行前需要业务确认。",
-        canvasToolSchemas.creative_asset_set_primary.shape,
-        async (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.creative_asset_set_primary
-          >;
-          const targetProjectId = project(value);
-          const asset = getAgentCreativeAsset(
-            run.userId,
-            targetProjectId,
-            value.assetId,
-          );
-          if (asset.status !== "draft")
-            await context.requireDecision("creative_asset_set_primary", value);
-          return setAgentCreativeAssetPrimary(
-            run.userId,
-            targetProjectId,
-            value,
-          );
-        },
-      ),
-      call(
-        "creative_asset_delete",
-        "永久删除创作资产、全部画布视图和引用，执行前需要业务确认。",
-        canvasToolSchemas.creative_asset_delete.shape,
-        async (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.creative_asset_delete
-          >;
-          await context.requireDecision("creative_asset_delete", value);
-          return deleteAgentCreativeAsset(
-            run.userId,
-            project(value),
-            value.assetId,
-          );
-        },
-      ),
-      call(
-        "visual_styles_list",
-        "列出当前项目的视觉风格。",
-        canvasToolSchemas.visual_styles_list.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.visual_styles_list
-          >;
-          return listAgentVisualStyles(run.userId, project(value));
-        },
-      ),
-      call(
-        "visual_style_templates_list",
-        "搜索可直接使用的内置影视视觉风格模板及完整 Style DNA。",
-        canvasToolSchemas.visual_style_templates_list.shape,
-        (input) =>
-          listAgentVisualStyleTemplates(
-            input as z.infer<
-              typeof canvasToolSchemas.visual_style_templates_list
-            >,
-          ),
-      ),
-      call(
-        "visual_style_get",
-        "读取视觉风格的权威描述、参考图和 revision。",
-        canvasToolSchemas.visual_style_get.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.visual_style_get
-          >;
-          return getAgentVisualStyle(run.userId, project(value), value.styleId);
-        },
-      ),
-      call(
-        "visual_style_create",
-        "创建模板或自定义视觉风格实体。",
-        canvasToolSchemas.visual_style_create.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.visual_style_create
-          >;
-          return createAgentVisualStyle(run.userId, project(value), value);
-        },
-      ),
-      call(
-        "visual_style_update",
-        "按 revision 更新视觉风格描述，可用于分析参考图后写回风格。",
-        canvasToolSchemas.visual_style_update.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.visual_style_update
-          >;
-          return updateAgentVisualStyle(run.userId, project(value), value);
-        },
-      ),
-      call(
-        "visual_style_place",
-        "将已有视觉风格放到画布。",
-        canvasToolSchemas.visual_style_place.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.visual_style_place
-          >;
-          return placeAgentVisualStyle(run.userId, project(value), value);
-        },
-      ),
-      call(
-        "visual_style_set_default",
-        "将视觉风格设为当前项目默认风格。",
-        canvasToolSchemas.visual_style_set_default.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.visual_style_set_default
-          >;
-          return defaultAgentVisualStyle(
-            run.userId,
-            project(value),
-            value.styleId,
-          );
-        },
-      ),
-      call(
-        "visual_style_analyze",
-        "使用支持图片理解的默认文本模型分析风格来源图并写回 Style DNA。",
-        canvasToolSchemas.visual_style_analyze.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.visual_style_analyze
-          >;
-          return analyzeAgentVisualStyle(run.userId, project(value), value);
-        },
-      ),
-      call(
-        "visual_style_generate_references",
-        "生成一张同时展示角色、场景和道具视觉语言的统一风格板。",
-        canvasToolSchemas.visual_style_generate_references.shape,
-        (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.visual_style_generate_references
-          >;
-          return generateAgentVisualStyleReferences(
-            run.userId,
-            project(value),
-            value,
-          );
-        },
-      ),
-      call(
-        "visual_style_delete",
-        "永久删除视觉风格及全部画布视图，执行前需要业务确认。",
-        canvasToolSchemas.visual_style_delete.shape,
-        async (input) => {
-          const value = input as z.infer<
-            typeof canvasToolSchemas.visual_style_delete
-          >;
-          await context.requireDecision("visual_style_delete", value);
-          return deleteAgentVisualStyle(
-            run.userId,
-            project(value),
-            value.styleId,
-          );
-        },
-      ),
-      call(
-        "site_navigate",
-        "让当前已登录页面在本画布项目内跳转；没有活动页面时返回 CLIENT_REQUIRED。",
-        {
-          path: z
-            .string()
-            .max(500)
-            .regex(/^\/canvas\/[^/]+(?:\/.*)?$/, "只能在当前画布项目内跳转"),
-        },
-        (input) => {
-          const value = input as { path: string };
-          const targetProjectId = decodeURIComponent(
-            value.path.split("/")[2] || "",
-          );
-          if (targetProjectId !== projectId)
-            throw mcpError(
-              403,
-              "AGENT_PROJECT_ISOLATED",
-              "不能跳转到其他画布项目",
-            );
-          return context.requestClientAction("site_navigate", value);
-        },
-      ),
-      call(
-        "canvas_select_nodes",
-        "在当前已打开画布页面选择节点。",
-        { ids: z.array(z.string()).max(200) },
-        (input) => context.requestClientAction("canvas_select_nodes", input),
-      ),
-      call(
-        "canvas_focus_nodes",
-        "让当前已打开画布页面聚焦节点。",
-        { ids: z.array(z.string()).min(1).max(200) },
-        (input) => context.requestClientAction("canvas_focus_nodes", input),
-      ),
+      call("canvas_view", "在当前画布选择或聚焦节点；没有活动页面时返回 CLIENT_REQUIRED。", { action: z.enum(["select", "focus"]), ids: z.array(z.string()).max(200) },
+        (input: { action: "select" | "focus"; ids: string[] }) => {
+          if (input.action === "focus" && !input.ids.length) throw new Error("聚焦需要至少一个节点");
+          return context.requestClientAction(`canvas_${input.action}_nodes`, { ids: input.ids });
+        }),
       call(
         "workspace_write_text",
         "在当前项目共享工作空间中原子写入 UTF-8 文本产物；同一路径会顺序完成。",

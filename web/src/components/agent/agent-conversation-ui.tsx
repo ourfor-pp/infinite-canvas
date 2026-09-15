@@ -395,7 +395,7 @@ export function AgentDecisionCard({ pending, theme, busy, onDecide }: {
     onDecide: (decision: "approved" | "rejected", scope?: "once" | "session" | "project", proposalEdits?: unknown) => void;
 }) {
     const director = pending.toolName === "director_create_assets";
-    const proposal = ["creative_assets_create_batch", "director_create_assets"].includes(pending.toolName || "");
+    const proposal = pending.toolName === "director_create_assets";
     return (
         <section className="mx-3 mb-2 overflow-hidden rounded-2xl border" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
             <div className="flex gap-3 p-3.5">

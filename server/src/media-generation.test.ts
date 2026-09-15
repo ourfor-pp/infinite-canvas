@@ -28,6 +28,7 @@ const executor = createServer(async (req, res) => {
     assert.equal(req.headers.authorization, "Bearer private-test-token");
     assert.equal(req.headers["x-media-protocol"], "2");
     const send = (body: unknown, status = 200) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); };
+    if (req.url === "/v1/capabilities") return send({ version: "2", capabilities: [{ id: "minimax-music3-local", available: true, modes: ["music"], operations: ["generate"] }] });
     if (req.url === "/health") return send({ protocolVersion: "2", models: { "qwen3-asr-1.7b-local": { engine: "asr" } }, runtimes: { asr: true }, comfyFeatures: { music3: true }, h3Runtime: null });
     if (req.url === "/v1/files") { for await (const _ of req) { /* consume multipart */ } return send({ id: "uploaded-audio" }); }
     if (req.url === "/v1/jobs/validate") {
@@ -142,4 +143,36 @@ test("异步工程回写失败持久记录并可恢复，重试不重复采用�
     db.prepare("UPDATE generation_effects SET status='pending' WHERE generation_id=?").run(generationId);
     await resumeGenerationEffects();
     assert.deepEqual(db.prepare("SELECT payload,revision FROM director_shots WHERE id=?").get(shot.id), adopted);
+});
+
+
+test("画布统一入口发现、校验、提交、查询和采用中立结果", async () => {
+    const { buildAgentToolDefinitions } = await import("./agent/mcp/index.js");
+    const { agentScenes } = await import("./agent/scenes/index.js");
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO projects(id,user_id,title,payload,created_at,updated_at) VALUES('canvas-flow','dev-admin','test',?, ?, ?)").run(JSON.stringify({ id: "canvas-flow", nodes: [], connections: [] }), now, now);
+    const context = { session: { projectId: "canvas-flow" }, run: { userId: "dev-admin" }, resolveWorkspacePath: (path: string) => join(root, "workspace", path), appendEvent() {} } as unknown as Parameters<typeof buildAgentToolDefinitions>[0];
+    const tools = buildAgentToolDefinitions(context, agentScenes.canvas);
+    const call = async (name: string, input: Record<string, unknown>) => {
+        const result = await tools.find((tool) => tool.name === name)!.handler(input);
+        assert.equal(result.isError, undefined, JSON.stringify(result));
+        return JSON.parse((result.content[0] as { text: string }).text).data;
+    };
+    assert.equal((await call("media_list_capabilities", {})).executor.available, true);
+    const count = (db.prepare("SELECT COUNT(*) AS n FROM generations").get() as { n: number }).n;
+    assert.equal((await call("media_validate_generation", { request: { source: "executor", ...input } })).valid, true);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM generations").get() as { n: number }).n, count);
+    const bypass = await tools.find((tool) => tool.name === "media_generate")!.handler({ request: { source: "channel", kind: "audio", model: input.model, prompt: "bypass" } });
+    assert.equal(bypass.isError, true);
+    const task = await call("media_generate", { request: { source: "executor", ...input } });
+    let status = task;
+    for (let i = 0; i < 150 && ["queued", "running"].includes(status.status); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        status = await call("media_get_generation_status", { generationId: task.id });
+    }
+    assert.equal(status.status, "succeeded");
+    assert.equal((await call("canvas_get_state", { view: "summary" })).nodeCount, 0);
+    const adopted = await call("canvas_adopt_result", { generationId: task.id, fileId: status.result.files[0].fileId, expectedRevision: 1 });
+    assert.ok(adopted.nodeId);
+    assert.equal((await call("canvas_get_state", {})).nodes[0].type, "audio");
 });

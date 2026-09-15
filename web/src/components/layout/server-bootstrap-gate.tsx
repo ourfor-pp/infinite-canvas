@@ -7,8 +7,6 @@ import { Database, HardDriveUpload } from "lucide-react";
 import { bootstrapServerState, hydrateFromServer, importLegacyData, markLegacyMigrationSkipped } from "@/services/server-bootstrap";
 import { subscribeServerEvents } from "@/services/api/server";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
-import { useCreativeAssetStore } from "@/stores/use-creative-asset-store";
-import { useVisualStyleStore } from "@/stores/use-visual-style-store";
 
 type LegacyData = Awaited<ReturnType<typeof bootstrapServerState>>["legacy"];
 let bootstrapPromise: ReturnType<typeof bootstrapServerState> | null = null;
@@ -78,7 +76,6 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
         const restore = () => { if (document.visibilityState !== "hidden") useDirectorStore.getState().reconnect(); };
         const unsubscribe = subscribeServerEvents(
         (generation) => {
-            useCreativeAssetStore.getState().applyGeneration(generation);
             window.dispatchEvent(new CustomEvent("infinite-canvas:generation-updated", { detail: generation }));
         },
         (delta) => window.dispatchEvent(new CustomEvent("infinite-canvas:generation-delta", { detail: delta })),
@@ -88,11 +85,9 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
             }
         },
         (asset) => {
-            useCreativeAssetStore.getState().apply(asset);
             window.dispatchEvent(new CustomEvent("infinite-canvas:creative-asset-updated", { detail: asset }));
         },
         (style) => {
-            useVisualStyleStore.getState().apply(style);
             window.dispatchEvent(new CustomEvent("infinite-canvas:visual-style-updated", { detail: style }));
         },
         (entity) => window.dispatchEvent(new CustomEvent("infinite-canvas:director-updated", { detail: entity })),

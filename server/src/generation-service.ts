@@ -67,7 +67,7 @@ export function generationResponse(row: GenerationRow) {
 let observeGeneration: (row: GenerationRow) => void = () => undefined;
 export function setGenerationObserver(observer: typeof observeGeneration) { observeGeneration = observer; }
 
-export function createGeneration(userId: string, input: AiGenerationRequest, id = nanoid()) {
+export function validateGenerationRequest(userId: string, input: AiGenerationRequest) {
     const purpose = (input.purpose || "default") as GenerationPurpose;
     const selection = purpose === "default"
         ? input.kind === "image"
@@ -107,6 +107,11 @@ export function createGeneration(userId: string, input: AiGenerationRequest, id 
         if (["first-frame", "last-frame"].includes(role) && kind !== "image") throw generationError("AI_VIDEO_FRAME_KIND", "首帧和尾帧引用必须是图片");
         if (!getStoredFile(userId, reference.fileId)) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
     }
+    return selection;
+}
+
+export function createGeneration(userId: string, input: AiGenerationRequest, id = nanoid()) {
+    const selection = validateGenerationRequest(userId, input);
     const now = new Date().toISOString();
     db.transaction(() => {
         db.prepare(`INSERT INTO generations(id, user_id, kind, status, provider_id, model_id, request, progress, comfy_server_id, created_at, updated_at)

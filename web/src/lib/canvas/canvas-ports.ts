@@ -6,24 +6,14 @@ const RESOURCE_TYPE: Partial<Record<string, CanvasPortDataType>> = {
     [CanvasNodeType.Image]: "image",
     [CanvasNodeType.Audio]: "audio",
     [CanvasNodeType.Video]: "video",
-    "visual-style": "visual-style",
-    character: "creative-asset",
-    scene: "creative-asset",
-    prop: "creative-asset",
 };
-const CREATIVE_ASSET_TYPES = new Set(["character", "scene", "prop"]);
-
-export function isCreativeAssetInputProxy(node: CanvasNodeData, port: CanvasNodePort) {
-    return CREATIVE_ASSET_TYPES.has(node.type) && port.direction === "input" && port.id === "input";
-}
-
 export function nodePorts(node: CanvasNodeData): CanvasNodePort[] {
     const configured = getNodeDefinition(node.type)?.ports;
     if (configured) return typeof configured === "function" ? configured(node) : configured;
     if (node.type === CanvasNodeType.Group) return [];
     const outputType = RESOURCE_TYPE[node.type] || "text";
     return [
-        { id: "input", label: "输入", direction: "input", dataType: outputType, accepts: ["text", "image", "audio", "video", "visual-style", "creative-asset"], multiple: true, position: 0.5 },
+        { id: "input", label: "输入", direction: "input", dataType: outputType, accepts: ["text", "image", "audio", "video"], multiple: true, position: 0.5 },
         { id: "output", label: "输出", direction: "output", dataType: outputType, multiple: true, position: 0.5 },
     ];
 }
@@ -34,7 +24,6 @@ export function portById(node: CanvasNodeData, id: string, direction?: CanvasNod
 
 export function compatibleTargetPort(source: CanvasNodePort, node: CanvasNodeData, connections: CanvasConnection[]) {
     return nodePorts(node).find((target) => {
-        if (isCreativeAssetInputProxy(node, target)) return false;
         if (target.direction !== "input" || !(target.dataType === source.dataType || target.accepts?.includes(source.dataType))) return false;
         return target.multiple || !connections.some((connection) => connection.toNodeId === node.id && connection.toPortId === target.id);
     });

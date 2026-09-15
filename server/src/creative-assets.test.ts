@@ -8,7 +8,7 @@ const testData = mkdtempSync(join(tmpdir(), "infinite-canvas-assets-"));
 process.env.DATA_DIR = testData;
 process.env.APP_SECRET = "creative-assets-test";
 
-const [{ db }, { createCreativeAsset, deleteCanvasNodes, getCreativeAsset, placeCreativeAsset, syncCreativeAssetGeneration }, { previewCreativeAssetGeneration }, { createVisualStyle, setDefaultVisualStyle }] = await Promise.all([
+const [{ db }, { createCreativeAsset, deleteCanvasNodes, getCreativeAsset, syncCreativeAssetGeneration }, { previewCreativeAssetGeneration }, { createVisualStyle, setDefaultVisualStyle }] = await Promise.all([
     import("./database.js"),
     import("./creative-assets.js"),
     import("./creative-asset-generation.js"),
@@ -17,26 +17,18 @@ const [{ db }, { createCreativeAsset, deleteCanvasNodes, getCreativeAsset, place
 
 after(() => { db.close(); rmSync(testData, { recursive: true, force: true }); });
 
-test("删除业务节点同步删除资产实体、全部视图和连接", () => {
+test("删除通用节点清理连线与分组，不删除其他节点", () => {
     const userId = "user-1";
     const projectId = "project-1";
     const now = new Date().toISOString();
     db.prepare("INSERT INTO users(id,username,is_admin,created_at,updated_at) VALUES(?,?,1,?,?)").run(userId, "测试用户", now, now);
-    const payload = { id: projectId, title: "测试画布", nodes: [{ id: "text-1", type: "text", metadata: {} }], connections: [], createdAt: now, updatedAt: now };
+    const payload = { id: projectId, title: "测试画布", nodes: [{ id: "group-1", type: "group" }, { id: "text-1", type: "text", metadata: { groupId: "group-1" } }, { id: "image-1", type: "image" }], connections: [{ id: "link-1", fromNodeId: "group-1", toNodeId: "image-1" }], createdAt: now, updatedAt: now };
     db.prepare("INSERT INTO projects(id,user_id,title,payload,revision,created_at,updated_at) VALUES(?,?,?,?,1,?,?)").run(projectId, userId, payload.title, JSON.stringify(payload), now, now);
-    const asset = createCreativeAsset(userId, projectId, { kind: "character", name: "临时角色", payload: { description: "测试" } });
-    const first = placeCreativeAsset(userId, asset.id, { x: 100, y: 100 });
-    const second = placeCreativeAsset(userId, asset.id, { x: 600, y: 100 });
-    const row = db.prepare("SELECT payload,revision FROM projects WHERE id=?").get(projectId) as { payload: string; revision: number };
-    const project = JSON.parse(row.payload) as { connections: unknown[] };
-    project.connections.push({ id: "link-1", fromNodeId: "text-1", fromPortId: "output", toNodeId: first.nodeId, toPortId: "setting" });
-    db.prepare("UPDATE projects SET payload=? WHERE id=?").run(JSON.stringify(project), projectId);
-
-    const saved = deleteCanvasNodes(userId, projectId, [first.nodeId], row.revision);
-
-    assert.equal(saved.nodes.some((node: { id: string }) => node.id === first.nodeId || node.id === second.nodeId), false);
+    const saved = deleteCanvasNodes(userId, projectId, ["group-1"], 1);
+    assert.deepEqual(saved.nodes.map((node) => node.id), ["text-1", "image-1"]);
+    assert.equal(saved.nodes[0].metadata?.groupId, undefined);
     assert.equal(saved.connections.length, 0);
-    assert.throws(() => getCreativeAsset(userId, asset.id), /不存在/);
+    assert.throws(() => deleteCanvasNodes(userId, projectId, ["text-1"], 1), /版本/);
 });
 
 test("媒体草稿预览按业务语义组装且生成结果直接替换主版本", () => {

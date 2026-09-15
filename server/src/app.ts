@@ -1,3 +1,4 @@
+import { canvasNodeTypeSchema } from "./agent/canvas-tools.js";
 import { registerGenerationEffects } from "./generation-effects.js";
 import { listMediaCapabilities } from "./media-capabilities.js";
 import { createMediaGeneration, prepareMediaGeneration } from "./media-generation.js";
@@ -26,13 +27,12 @@ import {
     deleteCreativeAsset,
     getCreativeAsset,
     listCreativeAssets,
-    placeCreativeAsset,
     setCreativeAssetPrimary,
     reviewCreativeAssetVariant,
     updateCreativeAsset,
 } from "./creative-assets.js";
 import { createCreativeAssetGeneration, createDirectorAssetGeneration, previewCreativeAssetGeneration, previewDirectorAssetGeneration } from "./creative-asset-generation.js";
-import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, placeVisualStyle, setDefaultVisualStyle, updateVisualStyle } from "./visual-styles.js";
+import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, setDefaultVisualStyle, updateVisualStyle } from "./visual-styles.js";
 import { createVisualStyleAnalysis, createVisualStyleReferences } from "./visual-style-generation.js";
 import {
     createDirectorSequence, createDirectorSource, createDirectorVideoSegment, deleteDirectorSequence, deleteDirectorVideoSegment,
@@ -54,7 +54,7 @@ type ComfyServerRow = { id: string; name: string; encrypted_url: string; enabled
 const idSchema = z.string().trim().min(1).max(128);
 const jsonRecord = z.record(z.string(), z.unknown());
 const projectKindSchema = z.enum(["canvas", "director"]);
-const projectSchema = z.object({ id: idSchema, kind: projectKindSchema.default("canvas"), title: z.string().trim().min(1).max(200) }).passthrough();
+const projectSchema = z.object({ id: idSchema, kind: projectKindSchema.default("canvas"), title: z.string().trim().min(1).max(200), nodes: z.array(z.object({ type: canvasNodeTypeSchema }).passthrough()).optional() }).passthrough();
 const assetSchema = z.object({ id: idSchema, kind: z.enum(["text", "image", "video", "character", "scene", "prop"]), title: z.string().trim().min(1).max(200) }).passthrough();
 const settingsSchema = z.object({ config: jsonRecord, promptSources: jsonRecord.optional() });
 const comfyServerSchema = z.object({ name: z.string().trim().min(1).max(100), url: z.string().url(), enabled: z.boolean().default(true), models: z.array(z.enum(COMFY_MODELS)).min(1) });
@@ -292,7 +292,6 @@ api.post("/projects/:id/creative-assets", route((req) => createCreativeAsset(req
 api.get("/creative-assets/:id", route((req) => getCreativeAsset(req.user.id, routeId(req))));
 api.put("/creative-assets/:id", route((req) => updateCreativeAsset(req.user.id, routeId(req), req.body, true)));
 api.delete("/creative-assets/:id", route((req) => deleteCreativeAsset(req.user.id, routeId(req))));
-api.post("/creative-assets/:id/place", route((req) => placeCreativeAsset(req.user.id, routeId(req), z.object({ x: z.number().optional(), y: z.number().optional() }).parse(req.body || {})), 201));
 api.post("/creative-assets/:id/variants/:variantId/primary", route((req) => setCreativeAssetPrimary(req.user.id, routeId(req), routeParam(req, "variantId"), z.number().int().positive().parse(req.body?.revision), true)));
 api.post("/creative-assets/:id/variants/:variantId/review", route((req) => reviewCreativeAssetVariant(req.user.id, routeId(req), routeParam(req, "variantId"), z.object({ revision: z.number().int().positive(), accepted: z.boolean(), summary: z.string().max(2_000).optional(), issues: z.array(z.string().max(500)).max(50).optional(), setPrimary: z.boolean().optional() }).parse(req.body))));
 api.post("/creative-assets/:id/generation-preview", route((req) => previewCreativeAssetGeneration(req.user.id, routeId(req), req.body)));
@@ -304,7 +303,6 @@ api.post("/projects/:id/visual-styles", route((req) => createVisualStyle(req.use
 api.get("/visual-styles/:id", route((req) => getVisualStyle(req.user.id, routeId(req))));
 api.put("/visual-styles/:id", route((req) => updateVisualStyle(req.user.id, routeId(req), req.body)));
 api.delete("/visual-styles/:id", route((req) => deleteVisualStyle(req.user.id, routeId(req))));
-api.post("/visual-styles/:id/place", route((req) => placeVisualStyle(req.user.id, routeId(req), z.object({ x: z.number().optional(), y: z.number().optional() }).parse(req.body || {})), 201));
 api.post("/visual-styles/:id/default", route((req) => setDefaultVisualStyle(req.user.id, routeId(req))));
 api.post("/visual-styles/:id/references/generate", route((req) => createVisualStyleReferences(req.user.id, routeId(req), req.body), 201));
 api.post("/visual-styles/:id/analyze", route((req) => createVisualStyleAnalysis(req.user.id, routeId(req), req.body), 201));

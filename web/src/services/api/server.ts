@@ -78,7 +78,6 @@ export type CreativeAssetGenerationPreview = {
     references: Array<{ fileId: string; kind: "image" | "audio"; source: "style" | "asset" | "canvas" | "primary"; label: string; purpose?: string; nodeId?: string; title?: string }>;
     excludedReferences: Array<{ fileId: string; source: "style" | "asset" | "canvas"; label: string; reason: string }>;
     style: { id: string; revision: number; name: string; description: string; referenceFileId: string | null; imageApplied: boolean } | null;
-    canvasInputs: { texts: string[]; imageFileIds: string[]; audioFileIds: string[]; imageReferences: Array<{ nodeId: string; fileId: string; label: string; title: string }>; audioReferences: Array<{ nodeId: string; fileId: string; label: string; title: string }> };
     warnings: Array<{ code: string; message: string; blocking: boolean }>;
     params: Record<string, unknown>;
 };
@@ -125,7 +124,6 @@ export const serverApi = {
     creativeAsset: (id: string) => serverRequest<CreativeAsset>(`/creative-assets/${encodeURIComponent(id)}`),
     updateCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<CreativeAsset>(`/creative-assets/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
     deleteCreativeAsset: (id: string) => serverRequest(`/creative-assets/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    placeCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<{ nodeId: string; projectId: string }>(`/creative-assets/${encodeURIComponent(id)}/place`, { method: "POST", body: JSON.stringify(input) }),
     previewCreativeAssetGeneration: (id: string, input: Record<string, unknown>) => serverRequest<CreativeAssetGenerationPreview>(`/creative-assets/${encodeURIComponent(id)}/generation-preview`, { method: "POST", body: JSON.stringify(input) }),
     generateCreativeAsset: (id: string, input: Record<string, unknown>) => serverRequest<ServerGeneration>(`/creative-assets/${encodeURIComponent(id)}/generations`, { method: "POST", body: JSON.stringify(input) }),
     setCreativeAssetPrimary: (id: string, variantId: string, revision: number) => serverRequest<CreativeAsset>(`/creative-assets/${encodeURIComponent(id)}/variants/${encodeURIComponent(variantId)}/primary`, { method: "POST", body: JSON.stringify({ revision }) }),
@@ -135,7 +133,6 @@ export const serverApi = {
     createVisualStyle: (projectId: string, input: Record<string, unknown>) => serverRequest<VisualStyle>(`/projects/${encodeURIComponent(projectId)}/visual-styles`, { method: "POST", body: JSON.stringify(input) }),
     updateVisualStyle: (id: string, input: Record<string, unknown>) => serverRequest<VisualStyle>(`/visual-styles/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
     deleteVisualStyle: (id: string) => serverRequest(`/visual-styles/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    placeVisualStyle: (id: string, input: Record<string, unknown>) => serverRequest<{ nodeId: string; projectId: string }>(`/visual-styles/${encodeURIComponent(id)}/place`, { method: "POST", body: JSON.stringify(input) }),
     setDefaultVisualStyle: (id: string) => serverRequest<VisualStyle>(`/visual-styles/${encodeURIComponent(id)}/default`, { method: "POST" }),
     analyzeVisualStyle: (id: string, revision: number) => serverRequest<ServerGeneration>(`/visual-styles/${encodeURIComponent(id)}/analyze`, { method: "POST", body: JSON.stringify({ revision }) }),
     generateVisualStyleReferences: (id: string, revision: number) => serverRequest<ServerGeneration>(`/visual-styles/${encodeURIComponent(id)}/references/generate`, { method: "POST", body: JSON.stringify({ revision }) }),

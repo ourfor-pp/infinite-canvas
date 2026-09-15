@@ -1,23 +1,20 @@
+import { config } from "../config.js";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { db, parseJson } from "../database.js";
-import { syncFileRefs } from "../file-store.js";
+import { getStoredFile, syncFileRefs } from "../file-store.js";
 import { createGeneration, generationResponse, getGenerationForAgent } from "../generation-service.js";
 import { listPublicModels } from "../provider-service.js";
 import { publishAgentProject } from "./project-events.js";
 import {
     createCreativeAssetsBatch,
     creativeAssetInputSchema,
-    deleteCanvasNodes,
     deleteCreativeAsset,
     getCreativeAsset,
     listCreativeAssets,
-    placeCreativeAsset,
-    setCreativeAssetPrimary,
     updateCreativeAsset,
 } from "../creative-assets.js";
-import { createCreativeAssetGeneration } from "../creative-asset-generation.js";
-import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, placeVisualStyle, setDefaultVisualStyle, updateVisualStyle } from "../visual-styles.js";
+import { createVisualStyle, deleteVisualStyle, getVisualStyle, listVisualStyles, listVisualStyleTemplates, setDefaultVisualStyle, updateVisualStyle } from "../visual-styles.js";
 import { createVisualStyleAnalysis, createVisualStyleReferences } from "../visual-style-generation.js";
 
 type ProjectRow = { id: string; user_id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };
@@ -25,42 +22,35 @@ type CanvasNode = { id: string; type?: string; title?: string; position?: { x?: 
 type CanvasPayload = Record<string, unknown> & { id: string; title: string; nodes: CanvasNode[]; connections: Array<Record<string, unknown>>; revision?: number; updatedAt?: string };
 
 const record = z.record(z.string(), z.unknown());
+export const canvasNodeTypeSchema = z.string().refine((type) => ["text", "image", "video", "audio", "config", "group"].includes(type) || /^[^:]+:[^:]+$/.test(type), "画布只支持通用节点和已命名的插件节点");
 const canvasOp = z.discriminatedUnion("type", [
-    z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: z.string().optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().optional(), height: z.number().optional(), metadata: record.optional() }).passthrough(),
+    z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: canvasNodeTypeSchema.optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().optional(), height: z.number().optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("update_node"), id: z.string(), patch: record.optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("delete_node"), id: z.string().optional(), ids: z.array(z.string()).optional() }).passthrough(),
     z.object({ type: z.literal("delete_connections"), id: z.string().optional(), ids: z.array(z.string()).optional(), all: z.boolean().optional() }).passthrough(),
     z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), fromPortId: z.string(), toNodeId: z.string(), toPortId: z.string() }).passthrough(),
 ]);
 const canvasSafeOp = z.discriminatedUnion("type", [
-    z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: z.string().optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().optional(), height: z.number().optional(), metadata: record.optional() }).passthrough(),
+    z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: canvasNodeTypeSchema.optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().optional(), height: z.number().optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("update_node"), id: z.string(), patch: record.optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), fromPortId: z.string(), toNodeId: z.string(), toPortId: z.string() }).passthrough(),
 ]);
 
 export const canvasToolSchemas = {
-    canvas_get_state: z.object({ projectId: z.string().optional() }),
-    canvas_get_selection: z.object({ projectId: z.string().optional() }),
-    canvas_apply_ops: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ops: z.array(canvasSafeOp).min(1) }),
-    canvas_create_text_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), items: z.array(z.object({ text: z.string().max(1_000_000), title: z.string().optional(), x: z.number().optional(), y: z.number().optional(), width: z.number().min(220).max(1600).optional(), height: z.number().min(160).max(2400).optional(), fontSize: z.number().min(10).max(48).optional() })).min(1) }),
-    canvas_delete_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ids: z.array(z.string()).min(1) }),
-    canvas_delete_connections: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ids: z.array(z.string()).min(1) }),
-    canvas_connect_nodes: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), connections: z.array(z.object({ fromNodeId: z.string(), fromPortId: z.string(), toNodeId: z.string(), toPortId: z.string() })).min(1) }),
-    canvas_list_projects: z.object({ keyword: z.string().optional(), limit: z.number().int().min(1).max(100).optional() }),
-    assets_list: z.object({ kind: z.enum(["all", "text", "image", "video"]).optional(), keyword: z.string().optional(), limit: z.number().int().min(1).max(100).optional() }),
+    canvas_get_state: z.object({ projectId: z.string().optional(), view: z.enum(["summary", "nodes", "connections", "content"]).default("nodes"), nodeIds: z.array(z.string()).max(50).optional(), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(50).default(20), contentOffset: z.number().int().min(0).default(0), contentLimit: z.number().int().min(1).max(16_000).default(8_000), expectedRevision: z.number().int().positive().optional() }),
+    canvas_delete: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), nodeIds: z.array(z.string()).max(200).default([]), connectionIds: z.array(z.string()).max(200).default([]) }),
+    canvas_adopt_result: z.object({ generationId: z.string().min(1), fileId: z.string().min(1).optional(), expectedRevision: z.number().int().positive(), nodeId: z.string().min(1).optional(), title: z.string().max(200).optional(), position: z.object({ x: z.number(), y: z.number() }).optional() }),
+    canvas_apply_ops: z.object({ projectId: z.string().optional(), expectedRevision: z.number().int().positive(), ops: z.array(canvasSafeOp).min(1).max(100) }),
+    assets_list: z.object({ kind: z.enum(["all", "text", "image", "video"]).optional(), keyword: z.string().max(200).optional(), offset: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(100).optional() }),
     assets_add: z.object({ kind: z.enum(["text", "image", "video"]), title: z.string().min(1).max(200), payload: record }),
     assets_delete: z.object({ ids: z.array(z.string()).min(1).max(200) }),
-    prompts_search: z.object({ keyword: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(50).optional() }),
     generation_get_status: z.object({ id: z.string().optional(), limit: z.number().int().min(1).max(100).optional() }),
     generation_list_models: z.object({ kind: z.enum(["text", "image", "video", "audio"]).optional() }),
     generation_create: z.object({ kind: z.enum(["text", "image", "video", "audio"]), model: z.string(), prompt: z.string(), projectId: z.string().optional(), nodeId: z.string().optional(), references: z.array(z.object({ fileId: z.string(), kind: z.enum(["image", "video", "audio"]).optional(), role: z.enum(["reference", "first-frame", "last-frame", "continuation"]).optional() })).optional() }),
     creative_assets_list: z.object({ projectId: z.string().optional(), kind: z.enum(["character", "scene", "prop"]).optional() }),
     creative_asset_get: z.object({ projectId: z.string().optional(), assetId: z.string() }),
-    creative_assets_create_batch: z.object({ projectId: z.string().optional(), sourceNodeId: z.string().optional(), items: z.array(creativeAssetInputSchema).min(1).max(200) }),
+    creative_assets_create_batch: z.object({ projectId: z.string().optional(), items: z.array(creativeAssetInputSchema).min(1).max(200) }),
     creative_asset_update: z.object({ projectId: z.string().optional(), assetId: z.string(), revision: z.number().int().positive(), patch: creativeAssetInputSchema.partial() }),
-    creative_asset_place: z.object({ projectId: z.string().optional(), assetId: z.string(), x: z.number().optional(), y: z.number().optional() }),
-    creative_asset_generate: z.object({ projectId: z.string().optional(), assetId: z.string(), nodeId: z.string().optional(), kind: z.enum(["image", "audio"]), revision: z.number().int().positive() }),
-    creative_asset_set_primary: z.object({ projectId: z.string().optional(), assetId: z.string(), variantId: z.string(), revision: z.number().int().positive() }),
     creative_asset_delete: z.object({ projectId: z.string().optional(), assetId: z.string() }),
     visual_styles_list: z.object({ projectId: z.string().optional() }),
     visual_style_templates_list: z.object({
@@ -72,7 +62,6 @@ export const canvasToolSchemas = {
     visual_style_get: z.object({ projectId: z.string().optional(), styleId: z.string() }),
     visual_style_create: z.object({ projectId: z.string().optional(), name: z.string().min(1).max(200), mode: z.enum(["template", "custom"]), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), status: z.enum(["draft", "confirmed"]).optional(), dna: z.record(z.string(), z.unknown()).optional(), references: z.record(z.string(), z.string()).optional() }),
     visual_style_update: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive(), name: z.string().min(1).max(200).optional(), mode: z.enum(["template", "custom"]).optional(), templateId: z.string().nullable().optional(), description: z.string().max(20_000).optional(), status: z.enum(["draft", "confirmed"]).optional(), dna: z.record(z.string(), z.unknown()).optional(), references: z.record(z.string(), z.string()).optional() }),
-    visual_style_place: z.object({ projectId: z.string().optional(), styleId: z.string(), x: z.number().optional(), y: z.number().optional() }),
     visual_style_set_default: z.object({ projectId: z.string().optional(), styleId: z.string() }),
     visual_style_analyze: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive() }),
     visual_style_generate_references: z.object({ projectId: z.string().optional(), styleId: z.string(), revision: z.number().int().positive() }),
@@ -85,15 +74,52 @@ export function getCanvasState(userId: string, projectId: string) {
     return { ...payload, revision: row.revision };
 }
 
-export function listProjects(userId: string, input: z.infer<typeof canvasToolSchemas.canvas_list_projects>) {
-    const keyword = `%${String(input.keyword || "").trim()}%`;
-    const rows = db.prepare("SELECT id, title, revision, updated_at FROM projects WHERE user_id=? AND (?='%%' OR title LIKE ?) ORDER BY updated_at DESC LIMIT ?")
-        .all(userId, keyword, keyword, input.limit || 30) as Array<{ id: string; title: string; revision: number; updated_at: string }>;
-    return rows.map((row) => ({ id: row.id, title: row.title, revision: row.revision, updatedAt: row.updated_at }));
+export function readCanvasState(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.canvas_get_state>) {
+    const state = getCanvasState(userId, projectId);
+    if (input.expectedRevision && state.revision !== input.expectedRevision) throw agentToolError("PROJECT_CONFLICT", "画布已更新，请从第一页重新读取");
+    const summary = { id: state.id, title: state.title, revision: state.revision, nodeCount: state.nodes.length, connectionCount: state.connections.length };
+    if (input.view === "summary") return summary;
+    const nodes = state.nodes.filter((node) => !input.nodeIds || input.nodeIds.includes(node.id));
+    if (input.view === "content") {
+        if (input.nodeIds?.length !== 1) throw agentToolError("NODE_REQUIRED", "读取正文必须指定一个 nodeId（nodeIds 数组仅一项）");
+        if (!nodes.length) throw agentToolError("NODE_NOT_FOUND", "节点不存在");
+        const content = String(nodes[0].metadata?.content || "");
+        const end = Math.min(content.length, input.contentOffset + input.contentLimit);
+        return { ...summary, nodeId: nodes[0].id, content: content.slice(input.contentOffset, end), totalCharacters: content.length, nextContentOffset: end < content.length ? end : null };
+    }
+    const items = input.view === "connections" ? state.connections.filter((item) => !input.nodeIds || input.nodeIds.includes(String(item.fromNodeId)) || input.nodeIds.includes(String(item.toNodeId))) : nodes;
+    const page = items.slice(input.offset, input.offset + input.limit).map((item) => input.view === "connections"
+        ? Object.fromEntries(["id", "fromNodeId", "fromPortId", "toNodeId", "toPortId"].map((key) => [key, item[key]]))
+        : { id: item.id, type: item.type, title: String(item.title || "").slice(0, 200), position: item.position, width: item.width, height: item.height,
+            metadata: Object.fromEntries(["status", "storageKey", "mimeType", "agentGenerationId", "agentGenerationStatus"].map((key) => [key, String((item as CanvasNode).metadata?.[key] || "").slice(0, 500)])),
+            contentLength: String((item as CanvasNode).metadata?.content || "").length });
+    return { ...summary, [input.view]: page, total: items.length, offset: input.offset, nextOffset: input.offset + page.length < items.length ? input.offset + page.length : null };
+}
+
+export function canvasMutationSummary(result: ReturnType<typeof applyCanvasOps>) {
+    return { projectId: result.projectId, revision: result.revision, applied: result.applied, nodeIds: result.nodeIds };
+}
+
+export function adoptCanvasResult(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.canvas_adopt_result>) {
+    const row = getGenerationForAgent(userId, input.generationId);
+    if (!row || generationProjectId(row.request) !== projectId || row.status !== "succeeded") throw agentToolError("GENERATION_NOT_FOUND", "任务未完成或不属于当前项目");
+    const result = parseJson<{ text?: string; files?: Array<{ id?: string; fileId?: string }>; cumulativeVideos?: Array<{ id?: string; fileId?: string }> }>(row.result, {});
+    const file = input.fileId ? getStoredFile(userId, input.fileId) : undefined;
+    if (input.fileId && (!file || ![...(result.files || []), ...(result.cumulativeVideos || [])].some((item) => (item.fileId || item.id) === input.fileId))) throw agentToolError("RESULT_FILE_INVALID", "文件不是当前任务的输出");
+    const kind = file ? file.mime_type.split("/")[0] : "text";
+    if (!["text", "image", "video", "audio"].includes(kind) || (!file && !result.text)) throw agentToolError("RESULT_UNSUPPORTED", "请选择图片、视频、音频结果文件或文本结果");
+    const state = getCanvasState(userId, projectId);
+    const node = input.nodeId ? state.nodes.find((item) => item.id === input.nodeId) : undefined;
+    if (input.nodeId && (!node || node.type !== kind)) throw agentToolError("NODE_TYPE_MISMATCH", "目标节点不存在或类型与结果不匹配");
+    const id = input.nodeId || `${kind}-${nanoid()}`;
+    const metadata = { content: file ? `${config.basePath}/api/files/${file.id}/content` : result.text, ...(file ? { storageKey: `server:${file.id}`, mimeType: file.mime_type, bytes: file.bytes } : {}), status: "success", agentGenerationId: row.id, agentGenerationStatus: row.status, errorDetails: null };
+    const mutation = applyCanvasOps(userId, projectId, [node ? { type: "update_node", id, metadata } : { type: "add_node", id, nodeType: kind, title: input.title || "生成结果", position: input.position, metadata }], input.expectedRevision);
+    return { ...canvasMutationSummary(mutation), nodeId: id };
 }
 
 export function applyCanvasOps(userId: string, projectId: string, ops: unknown[], expectedRevision?: number) {
     const parsed = z.array(canvasOp).parse(ops);
+    for (const op of parsed) if (op.type === "add_node" && !op.id) op.id = `${op.nodeType || "text"}-${nanoid()}`;
     const result = db.transaction(() => {
         const row = projectRow(userId, projectId);
         if (expectedRevision && row.revision !== expectedRevision) throw agentToolError("PROJECT_CONFLICT", `画布版本已从 ${expectedRevision} 更新为 ${row.revision}，请重新读取后再操作`);
@@ -105,37 +131,17 @@ export function applyCanvasOps(userId: string, projectId: string, ops: unknown[]
             .run(JSON.stringify(payload), now, projectId, userId, row.revision);
         if (!result.changes) throw agentToolError("PROJECT_CONFLICT", "画布已在其他页面更新，请重新读取后再操作");
         syncFileRefs(userId, "project", projectId, payload);
-        return { projectId, revision: row.revision + 1, applied: parsed.length, project: { ...payload, revision: row.revision + 1 } };
+        return { projectId, revision: row.revision + 1, applied: parsed.length, nodeIds: parsed.filter((op) => op.type === "add_node" || op.type === "update_node").map((op) => op.id!), project: { ...payload, revision: row.revision + 1 } };
     })();
     publishAgentProject(userId, result.project);
     return result;
 }
 
-export function createTextNodes(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.canvas_create_text_nodes>) {
-    const state = getCanvasState(userId, projectId);
-    if (state.revision !== input.expectedRevision) throw agentToolError("PROJECT_CONFLICT", `画布版本已从 ${input.expectedRevision} 更新为 ${state.revision}，请重新读取后再操作`);
-    const startX = Math.max(0, ...state.nodes.map((node) => Number(node.position?.x) || 0)) + 420;
-    return applyCanvasOps(userId, projectId, input.items.map((item, index) => ({
-        type: "add_node",
-        id: `text-${nanoid()}`,
-        nodeType: "text",
-        title: item.title || "Agent 文本",
-        position: { x: item.x ?? startX, y: item.y ?? index * 240 },
-        width: item.width ?? 340,
-        height: item.height ?? 200,
-        metadata: { content: item.text, status: "success", fontSize: item.fontSize ?? 14 },
-    })), input.expectedRevision);
-}
-
-export function deleteAgentCanvasNodes(userId: string, projectId: string, ids: string[], expectedRevision: number) {
-    return deleteCanvasNodes(userId, projectId, ids, expectedRevision);
-}
-
 export function listAssets(userId: string, input: z.infer<typeof canvasToolSchemas.assets_list>) {
     const keyword = `%${String(input.keyword || "").trim()}%`;
     const kind = input.kind && input.kind !== "all" ? input.kind : "";
-    return (db.prepare("SELECT id, kind, title, payload, updated_at FROM assets WHERE user_id=? AND (?='' OR kind=?) AND (?='%%' OR title LIKE ?) ORDER BY updated_at DESC LIMIT ?")
-        .all(userId, kind, kind, keyword, keyword, input.limit || 30) as Array<{ id: string; kind: string; title: string; payload: string; updated_at: string }>)
+    return (db.prepare("SELECT id, kind, title, payload, updated_at FROM assets WHERE user_id=? AND (?='' OR kind=?) AND (?='%%' OR title LIKE ? OR (kind='text' AND payload LIKE ?)) ORDER BY updated_at DESC, id LIMIT ? OFFSET ?")
+        .all(userId, kind, kind, keyword, keyword, keyword, input.limit || 30, input.offset || 0) as Array<{ id: string; kind: string; title: string; payload: string; updated_at: string }>)
         .map((row) => ({ id: row.id, kind: row.kind, title: row.title, payload: parseJson(row.payload, {}), updatedAt: row.updated_at }));
 }
 
@@ -156,13 +162,6 @@ export function deleteAssets(userId: string, input: z.infer<typeof canvasToolSch
         return db.prepare(`DELETE FROM assets WHERE user_id=? AND id IN (${placeholders})`).run(userId, ...input.ids).changes;
     });
     return { deleted: remove() };
-}
-
-export function searchPrompts(userId: string, input: z.infer<typeof canvasToolSchemas.prompts_search>) {
-    const keyword = `%${input.keyword}%`;
-    return (db.prepare("SELECT id, title, payload, updated_at FROM assets WHERE user_id=? AND kind='text' AND (title LIKE ? OR payload LIKE ?) ORDER BY updated_at DESC LIMIT ?")
-        .all(userId, keyword, keyword, input.limit || 20) as Array<{ id: string; title: string; payload: string; updated_at: string }>)
-        .map((row) => ({ id: row.id, title: row.title, payload: parseJson(row.payload, {}), updatedAt: row.updated_at }));
 }
 
 export function generationStatus(userId: string, input: z.infer<typeof canvasToolSchemas.generation_get_status>, projectId?: string) {
@@ -198,28 +197,13 @@ export function getAgentCreativeAsset(userId: string, projectId: string, assetId
     return asset;
 }
 
-export function createAgentCreativeAssetBatch(userId: string, projectId: string, items: unknown, sourceNodeId?: string, placeOnCanvas = true) {
-    return createCreativeAssetsBatch(userId, projectId, items, sourceNodeId, placeOnCanvas);
+export function createAgentCreativeAssetBatch(userId: string, projectId: string, items: unknown) {
+    return createCreativeAssetsBatch(userId, projectId, items);
 }
 
 export function updateAgentCreativeAsset(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_update>) {
     const asset = getAgentCreativeAsset(userId, projectId, input.assetId);
     return updateCreativeAsset(userId, asset.id, { ...input.patch, revision: input.revision }, true);
-}
-
-export function placeAgentCreativeAsset(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_place>) {
-    getAgentCreativeAsset(userId, projectId, input.assetId);
-    return placeCreativeAsset(userId, input.assetId, { x: input.x, y: input.y });
-}
-
-export function generateAgentCreativeAsset(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_generate>) {
-    getAgentCreativeAsset(userId, projectId, input.assetId);
-    return createCreativeAssetGeneration(userId, input.assetId, { kind: input.kind, nodeId: input.nodeId, revision: input.revision });
-}
-
-export function setAgentCreativeAssetPrimary(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.creative_asset_set_primary>) {
-    getAgentCreativeAsset(userId, projectId, input.assetId);
-    return setCreativeAssetPrimary(userId, input.assetId, input.variantId, input.revision, true);
 }
 
 export function deleteAgentCreativeAsset(userId: string, projectId: string, assetId: string) {
@@ -246,7 +230,6 @@ export function listAgentVisualStyleTemplates(input: z.infer<typeof canvasToolSc
 export function getAgentVisualStyle(userId: string, projectId: string, styleId: string) { return assertAgentStyle(userId, projectId, styleId); }
 export function createAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_create>) { return createVisualStyle(userId, projectId, input); }
 export function updateAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_update>) { assertAgentStyle(userId, projectId, input.styleId); const { projectId: _projectId, styleId, ...patch } = input; return updateVisualStyle(userId, styleId, patch); }
-export function placeAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_place>) { assertAgentStyle(userId, projectId, input.styleId); return placeVisualStyle(userId, input.styleId, input); }
 export function defaultAgentVisualStyle(userId: string, projectId: string, styleId: string) { assertAgentStyle(userId, projectId, styleId); return setDefaultVisualStyle(userId, styleId); }
 export function analyzeAgentVisualStyle(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_analyze>) { assertAgentStyle(userId, projectId, input.styleId); return createVisualStyleAnalysis(userId, input.styleId, input); }
 export function generateAgentVisualStyleReferences(userId: string, projectId: string, input: z.infer<typeof canvasToolSchemas.visual_style_generate_references>) { assertAgentStyle(userId, projectId, input.styleId); return createVisualStyleReferences(userId, input.styleId, input); }
@@ -276,6 +259,7 @@ function applyOp(payload: CanvasPayload, op: z.infer<typeof canvasOp>) {
         const node = payload.nodes.find((item) => item.id === op.id);
         if (!node) throw agentToolError("NODE_NOT_FOUND", `节点 ${op.id} 不存在`);
         const patch = { ...(op.patch || {}) };
+        if (patch.type !== undefined) patch.type = canvasNodeTypeSchema.parse(patch.type);
         delete patch.id;
         delete patch.metadata;
         Object.assign(node, patch);
@@ -306,17 +290,9 @@ function applyOp(payload: CanvasPayload, op: z.infer<typeof canvasOp>) {
 
 type AgentPort = { id: string; direction: "input" | "output"; dataType: string; multiple: boolean; accepts?: string[] };
 function agentNodePorts(node: CanvasNode): AgentPort[] {
-    if (node.type === "visual-style") return [{ id: "style", direction: "output", dataType: "visual-style", multiple: true }];
-    if (["character", "scene", "prop"].includes(String(node.type))) return [
-        { id: "reference-image", direction: "input", dataType: "image", multiple: true },
-        { id: "setting", direction: "input", dataType: "text", multiple: true },
-        { id: "style", direction: "input", dataType: "visual-style", multiple: false },
-        { id: "reference-audio", direction: "input", dataType: "audio", multiple: false },
-        { id: "asset", direction: "output", dataType: "creative-asset", multiple: true },
-    ];
     if (node.type === "group") return [];
     const output = ({ text: "text", image: "image", audio: "audio", video: "video" } as Record<string, string>)[String(node.type)] || "text";
-    const input: AgentPort = { id: "input", direction: "input", dataType: "text", accepts: ["text", "image", "audio", "video", "creative-asset"], multiple: true };
+    const input: AgentPort = { id: "input", direction: "input", dataType: "text", accepts: ["text", "image", "audio", "video"], multiple: true };
     return node.type === "config" ? [input] : [input, { id: "output", direction: "output", dataType: output, multiple: true }];
 }
 

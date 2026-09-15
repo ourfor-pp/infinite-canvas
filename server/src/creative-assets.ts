@@ -82,12 +82,6 @@ export type CreativeAssetRow = {
 };
 type SavedProject = Record<string, unknown> & { nodes: Array<{ id: string; metadata?: Record<string, unknown> }>; connections: Array<{ fromNodeId?: string; toNodeId?: string }> };
 
-const nodeLayout = {
-    character: { width: 420, height: 540 },
-    scene: { width: 420, height: 540 },
-    prop: { width: 420, height: 540 },
-} satisfies Record<CreativeAssetKind, { width: number; height: number }>;
-
 const id = z.string().trim().min(1).max(128);
 const text = z.string().max(20_000);
 const jsonRecord = z.record(z.string(), z.unknown());
@@ -236,17 +230,6 @@ export function updateCreativeAsset(userId: string, assetId: string, raw: unknow
         .run(nextKind, input.name || current.name, input.status || current.status, JSON.stringify(payload), now, assetId, userId, input.revision);
     if (!result.changes) throwConflict(userId, assetId);
     syncFileRefs(userId, "creative_asset", assetId, payload);
-    if (input.name || input.kind) {
-        const project = projectPayload(userId, current.project_id);
-        let changed = false;
-        project.nodes = project.nodes.map((node) => {
-            if (String(node.metadata?.assetId || "") !== assetId) return node;
-            changed = true;
-            const kind = nextKind;
-            return { ...node, type: kind, title: input.name || current.name, metadata: { ...node.metadata, assetKind: kind } };
-        });
-        if (changed) saveProjectPayload(userId, current.project_id, project);
-    }
     if (isDirectorProject(current.project_id)) syncDirectorAssetFile(userId, current.project_id, assetId);
     return publishAsset(creativeAssetRow(userId, assetId)!);
 }
@@ -286,8 +269,6 @@ export function deleteCreativeAsset(userId: string, assetId: string) {
     if (!row) throw creativeAssetError(404, "CREATIVE_ASSET_NOT_FOUND", "创作资产不存在或无权访问");
     if (isDirectorProject(row.project_id)) trashDirectorAssetFolder(userId, row.project_id, assetId);
     const project = projectPayload(userId, row.project_id);
-    project.nodes = project.nodes.filter((node) => String(node.metadata?.assetId || "") !== assetId);
-    project.connections = project.connections.filter((connection) => project.nodes.some((node) => node.id === connection.fromNodeId) && project.nodes.some((node) => node.id === connection.toNodeId));
     const now = new Date().toISOString();
     db.transaction(() => {
         db.prepare("UPDATE projects SET payload=?, revision=revision+1, updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...project, updatedAt: now }), now, row.project_id, userId);
@@ -305,8 +286,7 @@ export function deleteCanvasNodes(userId: string, projectId: string, nodeIds: st
     if (row.revision !== expectedRevision) throw creativeAssetError(409, "PROJECT_CONFLICT", `画布版本已从 ${expectedRevision} 更新为 ${row.revision}`);
     const project = parseJson<SavedProject>(row.payload, { nodes: [], connections: [] });
     const requested = new Set(nodeIds);
-    const assetIds = new Set(project.nodes.filter((node) => requested.has(node.id)).map((node) => String(node.metadata?.assetId || "")).filter(Boolean));
-    const removedNodeIds = new Set(project.nodes.filter((node) => requested.has(node.id) || assetIds.has(String(node.metadata?.assetId || ""))).map((node) => node.id));
+    const removedNodeIds = new Set(project.nodes.filter((node) => requested.has(node.id)).map((node) => node.id));
     project.nodes = project.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
         if (!removedNodeIds.has(String(node.metadata?.groupId || ""))) return node;
         return { ...node, metadata: { ...node.metadata, groupId: undefined } };
@@ -316,63 +296,35 @@ export function deleteCanvasNodes(userId: string, projectId: string, nodeIds: st
     db.transaction(() => {
         const updated = db.prepare("UPDATE projects SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?").run(JSON.stringify({ ...project, updatedAt: now }), now, projectId, userId, expectedRevision);
         if (!updated.changes) throw creativeAssetError(409, "PROJECT_CONFLICT", "画布已更新，请重新加载后再删除");
-        for (const assetId of assetIds) {
-            db.prepare("DELETE FROM file_refs WHERE user_id=? AND owner_type='creative_asset' AND owner_id=?").run(userId, assetId);
-            db.prepare("DELETE FROM creative_assets WHERE id=? AND user_id=? AND project_id=?").run(assetId, userId, projectId);
-        }
         syncFileRefs(userId, "project", projectId, project);
     })();
     publishProjectRow(userId, projectId);
-    for (const assetId of assetIds) emitAsset(userId, { id: assetId, projectId, deleted: true });
     const saved = db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as typeof row;
     return { ...parseJson<SavedProject>(saved.payload, { nodes: [], connections: [] }), id: saved.id, title: saved.title, revision: saved.revision, createdAt: saved.created_at, updatedAt: saved.updated_at };
 }
 
-export function placeCreativeAsset(userId: string, assetId: string, input: { x?: number; y?: number } = {}) {
-    const row = creativeAssetRow(userId, assetId);
-    if (!row) throw creativeAssetError(404, "CREATIVE_ASSET_NOT_FOUND", "创作资产不存在或无权访问");
-    const project = projectPayload(userId, row.project_id);
-    const nodeId = `${row.kind}-${nanoid()}`;
-    const layout = nodeLayout[row.kind];
-    const x = Number.isFinite(input.x) ? Number(input.x) : Math.max(0, ...project.nodes.map((node) => Number(node.position?.x) || 0)) + 420;
-    const y = Number.isFinite(input.y) ? Number(input.y) : project.nodes.filter((node) => ["character", "scene", "prop"].includes(String(node.type))).length * 260;
-    project.nodes.push({ id: nodeId, type: row.kind, title: row.name, position: { x, y }, ...layout, metadata: { assetId, assetKind: row.kind } });
-    saveProjectPayload(userId, row.project_id, project);
-    return { nodeId, projectId: row.project_id };
-}
-
-export function createCreativeAssetsBatch(userId: string, projectId: string, rawItems: unknown, sourceNodeId?: string, placeOnCanvas = true) {
+export function createCreativeAssetsBatch(userId: string, projectId: string, rawItems: unknown) {
     assertProject(userId, projectId);
     const items = z.array(creativeAssetInputSchema).min(1).max(200).parse(rawItems);
-    const project = projectPayload(userId, projectId);
-    const source = project.nodes.find((node) => node.id === sourceNodeId);
-    const baseX = source ? Number(source.position?.x || 0) + Number(source.width || 320) + 180 : Math.max(0, ...project.nodes.map((node) => Number(node.position?.x) || 0)) + 320;
-    const baseY = source ? Number(source.position?.y || 0) : 80;
     const kinds: CreativeAssetKind[] = ["character", "scene", "prop"];
     const now = new Date().toISOString();
     const created: ReturnType<typeof creativeAssetResponse>[] = [];
     db.transaction(() => {
-        let columnX = baseX;
         kinds.forEach((kind) => {
             const subset = items.filter((item) => item.kind === kind);
             if (!subset.length) return;
-            const layout = nodeLayout[kind];
-            subset.forEach((input, index) => {
+            subset.forEach((input) => {
                 const assetId = nanoid();
                 const payload = normalizeCreativeAssetPayload(kind, input.name, input.payload);
                 db.prepare("INSERT INTO creative_assets(id, user_id, project_id, kind, name, status, payload, revision, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?, ?)")
                     .run(assetId, userId, projectId, kind, input.name, input.status, JSON.stringify(payload), now, now);
                 syncFileRefs(userId, "creative_asset", assetId, payload);
-                if (placeOnCanvas) project.nodes.push({ id: `${kind}-${nanoid()}`, type: kind, title: input.name, position: { x: columnX, y: baseY + index * (layout.height + 32) }, ...layout, metadata: { assetId, assetKind: kind } });
                 created.push(creativeAssetResponse(creativeAssetRow(userId, assetId)!));
             });
-            columnX += layout.width + 90;
         });
-        if (placeOnCanvas) saveProjectPayload(userId, projectId, project, false);
     })();
     created.forEach((asset) => emitAsset(userId, asset));
     if (isDirectorProject(projectId)) created.forEach((asset) => syncDirectorAssetFile(userId, projectId, asset.id));
-    if (placeOnCanvas) publishProjectRow(userId, projectId);
     return created;
 }
 
@@ -608,12 +560,6 @@ function projectPayload(userId: string, projectId: string) {
     return payload;
 }
 
-function saveProjectPayload(userId: string, projectId: string, payload: ProjectPayload, publish = true) {
-    const now = new Date().toISOString();
-    db.prepare("UPDATE projects SET payload=?, revision=revision+1, updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify({ ...payload, updatedAt: now }), now, projectId, userId);
-    syncFileRefs(userId, "project", projectId, payload);
-    if (publish) publishProjectRow(userId, projectId);
-}
 
 function publishProjectRow(userId: string, projectId: string) {
     const row = db.prepare("SELECT * FROM projects WHERE id=? AND user_id=?").get(projectId, userId) as { id: string; title: string; payload: string; revision: number; created_at: string; updated_at: string };

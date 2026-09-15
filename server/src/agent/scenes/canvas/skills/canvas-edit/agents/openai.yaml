@@ -1,0 +1,4 @@
+interface:
+  display_name: "画布编辑"
+  short_description: "创作完整文档、编排通用节点并采用生成结果"
+  default_prompt: "使用 $canvas-edit 理解当前画布并完成内容创作与编排。"

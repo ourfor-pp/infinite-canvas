@@ -27,8 +27,8 @@ export function readMediaTranscription(userId: string, projectId: string, id: st
 
 export function projectMediaGeneration(userId: string, projectId: string, id: string) {
     const row = getGenerationForAgent(userId, id);
-    const request = parseJson<{ metadata?: { mediaProjectId?: string; directorSegment?: { projectId?: string } } }>(row?.request || "{}", {});
-    if (!row || (request.metadata?.mediaProjectId || request.metadata?.directorSegment?.projectId) !== projectId) throw Object.assign(new Error("媒体任务不存在或不属于当前项目"), { status: 404 });
+    const request = parseJson<{ metadata?: { mediaProjectId?: string; directorSegment?: { projectId?: string } }; params?: { __agentCanvas?: { projectId?: string } } }>(row?.request || "{}", {});
+    if (!row || (request.metadata?.mediaProjectId || request.metadata?.directorSegment?.projectId || request.params?.__agentCanvas?.projectId) !== projectId) throw Object.assign(new Error("媒体任务不存在或不属于当前项目"), { status: 404 });
     return row;
 }
 export function mediaGenerationStatus(userId: string, projectId: string, id: string) {
@@ -46,7 +46,7 @@ export function importMediaReference(userId: string, projectId: string, path: st
     if (!mime || !statSync(path).isFile()) throw new Error("参考路径必须是受支持的图片、音频或视频文件");
     const file = storeLocalFile(userId, path, basename(path), mime);
     db.prepare("INSERT OR IGNORE INTO file_refs(file_id,user_id,owner_type,owner_id) VALUES(?,?,'agent_project',?)").run(file.id, userId, projectId);
-    return { fileId: file.id, kind: mime.split("/")[0] };
+    return { fileId: file.id, kind: mime.split("/")[0], url: file.url };
 }
 export function saveMediaResult(userId: string, projectId: string, generationId: string, fileId: string, path: string) {
     const row = projectMediaGeneration(userId, projectId, generationId);
