@@ -2,6 +2,8 @@
 
 - `storyboards/scene-001/sequence.md`：场景容器，稳定 id、kind: sequence、name、order。
 - `storyboards/scene-001/shot-001/shot.md`：镜头设计，参见 [镜头样例](examples/shot.md)。
+- 镜头故事板：在 `shot.md` 同目录保存 `storyboard.png`（也支持 jpg/jpeg/webp/gif，每页只保留一个图片文件）和 `prompt.md`；多页放在 `boards/page-001/`、`boards/page-002/`，每页同样保存图片与提示词。界面按当前镜头读取这些文件，不读取制作任务的旧故事板。
+- `prompt.md` 正文为本页实际提示词，Frontmatter 的 `references` 显式列出输入图片的工程相对路径 `path`、用途 `purpose`（`identity_reference`、`style_reference`、`wardrobe_reference`、`composition_reference` 或 `reference_input`）和可选名称 `label`；不要把输出故事板当作自身输入。引用图与提示词跟随所在页面显示。
 - `productions/task-001/task.md`：制作任务，参见 [任务样例](examples/task.md)。
 - 任务最终提示：同目录 `video-prompt.md`，正文原样发送给模型。
 - 可选参考说明：同目录 `storyboard.yaml`；图片可命名 `storyboard.png`，但只有列入任务 `referenceImages` 才会提交。

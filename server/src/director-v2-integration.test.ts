@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 const temp = mkdtempSync(join(tmpdir(), "director-v2-integration-"));
 process.env.DATA_DIR = temp;
@@ -91,4 +91,39 @@ test("v2 镜头多对多任务、保存恢复、无图预检、独立选片与�
     const duration = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", output], { encoding: "utf8" }));
     assert.ok(Math.abs(duration - 2) < .1);
     assert.deepEqual(JSON.parse(readFileSync(join(root, `renders/${render.id}/render.json`), "utf8")).timeline.videoClips, videoClips);
+});
+
+
+test("镜头故事板直接读取文件与显式参考，分页、替换、删除和归属隔离", async () => {
+    const projectId = "board-files";
+    await request("/projects", { id: projectId, kind: "director", title: "故事板文件回归" });
+    await request(`/director/projects/${projectId}/documents/script`, { revision: 1, content: "# 场景\n人物抬头。" }, "PUT");
+    const sequence = await request(`/director/projects/${projectId}/sequences`, { id: "board-sequence", title: "场景" });
+    await request(`/director/projects/${projectId}/shots`, { design: { id: "board-shot", kind: "shot-design", name: "新镜头", sequenceId: sequence.id, order: 1 }, hash: "", content: "镜头正文" }, "PUT");
+    const shot = (await request(`/director/projects/${projectId}/shots`)).items[0];
+    const root = directorProjectRoot("dev-admin", projectId), folder = dirname(join(root, shot.path));
+    const image = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+    writeFileSync(join(folder, "storyboard.gif"), image);
+    writeFileSync(join(folder, "reference.gif"), image);
+    const reference = `${dirname(shot.path)}/reference.gif`;
+    writeFileSync(join(folder, "prompt.md"), `---\nreferences:\n  - path: ${reference}\n    purpose: identity_reference\n    label: 人物参考\n---\n完整新提示词\n`);
+    const url = `/director/projects/${projectId}/shots/${shot.id}/storyboards`;
+    let page = await request(url);
+    assert.equal(page.total, 1); assert.equal(page.items[0].prompt, "完整新提示词\n");
+    assert.deepEqual(page.items[0].errors, []); assert.equal(page.items[0].references[0].name, "人物参考");
+    assert.ok(page.items[0].references[0].fileId); assert.match(page.items[0].image.path, /storyboard.gif$/);
+    const oldHash = page.items[0].image.hash, id = page.items[0].image.fileId;
+    assert.deepEqual((await request(`/director/projects/${projectId}/shots`)).items[0].storyboardImage, page.items[0].image);
+    writeFileSync(join(folder, "storyboard.gif"), Buffer.concat([image, Buffer.from("changed")]));
+    page = await request(url); assert.equal(page.items[0].image.fileId, id); assert.notEqual(page.items[0].image.hash, oldHash);
+    assert.equal((await request(`/director/projects/${projectId}/shots`)).items[0].storyboardImage.hash, page.items[0].image.hash);
+    for (const name of ["page-10", "page-2"]) { const dir = join(folder, "boards", name); mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "prompt.md"), name); }
+    page = await request(url + "?offset=1&limit=1"); assert.equal(page.total, 3); assert.equal(page.items.length, 1); assert.match(page.items[0].id, /page-2$/);
+    unlinkSync(join(folder, "storyboard.gif")); page = await request(url); assert.equal(page.items[0].image, undefined);
+    assert.equal((await request(`/director/projects/${projectId}/shots`)).items[0].storyboardImage, undefined);
+    writeFileSync(join(folder, "prompt.md"), "---\nreferences:\n  - path: ../../outside.png\n    purpose: identity_reference\n---\n正文");
+    page = await request(url); assert.ok(page.items[0].errors.length || page.items[0].references[0]?.error);
+    assert.equal((await fetch(base + `/director/projects/v2-integration/shots/${shot.id}/storyboards`)).status, 404);
+    const { readDirectorShotStoryboards } = await import("./director-workspace.js");
+    assert.throws(() => readDirectorShotStoryboards("other-user", projectId, shot.id));
 });

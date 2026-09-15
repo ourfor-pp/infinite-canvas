@@ -1,3 +1,5 @@
+import { ProductionWorkspace } from "./production-workspace";
+import { useSearchParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { App } from "antd";
 import { ArrowDown, ArrowUp, Film, Pause, Play, Plus, Save, Trash2, Unlink, Upload } from "lucide-react";
@@ -12,7 +14,17 @@ const action = "inline-flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs 
 const numberField = "w-20 rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-700 focus:border-blue-500 outline-none";
 const EMPTY_RENDERS: DirectorRender[] = [];
 
-export function EditWorkspace({ projectId, state, onRefresh }: { projectId: string; state: DirectorState; onRefresh: () => Promise<void> }) {
+export function EditWorkspace(props: { projectId: string; state: DirectorState; onRefresh: () => Promise<void> }) {
+    const [search] = useSearchParams();
+    const [mode, setMode] = useState<"production" | "edit">("production");
+    const [visitedEdit, setVisitedEdit] = useState(false);
+    const workspace = useRef<HTMLElement>(null);
+    useEffect(() => { workspace.current?.querySelectorAll<HTMLMediaElement>("video, audio").forEach((media) => media.pause()); }, [mode]);
+    useEffect(() => { if (search.has("task")) setMode("production"); }, [search]);
+    return <section ref={workspace} className="flex h-full min-h-0 flex-col bg-white"><header role="tablist" aria-label="视频创作阶段" className="flex h-12 shrink-0 items-center gap-5 border-b border-slate-200 px-5">{([['production', '视频制作'], ['edit', '剪辑成片']] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={mode === id} className={`h-full border-b-2 text-sm ${mode === id ? "border-blue-600 font-medium text-blue-600" : "border-transparent text-slate-500"}`} onClick={() => { setMode(id); if (id === "edit") setVisitedEdit(true); }}>{label}</button>)}</header><div className="min-h-0 flex-1" hidden={mode !== "production"}><ProductionWorkspace {...props} /></div><div className="min-h-0 flex-1" hidden={mode !== "edit"}>{visitedEdit && <TimelineWorkspace {...props} active={mode === "edit"} />}</div></section>;
+}
+
+function TimelineWorkspace({ projectId, state, onRefresh, active }: { projectId: string; state: DirectorState; onRefresh: () => Promise<void>; active: boolean }) {
     const { message } = App.useApp();
     const [draft, setDraft] = useState(state.timeline);
     const [dirty, setDirty] = useState(false);
@@ -52,7 +64,7 @@ export function EditWorkspace({ projectId, state, onRefresh }: { projectId: stri
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-3"><Film size={16} /><span className="text-sm">时间线 · {clips.length} 个片段</span><span className="text-xs text-slate-400">{clips.reduce((sum, clip) => sum + clip.trimOut - clip.trimIn, 0).toFixed(2)} 秒</span><span className="flex-1" />{dirty && <span className="text-xs text-slate-500">未保存</span>}<button className={action} disabled={busy || !dirty} onClick={() => void save()}><Save size={14} />保存剪辑</button><button className={`${action} text-blue-700`} disabled={busy || dirty || !plan?.segments.length} onClick={() => void render()}><Film size={14} />导出 MP4</button></div>
         <div className="min-h-0 flex-1 overflow-auto">
             <div className="grid gap-6 px-6 py-5 xl:grid-cols-[minmax(0,1fr)_260px]">
-                <div>{error ? <div role="alert" className="flex min-h-64 items-center justify-center bg-slate-50 p-8 text-sm text-rose-600">{error}</div> : plan ? <EditPreview key={`${plan.timelineRevision}:${segmentsVersion}`} plan={plan} disabled={dirty} /> : <div className="grid min-h-64 place-items-center bg-slate-50 text-sm text-slate-400">读取播放计划…</div>}{dirty && <p className="mt-2 text-xs text-slate-500">保存剪辑后即可预览当前修改。</p>}</div>
+                <div>{error ? <div role="alert" className="flex min-h-64 items-center justify-center bg-slate-50 p-8 text-sm text-rose-600">{error}</div> : plan ? <EditPreview key={`${plan.timelineRevision}:${segmentsVersion}`} plan={plan} disabled={dirty || !active} /> : <div className="grid min-h-64 place-items-center bg-slate-50 text-sm text-slate-400">读取播放计划…</div>}{dirty && <p className="mt-2 text-xs text-slate-500">保存剪辑后即可预览当前修改。</p>}</div>
                 <div><h2 className="mb-3 text-xs font-semibold text-slate-500">任务当前素材</h2><div className="max-h-80 space-y-1 overflow-auto">{state.videoSegments.filter((task) => task.payload.videoFileId).map((task) => <button key={task.id} className={`${action} w-full text-left`} onClick={() => edit({ ...draft.payload, videoClips: [...clips, { id: nanoid(), taskId: task.id, trimIn: 0, trimOut: task.payload.videoDurationSeconds || task.payload.durationSeconds || 4, linkedAudio: true }] })}><Plus size={14} /><span className="flex-1 truncate">{task.title}</span><span>{(task.payload.videoDurationSeconds || task.payload.durationSeconds || 4).toFixed(1)}s</span></button>)}</div><p className="mt-3 text-xs leading-5 text-slate-400">可重复选用同一素材。生成完成后由你决定是否加入成片。</p></div>
             </div>
             {plan?.warnings.map((warning) => <p key={warning} className="px-6 pb-2 text-xs text-slate-500">{warning}</p>)}

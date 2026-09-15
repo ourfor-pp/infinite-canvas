@@ -42,7 +42,7 @@ import {
 import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflightWithFraming, getDirectorPlaybackPlan, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
 import {
-    resolveDirectorMediaFile, listDirectorShotDesigns, saveDirectorShotDesign, addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
+    resolveDirectorMediaFile, readDirectorShotStoryboards, listDirectorShotDesigns, saveDirectorShotDesign, addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
     readDirectorLogicalDocument, readDirectorStyleBoard, readDirectorTextFile, removeDirectorAssetMediaInput, removeDirectorProjectWorkspace, trashDirectorAssetVariant, validateDirectorProject, writeDirectorDocumentPart, writeDirectorMarkdown,
 } from "./director-workspace.js";
 
@@ -264,6 +264,7 @@ api.post("/director/projects/:id/sequences", route((req) => createDirectorSequen
 api.put("/director/sequences/:id", route((req) => updateDirectorSequence(req.user.id, routeId(req), req.body)));
 api.delete("/director/sequences/:id", route((req) => deleteDirectorSequence(req.user.id, routeId(req))));
 api.get("/director/projects/:id/shots", route((req) => listDirectorShotDesigns(req.user.id, routeId(req), Number(req.query.offset) || 0, Number(req.query.limit) || 50)));
+api.get("/director/projects/:id/shots/:shotId/storyboards", route((req) => readDirectorShotStoryboards(req.user.id, routeId(req), String(req.params.shotId), Number(req.query.offset) || 0, Number(req.query.limit) || 50)));
 api.put("/director/projects/:id/shots", route((req) => saveDirectorShotDesign(req.user.id, routeId(req), req.body)));
 api.get("/director/projects/:id/production-tasks", route((req) => listDirectorVideoSegments(req.user.id, routeId(req), req.query)));
 api.post("/director/projects/:id/production-tasks", route((req) => createDirectorVideoSegment(req.user.id, routeId(req), req.body), 201));

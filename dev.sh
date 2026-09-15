@@ -68,15 +68,6 @@ comfy_queue_idle() {
 }
 
 start_comfyui() {
-    if [[ ! -x "$comfy_python" ]]; then
-        echo "找不到 ComfyUI Python：$comfy_python" >&2
-        exit 1
-    fi
-    if [[ ! -d "$comfy_models_dir" ]]; then
-        echo "找不到 ComfyUI 模型目录：$comfy_models_dir" >&2
-        exit 1
-    fi
-
     if curl -fsS "$comfy_local_url/system_stats" >/dev/null 2>&1; then
         if comfy_is_backend_only; then
             echo "ComfyUI 已运行，仅供后端访问：$comfy_local_url"
@@ -96,31 +87,41 @@ start_comfyui() {
             echo "请先确认该进程的启动方式，或通过 COMFYUI_UNIT 指定对应的用户服务。" >&2
             exit 1
         fi
-        echo "正在重启 ComfyUI，仅绑定后端回环地址..."
-        systemctl --user stop "$comfy_unit"
-        for _ in {1..30}; do
-            systemctl --user status "$comfy_unit" >/dev/null 2>&1 || break
-            sleep 0.2
-        done
+        echo "请先将用户服务 $comfy_unit 配置为 --listen 127.0.0.1，再重启该服务。" >&2
+        exit 1
     fi
 
     echo "正在启动 ComfyUI：$comfy_local_url"
-    systemd-run --user \
-        --unit="$comfy_unit" \
-        --collect \
-        --working-directory="$comfy_dir" \
-        --setenv="LD_LIBRARY_PATH=$cuda_lib" \
-        --property="StandardOutput=append:$comfy_log" \
-        --property="StandardError=append:$comfy_log" \
-        "$comfy_python" main.py \
-        --listen 127.0.0.1 \
-        --port 8189 \
-        --models-directory "$comfy_models_dir" \
-        --reserve-vram 2 \
-        --disable-auto-launch
+    if comfy_user_unit_loaded; then
+        systemctl --user start "$comfy_unit"
+    elif comfy_system_unit_loaded; then
+        systemctl start "$comfy_system_unit"
+    else
+        if [[ ! -x "$comfy_python" || ! -d "$comfy_models_dir" ]]; then
+            echo "找不到 ComfyUI Python 或模型目录：$comfy_python，$comfy_models_dir" >&2
+            exit 1
+        fi
+        systemd-run --user \
+            --unit="$comfy_unit" \
+            --collect \
+            --working-directory="$comfy_dir" \
+            --setenv="LD_LIBRARY_PATH=$cuda_lib" \
+            --property="StandardOutput=append:$comfy_log" \
+            --property="StandardError=append:$comfy_log" \
+            "$comfy_python" main.py \
+            --listen 127.0.0.1 \
+            --port 8189 \
+            --models-directory "$comfy_models_dir" \
+            --reserve-vram 2 \
+            --disable-auto-launch
+    fi
 
     for _ in {1..180}; do
         if curl -fsS "$comfy_local_url/system_stats" >/dev/null 2>&1; then
+            if ! comfy_is_backend_only; then
+                echo "ComfyUI 未仅绑定 127.0.0.1，请检查服务的 --listen 配置。" >&2
+                exit 1
+            fi
             echo "ComfyUI 已就绪"
             return
         fi
@@ -130,20 +131,29 @@ start_comfyui() {
     exit 1
 }
 
+executor_is_ready() {
+    curl --max-time 10 -fsS \
+        -H "Authorization: Bearer $executor_token" \
+        -H "X-Media-Protocol: 2" \
+        "$executor_local_url/health" >/dev/null 2>&1
+}
+
 start_media_executor() {
-    if curl -fsS -H "Authorization: Bearer $executor_token" "$executor_local_url/health" >/dev/null 2>&1; then
+    if executor_is_ready; then
         echo "媒体执行器已运行：$executor_local_url"
         return
     fi
-    if [[ ! -x "$executor_dir/.venv/bin/infinite-media-executor" ]]; then
-        echo "正在安装媒体执行器轻量依赖..."
-        (cd "$executor_dir" && uv sync --extra test)
+    local http_status
+    http_status="$(curl --max-time 10 -sS -o /dev/null -w '%{http_code}' "$executor_local_url/health" 2>/dev/null || true)"
+    if [[ "$http_status" != "000" && -n "$http_status" ]]; then
+        echo "8290 已有 HTTP 服务响应，但媒体执行器健康检查未通过；请检查 $executor_env 中的凭据、协议版本和服务日志。" >&2
+        exit 1
     fi
-    if systemctl --user cat infinite-media-executor.service >/dev/null 2>&1 && ! curl -sS -o /dev/null "$executor_local_url/health"; then
+    if systemctl --user cat infinite-media-executor.service >/dev/null 2>&1; then
         echo "正在启动常驻媒体执行器：$executor_local_url"
         systemctl --user start infinite-media-executor.service
         for _ in {1..60}; do
-            if curl -fsS -H "Authorization: Bearer $executor_token" "$executor_local_url/health" >/dev/null 2>&1; then
+            if executor_is_ready; then
                 echo "媒体执行器已就绪"
                 return
             fi
@@ -151,6 +161,10 @@ start_media_executor() {
         done
         echo "常驻媒体执行器启动失败，请查看：journalctl --user -u infinite-media-executor" >&2
         exit 1
+    fi
+    if [[ ! -x "$executor_dir/.venv/bin/infinite-media-executor" ]]; then
+        echo "正在安装媒体执行器轻量依赖..."
+        (cd "$executor_dir" && uv sync --extra test)
     fi
     echo "正在启动媒体执行器：$executor_local_url"
     (
@@ -164,7 +178,7 @@ start_media_executor() {
     ) &
     executor_pid="$!"
     for _ in {1..60}; do
-        if curl -fsS -H "Authorization: Bearer $executor_token" "$executor_local_url/health" >/dev/null 2>&1; then
+        if executor_is_ready; then
             echo "媒体执行器已就绪"
             return
         fi

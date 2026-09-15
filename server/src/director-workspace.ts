@@ -285,15 +285,71 @@ export function readDirectorTextFile(userId: string, projectId: string, relative
     return { path: posixRelative(root, path), content: readFileSync(path, "utf8"), hash: hashFile(path) };
 }
 
+function shotStoryboardFolders(root: string, folder: string) {
+    // A shot may have one board beside shot.md, or more pages in boards/<page>/.
+    const pageRoot = resolve(folder, "boards");
+    return [folder, ...(existsSync(pageRoot) ? readdirSync(safeWorkspacePath(root, posixRelative(root, pageRoot)), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => safeWorkspacePath(root, posixRelative(root, resolve(pageRoot, entry.name)))).sort((a, b) => a.localeCompare(b, "en", { numeric: true })) : [])]
+        .filter((directory) => existsSync(resolve(directory, "prompt.md")) || readdirSync(directory).some((name) => /^storyboard\.(png|jpe?g|webp|gif)$/i.test(name)));
+}
+
+function shotStoryboardFiles(directory: string) {
+    return readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /^storyboard\.(png|jpe?g|webp|gif)$/i.test(entry.name)).map((entry) => entry.name).sort();
+}
+
 export function listDirectorShotDesigns(userId: string, projectId: string, offset = 0, limit = 50) {
     reconcileDirectorProjectFiles(userId, projectId);
     const rows = db.prepare("SELECT path,sha256,revision,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' ORDER BY json_extract(metadata,'$.sequenceId'),json_extract(metadata,'$.order'),path LIMIT ? OFFSET ?").all(userId, projectId, Math.max(1, Math.min(100, limit)), Math.max(0, offset)) as Array<{ path: string; sha256: string; revision: number; metadata: string }>;
     const total = (db.prepare("SELECT count(*) total FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design'").get(userId, projectId) as { total: number }).total;
-    return { total, offset, items: rows.map((row) => ({ ...parseJson<Record<string, unknown>>(row.metadata, {}), sequenceId: directorMirrorId("director_sequences", userId, projectId, String(parseJson<Record<string, unknown>>(row.metadata, {}).sequenceId)), path: row.path, hash: row.sha256, revision: row.revision })) };
+    const root = directorProjectRoot(userId, projectId);
+    return { total, offset, items: rows.map((row) => {
+        const metadata = parseJson<Record<string, unknown>>(row.metadata, {});
+        const directory = shotStoryboardFolders(root, dirname(safeWorkspacePath(root, row.path))).find((folder) => shotStoryboardFiles(folder).length === 1);
+        const imagePath = directory ? safeWorkspacePath(root, posixRelative(root, resolve(directory, shotStoryboardFiles(directory)[0]!))) : undefined;
+        return { ...metadata, sequenceId: directorMirrorId("director_sequences", userId, projectId, String(metadata.sequenceId)), path: row.path, hash: row.sha256, revision: row.revision,
+            storyboardImage: imagePath ? { path: posixRelative(root, imagePath), fileId: registerDirectorMediaFile(userId, projectId, root, imagePath), hash: hashFile(imagePath) } : undefined };
+    }) };
+}
+
+export function readDirectorShotStoryboards(userId: string, projectId: string, shotId: string, offset = 0, limit = 50) {
+    reconcileDirectorProjectFiles(userId, projectId);
+    const root = directorProjectRoot(userId, projectId);
+    const row = db.prepare("SELECT path,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=?").get(userId, projectId, shotId) as { path: string; metadata: string } | undefined;
+    if (!row) throw workspaceError(404, "DIRECTOR_SHOT_NOT_FOUND", "镜头不存在");
+    const folder = dirname(safeWorkspacePath(root, row.path));
+    const folders = shotStoryboardFolders(root, folder);
+    const start = Math.max(0, Math.floor(offset));
+    const items = folders.slice(start, start + Math.max(1, Math.min(50, Math.floor(limit)))).map((directory) => {
+        const errors: string[] = [];
+        const images = shotStoryboardFiles(directory);
+        if (images.length > 1) errors.push("同一故事板页面存在多个图片版本，请只保留一个 storyboard 图片文件");
+        const imagePath = images.length === 1 ? safeWorkspacePath(root, posixRelative(root, resolve(directory, images[0]!))) : undefined;
+        const promptPath = safeWorkspacePath(root, posixRelative(root, resolve(directory, "prompt.md")));
+        let prompt = "", promptHash = "";
+        let references: Array<{ path: string; purpose: string; name: string; fileId?: string; hash?: string; error?: string }> = [];
+        if (existsSync(promptPath)) {
+            try {
+                const document = matter(readFileSync(promptPath, "utf8"));
+                prompt = document.content; promptHash = hashFile(promptPath);
+                references = promptReferenceSchema.array().max(50).parse(document.data.references || []).map((reference) => {
+                    const item = { path: reference.path, purpose: reference.purpose, name: reference.label || basename(reference.path) };
+                    try {
+                        const path = safeWorkspacePath(root, reference.path);
+                        if (!existsSync(path) || !statSync(path).isFile() || !mediaMimeType(path).startsWith("image/")) return { ...item, error: "引用图片不存在或类型无效" };
+                        return { ...item, fileId: registerDirectorMediaFile(userId, projectId, root, path), hash: hashFile(path) };
+                    } catch { return { ...item, error: "引用路径无效" }; }
+                });
+            } catch { errors.push("故事板提示词或 references 格式无效，请检查 prompt.md"); }
+        }
+        return { id: posixRelative(root, directory), title: String(parseJson<Record<string, unknown>>(row.metadata, {}).name || shotId) + (directory === folder ? "" : ` · ${basename(directory)}`),
+            image: imagePath ? { path: posixRelative(root, imagePath), fileId: registerDirectorMediaFile(userId, projectId, root, imagePath), hash: hashFile(imagePath) } : undefined,
+            prompt, promptPath: posixRelative(root, promptPath), promptHash, references, errors };
+    });
+    return { shotId, total: folders.length, offset: start, items };
 }
 
 export function saveDirectorShotDesign(userId: string, projectId: string, body: unknown) {
     const input = z.object({ design: shotDesignFileSchema, content: z.string().default(""), hash: z.string() }).parse(body);
+    delete input.design.storyboardImage;
     input.design.sequenceId = directorExternalId(projectId, input.design.sequenceId);
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     const sequencePath = findEntityFile(resolve(root, "storyboards"), "sequence.md", input.design.sequenceId);

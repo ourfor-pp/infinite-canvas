@@ -179,6 +179,7 @@ export type DirectorVideoSegment = {
         characterRefs?: DirectorAssetRef[];
         sceneRefs?: DirectorAssetRef[];
         propRefs?: DirectorAssetRef[];
+        shotIds?: string[];
         storyboardSheet?: DirectorStoryboardSheet;
         storyboardFrameCount?: 4 | 6 | 9;
         actualFirstFrameFileId?: string;
@@ -210,7 +211,7 @@ export type DirectorVideoSegment = {
 
 export type DirectorVideoSegmentPreflight = { guideFraming?: { input: { width: number; height: number }; target: { width: number; height: number }; crop: { x: number; y: number; width: number; height: number } }; plan?: { capabilityVersion: string; mode: string; recipe?: string; seed: number; width?: number; height?: number; outputFrames?: number; outputSeconds?: number; overlapFrames?: number }; storyboardFileId?: string; transitionInputs?: { firstFrameFileId?: string; lastFrameFileId?: string }; selected: Array<{ fileId: string; name: string; purpose: "主角色" | "出镜角色" | "场景" | "关键道具" | "视觉风格"; assetId?: string }>; omitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoSelected: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoOmitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; assetBlockedReasons: string[]; promptValidation: { blockedReasons: string[]; warnings: string[] }; blockedReasons: string[]; warnings: string[]; route: { mode: H3GenerationMode; reason: string }; capabilities: { turboPreview: boolean; nativeState: boolean } };
 export type DirectorEditClip = { id: string; taskId: string; trimIn: number; trimOut: number; linkedAudio: boolean };
-export type DirectorShotDesign = { id: string; kind: "shot-design"; name: string; sequenceId: string; order: number; sourceSceneId?: string; sourceBeatIds: string[]; estimatedSeconds?: number; purpose: string; staging: string; camera: string; action: string; dialogue: string; sound: string; openingState: string; endingState: string; connection: string; referenceImages: string[]; content: string; path?: string; hash: string; revision?: number };
+export type DirectorShotDesign = { storyboardImage?: { path: string; fileId: string; hash: string }; id: string; kind: "shot-design"; name: string; sequenceId: string; order: number; sourceSceneId?: string; sourceBeatIds: string[]; estimatedSeconds?: number; purpose: string; staging: string; camera: string; action: string; dialogue: string; sound: string; openingState: string; endingState: string; connection: string; referenceImages: string[]; content: string; path?: string; hash: string; revision?: number };
 export type DirectorTimelineClip = { id: string; taskId?: string; fadeIn?: number; fadeOut?: number; segmentId?: string; fileId?: string; start: number; duration: number; trimIn?: number; trimOut?: number; volume?: number; muted?: boolean; loop?: boolean };
 export type DirectorTimeline = {
     projectId: string;
@@ -224,3 +225,10 @@ export type DirectorState = { activeStyleId: string | null; workspace: DirectorW
 export type DirectorRender = { id: string; projectId: string; status: "queued" | "running" | "succeeded" | "failed" | "canceled"; progress: number; outputFileId: string | null; error: string | null; createdAt: string; updatedAt: string };
 
 export type DirectorPlaybackPlan = { warnings: string[]; timelineRevision: number; duration: number; audio: DirectorTimelineClip[]; segments: Array<{ clipId: string; taskId: string; start: number; segmentId: string; revision: number; fileId: string; trimIn: number; duration: number }> };
+
+export type DirectorShotStoryboard = {
+    id: string; title: string; image?: { path: string; fileId: string; hash: string };
+    prompt: string; promptPath: string; promptHash: string;
+    references: Array<{ path: string; purpose: string; name: string; fileId?: string; hash?: string; error?: string }>;
+    errors: string[];
+};

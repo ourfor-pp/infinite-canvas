@@ -771,7 +771,7 @@ function AssetGallery({ projectId, state, assets, generations, agentCollapsed, o
                     ))}
                 </div>
             </ScrollArea>
-            <AssetDetailDialog asset={detailAsset} initialTab={detailTab} generations={generations} leftInset={agentCollapsed ? 0 : agentWidth + 1} onRefresh={onRefresh} onClose={() => setDetailAssetId("")} onAgent={(path) => { if (detailAsset) openAgent(detailAsset, path); }} onNewVariant={(path) => { if (detailAsset) planVariant(detailAsset, path); }} onLocate={(taskId) => navigate(`/director/${projectId}/storyboard?task=${encodeURIComponent(taskId)}`)} />
+            <AssetDetailDialog asset={detailAsset} initialTab={detailTab} generations={generations} leftInset={agentCollapsed ? 0 : agentWidth + 1} onRefresh={onRefresh} onClose={() => setDetailAssetId("")} onAgent={(path) => { if (detailAsset) openAgent(detailAsset, path); }} onNewVariant={(path) => { if (detailAsset) planVariant(detailAsset, path); }} onLocate={(taskId) => navigate(`/director/${projectId}/studio?task=${encodeURIComponent(taskId)}`)} />
             <WorkspaceImagePreviewLightbox items={previewItems} activeIndex={previewIndex >= 0 ? previewIndex : null} onClose={() => setPreviewMediaId("")} onChangeIndex={(index) => setPreviewMediaId(previewItems[index]?.id || "")} />
         </div>
     );

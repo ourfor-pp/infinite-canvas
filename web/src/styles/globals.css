@@ -5,6 +5,27 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* One scrollbar treatment for pages, nested panels and portalled menus. */
+@layer base {
+    * {
+        --scrollbar-thumb: rgb(128 128 128 / 40%);
+        --scrollbar-thumb-hover: rgb(128 128 128 / 65%);
+    }
+
+    @supports selector(::-webkit-scrollbar) {
+        * { scrollbar-width: auto; scrollbar-color: auto; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 999px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+        ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+    }
+
+    @supports not selector(::-webkit-scrollbar) {
+        * { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+    }
+}
+
 @theme inline {
     --color-background: var(--background);
     --color-foreground: var(--foreground);
@@ -226,59 +247,9 @@
         font-weight: 700;
     }
 
-    .thin-scrollbar {
-        scrollbar-color: rgba(120, 113, 108, 0.45) transparent;
-        scrollbar-width: thin;
-    }
-
-    .thin-scrollbar::-webkit-scrollbar {
-        height: 4px;
-        width: 4px;
-    }
-
-    .thin-scrollbar::-webkit-scrollbar-thumb {
-        background: rgba(120, 113, 108, 0.45);
-        border-radius: 999px;
-    }
-
-    .thin-scrollbar::-webkit-scrollbar-button,
-    .thin-scrollbar::-webkit-scrollbar-button:single-button {
-        display: none;
-        height: 0;
-        width: 0;
-    }
-
-    .thin-scrollbar::-webkit-scrollbar-corner {
-        background: transparent;
-    }
-
-    .hover-scrollbar {
-        scrollbar-color: transparent transparent;
-        scrollbar-width: thin;
-    }
-
-    .hover-scrollbar:hover {
-        scrollbar-color: rgba(120, 113, 108, 0.5) transparent;
-    }
-
-    .hover-scrollbar::-webkit-scrollbar {
-        height: 6px;
-        width: 6px;
-    }
-
-    .hover-scrollbar::-webkit-scrollbar-thumb {
-        background: transparent;
-        border-radius: 999px;
-    }
-
-    .hover-scrollbar:hover::-webkit-scrollbar-track {
-        background: rgba(120, 113, 108, 0.12);
-        border-radius: 999px;
-    }
-
-    .hover-scrollbar:hover::-webkit-scrollbar-thumb {
-        background: rgba(120, 113, 108, 0.5);
-    }
+    /* Existing thin-scrollbar users inherit the global appearance. */
+    .hover-scrollbar { --scrollbar-thumb: transparent; }
+    .hover-scrollbar:hover { --scrollbar-thumb: rgb(128 128 128 / 40%); }
 
     .hover-scrollbar-hint {
         position: relative;
@@ -534,7 +505,6 @@
 .agent-status-pill-button:hover { border-color: color-mix(in srgb, var(--agent-accent) 24%, var(--agent-line)); background: var(--agent-accent-soft); }
 .agent-status-pill-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--agent-accent) 24%, transparent); outline-offset: 2px; }
 .agent-status-popover .ant-popover-arrow::before { background: #fff !important; }
-.agent-status-popover-content { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
 .agent-status-pill.is-failed { border-color: color-mix(in srgb, #ef4444 35%, var(--agent-line)); background: color-mix(in srgb, #ef4444 6%, var(--agent-surface)); color: #dc2626; }
 .agent-meta-note, .agent-time-note { width: 100%; padding: 4px 0; text-align: center; color: var(--agent-muted); font-size: 11px; line-height: 1.4; opacity: .5; }
 .agent-meta-note { margin: 8px 0 2px; }
