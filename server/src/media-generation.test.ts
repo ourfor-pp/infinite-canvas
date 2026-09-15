@@ -15,7 +15,7 @@ const { db } = await import("./database.js");
 const { saveMediaExecutorSettings, refreshMediaExecutorCatalog } = await import("./media-executor-settings.js");
 const { createMediaGeneration } = await import("./media-generation.js");
 const { getGenerationForAgent } = await import("./generation-service.js");
-const { mediaGenerationStatus, saveMediaResult, readMediaTranscription } = await import("./agent/media-tools.js");
+const { listProjectMediaGenerations, mediaGenerationStatus, saveMediaResult, readMediaTranscription } = await import("./agent/media-tools.js");
 const { resolveMediaContinuation } = await import("./media-capabilities.js");
 const media = Buffer.from("transport fixture, not quality acceptance");
 const sha256 = createHash("sha256").update(media).digest("hex");
@@ -66,6 +66,39 @@ before(async () => {
 });
 after(async () => { await Promise.all([new Promise<void>((resolve) => server.close(() => resolve())), new Promise<void>((resolve) => executor.close(() => resolve()))]); db.close(); rmSync(root, { recursive: true, force: true }); });
 const input = { kind: "audio", model: "comfyui::minimax-music3-local", mode: "music", operation: "generate", prompt: "Quiet piano", params: { seconds: 5 } };
+test("任务恢复分页仅返回当前用户当前项目摘要，状态变化不改变分页顺序", async () => {
+    const now = "2026-01-01T00:00:00Z";
+    for (const id of ["dev-admin", "other-user"]) db.prepare("INSERT OR IGNORE INTO users(id,username,created_at,updated_at) VALUES(?,?,?,?)").run(id, id, now, now);
+    const insert = db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES(?,?,'video',?,'test',?,?,?,?)");
+    for (const [id, user, project, status] of [
+        ["restore-a", "dev-admin", "restore-project", "succeeded"],
+        ["restore-b", "dev-admin", "restore-project", "running"],
+        ["restore-c", "dev-admin", "restore-project", "queued"],
+        ["restore-other-project", "dev-admin", "other-project", "succeeded"],
+        ["restore-other-user", "other-user", "restore-project", "succeeded"],
+    ]) insert.run(id, user, status, JSON.stringify({ metadata: { mediaProjectId: project }, prompt: "private long prompt" }), JSON.stringify({ files: [], largeSnapshot: "private result" }), now, now);
+    try {
+        const { buildAgentToolDefinitions } = await import("./agent/mcp/index.js");
+        const { agentScenes } = await import("./agent/scenes/index.js");
+        const context = { session: { projectId: "restore-project" }, run: { userId: "dev-admin" }, appendEvent() {} } as unknown as Parameters<typeof buildAgentToolDefinitions>[0];
+        const tool = buildAgentToolDefinitions(context, agentScenes.canvas).find((tool) => tool.name === "media_get_generation_status")!;
+        const response = await tool.handler({ limit: 2 });
+        assert.equal(response.isError, undefined);
+        const first = JSON.parse((response.content[0] as { text: string }).text).data;
+        assert.deepEqual(first.generations.map((row: { id: string }) => row.id), ["restore-a", "restore-b"]);
+        assert.equal(first.nextOffset, 2);
+        assert.equal(JSON.stringify(first).includes("private"), false);
+        db.prepare("UPDATE generations SET status='succeeded',updated_at=? WHERE id='restore-b'").run(new Date().toISOString());
+        const next = listProjectMediaGenerations("dev-admin", "restore-project", first.nextOffset, 2);
+        assert.deepEqual(next.generations.map((row: any) => row.id), ["restore-c"]);
+        assert.equal(next.nextOffset, null);
+        assert.deepEqual(listProjectMediaGenerations("unknown-user", "restore-project").generations, []);
+        assert.throws(() => tool.handler({ limit: 51 }));
+        assert.throws(() => tool.handler({ offset: -1 }));
+    } finally {
+        db.prepare("DELETE FROM generations WHERE id LIKE 'restore-%'").run();
+    }
+});
 test("中立接口预检不创建任务，拒绝私有执行字段", async () => {
     const response = await fetch(base + "/media/generations/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
     assert.equal(response.status, 200);

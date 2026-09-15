@@ -297,7 +297,7 @@ function shotStoryboardFiles(directory: string) {
 }
 
 export function listDirectorShotDesigns(userId: string, projectId: string, offset = 0, limit = 50) {
-    reconcileDirectorProjectFiles(userId, projectId);
+    if (!db.prepare("SELECT 1 FROM projects WHERE id=? AND user_id=? AND kind='director'").get(projectId, userId)) throw workspaceError(404, "PROJECT_NOT_FOUND", "导演项目不存在");
     const rows = db.prepare("SELECT path,sha256,revision,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' ORDER BY json_extract(metadata,'$.sequenceId'),json_extract(metadata,'$.order'),path LIMIT ? OFFSET ?").all(userId, projectId, Math.max(1, Math.min(100, limit)), Math.max(0, offset)) as Array<{ path: string; sha256: string; revision: number; metadata: string }>;
     const total = (db.prepare("SELECT count(*) total FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design'").get(userId, projectId) as { total: number }).total;
     const root = directorProjectRoot(userId, projectId);
@@ -311,10 +311,9 @@ export function listDirectorShotDesigns(userId: string, projectId: string, offse
 }
 
 export function readDirectorShotStoryboards(userId: string, projectId: string, shotId: string, offset = 0, limit = 50) {
-    reconcileDirectorProjectFiles(userId, projectId);
     const root = directorProjectRoot(userId, projectId);
-    const row = db.prepare("SELECT path,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=?").get(userId, projectId, shotId) as { path: string; metadata: string } | undefined;
-    if (!row) throw workspaceError(404, "DIRECTOR_SHOT_NOT_FOUND", "镜头不存在");
+    const row = db.prepare("SELECT path,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=? AND EXISTS (SELECT 1 FROM projects WHERE projects.id=director_file_index.project_id AND projects.user_id=director_file_index.user_id AND projects.kind='director')").get(userId, projectId, shotId) as { path: string; metadata: string } | undefined;
+    if (!row || !existsSync(safeWorkspacePath(root, row.path))) throw workspaceError(404, "DIRECTOR_SHOT_NOT_FOUND", "镜头不存在");
     const folder = dirname(safeWorkspacePath(root, row.path));
     const folders = shotStoryboardFolders(root, folder);
     const start = Math.max(0, Math.floor(offset));

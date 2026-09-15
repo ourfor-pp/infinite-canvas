@@ -120,11 +120,21 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
     const { scrollRef, atBottomRef, showBottom: showScrollBottom, unread: unreadCount, onScroll: updateScroll, scrollBottom, preserveBeforePrepend, restoreAfterPrepend, beforeCollapse } = useAgentScroll({ sessionId: session?.id, eventKey, contentRef });
 
     useEffect(() => {
-        if (capabilities?.sceneId !== "director" || busy) return;
+        if ((capabilities?.sceneId !== "director" && session?.engine !== "codex") || busy) return;
         let disposed = false;
-        const timer = setInterval(() => { void agentApi.capabilities(projectId).then((value) => { if (!disposed) setCapabilities(value); }).catch(() => {}); }, 15_000);
-        return () => { disposed = true; clearInterval(timer); };
-    }, [projectId, capabilities?.sceneId, busy]);
+        let pending = false;
+        const refresh = async () => {
+            if (pending) return;
+            pending = true;
+            try { const next = await agentApi.capabilities(projectId); if (!disposed) setCapabilities(next); }
+            catch { /* Retry on the next interval or window focus. */ }
+            finally { pending = false; }
+        };
+        void refresh();
+        const timer = setInterval(refresh, 15_000);
+        window.addEventListener("focus", refresh);
+        return () => { disposed = true; clearInterval(timer); window.removeEventListener("focus", refresh); };
+    }, [projectId, capabilities?.sceneId, session?.id, session?.engine, busy]);
 
     useEffect(() => {
         if (!entityReferences.length) return;

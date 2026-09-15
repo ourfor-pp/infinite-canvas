@@ -36,6 +36,14 @@ export function mediaGenerationStatus(userId: string, projectId: string, id: str
     const { request: _request, ...response } = generationResponse(row);
     return response;
 }
+// Return only bounded summaries; fetch one task for its full result and execution snapshot.
+export function listProjectMediaGenerations(userId: string, projectId: string, offset = 0, limit = 20) {
+    const rows = db.prepare(`SELECT id, kind, status, progress, created_at AS createdAt, updated_at AS updatedAt
+        FROM generations WHERE user_id=? AND COALESCE(json_extract(request,'$.metadata.mediaProjectId'),
+            json_extract(request,'$.metadata.directorSegment.projectId'), json_extract(request,'$.params.__agentCanvas.projectId'))=?
+        ORDER BY created_at, id LIMIT ? OFFSET ?`).all(userId, projectId, limit + 1, offset);
+    return { generations: rows.slice(0, limit), offset, nextOffset: rows.length > limit ? offset + limit : null };
+}
 export function cancelProjectMedia(userId: string, projectId: string, id: string) {
     projectMediaGeneration(userId, projectId, id);
     return cancelGeneration(userId, id);

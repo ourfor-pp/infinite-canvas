@@ -31,7 +31,7 @@ allowed-tools: [mcp__infinite_canvas__media_list_capabilities, mcp__infinite_can
 
 1. 准备 kind、model、mode、operation、prompt、params 和显式 references。项目中的参考媒体先用 `media_import_reference` 登记为 fileId；不传执行器路径、凭据或项目私有执行字段。提示正文原样提交，不隐藏追加创作语义。
 2. 调用 `media_validate_generation` 检查输入和执行计划。时长、尺寸、配方及续接限制以服务返回为准；需要固定结果时采用返回的 seed 和 recipe。不要自行拼接模型图或计算隐藏重叠。
-3. 用 `media_generate` 提交并记录任务 ID。用 `media_get_generation_status` 查询同一任务，运行中或提交结果未知时不重复生成；取消使用 `media_cancel_generation`。
+3. 用 `media_generate` 提交并记录任务 ID。用 `media_get_generation_status` 查询同一任务，宿主支持时可省略 generationId 按 offset/limit 分页恢复当前项目任务摘要，再按 ID 查详情；运行中或提交结果未知时不重复生成；取消使用 `media_cancel_generation`。
 4. 成功后按返回结果选择文件。`files` 是本次输出，`cumulativeVideos` 是累计视频，`continuationStates` 是原生续接状态，`execution` 是执行快照。续接时使用来源 generationId 与状态 fileId，不用普通视频冒充状态。
 5. 使用 `media_save_result` 保存到项目指定的新相对路径，保留真实扩展名。项目自己的领域工作流决定采用位置和时间线，生成成功不自动入轨。
 

@@ -418,7 +418,7 @@ export function getSessionEvents(userId: string, sessionId: string, beforeSeq?: 
 
 export async function getAgentCapabilities(userId: string, projectId: string) {
     const scene = resolveAgentScene(userId, projectId);
-    if (scene.id === "director" && getCodexSettings().enabled) await readCodexStatus();
+    if (getCodexSettings().enabled) await readCodexStatus();
     return { engines: [{ id: "builtin", ready: getAgentSettings().ready, reason: getAgentSettings().ready ? "" : "管理员尚未配置内置 Agent" }, { id: "codex", ...codexPublicStatus() }], sceneId: scene.id, skills: listBuiltInAgentSkills(sceneSkillIds(scene)), referenceKinds: scene.referenceKinds, composer: { ...scene.composer, suggestions: [...scene.composer.suggestions] } };
 }
 

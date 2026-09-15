@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { App } from "antd";
-import { Bot, ChevronLeft, ChevronRight, Image as ImageIcon, Plus, Save, ArrowLeft, Pencil } from "lucide-react";
+import { Bot, Image as ImageIcon, Save, ArrowLeft, Pencil } from "lucide-react";
+import { readDirectorQuery, readDirectorShotDesigns } from "@/services/director-queries";
 import { directorApi } from "@/services/api/director";
 import { useAgentStore } from "@/stores/use-agent-store";
 import type { DirectorShotStoryboard, DirectorShotDesign, DirectorState } from "@/types/director";
@@ -16,10 +17,10 @@ export function ShotWorkspace({ projectId, state, onRefresh }: Props) {
     const { message } = App.useApp();
     const prepare = useAgentStore((store) => store.prepareComposer);
     const version = useDirectorResourceVersion(projectId, "segments");
-    const [selection, setSelection] = useState<{ sceneId: string; selectedId: string; shotId?: string }>(() => {
-        try { return JSON.parse(localStorage.getItem(`director-board-view:${projectId}`) || "null") || { sceneId: "", selectedId: "" }; } catch { return { sceneId: "", selectedId: "" }; }
+    const [selection, setSelection] = useState<{ sceneId: string; shotId?: string }>(() => {
+        try { return JSON.parse(localStorage.getItem(`director-board-view:${projectId}`) || "null") || { sceneId: "" }; } catch { return { sceneId: "" }; }
     });
-    const { sceneId, selectedId, shotId } = selection;
+    const { sceneId, shotId } = selection;
     const select = (patch: Partial<typeof selection>) => {
         const next = { ...selection, ...patch }; setSelection(next);
         try { localStorage.setItem(`director-board-view:${projectId}`, JSON.stringify(next)); } catch { /* UI preference is optional. */ }
@@ -31,31 +32,28 @@ export function ShotWorkspace({ projectId, state, onRefresh }: Props) {
     const currentShot = orderedShots.find((item) => item.id === shotId) || orderedShots.find((item) => item.sequenceId === sceneId) || orderedShots[0];
     const sequence = state.sequences.find((item) => item.id === (currentShot?.sequenceId || sceneId)) || state.sequences[0];
     const mediaVersion = useDirectorResourceVersion(projectId, "media");
-    const [boardPage, setBoardPage] = useState(0);
-    const [boardResult, setBoardResult] = useState<{ shotId: string; page: number; items: DirectorShotStoryboard[]; total: number }>({ shotId: "", page: 0, items: [], total: 0 });
+    const boardCache = useMemo(() => new Map<string, { shotId: string; items: DirectorShotStoryboard[]; total: number }>(), [projectId, version, mediaVersion]);
+    const [, refreshBoards] = useState(0);
     const [boardError, setBoardError] = useState("");
-    const boards = boardResult.shotId === currentShot?.id && boardResult.page === boardPage ? boardResult.items : [];
+    const boards = currentShot ? boardCache.get(currentShot.id)?.items || [] : [];
     useEffect(() => {
         let active = true; setBoardError("");
-        if (currentShot) void directorApi.shotStoryboards(projectId, currentShot.id, boardPage * 50).then((result) => { if (active) setBoardResult({ ...result, page: boardPage }); }).catch((error) => { if (active) { setBoardResult({ shotId: currentShot.id, page: boardPage, items: [], total: 0 }); setBoardError(error.message); } });
+        if (currentShot && !boardCache.has(currentShot.id)) void readDirectorQuery(projectId, "segments", ["shot-storyboard", currentShot.id], () => directorApi.shotStoryboards(projectId, currentShot.id, 0)).then((result) => {
+            if (boardCache.size >= 64) boardCache.delete(boardCache.keys().next().value!);
+            boardCache.set(currentShot.id, result);
+            if (active) refreshBoards((value) => value + 1);
+        }).catch((error) => { if (active) setBoardError(error.message); });
         return () => { active = false; };
-    }, [projectId, currentShot?.id, version, mediaVersion, boardPage]);
-    const selected = boards.find((item) => item.id === selectedId) || boards[0];
-    const selectedIndex = boards.findIndex((item) => item.id === selected?.id);
+    }, [projectId, currentShot?.id, boardCache]);
+    const selected = boards[0];
     const sheet = selected;
     const boardUrl = (image: { fileId: string; hash: string }) => `${directorMediaUrl(image.fileId)}${directorMediaUrl(image.fileId).includes("?") ? "&" : "?"}hash=${image.hash}`;
     useEffect(() => {
         let active = true;
-        const read = async () => {
-            const first = await directorApi.shotDesigns(projectId);
-            const items = [...first.items];
-            for (let offset = 50; active && offset < first.total; offset += 50) items.push(...(await directorApi.shotDesigns(projectId, offset)).items);
-            if (active) setShots(items);
-        };
-        void read().catch((error) => { if (active) message.error(error.message); });
+        void readDirectorShotDesigns(projectId).then((items) => { if (active) setShots(items); }).catch((error) => { if (active) message.error(error.message); });
         return () => { active = false; };
     }, [projectId, version, message]);
-    const giveAgent = (instruction: string, wholeScene = false) => prepare(projectId, { kind: "director", projectId, entityKind: currentShot && !wholeScene ? "shot-design" : "script", entityId: currentShot && !wholeScene ? currentShot.id : "script", title: currentShot && !wholeScene ? currentShot.name : sequence?.title || "分镜策划", subtitle: "故事板与镜头表达", instruction: `当前场景：${sequence?.title || "按剧本场景"}。${sheet && !wholeScene ? `当前故事板目录：${sheet.id}；提示词：${sheet.promptPath}。` : ""}${instruction} 本轮只处理故事板、镜头与声音说明，不创建或提交视频生成。` });
+    const giveAgent = (instruction: string) => prepare(projectId, { kind: "director", projectId, entityKind: currentShot ? "shot-design" : "script", entityId: currentShot ? currentShot.id : "script", title: currentShot ? currentShot.name : sequence?.title || "分镜策划", subtitle: "故事板与镜头表达", instruction: `当前场景：${sequence?.title || "按剧本场景"}。${sheet ? `当前故事板目录：${sheet.id}；提示词：${sheet.promptPath}。` : ""}${instruction} 本轮只处理故事板、镜头与声音说明，不创建或提交视频生成。` });
     const openImage = (fileId: string, title: string, hash?: string) => setPreview([{ id: fileId, url: hash ? boardUrl({ fileId, hash }) : directorMediaUrl(fileId), alt: title }]);
     const editShot = async (shot: DirectorShotDesign) => {
         try {
@@ -65,32 +63,22 @@ export function ShotWorkspace({ projectId, state, onRefresh }: Props) {
     };
     if (editing) return <ShotEditor projectId={projectId} state={state} design={editing} onClose={() => setEditing(undefined)} onSaved={async (saved) => { setShots((items) => items.map((item) => item.id === saved.id ? saved : item)); setEditing(saved); await onRefresh(); }} />;
     return <section data-testid="director-storyboard-card" className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-white text-slate-800">
-        <header className="flex h-12 shrink-0 items-center gap-3 border-b border-slate-200 px-5">
-            <span className="text-sm font-semibold">镜头列表</span><span className="text-xs text-slate-400">{shots.length}</span><span className="flex-1" />
-            <button className={action} onClick={() => giveAgent("请阅读整场剧本与已有分镜，按观看顺序补充故事板的画面与镜头说明；一个场景可有多张故事板，一个连续镜头可有多个关键画面，不按视频生成时长或固定格数拆分。先完成可修改方案。", true)}><Plus size={14} />补充分镜</button>
-            <button className={action} disabled={!currentShot} onClick={() => { if (currentShot) prepare(projectId, { kind: "director", projectId, entityKind: "shot-design", entityId: currentShot.id, title: currentShot.name, subtitle: "镜头" }); }}><Bot size={14} />交给 Agent 修订</button>
-        </header>
         <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[240px_minmax(0,1fr)] max-[1000px]:grid-cols-[200px_minmax(0,1fr)] max-[600px]:grid-cols-[150px_minmax(0,1fr)]">
             <aside aria-label="镜头列表" className="min-h-0 overflow-y-auto border-r border-slate-200">
                 {state.sequences.map((scene) => <section key={scene.id}><h2 className="px-4 pb-2 pt-3 text-[11px] font-medium text-slate-400">{scene.title}</h2>{orderedShots.filter((shot) => shot.sequenceId === scene.id).map((shot, index) => <div key={shot.id} className={`group relative border-l-2 ${shot.id === currentShot?.id ? "border-blue-600 bg-blue-50/70" : "border-transparent"}`}>
-                    <button aria-label={`选择镜头 ${shot.name}`} aria-pressed={shot.id === currentShot?.id} onClick={() => { setBoardPage(0); select({ shotId: shot.id, sceneId: shot.sequenceId, selectedId: "" }); }} className="flex w-full gap-3 px-3 py-4 text-left hover:bg-slate-50/70"><span className="pt-0.5 font-mono text-xs text-slate-400">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0 flex-1"><h3 className="pr-3 text-xs font-medium leading-5">{shot.name}</h3><p className="mt-1 line-clamp-1 text-[11px] text-slate-400">{shot.camera}</p><p className="mt-1 line-clamp-2 text-[11px] leading-5 text-slate-500">{shot.action || shot.purpose}</p></div></button>
+                    <button aria-label={`选择镜头 ${shot.name}`} aria-pressed={shot.id === currentShot?.id} onClick={() => { select({ shotId: shot.id, sceneId: shot.sequenceId }); }} className="flex w-full gap-3 px-3 py-4 text-left hover:bg-slate-50/70"><span className="pt-0.5 font-mono text-xs text-slate-400">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0 flex-1"><h3 className="pr-3 text-xs font-medium leading-5">{shot.name}</h3><p className="mt-1 line-clamp-1 text-[11px] text-slate-400">{shot.camera}</p><p className="mt-1 line-clamp-2 text-[11px] leading-5 text-slate-500">{shot.action || shot.purpose}</p></div></button>
                     <button aria-label={`编辑镜头 ${shot.name}`} className="absolute right-1 top-3 rounded p-1.5 text-slate-400 opacity-0 hover:text-blue-600 focus:opacity-100 group-hover:opacity-100" onClick={() => void editShot(shot)}><Pencil size={12} /></button>
                 </div>)}{!shots.some((shot) => shot.sequenceId === scene.id) && <p className="px-4 pb-3 text-xs text-slate-400">尚无镜头设计</p>}</section>)}
             </aside>
             <div aria-label="故事板工作区" className="min-h-0 min-w-0 overflow-y-auto">
-                <section aria-label="故事板列表" className="border-b border-slate-200 px-5 py-3">
-                    <div className="mb-3 flex items-center gap-2"><h2 className="text-xs font-semibold">故事板</h2><span className="text-[11px] text-slate-400">共 {boardResult.shotId === currentShot?.id ? boardResult.total : 0} 张</span><span className="flex-1" /><button aria-label="上一张故事板" className={action} disabled={selectedIndex <= 0} onClick={() => select({ selectedId: boards[selectedIndex - 1].id })}><ChevronLeft size={15} /></button><button aria-label="下一张故事板" className={action} disabled={selectedIndex < 0 || selectedIndex >= boards.length - 1} onClick={() => select({ selectedId: boards[selectedIndex + 1].id })}><ChevronRight size={15} /></button></div>
-                    <div className="thin-scrollbar flex gap-3 overflow-x-auto">{boards.map((board, index) => <button key={board.id} aria-label={`故事板 ${index + 1} ${board.title}`} aria-pressed={board.id === selected?.id} onClick={() => select({ selectedId: board.id })} className="w-40 shrink-0 text-left"><div className={`aspect-video overflow-hidden border-2 ${board.id === selected?.id ? "border-blue-500" : "border-transparent"}`}>{board.image?.fileId ? <img alt="" loading="lazy" src={boardUrl(board.image!)} className="size-full bg-slate-50 object-contain" /> : <div className="grid size-full place-items-center bg-slate-50 text-slate-300"><ImageIcon size={20} /></div>}</div><p className={`mt-1 truncate text-[11px] ${board.id === selected?.id ? "text-blue-600" : "text-slate-500"}`}>{index + 1}. {board.title}</p></button>)}{!boards.length && <p className="py-4 text-xs text-slate-400">当前镜头尚无故事板</p>}</div>
-                </section>
-                {boardResult.shotId === currentShot?.id && boardResult.total > 50 && <div className="flex justify-end gap-2 px-5 py-2"><button className={action} disabled={!boardPage} onClick={() => setBoardPage(boardPage - 1)}>上一页</button><span className="text-xs">{boardPage + 1}</span><button className={action} disabled={(boardPage + 1) * 50 >= boardResult.total} onClick={() => setBoardPage(boardPage + 1)}>下一页</button></div>}
                 {boardError && <p role="alert" className="px-5 py-3 text-xs text-rose-600">{boardError}</p>}
                 {sheet?.errors.map((error) => <p role="alert" key={error} className="px-5 py-2 text-xs text-rose-600">{error}</p>)}
                 <section aria-label="当前故事板" className="px-5 pb-4 pt-3">
-                    <header className="mb-3 flex flex-wrap items-center gap-3"><h1 className="text-sm font-semibold">{selected?.title || currentShot?.name || "故事板"}</h1><span className="text-[11px] text-slate-400">{selected ? `第 ${boardPage * 50 + selectedIndex + 1} 张` : ""}</span><span className="flex-1" /><button className={action} onClick={() => giveAgent("请先核对本页分镜说明与显式参考，展示或修订最终生图提示词，再用原生生图能力绘制这张完整故事板，按工程约定保存并登记。保留其他故事板。") }><ImageIcon size={14} />{sheet?.image?.fileId ? "重绘故事板" : "绘制故事板"}</button></header>
-                    <div data-testid="director-storyboard-sheet" className="min-w-0 bg-slate-50/50">{sheet?.image?.fileId ? <button aria-label="放大查看完整故事板" className="block w-full cursor-zoom-in" onClick={() => openImage(sheet.image!.fileId, selected.title, sheet.image!.hash)}><img alt={selected.title} src={boardUrl(sheet.image!)} draggable={false} className="block h-auto w-full object-contain" /></button> : <div className="flex min-h-64 flex-col items-center justify-center text-slate-400"><ImageIcon size={36} strokeWidth={1} /><p className="mt-4 text-sm">{selected ? "这张故事板还未绘制" : "根据镜头设计绘制故事板"}</p><p className="mt-2 px-4 text-xs">{currentShot?.purpose || "先安排画面、动作和镜头衔接"}</p></div>}</div>
+                    <header className="mb-3 flex flex-wrap items-center gap-3"><h1 className="text-sm font-semibold">{selected?.title || currentShot?.name || "故事板"}</h1><span className="flex-1" /><button className={action} onClick={() => giveAgent("请先核对本页分镜说明与显式参考，展示或修订最终生图提示词，再用原生生图能力绘制这张完整故事板，按工程约定保存并登记。保留其他故事板。") }><ImageIcon size={14} />{sheet?.image?.fileId ? "重绘故事板" : "绘制故事板"}</button><button className={action} disabled={!currentShot} onClick={() => { if (currentShot) prepare(projectId, { kind: "director", projectId, entityKind: "shot-design", entityId: currentShot.id, title: currentShot.name, subtitle: "镜头" }); }}><Bot size={14} />交给 Agent 修订</button></header>
+                    <div data-testid="director-storyboard-sheet" className="min-w-0 bg-slate-50/50">{sheet?.image?.fileId ? <button aria-label="放大查看完整故事板" className="block w-full cursor-zoom-in" onClick={() => openImage(sheet.image!.fileId, selected.title, sheet.image!.hash)}><img alt={selected.title} src={boardUrl(sheet.image!)} draggable={false} className="block h-auto w-full object-contain" /></button> : <div className="flex min-h-64 flex-col items-center justify-center text-slate-400"><ImageIcon size={36} strokeWidth={1} /><p className="mt-4 text-sm">{selected ? "这张故事板还未绘制" : "当前镜头尚无故事板"}</p><p className="mt-2 px-4 text-xs">{currentShot?.purpose || "先安排画面、动作和镜头衔接"}</p></div>}</div>
                 </section>
                 <section aria-label="引用素材" className="border-t border-slate-200 px-5 py-3"><h2 className="mb-3 text-xs font-semibold">引用素材</h2><div className="flex gap-4 overflow-x-auto">{sheet?.references?.map((item, index) => <button key={`${item.fileId}:${index}`} className="w-28 shrink-0 text-left" disabled={!item.fileId} onClick={() => { if (item.fileId) openImage(item.fileId, item.name, item.hash); }}>{item.fileId ? <img alt={item.name} src={item.hash ? boardUrl({ fileId: item.fileId, hash: item.hash }) : directorMediaUrl(item.fileId)} className="h-16 w-full object-contain" /> : <span className="block py-4 text-xs text-rose-600">{item.error}</span>}<span className="mt-1 block truncate text-[11px] text-slate-500">{item.name}</span></button>)}{!sheet?.references?.length && <p className="py-2 text-xs text-slate-400">尚未记录本页引用素材</p>}</div></section>
-                <section aria-label="故事板提示词" className="border-t border-slate-200 px-5 py-4"><div className="mb-3 flex items-center"><h2 className="flex-1 text-xs font-semibold">故事板提示词</h2><button className={action} onClick={() => giveAgent("请读取当前故事板的实际提示词和参考输入，按我的要求仅修订提示词，不自动生成图片。我的要求：")}><Pencil size={13} />交给 Agent 编辑</button></div><p className="whitespace-pre-wrap break-words text-xs leading-6 text-slate-600">{sheet?.prompt || "尚未记录故事板提示词。绘制前由 Agent 明确提示词和引用输入。"}</p></section>
+                <section aria-label="故事板提示词" className="border-t border-slate-200 px-5 py-4"><div className="mb-3 flex items-center"><h2 className="flex-1 text-xs font-semibold">故事板提示词</h2></div><p className="whitespace-pre-wrap break-words text-xs leading-6 text-slate-600">{sheet?.prompt || "尚未记录故事板提示词。绘制前由 Agent 明确提示词和引用输入。"}</p></section>
             </div>
         </div>
         <WorkspaceImagePreviewLightbox items={preview} activeIndex={preview.length ? 0 : null} onClose={() => setPreview([])} onChangeIndex={() => {}} />

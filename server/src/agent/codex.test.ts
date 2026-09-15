@@ -211,14 +211,16 @@ test("模型默认值按目录解析，拒绝失效模型和不支持的思考�
     assert.throws(() => resolveCodexOptions({ effort: "ultra" }, catalog), /不支持/);
 });
 
-test("续聊保持原 thread 并将回合快照的模型与思考强度发送给 Codex", async () => {
+test("续聊保持原 thread 并更新场景提示、模型与思考强度", async () => {
     const capture = join(root, "model-requests.jsonl");
-    const runner = new CodexRuntime({ sessionId: "s", runId: "r", workspace: root, threadId: "thread-1", prompt: "继续", instructions: "导演", tools: [], options: { model: "chosen-model", effort: "high" }, signal: new AbortController().signal,
+    const instructions = agentScenes.canvas.systemPrompt("p", "codex");
+    const runner = new CodexRuntime({ sessionId: "s", runId: "r", workspace: root, threadId: "thread-1", prompt: "继续", instructions, tools: [], options: { model: "chosen-model", effort: "high" }, signal: new AbortController().signal,
         bindThread: (id) => assert.equal(id, "thread-1"), bindTurn: () => {}, append: () => {}, ask: async () => ({}) },
     { ready: async () => {}, settings: () => ({ enabled: true, binary: "/usr/bin/codex", model: "admin-default" }), bridge: async () => ({ url: "http://127.0.0.1/mcp", token: "test", close: () => {} }), start: () => fakeRpc("complete", capture) });
     await runner.run();
     const requests = readFileSync(capture, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     assert.equal(requests.find((item) => item.method === "thread/resume").params.model, "chosen-model");
+    assert.equal(requests.find((item) => item.method === "thread/resume").params.developerInstructions, instructions);
     const turn = requests.find((item) => item.method === "turn/start").params;
     assert.equal(turn.threadId, "thread-1"); assert.equal(turn.model, "chosen-model"); assert.equal(turn.effort, "high");
 });
@@ -333,4 +335,18 @@ test("画布两种引擎均移除业务节点工具和 Skill，导演能力保�
     assert.deepEqual(agentScenes.canvas.referenceKinds, ["canvas"]);
     assert.ok(sceneSkillIds(agentScenes.director).includes("director-design-character"));
     assert.ok(buildAgentToolDefinitions(context, agentScenes.director).some((tool) => tool.name === "director_generate_asset"));
+});
+
+
+test("画布 Codex 可原生获取并处理参考视频，业务写入仍经 MCP，内置权限独立", () => {
+    const codex = agentScenes.canvas.systemPrompt("p", "codex");
+    assert.doesNotMatch(codex, /你只使用 canvas|禁止 Shell/);
+    assert.match(codex, /原生命令、文件、看图和联网能力/);
+    assert.match(codex, /不得未经尝试就断言不能访问链接/);
+    assert.match(codex, /未取得参考内容时不得凭标题或分享文案编造故事/);
+    assert.match(codex, /必须通过画布 MCP 工具读取和修改/);
+    assert.match(codex, /不得访问宿主配置、渠道凭据或管理员接口/);
+    const builtin = agentScenes.canvas.systemPrompt("p", "builtin");
+    assert.match(builtin, /禁止 Shell/);
+    assert.doesNotMatch(builtin, /可自主使用原生命令/);
 });

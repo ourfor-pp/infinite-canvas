@@ -1,3 +1,4 @@
+import { directorApi } from "@/services/api/director";
 import { queryClient } from "@/lib/query-client";
 import { useDirectorStore } from "@/stores/use-director-store";
 import type { DirectorResource } from "@/types/director-sync";
@@ -22,3 +23,11 @@ export async function readDirectorQuery<T>(projectId: string, resource: Director
     } });
 }
 
+
+export function readDirectorShotDesigns(projectId: string) {
+    return readDirectorQuery(projectId, "segments", ["shot-designs"], async () => {
+        const first = await directorApi.shotDesigns(projectId);
+        const pages = await Promise.all(Array.from({ length: Math.max(0, Math.ceil(first.total / 50) - 1) }, (_, index) => directorApi.shotDesigns(projectId, (index + 1) * 50)));
+        return [...first.items, ...pages.flatMap((page) => page.items)];
+    });
+}

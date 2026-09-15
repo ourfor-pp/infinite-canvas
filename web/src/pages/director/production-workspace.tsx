@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { Plus, Film, Bot, Image as ImageIcon } from "lucide-react";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { nanoid } from "nanoid";
+import { readDirectorQuery, readDirectorShotDesigns } from "@/services/director-queries";
 import { directorApi } from "@/services/api/director";
 import type { DirectorShotDesign, DirectorState, DirectorVideoSegment, DirectorVideoSegmentPreflight } from "@/types/director";
 import { directorMediaUrl, useDirectorResourceVersion } from "./use-director-sync";
@@ -25,7 +26,7 @@ export function ProductionWorkspace({ projectId, state, onRefresh }: Props) {
     const [search, setSearch] = useSearchParams();
     useEffect(() => {
         let active = true;
-        void (async () => { const first = await directorApi.shotDesigns(projectId); const items = [...first.items]; for (let offset = 50; active && offset < first.total; offset += 50) items.push(...(await directorApi.shotDesigns(projectId, offset)).items); if (active) setShots(items); })().catch((error) => { if (active) message.error(error.message); });
+        void readDirectorShotDesigns(projectId).then((items) => { if (active) setShots(items); }).catch((error) => { if (active) message.error(error.message); });
         return () => { active = false; };
     }, [projectId, version, mediaVersion, message]);
     const ordered = state.sequences.flatMap((scene) => shots.filter((shot) => shot.sequenceId === scene.id).sort((a, b) => a.order - b.order));
@@ -63,7 +64,7 @@ function TaskEditor({ projectId, task, shots, initialShot, previewShot, active, 
     const video = useRef<HTMLVideoElement>(null);
     const promptEdited = useRef(false);
     useEffect(() => { if (!active) video.current?.pause(); }, [active]);
-    useEffect(() => { let live = true; if (task) void directorApi.file(projectId, promptPath).then((file) => { if (live && !promptEdited.current) { setPrompt(file.content); setPromptHash(file.hash); } }).catch((error) => { if (live) message.error(error.message); }); return () => { live = false; }; }, [projectId, promptPath, task?.id, task?.revision]);
+    useEffect(() => { let live = true; if (task) void readDirectorQuery(projectId, "segments", ["production-prompt", promptPath, task.revision], () => directorApi.file(projectId, promptPath)).then((file) => { if (live && !promptEdited.current) { setPrompt(file.content); setPromptHash(file.hash); } }).catch((error) => { if (live) message.error(error.message); }); return () => { live = false; }; }, [projectId, promptPath, task?.id, task?.revision]);
     const save = async () => {
         const payload = { shotIds: draft.shotIds, durationSeconds: draft.seconds, referenceImages: references.split("\n").filter(Boolean), boundary: draft.boundary, continuationFromSegmentId: draft.previous || undefined, generationIntent: draft.intent, transitionFromSegmentId: draft.transitionFrom || undefined, transitionToSegmentId: draft.transitionTo || undefined };
         const saved = current ? await directorApi.updateVideoSegment(current.id, { revision: current.revision, title: draft.title, sequenceId: draft.sequenceId, payload }) : await directorApi.createVideoSegment(projectId, { id: draft.id, title: draft.title, sequenceId: draft.sequenceId, payload });
@@ -107,10 +108,10 @@ function ReferenceImages({ projectId, paths }: { projectId: string; paths: strin
     const images = result.paths === paths ? result.images : [];
     useEffect(() => {
         let active = true;
-        const timer = setTimeout(() => { void Promise.all(paths.split("\n").map((path) => path.trim()).filter(Boolean).map(async (path) => {
-            try { return { path, ...(await directorApi.referenceImage(projectId, path)) }; } catch { return { path }; }
-        })).then((value) => { if (active) setResult({ paths, images: value }); }); }, 300);
-        return () => { active = false; clearTimeout(timer); };
+        void Promise.all(paths.split("\n").map((path) => path.trim()).filter(Boolean).map(async (path) => {
+            try { return { path, ...(await readDirectorQuery(projectId, "assets", ["reference-image", path], () => directorApi.referenceImage(projectId, path))) }; } catch { return { path }; }
+        })).then((value) => { if (active) setResult({ paths, images: value }); });
+        return () => { active = false; };
     }, [projectId, paths]);
     return <div className="mt-3 flex gap-3 overflow-x-auto pb-2">{images.map(({ path, fileId }, index) => <div key={`${path}:${index}`} className="w-24 shrink-0 text-[10px] text-slate-500" title={path}>{fileId ? <a href={directorMediaUrl(fileId)} target="_blank" rel="noreferrer"><img src={directorMediaUrl(fileId)} alt={path} className="mb-1 h-14 w-full object-contain" /></a> : <p className="py-3 text-rose-600">图片不可用</p>}<p className="truncate">{path.split("/").slice(-2).join("/")}</p></div>)}</div>;
 }

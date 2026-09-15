@@ -1748,3 +1748,19 @@ test("Skill 文件样例投影来源和 H3 字段，时间线使用相对媒体�
     reconcileDirectorProjectFiles(userId, projectId);
     assert.deepEqual(readSegment().storyboardSheet.frames[2].dialogues, [], "损坏文件不能覆盖可用投影");
 });
+
+
+test("画布能力查询主动刷新 Codex 状态，不能依赖导演台或模型菜单预热", async () => {
+    const { getCodexSettings, saveCodexSettings, codexPublicStatus } = await import("./agent/codex/settings.js");
+    const original = getCodexSettings();
+    try {
+        saveCodexSettings({ enabled: true, binary: "/usr/bin/codex-missing-regression" });
+        const before = codexPublicStatus().reason;
+        const response = await api("/agent/projects/project-1/capabilities", userOne);
+        assert.equal(response.response.status, 200);
+        const codex = response.body.data.engines.find((item: { id: string }) => item.id === "codex");
+        assert.equal(codex.ready, false);
+        assert.notEqual(codex.reason, before, "画布必须实际检查运行环境，不能返回未刷新的缓存");
+        assert.match(codex.reason, /codex-missing-regression/);
+    } finally { saveCodexSettings(original); }
+});
