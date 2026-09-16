@@ -83,7 +83,8 @@ const sections: Array<{ id: DirectorSection; label: string; icon: typeof Film }>
     { id: "style", label: "导演方案", icon: Palette },
     { id: "script", label: "剧本", icon: ScrollText },
     { id: "storyboard", label: "分镜", icon: Clapperboard },
-    { id: "studio", label: "视频创作台", icon: Scissors },
+    { id: "studio", label: "视频创作台", icon: Video },
+    { id: "edit", label: "剪辑成片", icon: Scissors },
     { id: "assets", label: "素材库", icon: Package },
 ];
 
@@ -103,7 +104,7 @@ const EMPTY_GENERATIONS: ServerGeneration[] = [];
 const EMPTY_RENDERS: DirectorRender[] = [];
 const PAGE_RESOURCES: Record<DirectorSection, DirectorResource[]> = {
     overview: ["sources", "validation", "story", "script", "segments", "timeline"], story: ["story", "sources"], script: ["script", "sources"], style: ["direction"],
-    assets: ["assets", "segments"], storyboard: ["segments", "timeline", "validation"], studio: ["segments", "timeline", "renders"],
+    assets: ["assets", "segments"], storyboard: ["segments", "timeline", "validation"], studio: ["segments", "timeline", "renders"], edit: ["segments", "timeline", "renders"],
 };
 const assetFileUrl = (fileId: string, revision: number) => directorMediaUrl(fileId, revision);
 
@@ -192,7 +193,7 @@ export default function DirectorProjectPage() {
                         {active === "style" ? <DirectorTreatmentPage projectId={id} workspace={state.workspace} activeStyleId={state.activeStyleId} styles={styles} onRefresh={refresh} /> : null}
                         {active === "assets" ? <AssetGallery projectId={id} state={state} assets={assets} generations={generations} agentCollapsed={agentCollapsed} onGeneration={applyGeneration} onRefresh={refresh} /> : null}
                         {active === "storyboard" ? <ShotWorkspace projectId={id} state={state} onRefresh={refresh} /> : null}
-                        {active === "studio" ? <EditWorkspace projectId={id} state={state} onRefresh={refresh} /> : null}
+                        {active === "studio" || active === "edit" ? <EditWorkspace mode={active === "edit" ? "edit" : "production"} projectId={id} state={state} onRefresh={refresh} /> : null}
                     </section>
                 </div>
             </main>
@@ -346,7 +347,7 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
         { label: "分镜规划", detail: `${state.videoSegments.length} 个视频段`, done: stages[3], target: "storyboard" as const },
         { label: "故事板", detail: `${state.videoSegments.filter((item) => item.payload.storyboardSheet?.imageFileId).length}/${state.videoSegments.length}`, done: stages[4], target: "storyboard" as const },
         { label: "视频段", detail: `${state.videoSegments.filter((item) => item.payload.videoFileId).length}/${state.videoSegments.length}`, done: stages[5], target: "storyboard" as const },
-        { label: "成片", detail: stages[5] ? "可合成" : "待就绪", done: false, target: "studio" as const },
+        { label: "成片", detail: stages[5] ? "可合成" : "待就绪", done: false, target: "edit" as const },
     ];
     const nextStage = stageItems.find((item) => !item.done) || stageItems.at(-1)!;
     return (

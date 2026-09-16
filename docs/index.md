@@ -63,6 +63,8 @@
 
 ## Notes
 
+- [H3 三维预演与角色参考对照](research/h3-previs-reference-test.md)：真实三组生成、同步视频与适用边界。
+
 - Canvas projects, My Assets, generation records, media, and model settings are now stored by the Express backend. Browser IndexedDB remains only as an import source and for UI/plugin/remote-prompt caches.
 - All AI provider calls, internal ComfyUI work, the built-in Canvas Agent, and WebDAV snapshots run on the backend; provider credentials never reach the browser.
 - Docker, Render, Vercel, and fnOS packaging are follow-up work for the new backend architecture and are not maintained by this development milestone yet.

@@ -42,7 +42,7 @@ import {
 import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflightWithFraming, getDirectorPlaybackPlan, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
 import {
-    resolveDirectorMediaFile, readDirectorShotStoryboards, listDirectorShotDesigns, saveDirectorShotDesign, addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
+    resolveDirectorReferenceImage, resolveDirectorMediaFile, readDirectorShotStoryboards, listDirectorShotDesigns, saveDirectorShotDesign, addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
     readDirectorLogicalDocument, readDirectorStyleBoard, readDirectorTextFile, removeDirectorAssetMediaInput, removeDirectorProjectWorkspace, trashDirectorAssetVariant, validateDirectorProject, writeDirectorDocumentPart, writeDirectorMarkdown,
 } from "./director-workspace.js";
 
@@ -205,7 +205,7 @@ api.get("/director/projects/:id", route((req) => {
 }));
 api.post("/director/projects/:id/validate", route((req) => validateDirectorProject(req.user.id, routeId(req), typeof req.body?.scope === "string" ? req.body.scope : "")));
 api.get("/director/projects/:id/validation", route((req) => getDirectorValidation(req.user.id, routeId(req))));
-api.get("/director/projects/:id/reference-image", route((req) => ({ fileId: resolveDirectorMediaFile(req.user.id, routeId(req), String(req.query.path || ""), "image").fileId })));
+api.get("/director/projects/:id/reference-image", route((req) => resolveDirectorReferenceImage(req.user.id, routeId(req), String(req.query.path || ""))));
 api.get("/director/projects/:id/file", route((req) => readDirectorTextFile(req.user.id, routeId(req), String(req.query.path || ""))));
 api.put("/director/projects/:id/file", route((req) => writeDirectorMarkdown(req.user.id, routeId(req), String(req.body?.path || ""), String(req.body?.content || ""), typeof req.headers["if-match"] === "string" ? req.headers["if-match"].replace(/^\"|\"$/g, "") : undefined)));
 api.get("/director/projects/:id/direction/style-board", (req, res, next) => {

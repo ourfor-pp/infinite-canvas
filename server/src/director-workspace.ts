@@ -176,6 +176,25 @@ export function resolveDirectorMediaFile(userId: string, projectId: string, rela
     return { path, fileId: registerDirectorMediaFile(userId, projectId, root, path) };
 }
 
+export function resolveDirectorReferenceImage(userId: string, projectId: string, relativePath: string) {
+    const media = resolveDirectorMediaFile(userId, projectId, relativePath, "image");
+    const root = directorProjectRoot(userId, projectId);
+    const relative = posixRelative(root, media.path);
+    let name = "参考图片";
+    if (relative.startsWith("direction/references/")) name = basename(relative).startsWith("style-board.") ? "项目视觉风格" : "视觉风格参考图";
+    else if (relative.includes("/inputs/")) { const number = basename(relative).match(/reference-(\d+)/)?.[1]; name = number ? `补充参考 ${number}` : "补充参考"; }
+    else {
+        for (let folder = dirname(media.path); folder !== root; folder = dirname(folder)) {
+            const document = ["character.md", "location.md", "prop.md", "shot.md", "task.md"].map((file) => resolve(folder, file)).find((file) => existsSync(file));
+            if (!document) continue;
+            const data = matter(readFileSync(safeWorkspacePath(root, posixRelative(root, document)), "utf8")).data;
+            name = String(data.name || data.title || name) + (/^storyboard\./i.test(basename(relative)) ? " · 故事板" : "");
+            break;
+        }
+    }
+    return { fileId: media.fileId, name };
+}
+
 // Materialize backend outputs inside the project so native tools can read them without API credentials.
 export function cacheDirectorMediaFile(userId: string, projectId: string, fileId: string) {
     const root = ensureDirectorProjectWorkspace(userId, projectId);

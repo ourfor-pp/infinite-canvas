@@ -1,5 +1,4 @@
 import { ProductionWorkspace } from "./production-workspace";
-import { useSearchParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { App } from "antd";
 import { ArrowDown, ArrowUp, Film, Pause, Play, Plus, Save, Trash2, Unlink, Upload } from "lucide-react";
@@ -14,14 +13,15 @@ const action = "inline-flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs 
 const numberField = "w-20 rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-700 focus:border-blue-500 outline-none";
 const EMPTY_RENDERS: DirectorRender[] = [];
 
-export function EditWorkspace(props: { projectId: string; state: DirectorState; onRefresh: () => Promise<void> }) {
-    const [search] = useSearchParams();
-    const [mode, setMode] = useState<"production" | "edit">("production");
-    const [visitedEdit, setVisitedEdit] = useState(false);
+export function EditWorkspace({ mode, ...props }: { projectId: string; state: DirectorState; onRefresh: () => Promise<void>; mode: "production" | "edit" }) {
+    const [visitedEdit, setVisitedEdit] = useState(mode === "edit");
+    const [visitedProduction, setVisitedProduction] = useState(mode === "production");
     const workspace = useRef<HTMLElement>(null);
-    useEffect(() => { workspace.current?.querySelectorAll<HTMLMediaElement>("video, audio").forEach((media) => media.pause()); }, [mode]);
-    useEffect(() => { if (search.has("task")) setMode("production"); }, [search]);
-    return <section ref={workspace} className="flex h-full min-h-0 flex-col bg-white"><header role="tablist" aria-label="视频创作阶段" className="flex h-12 shrink-0 items-center gap-5 border-b border-slate-200 px-5">{([['production', '视频制作'], ['edit', '剪辑成片']] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={mode === id} className={`h-full border-b-2 text-sm ${mode === id ? "border-blue-600 font-medium text-blue-600" : "border-transparent text-slate-500"}`} onClick={() => { setMode(id); if (id === "edit") setVisitedEdit(true); }}>{label}</button>)}</header><div className="min-h-0 flex-1" hidden={mode !== "production"}><ProductionWorkspace {...props} /></div><div className="min-h-0 flex-1" hidden={mode !== "edit"}>{visitedEdit && <TimelineWorkspace {...props} active={mode === "edit"} />}</div></section>;
+    useEffect(() => {
+        workspace.current?.querySelectorAll<HTMLMediaElement>("video, audio").forEach((media) => media.pause());
+        if (mode === "edit") setVisitedEdit(true); else setVisitedProduction(true);
+    }, [mode]);
+    return <section ref={workspace} className="flex h-full min-h-0 flex-col bg-white"><div className="min-h-0 flex-1" hidden={mode !== "production"}>{visitedProduction && <ProductionWorkspace {...props} />}</div><div className="min-h-0 flex-1" hidden={mode !== "edit"}>{visitedEdit && <TimelineWorkspace {...props} active={mode === "edit"} />}</div></section>;
 }
 
 function TimelineWorkspace({ projectId, state, onRefresh, active }: { projectId: string; state: DirectorState; onRefresh: () => Promise<void>; active: boolean }) {

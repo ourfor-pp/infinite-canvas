@@ -8,6 +8,8 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__directo
 
 先使用 `media-generation` Skill 了解当前媒体能力和官方提示规则，再读 [任务交接](references/shot-handoff.md)。按需读取镜头设计、素材、导演规则和当前能力，把拍摄需求转换为 `productions/<任务ID>/task.md`。任务用 `shotIds` 声明覆盖镜头，可多对多；镜头的预计时长不因此改变。
 
+输出方向与宽高比沿用 `direction/directing-rules.md` 摄影章节的成片画幅，不从整张故事板、角色身份板或模型默认尺寸推断。预检时核对计划的实际输出尺寸是否匹配；能力不支持时说明限制，不静默换横竖版。生成后验证实际视频宽高与构图，未经用户修改方案不得按场景改变画幅。
+
 选择单镜生成、多镜生成、同镜头原生续接或已有首尾帧过渡。单次窗口以预检返回的 plan 为准。普通参考图可留空、可为单图或多宫格，采用的图片必须在 `referenceImages` 显式列出。声音参考仍写 `audioReferences`（工程相对 path、purpose、英文 description；音色/对白参考还需 speakerAssetId）。程序不自动选角色图或风格板，不隐藏添加创作语义。
 
 最终提示写入同目录 `video-prompt.md`，正文就是原样发送给模型的文本。核对预检返回的路径、hash、引用顺序和数量；无需故事板结构即可写最终提示，不把标题和剧情摘要当作可观察的表演。官方格式要求英文描述时，中文只保留在对白原文、歌词或画面文字中。

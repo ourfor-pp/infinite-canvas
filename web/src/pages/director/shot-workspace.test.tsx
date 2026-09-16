@@ -8,7 +8,7 @@ import { ProductionWorkspace } from "./production-workspace";
 import { EditWorkspace } from "./edit-workspace";
 
 const mocks = vi.hoisted(() => ({ version: 1, prepare: vi.fn(), error: vi.fn(), api: { referenceImage: vi.fn(), shotStoryboards: vi.fn(), shotDesigns: vi.fn(), file: vi.fn(), playbackPlan: vi.fn(), generateVideoSegment: vi.fn() } }));
-vi.mock("antd", () => ({ App: { useApp: () => ({ message: { error: mocks.error } }) } }));
+vi.mock("antd", () => ({ App: { useApp: () => ({ message: { error: mocks.error, success: vi.fn() } }) } }));
 vi.mock("streamdown", () => ({ Streamdown: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock("@/services/api/director", () => ({ directorApi: mocks.api }));
 vi.mock("./use-director-sync", () => ({ useDirectorResourceVersion: () => mocks.version, directorMediaUrl: (id: string) => `/media/${id}` }));
@@ -27,7 +27,7 @@ afterEach(cleanup);
 it("选中镜头直接展示整板，不显示故事板列表或翻页控件", async () => {
     const view = render(<ShotWorkspace {...props} />);
     await screen.findByRole("button", { name: "重绘故事板" });
-    expect(screen.queryByRole("button", { name: "生成预览" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "预览生成" })).toBeNull();
     expect(screen.queryByLabelText("故事板列表")).toBeNull();
     expect(screen.queryByRole("button", { name: "下一张故事板" })).toBeNull();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("新故事板 1");
@@ -49,15 +49,16 @@ it("故事板重绘只准备带当前页引用的 Agent 输入，不提交生成
 });
 
 it("视频制作接收任务深链，切换剪辑再返回保留任务草稿", async () => {
-    render(<MemoryRouter initialEntries={["/studio?task=task-1"]}><EditWorkspace {...props} /></MemoryRouter>);
-    const name = await screen.findByRole("textbox", { name: "任务名称" });
+    const view = render(<MemoryRouter initialEntries={["/studio?task=task-1"]}><EditWorkspace {...props} mode="production" /></MemoryRouter>);
+    expect(screen.queryByRole("tablist", { name: "视频创作阶段" })).toBeNull();
+    const name = await screen.findByRole("textbox", { name: "最终视频提示词" });
     fireEvent.change(name, { target: { value: "修改中的制作方案" } });
-    expect(screen.getByRole("button", { name: "生成预览" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "剪辑成片" }));
+    expect(screen.getByRole("button", { name: "预览生成" })).toBeTruthy();
+    view.rerender(<MemoryRouter><EditWorkspace {...props} mode="edit" /></MemoryRouter>);
     await screen.findByText("暂无素材");
-    expect(screen.queryByRole("button", { name: "生成预览" })).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "视频制作" }));
-    expect((screen.getByRole("textbox", { name: "任务名称" }) as HTMLInputElement).value).toBe("修改中的制作方案");
+    expect(screen.queryByRole("button", { name: "预览生成" })).toBeNull();
+    view.rerender(<MemoryRouter><EditWorkspace {...props} mode="production" /></MemoryRouter>);
+    expect((screen.getByRole("textbox", { name: "最终视频提示词" }) as HTMLInputElement).value).toBe("修改中的制作方案");
     expect(mocks.api.generateVideoSegment).not.toHaveBeenCalled();
 });
 
@@ -122,41 +123,45 @@ it("切换镜头立即清除旧板，迟到的旧请求不覆盖当前镜头", a
 });
 
 
-it("视频制作上方预览与提示词、下方镜头导航，最新故事板替代旧任务封面且切换保留草稿", async () => {
+it("视频制作右侧镜头导航，主区视频引用提示词依次排列且切换保留草稿", async () => {
     mocks.api.shotDesigns.mockResolvedValue({ items: ["a", "b", "c"].map((id, index) => ({ id: `shot-${id}`, name: `镜头${id}`, sequenceId: "scene", order: index, storyboardImage: id === "c" ? undefined : { fileId: `fresh-${id}`, path: `shots/${id}/storyboard.png`, hash: "fresh" } })), total: 3 });
     mocks.api.referenceImage.mockResolvedValue({ fileId: "ref" });
     const next = { ...state, videoSegments: state.videoSegments.map((task, index) => ({ ...task, payload: { ...task.payload, shotIds: [index ? "shot-b" : "shot-a"] } })) };
     render(<MemoryRouter><ProductionWorkspace {...props} state={next} /></MemoryRouter>);
     const prompt = await screen.findByRole("textbox", { name: "最终视频提示词" });
+    expect(screen.queryByRole("combobox", { name: "当前制作任务" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "交给 Agent 修订" }));
+    expect(mocks.prepare).toHaveBeenCalledWith("project", { kind: "director", projectId: "project", entityKind: "shot-design", entityId: "shot-a", title: "镜头a", subtitle: "镜头" });
     await waitFor(() => expect((prompt as HTMLTextAreaElement).value).toBe("真实视频提示词"));
-    expect(screen.getByAltText("镜头a 最新故事板").getAttribute("src")).toContain("fresh-a");
+    expect(within(screen.getByRole("region", { name: "视频预览" })).getByText("尚未生成视频")).toBeTruthy();
+    expect(screen.queryByText("制作范围与参考设置")).toBeNull();
+    expect(screen.queryByRole("button", { name: "新建制作" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "保存并预检" })).toBeNull();
     expect(document.querySelector('img[src*="/media/board-"]')).toBeNull();
     fireEvent.change(prompt, { target: { value: "尚未保存的提示词" } });
-    fireEvent.click(screen.getByRole("button", { name: "引用当前故事板" }));
     fireEvent.click(screen.getByRole("button", { name: "制作镜头 镜头b" }));
-    await screen.findByAltText("镜头b 最新故事板");
+    await screen.findByText("镜头b", { selector: "header span" });
     fireEvent.click(screen.getByRole("button", { name: "制作镜头 镜头a" }));
     expect((screen.getByRole("textbox", { name: "最终视频提示词" }) as HTMLTextAreaElement).value).toBe("尚未保存的提示词");
     expect(mocks.api.generateVideoSegment).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "制作镜头 镜头c" }));
-    expect(screen.getByText("当前镜头尚未安排视频制作")).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "最终视频提示词" })).toBeNull();
+    expect(await screen.findByRole("textbox", { name: "最终视频提示词" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "视频预览" })).getByText("尚未生成视频")).toBeTruthy();
 });
 
-it("一镜多任务可切换，旧视频保留待检查标记", async () => {
+it("任务深链保留实际视频归属与待检查标记，不显示任务下拉", async () => {
     const shots = [{ id: "shot-a", name: "主镜头", sequenceId: "scene", order: 1 }];
     mocks.api.shotDesigns.mockResolvedValue({ items: shots, total: 1 });
     const next = { ...state, videoSegments: state.videoSegments.map((task) => ({ ...task, payload: { ...task.payload, shotIds: ["shot-a"], videoFileId: "existing-video", videoStale: true } })) };
-    render(<MemoryRouter><ProductionWorkspace {...props} state={next} /></MemoryRouter>);
-    await screen.findByText("来源变化，待检查");
-    const picker = screen.getByRole("combobox", { name: "当前制作任务" });
-    fireEvent.change(picker, { target: { value: "task-2" } });
-    await waitFor(() => expect((screen.getByRole("textbox", { name: "任务名称" }) as HTMLInputElement).value).toBe("端茶故事板 2"));
+    render(<MemoryRouter initialEntries={["/studio?task=task-2"]}><ProductionWorkspace {...props} state={next} /></MemoryRouter>);
+    await screen.findByRole("textbox", { name: "最终视频提示词" });
+    expect(screen.queryByText("来源变化，待检查")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "当前制作任务" })).toBeNull();
     expect(document.querySelector('video[src="/media/existing-video"]')).toBeTruthy();
 });
 
 
-it("生成参考位于视频左栏，旧任务故事板被最新镜头板原位替换，保存提交同一列表", async () => {
+it("生成前保存原位替换的当前故事板引用，预览正片分别传递实际质量参数", async () => {
     const latest = "storyboards/scene/shot-a/storyboard.png";
     mocks.api.shotDesigns.mockResolvedValue({ items: [{ id: "shot-a", name: "新镜头", sequenceId: "scene", order: 1, storyboardImage: { fileId: "fresh", path: latest, hash: "fresh" } }], total: 1 });
     mocks.api.referenceImage.mockImplementation(async (_project, path) => ({ fileId: path === latest ? "fresh" : "character" }));
@@ -164,15 +169,20 @@ it("生成参考位于视频左栏，旧任务故事板被最新镜头板原位�
     const next = { ...state, videoSegments: [task] };
     Object.assign(mocks.api, { updateVideoSegment: vi.fn(async () => task), updateMarkdownFile: vi.fn(async () => ({ hash: "saved" })), state: vi.fn(async () => next), videoSegmentPreflight: vi.fn(async () => ({ route: { reason: "已核对" }, blockedReasons: [], warnings: [] })) });
     render(<MemoryRouter><ProductionWorkspace {...props} state={next} /></MemoryRouter>);
-    await screen.findByText(/故事板引用已更新为当前镜头版本/);
-    const refs = within(screen.getByLabelText("视频预览")).getByRole("region", { name: "本次生成参考" });
+    await screen.findByRole("heading", { name: "引用素材" });
+    expect(screen.queryByRole("button", { name: "引用当前故事板" })).toBeNull();
+    expect(screen.queryByText(/故事板引用已更新/)).toBeNull();
+    const refs = screen.getByRole("region", { name: "引用素材" });
+    expect(screen.getByLabelText("视频预览").compareDocumentPosition(refs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(refs.compareDocumentPosition(screen.getByLabelText("视频提示词")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await within(refs).findByAltText(latest);
     expect(within(refs).queryByAltText("productions/task-1/storyboard.png")).toBeNull();
-    expect(screen.getByLabelText("视频提示词与设置").contains(refs)).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "保存并预检" }));
+    fireEvent.click(screen.getByRole("button", { name: "预览生成" }));
     await waitFor(() => expect((mocks.api as any).updateVideoSegment).toHaveBeenCalledWith("task-1", expect.objectContaining({ payload: expect.objectContaining({ referenceImages: ["assets/character.png", latest, "assets/prop.png"] }) })));
-    await screen.findByText("预检通过，可以生成。");
-    expect(mocks.api.generateVideoSegment).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.api.generateVideoSegment).toHaveBeenCalledWith("task-1", 1, "preview"));
+    await waitFor(() => expect((screen.getByRole("button", { name: "正片生成" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "正片生成" }));
+    await waitFor(() => expect(mocks.api.generateVideoSegment).toHaveBeenCalledWith("task-1", 1, "final"));
 });
 
 
@@ -218,4 +228,31 @@ it("分镜与视频制作之间往返共用镜头列表与故事板读取", asyn
     expect(mocks.api.file.mock.calls.length).toBe(fileReads);
     expect(mocks.api.referenceImage).toHaveBeenCalledTimes(1);
 
+});
+
+
+it("参考图展示素材中文名，路径保留在悬停提示", async () => {
+    mocks.api.referenceImage.mockResolvedValue({ fileId: "character", name: "孙悟空" });
+    const next = { ...state, videoSegments: [{ ...state.videoSegments[0], payload: { ...state.videoSegments[0].payload, shotIds: ["shot-a"], referenceImages: ["assets/characters/monkey/identity/primary.png"] } }] };
+    render(<MemoryRouter><ProductionWorkspace {...props} state={next} /></MemoryRouter>);
+    const image = await screen.findByAltText("孙悟空");
+    expect(screen.getByText("孙悟空")).toBeTruthy();
+    expect(image.closest('[title]')?.getAttribute("title")).toBe("assets/characters/monkey/identity/primary.png");
+    expect(screen.queryByText("identity/primary.png")).toBeNull();
+    expect(image.closest("a")).toBeNull();
+    fireEvent.click(image);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "关闭预览" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("预检阻止时保留问题信息且不提交视频生成", async () => {
+    const task = { ...state.videoSegments[0], payload: { ...state.videoSegments[0].payload, shotIds: ["shot-a"] } };
+    const next = { ...state, videoSegments: [task] };
+    Object.assign(mocks.api, { updateVideoSegment: vi.fn(async () => task), updateMarkdownFile: vi.fn(async () => ({ hash: "saved" })), state: vi.fn(async () => next), videoSegmentPreflight: vi.fn(async () => ({ route: { reason: "" }, blockedReasons: ["缺少必需参考"], warnings: [] })) });
+    render(<MemoryRouter><ProductionWorkspace {...props} state={next} /></MemoryRouter>);
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "最终视频提示词" }) as HTMLTextAreaElement).value).toBe("真实视频提示词"));
+    fireEvent.click(screen.getByRole("button", { name: "正片生成" }));
+    await screen.findByText("缺少必需参考");
+    expect(mocks.api.generateVideoSegment).not.toHaveBeenCalled();
 });

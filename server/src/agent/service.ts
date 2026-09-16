@@ -401,7 +401,7 @@ export function subscribeConversation(userId: string, projectId: string, clientI
         const session = getSessionRow(userId, resume.sessionId);
         if (session?.project_id === projectId && session.event_seq > resume.seq && session.event_seq - resume.seq <= 1_000) {
             const rows = db.prepare("SELECT * FROM agent_events WHERE session_id=? AND seq>? ORDER BY seq LIMIT 1000").all(session.id, resume.seq) as Array<{ session_id: string; seq: number; run_id: string | null; kind: AgentEventKind; payload: string; created_at: string }>;
-            const events = compactStreamEvents(rows);
+            const events = restoreShotReferenceNames(compactStreamEvents(rows), userId, projectId);
             if (events.length) listener({ type: "delta", cursor: events.at(-1)!.seq, session: sessionResponse(session, false), events });
         }
     }
@@ -1006,7 +1006,7 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
                 ? state.documents.find((item) => item.kind === segment.entityKind)
                 : segment.entityKind === "directing-plan" ? { workspace: state.workspace, activeStyleId: state.activeStyleId }
                 : segment.entityKind === "sequence" ? state.sequences.find((item) => item.id === segment.entityId)
-                : segment.entityKind === "shot-design" ? (() => { const row = db.prepare("SELECT path,sha256 FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=?").get(userId, projectId, segment.entityId) as { path: string; sha256: string } | undefined; return row ? { id: segment.entityId, path: row.path, hash: row.sha256 } : undefined; })()
+                : segment.entityKind === "shot-design" ? (() => { const row = db.prepare("SELECT path,sha256,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=?").get(userId, projectId, segment.entityId) as { path: string; sha256: string; metadata: string } | undefined; return row ? { id: segment.entityId, title: String(parseJson<Record<string, unknown>>(row.metadata, {}).name || segment.entityId), path: row.path, hash: row.sha256 } : undefined; })()
                 : segment.entityKind === "video-segment" || segment.entityKind === "production-task" ? state.videoSegments.find((item) => item.id === segment.entityId)
                 : state.timeline;
             if (!entity) throw agentError(404, "AGENT_DIRECTOR_REFERENCE_NOT_FOUND", "导演台引用不存在或不属于当前项目");
@@ -1090,7 +1090,30 @@ function sessionEvents(sessionId: string, beforeSeq = Number.MAX_SAFE_INTEGER, l
     const rows = limit === undefined
         ? db.prepare("SELECT * FROM agent_events WHERE session_id=? AND seq<? ORDER BY seq").all(sessionId, beforeSeq)
         : db.prepare("SELECT * FROM (SELECT * FROM agent_events WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?) ORDER BY seq").all(sessionId, beforeSeq, Math.min(Math.max(limit, 1), 1000));
-    return compactStreamEvents(rows as Array<{ session_id: string; seq: number; run_id: string | null; kind: AgentEventKind; payload: string; created_at: string }>);
+    const events = compactStreamEvents(rows as Array<{ session_id: string; seq: number; run_id: string | null; kind: AgentEventKind; payload: string; created_at: string }>);
+    const session = db.prepare("SELECT user_id,project_id FROM agent_sessions WHERE id=?").get(sessionId) as { user_id: string; project_id: string };
+    return restoreShotReferenceNames(events, session.user_id, session.project_id);
+}
+
+function restoreShotReferenceNames(events: AgentEvent[], userId: string, projectId: string) {
+    const names = new Map<string, string>();
+    for (const event of events) {
+        if (event.kind !== "user_text") continue;
+        const content = event.payload.content as { segments?: Array<Record<string, unknown>> } | undefined;
+        if (!Array.isArray(content?.segments)) continue;
+        let changed = false;
+        for (const segment of content.segments) {
+            if (segment.type !== "director" || segment.entityKind !== "shot-design" || segment.projectId !== projectId || (segment.label && segment.label !== segment.entityId)) continue;
+            const id = String(segment.entityId);
+            if (!names.has(id)) {
+                const row = db.prepare("SELECT metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=?").get(userId, projectId, id) as { metadata: string } | undefined;
+                names.set(id, row ? String(parseJson<Record<string, unknown>>(row.metadata, {}).name || id) : id);
+            }
+            segment.label = names.get(id); changed = true;
+        }
+        if (changed) event.payload.text = content.segments.map((segment) => segment.type === "text" ? String(segment.text || "") : `${segment.type === "skill" ? "/" : "@"}${segment.label || segment.entityId || segment.nodeId || segment.assetId || segment.styleId || segment.skillId || ""}`).join("").trim();
+    }
+    return events;
 }
 
 function compactStreamEvents(rows: Array<{ session_id: string; seq: number; run_id: string | null; kind: AgentEventKind; payload: string; created_at: string }>) {

@@ -1,6 +1,6 @@
 export type ProjectKind = "canvas" | "director";
 export type DirectorEntityStatus = "draft" | "confirmed" | "locked";
-export type DirectorSection = "overview" | "story" | "script" | "style" | "assets" | "storyboard" | "studio";
+export type DirectorSection = "overview" | "story" | "script" | "style" | "assets" | "storyboard" | "studio" | "edit";
 
 export type DirectorProject = {
     id: string;

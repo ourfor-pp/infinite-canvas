@@ -6,7 +6,7 @@ import { serverApiUrl } from "./server";
 const enc = encodeURIComponent;
 export const directorApi = {
     shotStoryboards: (projectId: string, shotId: string, offset = 0) => serverRequest<{ shotId: string; total: number; offset: number; items: DirectorShotStoryboard[] }>(`/director/projects/${enc(projectId)}/shots/${enc(shotId)}/storyboards?offset=${offset}`),
-    referenceImage: (id: string, path: string) => serverRequest<{ fileId: string }>(`/director/projects/${enc(id)}/reference-image?path=${enc(path)}`),
+    referenceImage: (id: string, path: string) => serverRequest<{ fileId: string; name: string }>(`/director/projects/${enc(id)}/reference-image?path=${enc(path)}`),
     shotDesigns: (projectId: string, offset = 0, limit = 50) => serverRequest<{ items: DirectorShotDesign[]; total: number; offset: number }>(`/director/projects/${enc(projectId)}/shots?offset=${offset}&limit=${limit}`),
     saveShotDesign: (projectId: string, design: DirectorShotDesign) => { const { hash, content, path: _path, revision: _revision, storyboardImage: _storyboardImage, ...fields } = design; return serverRequest<{ hash: string }>(`/director/projects/${enc(projectId)}/shots`, { method: "PUT", body: JSON.stringify({ design: fields, content, hash }) }); },
     sync: (projectId: string, resources: DirectorResource[], refresh = false) => serverRequest<DirectorSyncSnapshot>(`/director/projects/${enc(projectId)}/sync?resources=${resources.join(",")}${refresh ? "&refresh=1" : ""}`),
