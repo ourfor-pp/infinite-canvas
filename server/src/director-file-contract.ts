@@ -2,35 +2,23 @@ import { z } from "zod";
 import { h3AudioReferenceInput } from "./h3-prompt.js";
 
 export const projectMediaPath = z.string().min(1).refine((path) => !path.startsWith("/") && !path.includes("\\") && !path.split("/").some((part) => !part || part === "." || part === "..") && !/^[a-z]+:/i.test(path), "必须使用工程根目录内的相对文件路径");
-const id = z.string().min(1);
+const id = z.string().regex(/^[a-zA-Z0-9_-]+$/).max(128);
 const reference = z.union([id, z.object({ id, variantId: id.optional() }).passthrough()]);
+export const segmentRangeSchema = z.object({ segmentId: id, start: z.number().nonnegative(), end: z.number().positive() }).strict().refine((range) => range.end > range.start, "制作范围结束时间必须晚于开始时间");
+export const videoReferenceSchema = z.object({ path: projectMediaPath, purpose: z.string().min(1), sourceHash: z.string().optional(), segmentId: id.optional(), start: z.number().nonnegative().optional(), end: z.number().positive().optional(), includeAudio: z.boolean().default(false) }).strict();
 export const segmentFileSchema = z.object({
     id, kind: z.literal("production-task"), sequenceId: id, order: z.number().int().positive(), durationSeconds: z.number().positive(),
-    shotIds: z.array(id).default([]), referenceImages: z.array(projectMediaPath).default([]),
+    segmentRanges: z.array(segmentRangeSchema).min(1), referenceImages: z.array(projectMediaPath).default([]), videoReferences: z.array(videoReferenceSchema).max(3).default([]),
     sourceSceneId: id.optional(), sourceBeatIds: z.array(id).optional(), sourceDurationSeconds: z.number().positive().optional(),
     dramaticBeat: z.string().optional(), openingState: z.string().optional(), endingState: z.string().optional(),
     boundary: z.enum(["cut", "continue"]).optional(), continuationFromSegmentId: id.optional(),
-    generationIntent: z.enum(["storyboard", "transition"]).optional(), transitionFromSegmentId: id.optional(), transitionToSegmentId: id.optional(),
+    generationIntent: z.enum(["reference", "transition"]).optional(), transitionFromSegmentId: id.optional(), transitionToSegmentId: id.optional(),
     h3VisualDescription: z.string().optional(), h3Soundscape: z.string().optional(), h3NonDiegeticMusic: z.string().optional(),
     references: z.object({ characters: z.array(reference).optional(), locations: z.array(reference).optional(), props: z.array(reference).optional() }).optional(),
     audioReferences: z.array(z.object({ path: projectMediaPath, purpose: h3AudioReferenceInput.shape.purpose, description: h3AudioReferenceInput.shape.description, speakerAssetId: h3AudioReferenceInput.shape.speakerAssetId }).superRefine((value, ctx) => { const result = h3AudioReferenceInput.safeParse({ ...value, fileId: value.path }); if (!result.success) for (const issue of result.error.issues) ctx.addIssue({ code: "custom", path: issue.path, message: issue.message }); })).max(3).optional(),
 }).passthrough().superRefine((value, ctx) => {
     const required = value.generationIntent === "transition" ? ["transitionFromSegmentId", "transitionToSegmentId"] as const : value.boundary === "continue" ? ["continuationFromSegmentId"] as const : [];
     for (const field of required) if (!value[field] || value[field] === value.id) ctx.addIssue({ code: "custom", path: [field], message: "必须引用另一个视频段" });
-});
-const dialogue = z.object({ speakerAssetId: id, speakerName: id, text: id, language: id, delivery: id, startSeconds: z.number().nonnegative(), endSeconds: z.number().positive(), offScreen: z.boolean().optional() }).refine((cue) => cue.endSeconds > cue.startSeconds, "对白结束时间必须晚于开始时间");
-export const storyboardFileSchema = z.object({
-    version: z.literal(1), segmentId: id, layout: z.string().regex(/^(single|[1-9][0-9]*x[1-9][0-9]*)$/),
-    frames: z.array(z.object({ id, position: z.number().int().nonnegative().optional(), shotNumber: z.number().int().positive(), timeSeconds: z.number().nonnegative(), kind: z.enum(["shot-start", "keyframe", "shot-end"]), description: z.string(), action: z.string(), cameraAngle: z.string(), cameraMove: z.string(), h3Visual: z.string().optional(), dialogues: z.array(dialogue).max(8).optional(), sound: z.string(), dialogue: z.never().optional() })),
-}).superRefine((board, ctx) => {
-    const ids = new Set<string>();
-    board.frames.forEach((frame, index) => {
-        if (board.frames.length > 1 && (index === 0 && (frame.shotNumber !== 1 || frame.kind !== "shot-start") || index === board.frames.length - 1 && frame.kind !== "shot-end")) ctx.addIssue({ code: "custom", path: ["frames", index, "kind"], message: "第一格必须从 Shot 1 的 shot-start 开始，最后一格必须为 shot-end" });
-        if (ids.has(frame.id)) ctx.addIssue({ code: "custom", path: ["frames", index, "id"], message: "画格 ID 重复" });
-        ids.add(frame.id);
-        if (index === 0 ? frame.timeSeconds !== 0 : frame.timeSeconds <= board.frames[index - 1].timeSeconds) ctx.addIssue({ code: "custom", path: ["frames", index, "timeSeconds"], message: "画格时间必须从 0 开始并严格递增" });
-        if (index && (frame.shotNumber < board.frames[index - 1].shotNumber || frame.shotNumber > board.frames[index - 1].shotNumber + 1)) ctx.addIssue({ code: "custom", path: ["frames", index, "shotNumber"], message: "Shot 编号必须连续且不能回退" });
-    });
 });
 export const timelineFileSchema = z.object({
     videoClips: z.array(z.object({ id, taskId: id, trimIn: z.number().nonnegative(), trimOut: z.number().positive(), linkedAudio: z.boolean().default(true) }).refine((clip) => clip.trimOut > clip.trimIn, "出点必须晚于入点")).default([]),
@@ -58,14 +46,14 @@ export const screenplayReviewIssue = z.object({
     sceneIds: z.array(id).max(100), summary: z.string().trim().min(1).max(2_000), suggestion: z.string().trim().min(1).max(2_000),
 });
 
-export const shotDesignFileSchema = z.object({
-    id, kind: z.literal("shot-design"), name: z.string().min(1), sequenceId: id, order: z.number().int().positive(),
+export const segmentDesignFileSchema = z.object({
+    id, kind: z.literal("segment-design"), name: z.string().min(1), sequenceId: id, order: z.number().int().positive(),
     sourceSceneId: id.optional(), sourceBeatIds: z.array(id).default([]), estimatedSeconds: z.number().positive().optional(),
     purpose: z.string().default(""), staging: z.string().default(""), camera: z.string().default(""),
     action: z.string().default(""), dialogue: z.string().default(""), sound: z.string().default(""),
     openingState: z.string().default(""), endingState: z.string().default(""), connection: z.string().default(""),
-    referenceImages: z.array(projectMediaPath).default([]),
+    referenceImages: z.array(projectMediaPath).default([]), previsMode: z.enum(["required", "skip"]).default("required"),
 }).passthrough();
-export type ShotDesignFile = z.infer<typeof shotDesignFileSchema>;
+export type ShotDesignFile = z.infer<typeof segmentDesignFileSchema>;
 export type ProductionTaskFile = z.infer<typeof segmentFileSchema>;
 export type DirectorEdit = z.infer<typeof timelineFileSchema>;

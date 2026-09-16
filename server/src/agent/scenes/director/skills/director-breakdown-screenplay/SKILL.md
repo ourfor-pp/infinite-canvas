@@ -15,3 +15,5 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, LS, mcp__infinite_canvas__directo
 将总览写入 `screenplay/breakdown/overview.md`，逐场拆解写入 `screenplay/breakdown/scene-NNN.md`，按正文场景编号建立对应关系，但拆解必须使用独立稳定 ID（如 `breakdown-scene-001`），不得复用 `screenplay/scenes/` 正文的 `scene-001`；镜头设计的来源引用拆解 ID。存在诊断问题时明确建议返回剧本修订，不通过缩短节拍、压缩表演或省略内容伪造达标；完成后运行工程校验；用户仅要求拆解时交付拆解，已授权完整制作时继续组合素材与镜头规划 Skill。
 
 制作拆解只识别表演节拍、素材需求与叙事容量，不预先按生成窗口切段，不以任务时长总和核对剧本完整性。
+
+将节拍交给 director-plan-sequences 组织为完整分镜段，每段可含多个机位；再用 director-stage-previs 验证基础调度。拆解不按生成窗口切碎剧情，也不以素材图片齐备为前提。

@@ -15,7 +15,7 @@ export type AgentComposerSegment =
     | { type: "canvas"; mentionId: string; projectId: string; nodeId: string; label?: string }
     | { type: "asset"; mentionId: string; projectId: string; assetId: string; nodeId?: string; path?: string; label?: string }
     | { type: "style"; mentionId: string; projectId: string; styleId: string; nodeId?: string; label?: string }
-    | { type: "director"; mentionId: string; projectId: string; entityKind: "story" | "script" | "directing-plan" | "sequence" | "shot-design" | "production-task" | "video-segment" | "timeline"; entityId: string; label?: string };
+    | { type: "director"; mentionId: string; projectId: string; entityKind: "story" | "script" | "directing-plan" | "sequence" | "segment-design" | "production-task" | "video-segment" | "timeline"; entityId: string; timeSeconds?: number; objectId?: string; lookFrameId?: string; label?: string };
 export type AgentComposerDocument = { version: 1; segments: AgentComposerSegment[] };
 export type AgentQueuedMessage = { id: string; sessionId: string; clientMessageId: string; displayText: string; attachmentNames: string[]; status: "queued" | "dispatching" | "running" | "held" | "failed"; acceptedRunId: string | null; error: string | null; createdAt: string; updatedAt: string };
 export type AgentTurnIndexItem = { seq: number; runId: string | null; text: string; createdAt: string };

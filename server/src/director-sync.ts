@@ -46,7 +46,7 @@ export function directorResourcesForPaths(paths: readonly string[]): DirectorRes
         else if (root === "direction") { resources.add("direction"); resources.add("segments"); }
         else if (root === "sources") resources.add("sources");
         else if (root === "assets") { resources.add("assets"); resources.add("segments"); }
-        else if (root === "storyboards" || root === "productions") { resources.add("segments"); resources.add("timeline"); }
+        else if (root === "scenes" || root === "productions") { resources.add("segments"); resources.add("timeline"); }
         else if (root === "timeline") resources.add("timeline");
         else if (root === "renders") resources.add("renders");
         else if (!["AGENTS.md", "README.md"].includes(path)) directorResources.forEach((resource) => resources.add(resource));
@@ -55,7 +55,7 @@ export function directorResourcesForPaths(paths: readonly string[]): DirectorRes
     return [...resources];
 }
 
-export const directorGenerationProjectSql = `COALESCE(NULLIF(json_extract(generations.request, '$.metadata.directorSegment.projectId'), ''), NULLIF(json_extract(generations.request, '$.metadata.directorMusic.projectId'), ''), NULLIF(json_extract(generations.request, '$.metadata.mediaProjectId'), ''), ${["__directorMusic", "__agentCanvas", "__creativeAsset", "__directorAssetTarget", "__directorShot", "__directorSegment", "__directorStoryboardSheet", "__directorStoryboardReview", "__directorCastReview"].map((name) => `NULLIF(json_extract(generations.request, '$.params.${name}.projectId'), '')`).join(",")},
+export const directorGenerationProjectSql = `COALESCE(NULLIF(json_extract(generations.request, '$.metadata.directorLookFrame.projectId'), ''), NULLIF(json_extract(generations.request, '$.metadata.directorSegment.projectId'), ''), NULLIF(json_extract(generations.request, '$.metadata.directorMusic.projectId'), ''), NULLIF(json_extract(generations.request, '$.metadata.mediaProjectId'), ''), ${["__directorMusic", "__agentCanvas", "__creativeAsset", "__directorAssetTarget", "__directorShot", "__directorSegment", "__directorCastReview"].map((name) => `NULLIF(json_extract(generations.request, '$.params.${name}.projectId'), '')`).join(",")},
     (SELECT project_id FROM creative_assets WHERE user_id=generations.user_id AND id=COALESCE(json_extract(generations.request,'$.params.__creativeAsset.assetId'),json_extract(generations.request,'$.params.__creativeAssetReview.assetId'),json_extract(generations.request,'$.params.__directorAssetTarget.assetId'))),
     (SELECT project_id FROM visual_styles WHERE user_id=generations.user_id AND id=COALESCE(json_extract(generations.request,'$.params.__visualStyle.id'),json_extract(generations.request,'$.params.__visualStyleBoard.styleId'),json_extract(generations.request,'$.params.__visualStyleAnalysis.styleId'))), '')`;
 export function markDirectorGenerationChanged(userId: string, generationId: string) {

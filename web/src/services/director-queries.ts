@@ -24,10 +24,10 @@ export async function readDirectorQuery<T>(projectId: string, resource: Director
 }
 
 
-export function readDirectorShotDesigns(projectId: string) {
-    return readDirectorQuery(projectId, "segments", ["shot-designs"], async () => {
-        const first = await directorApi.shotDesigns(projectId);
-        const pages = await Promise.all(Array.from({ length: Math.max(0, Math.ceil(first.total / 50) - 1) }, (_, index) => directorApi.shotDesigns(projectId, (index + 1) * 50)));
+export function readDirectorSegmentPlans(projectId: string) {
+    return readDirectorQuery(projectId, "segments", ["segment-designs"], async () => {
+        const first = await directorApi.segmentPlans(projectId);
+        const pages = await Promise.all(Array.from({ length: Math.max(0, Math.ceil(first.total / 50) - 1) }, (_, index) => directorApi.segmentPlans(projectId, (index + 1) * 50)));
         return [...first.items, ...pages.flatMap((page) => page.items)];
     });
 }

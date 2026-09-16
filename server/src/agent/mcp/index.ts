@@ -1,4 +1,7 @@
+import { createDirectorLookFrameGeneration } from "../../director-look-frame.js";
 import { exposeImagePaths } from "../image-files.js";
+import { createDirectorLookFrame, readDirectorPrevis } from "../../director-previs.js";
+import { createPrevisRender, getPrevisRender, listPrevisRenders, cancelPrevisRender, retryPrevisRender } from "../../director-previs-render.js";
 import { listPublicModels } from "../../provider-service.js";
 import { validateGenerationRequest } from "../../generation-service.js";
 import { executorComfyModels } from "../../media-capabilities.js";
@@ -39,14 +42,14 @@ import {
   cancelDirectorRender,
   createDirectorRender,
   createDirectorVideoSegmentGeneration,
-  createDirectorStoryboardGeneration,
+
   getDirectorVideoSegmentPreflightWithFraming,
   listDirectorRenders,
   retryDirectorRender,
-  updateDirectorStoryboardPrompts,
+
 } from "../../director-render.js";
 import { sceneTools, type AgentSceneDefinition } from "../scenes/index.js";
-import { listDirectorShotDesigns, saveDirectorShotDesign, reconcileDirectorProjectFiles, assertDirectorProjectValid, resolveDirectorEntityReference, trashDirectorProjectPath, validateDirectorProject } from "../../director-workspace.js";
+import { listDirectorSegmentPlans, saveDirectorSegmentPlan, reconcileDirectorProjectFiles, assertDirectorProjectValid, resolveDirectorEntityReference, trashDirectorProjectPath, validateDirectorProject } from "../../director-workspace.js";
 import { createDirectorAssetGeneration } from "../../creative-asset-generation.js";
 import {
   addAsset,
@@ -115,39 +118,6 @@ const askUserShape = {
     options: z.array(z.object({ label: z.string().min(1).max(120), description: z.string().max(240).optional() })).max(6).optional(),
   })).min(1).max(3),
 };
-
-const directorAssetRefSchema = z.object({ id: z.string().min(1), revision: z.number().int().positive(), variantId: z.string().min(1).optional() });
-const directorVideoSegmentPayloadShape = {
-  durationSeconds: z.number().int().min(4).max(15),
-  sourceSceneId: z.string().min(1).max(80),
-  sourceBeatIds: z.array(z.string().min(1).max(80)).min(1).max(20),
-  sourceDurationSeconds: z.number().min(1).max(3_600),
-  dramaticBeat: z.string().min(1).max(2_000),
-  openingState: z.string().min(1).max(4_000),
-  endingState: z.string().min(1).max(4_000),
-  boundary: z.enum(["cut", "continue"]).default("cut"),
-  continuationFromSegmentId: z.string().min(1).optional(),
-  generationIntent: z.enum(["storyboard", "transition"]).optional(),
-  transitionFromSegmentId: z.string().min(1).optional(),
-  transitionToSegmentId: z.string().min(1).optional(),
-  description: z.string().max(8_000).optional(),
-  action: z.string().max(8_000).optional(),
-  dialogue: z.string().max(8_000).optional(),
-  narration: z.string().max(8_000).optional(),
-  audioReferences: h3AudioReferencesInput.optional(),
-  soundDesign: z.string().max(4_000).optional(),
-  h3VisualDescription: z.string().max(12_000).optional(),
-  h3Soundscape: z.string().max(4_000).optional(),
-  h3NonDiegeticMusic: z.string().max(2_000).optional(),
-  storyboardFrameCount: z.union([z.literal(4), z.literal(6), z.literal(9)]).optional(),
-  characterRefs: z.array(directorAssetRefSchema).max(20).default([]),
-  sceneRefs: z.array(directorAssetRefSchema).max(20).default([]),
-  propRefs: z.array(directorAssetRefSchema).max(20).default([]),
-};
-
-function directorVideoSegmentPayload(value: Record<string, unknown>) {
-  return Object.fromEntries(Object.keys(directorVideoSegmentPayloadShape).filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
-}
 
 function normalizeAskUserInput(input: { summary?: string; questions: Array<{ id?: string; header?: string; question: string; type: "text" | "single_choice" | "multiple_choice"; allowCustomInput?: boolean; customInputPlaceholder?: string; options?: Array<{ label: string; description?: string }> }> }) {
   return {
@@ -321,7 +291,27 @@ export function buildAgentToolDefinitions(
           { path: z.string().min(1).max(500) },
           (input) => trashDirectorProjectPath(run.userId, projectId, String((input as { path: string }).path)),
         ),
-        call("director_read_shots", "分页读取镜头设计与文件 hash；镜头时长独立于单次生成窗口。", { offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(20).default(10) }, (input) => { const value = input as { offset: number; limit: number }; reconcileDirectorProjectFiles(run.userId, projectId); return listDirectorShotDesigns(run.userId, projectId, value.offset, value.limit); }),
+        call("director_read_segments", "分页读取分镜段设计与文件 hash；每段可包含多个镜头，时长独立于单次生成窗口。", { offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(20).default(10) }, (input) => { const value = input as { offset: number; limit: number }; return listDirectorSegmentPlans(run.userId, projectId, value.offset, value.limit); }),
+        call("director_read_previs", "按字段与分页读取当前分镜段预演、诊断和版本；修改使用工程文件，完成后校验。", { segmentId: z.string(), section: z.enum(["summary", "objects", "shots", "tracks", "actions", "attachments", "dialogue", "lookFrames"]).default("summary"), offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(20).default(10) }, (input) => {
+            const value = input as { segmentId: string; section: string; offset: number; limit: number }, state = readDirectorPrevis(run.userId, projectId, value.segmentId);
+            const common = { segmentId: value.segmentId, hash: state.hash, aspectRatio: state.aspectRatio, previsMode: state.previsMode, diagnostics: state.diagnostics, duration: state.plan?.duration };
+            if (value.section === "summary") return { ...common, counts: { objects: state.scene?.objects.length || 0, shots: state.plan?.shots.length || 0, actions: state.plan?.actions.length || 0, lookFrames: state.lookFrames.length } };
+            const items = value.section === "objects" ? (state.scene?.objects || []).map((object: { id: string }) => ({ ...object, initial: state.plan?.initial[object.id] })) : value.section === "lookFrames" ? state.lookFrames : state.plan?.[value.section] || [];
+            return { ...common, total: items.length, offset: value.offset, items: items.slice(value.offset, value.offset + value.limit) };
+        }),
+        call("director_render_previs", "导出明确时间范围的静音预演视频，返回持久任务；不能把成功导出当作生成成片。", { segmentId: z.string(), expectedHash: z.string(), start: z.number().nonnegative().default(0), end: z.number().positive().optional() }, (input) => { const { segmentId, ...request } = input as { segmentId: string; expectedHash: string }; return createPrevisRender(run.userId, projectId, segmentId, request); }),
+        ...(engine === "codex" ? [] : [call("director_generate_look_frame", "原样提交定妆帧 prompt.md 与显式参考图，通过管理员图片渠道生成并保存 primary.*；expectedHash 是提示词文件哈希。", { segmentId: z.string(), frameId: z.string(), expectedHash: z.string(), model: z.string().optional() }, (input) => createDirectorLookFrameGeneration(run.userId, projectId, input))]),
+        call("director_capture_look_frame", "建立可选定妆帧并提取指定时刻的预演画面；返回路径，图片生成仍按当前引擎能力完成。", { segmentId: z.string(), expectedHash: z.string(), time: z.number().nonnegative(), frameId: z.string().optional() }, (input) => {
+            const value = input as { segmentId: string; expectedHash: string; time: number; frameId?: string };
+            const frame = createDirectorLookFrame(run.userId, projectId, value.segmentId, value.time, value.expectedHash, value.frameId);
+            return { frame, render: createPrevisRender(run.userId, projectId, value.segmentId, { expectedHash: frame.sourceHash, kind: "frame", frameId: frame.id, start: frame.time }) };
+        }),
+        call("director_previs_render_status", "读取或恢复预演导出状态；支持查询、取消和失败重试。", { id: z.string().optional(), segmentId: z.string().optional(), action: z.enum(["read", "cancel", "retry"]).default("read"), offset: z.number().int().nonnegative().default(0) }, (input) => {
+            const value = input as { id?: string; segmentId?: string; action: string; offset: number };
+            if (value.id) return value.action === "cancel" ? cancelPrevisRender(run.userId, projectId, value.id) : value.action === "retry" ? retryPrevisRender(run.userId, projectId, value.id) : getPrevisRender(run.userId, projectId, value.id);
+            if (!value.segmentId || value.action !== "read") throw new Error("查询列表需要 segmentId，取消和重试需要 id");
+            return listPrevisRenders(run.userId, projectId, value.segmentId, value.offset);
+        }),
         call("director_read_tasks", "分页读取制作任务、覆盖镜头、当前输出及 revision。", { sequenceId: z.string().optional(), q: z.string().optional(), offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(10).default(5), view: z.enum(["prompt", "full"]).default("prompt") }, (input) => listDirectorVideoSegments(run.userId, projectId, input)),
         call("director_read_edit", "读取权威剪辑 revision 和有界播放计划。实际素材时间已解析累计续接偏移。", { offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(100).default(20) }, async (input) => { const { offset, limit } = input as { offset: number; limit: number }; const plan = await getDirectorPlaybackPlan(run.userId, projectId); return { ...plan, segments: plan.segments.slice(offset, offset + limit), audio: plan.audio.slice(offset, offset + limit), totalVideoClips: plan.segments.length, totalAudioClips: plan.audio.length, nextOffset: Math.max(plan.segments.length, plan.audio.length) > offset + limit ? offset + limit : null }; }),
         call("director_edit_timeline", "按当前 revision 保存独立视频片段与声音编排。videoClips 支持重复 taskId 和独立 id/trimIn/trimOut/linkedAudio。", { revision: z.number().int().positive(), payload: z.record(z.string(), z.unknown()) }, (input) => updateDirectorTimeline(run.userId, projectId, input)),
@@ -522,107 +512,13 @@ export function buildAgentToolDefinitions(
             );
           },
         ),
-        call(
-          "director_generate_storyboard",
-          "读取视频段工程目录，为一个 4–15 秒视频段生成一张包含 4、6 或 9 个画格的完整故事板；用户必须显式发起。优先传 segmentPath。",
-          { segmentPath: z.string().min(1).optional(), segmentId: z.string().min(1).optional(), revision: z.number().int().positive().optional(), model: z.string().optional() },
-          (input) => {
-            const value = input as { segmentPath?: string; segmentId?: string; revision?: number } & Record<string, unknown>;
-            const segmentId = value.segmentPath ? resolveDirectorEntityReference(run.userId, projectId, value.segmentPath, ["production-task"]).id : value.segmentId;
-            if (!segmentId) throw mcpError(400, "DIRECTOR_SEGMENT_REQUIRED", "请提供 segmentPath");
-            const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
-            return createDirectorStoryboardGeneration(run.userId, segmentId, { ...value, revision: value.revision ?? segment.revision });
-          },
-        ),
-        call(
-          "director_create_video_segments",
-          "根据剧本场次与表演节拍批量规划 4–15 秒视频段。必须填写来源场次、来源节拍、承接时长、唯一戏剧变化和开始/结束状态；不得压缩或静默丢失剧本内容。",
-          {
-            items: z
-              .array(
-                z.object({
-                  sequenceId: z.string().min(1),
-                  title: z.string().min(1).max(300),
-                  position: z.number().int().min(0).optional(),
-                  ...directorVideoSegmentPayloadShape,
-                }),
-              )
-              .min(1)
-              .max(500),
-          },
-          (input) => (input as { items: Array<Record<string, unknown>> }).items.map((item) => createDirectorVideoSegment(run.userId, projectId, {
-            sequenceId: item.sequenceId,
-            title: item.title,
-            position: item.position,
-            payload: directorVideoSegmentPayload(item),
-          })),
-        ),
-        call(
-          "director_update_video_segment",
-          "按 revision 更新单个视频段结构和素材引用。批量匹配素材或统一修订时使用 director_update_video_segments；故事板画格提示使用专用工具。",
-          {
-            segmentId: z.string().min(1),
-            revision: z.number().int().positive(),
-            position: z.number().int().min(0).optional(),
-            title: z.string().max(300).optional(),
-            status: z.enum(["draft", "confirmed", "locked"]).optional(),
-            ...Object.fromEntries(Object.entries(directorVideoSegmentPayloadShape).map(([key, schema]) => [key, schema.optional()])),
-          },
-          async (input) => {
-            const value = input as { segmentId: string; status?: string } & Record<
-              string,
-              unknown
-            >;
-            const current = getDirectorState(run.userId, projectId).videoSegments.find(
-              (item) => item.id === value.segmentId,
-            );
-            const locked =
-              current?.status === "locked" &&
-              ((value.status !== undefined && value.status !== "locked") ||
-                Object.keys(value).some(
-                  (key) => !["segmentId", "revision", "status"].includes(key),
-                ));
-            if (locked)
-              await context.requireDecision("director_update_video_segment", value);
-            return updateDirectorVideoSegment(run.userId, value.segmentId, {
-              revision: value.revision,
-              position: value.position,
-              title: value.title,
-              status: value.status,
-              payload: directorVideoSegmentPayload(value),
-            }, locked);
-          },
-        ),
-        call(
-          "director_update_video_segments",
-          "按各自 revision 批量更新最多 100 个视频段的结构和角色、场景、道具引用；用于素材匹配和统一规划，避免逐段重复调用。故事板画格提示仍使用专用工具。",
-          {
-            items: z.array(z.object({
-              segmentId: z.string().min(1),
-              revision: z.number().int().positive(),
-              position: z.number().int().min(0).optional(),
-              title: z.string().max(300).optional(),
-              status: z.enum(["draft", "confirmed", "locked"]).optional(),
-              ...Object.fromEntries(Object.entries(directorVideoSegmentPayloadShape).map(([key, schema]) => [key, schema.optional()])),
-            })).min(1).max(100),
-          },
-          async (input) => {
-            const items = (input as { items: Array<Record<string, unknown>> }).items;
-            const current = new Map(getDirectorState(run.userId, projectId).videoSegments.map((item) => [item.id, item]));
-            const locked = items.some((item) => current.get(String(item.segmentId))?.status === "locked");
-            if (locked) await context.requireDecision("director_update_video_segments", input);
-            return items.map((item) => updateDirectorVideoSegment(run.userId, String(item.segmentId), {
-              revision: item.revision,
-              position: item.position,
-              title: item.title,
-              status: item.status,
-              payload: directorVideoSegmentPayload(item),
-            }, locked));
-          },
-        ),
+
+
+
+
         call(
           "director_preflight_tasks",
-          "只读校验制作任务的实际模型时长窗口、显式输入、最终提示与续接状态；不要求固定故事板或任务时长守恒。",
+          "只读校验制作任务的实际模型时长窗口、显式输入、最终提示与续接状态；按 segmentRanges 与预演导出范围核对，不静默拉伸或截断剧情。",
           { ...(engine === "codex" ? {} : { segmentIds: z.array(z.string().min(1)).min(1).max(100).optional() }), taskPaths: z.array(z.string().min(1)).min(1).max(100).optional() },
           async (input) => {
             reconcileDirectorProjectFiles(run.userId, projectId);
@@ -634,49 +530,12 @@ export function buildAgentToolDefinitions(
             for (const segmentId of ids) {
               const segment = getDirectorVideoSegment(run.userId, projectId, segmentId);
               const preflight = await getDirectorVideoSegmentPreflightWithFraming(run.userId, segmentId);
-              results.push({ segmentId, title: segment.title, revision: segment.revision, ready: preflight.blockedReasons.length === 0, finalPrompt: preflight.finalPrompt, blockedReasons: preflight.blockedReasons, warnings: preflight.warnings, route: preflight.route, plan: preflight.plan, capabilities: preflight.capabilities, usesStoryboardStartGuide: Boolean(preflight.storyboardStartGuide), guideFraming: preflight.guideFraming, referenceBudget: { selected: preflight.videoSelected.map(({ name, purpose }) => ({ name, purpose })), omitted: preflight.videoOmitted.map(({ name, purpose }) => ({ name, purpose })) }, previewAudioPolicy: preflight.previewAudioPolicy });
+              results.push({ segmentId, title: segment.title, revision: segment.revision, ready: preflight.blockedReasons.length === 0, finalPrompt: preflight.finalPrompt, blockedReasons: preflight.blockedReasons, warnings: preflight.warnings, route: preflight.route, plan: preflight.plan, capabilities: preflight.capabilities, previsHashes: preflight.previsHashes, videoReferences: preflight.videoReferences, referenceBudget: { selected: preflight.videoSelected.map(({ name, purpose }) => ({ name, purpose })), omitted: preflight.videoOmitted.map(({ name, purpose }) => ({ name, purpose })) } });
             }
             return results;
           },
         ),
-        call(
-          "director_update_storyboard_prompts",
-          "安全更新最多 10 个视频段的整板时序语义。对白必须绑定角色素材、原文、语言、英文语气及起止时间；声音字段只允许英文环境声、动作声和非语言人声。服务端保留整张故事板媒体并标记旧结果过期。",
-          {
-            items: z.array(z.object({
-              segmentId: z.string().min(1),
-              revision: z.number().int().positive(),
-              frames: z.array(z.object({
-                id: z.string().min(1),
-                shotNumber: z.number().int().min(1).max(3),
-                timeSeconds: z.number().min(0).max(15),
-                kind: z.enum(["shot-start", "keyframe", "shot-end"]),
-                description: z.string().max(4_000),
-                action: z.string().max(4_000),
-                cameraAngle: z.string().max(1_000),
-                cameraMove: z.string().max(1_000),
-                h3Visual: z.string().min(1).max(6_000),
-                dialogues: z.array(z.object({
-                  speakerAssetId: z.string().min(1),
-                  speakerName: z.string().min(1).max(120),
-                  text: z.string().min(1).max(2_000),
-                  language: z.string().min(1).max(40).default("Chinese"),
-                  delivery: z.string().min(1).max(1_000),
-                  startSeconds: z.number().min(0).max(15),
-                  endSeconds: z.number().positive().max(15),
-                  offScreen: z.boolean().optional(),
-                })).max(8).default([]),
-                sound: z.string().max(2_000),
-              })).min(1).max(9),
-            })).min(1).max(10),
-          },
-          async (input) => {
-            const value = input as { items: Array<{ segmentId: string }> };
-            const locked = value.items.some((item) => getDirectorVideoSegment(run.userId, projectId, item.segmentId).status === "locked");
-            if (locked) await context.requireDecision("director_update_storyboard_prompts", value);
-            return updateDirectorStoryboardPrompts(run.userId, projectId, input, locked);
-          },
-        ),
+
         call(
           "director_delete_video_segments",
           "批量删除视频段，始终需要审批。",

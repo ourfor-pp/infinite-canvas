@@ -26,6 +26,11 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
         working-directory: web
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Check staging runtime
+        run: npm run previs:check
+        working-directory: server
       - name: Verify project
         run: ./verify.sh
       - name: Verify Agent browser interactions

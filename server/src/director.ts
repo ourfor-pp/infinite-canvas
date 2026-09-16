@@ -1,5 +1,5 @@
 import { markDirectorProjectChanged, type DirectorResource } from "./director-sync.js";
-import { projectMediaPath, screenplayScene, screenplayReviewIssue } from "./director-file-contract.js";
+import { segmentRangeSchema, videoReferenceSchema, projectMediaPath, screenplayScene, screenplayReviewIssue } from "./director-file-contract.js";
 import { h3AudioReferencesInput } from "./h3-prompt.js";
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
@@ -26,7 +26,6 @@ type SequenceRow = { id: string; user_id: string; project_id: string; position: 
 type ShotRow = { id: string; user_id: string; project_id: string; sequence_id: string; position: number; title: string; status: DirectorEntityStatus; payload: string; revision: number; created_at: string; updated_at: string };
 type TimelineRow = { project_id: string; user_id: string; payload: string; revision: number; created_at: string; updated_at: string };
 type SourceChapter = { heading: string; content: string };
-export type DirectorStoryboardLayout = "single" | `${number}x${number}`;
 
 const id = z.string().trim().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/);
 const status = z.enum(["draft", "confirmed", "locked"]);
@@ -265,13 +264,12 @@ export function createDirectorSequence(userId: string, projectId: string, body: 
     assertDirectorProject(userId, projectId);
     requireDocumentContent(userId, projectId, "script");
     const value = sequenceInput.parse(body);
-    assertStoryboardSize(value.payload.storyboard);
     const sequenceId = value.id || nanoid();
     const position = value.position ?? Number((db.prepare("SELECT coalesce(max(position),-1)+1 value FROM director_sequences WHERE user_id=? AND project_id=?").get(userId, projectId) as { value: number }).value);
     const now = new Date().toISOString();
     const dependencies = directorDependencies(userId, projectId);
     db.prepare(`INSERT INTO director_sequences(id,user_id,project_id,position,title,summary,status,payload,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?)`).run(sequenceId, userId, projectId, position, value.title, value.summary, value.status, JSON.stringify({ ...value.payload, dependencies, needsReview: false, storyboard: normalizeStoryboard(value.payload.storyboard) }), now, now);
+        VALUES(?,?,?,?,?,?,?,?,?,?)`).run(sequenceId, userId, projectId, position, value.title, value.summary, value.status, JSON.stringify({ ...value.payload, dependencies, needsReview: false }), now, now);
     syncDirectorSequenceFile(userId, projectId, sequenceId);
     return publish(userId, "sequence", projectId, sequenceResponse(db.prepare("SELECT * FROM director_sequences WHERE id=? AND user_id=?").get(sequenceId, userId) as SequenceRow));
 }
@@ -279,10 +277,9 @@ export function createDirectorSequence(userId: string, projectId: string, body: 
 export function updateDirectorSequence(userId: string, sequenceId: string, body: unknown, allowLocked = false) {
     const current = sequenceRow(userId, sequenceId);
     const value = sequencePatch.parse(body);
-    if (value.payload && "storyboard" in value.payload) assertStoryboardSize(value.payload.storyboard);
     if (!allowLocked && current.status === "locked" && ((value.status !== undefined && value.status !== "locked") || Object.keys(value).some((key) => !["revision", "status"].includes(key)))) throw directorError(423, "DIRECTOR_LOCKED", "剧情段落已锁定，需要通过 Agent 审批后修改");
     const currentPayload = parseJson<Record<string, unknown>>(current.payload, {});
-    const payload = value.payload ? { ...currentPayload, ...value.payload, storyboard: normalizeStoryboard(value.payload.storyboard ?? currentPayload.storyboard) } : currentPayload;
+    const payload = value.payload ? { ...currentPayload, ...value.payload } : currentPayload;
     const now = new Date().toISOString();
     const result = db.prepare(`UPDATE director_sequences SET position=?,title=?,summary=?,status=?,payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?`)
         .run(value.position ?? current.position, value.title ?? current.title, value.summary ?? current.summary, value.status ?? current.status, JSON.stringify(payload), now, sequenceId, userId, value.revision);
@@ -330,11 +327,10 @@ export function updateDirectorShot(userId: string, shotId: string, body: unknown
     const currentPayload = parseJson<Record<string, unknown>>(current.payload, {});
     const payload: Record<string, unknown> = value.payload ? normalizeShotPayload({ ...currentPayload, ...value.payload }, sequence, userId) : currentPayload;
     if (["description", "dramaticBeat", "openingState", "endingState"].some((key) => currentPayload[key] !== payload[key])) {
-        payload.storyboardStale = Boolean((payload.storyboardSheet as { imageFileId?: string } | undefined)?.imageFileId);
         payload.h3PromptStale = Boolean(payload.h3PromptSnapshot);
         payload.videoStale = Boolean(payload.videoFileId);
     }
-    if ((storyboardPlanChanged(currentPayload, payload) || JSON.stringify(currentPayload.audioReferences) !== JSON.stringify(payload.audioReferences)) && payload.videoFileId) payload.videoStale = true;
+    if ((JSON.stringify([currentPayload.segmentRanges, currentPayload.referenceImages, currentPayload.videoReferences]) !== JSON.stringify([payload.segmentRanges, payload.referenceImages, payload.videoReferences]) || JSON.stringify(currentPayload.audioReferences) !== JSON.stringify(payload.audioReferences)) && payload.videoFileId) payload.videoStale = true;
     const now = new Date().toISOString();
     const result = db.prepare(`UPDATE director_shots SET sequence_id=?,position=?,title=?,status=?,payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?`)
         .run(sequenceId, value.position ?? current.position, value.title ?? current.title, value.status ?? current.status, JSON.stringify(payload), now, shotId, userId, value.revision);
@@ -369,7 +365,6 @@ export function updateDirectorSegmentAssetReference(userId: string, segmentId: s
     if (JSON.stringify(current) === JSON.stringify(next)) return videoSegmentResponse(segment);
     return updateDirectorShot(userId, segmentId, { revision: value.revision, payload: {
         [key]: next,
-        storyboardStale: Boolean((payload.storyboardSheet as { imageFileId?: string } | undefined)?.imageFileId),
         h3PromptStale: Boolean(payload.h3PromptSnapshot), videoStale: Boolean(payload.videoFileId),
     } });
 }
@@ -531,7 +526,7 @@ function markDirectingRulesDependentsStale(userId: string, projectId: string) {
     const updateSegment = db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?");
     segments.forEach((row) => {
         const payload = parseJson<Record<string, unknown>>(row.payload, {});
-        updateSegment.run(JSON.stringify({ ...payload, needsReview: true, staleReason: reason, storyboardStale: Boolean((payload.storyboardSheet as { imageFileId?: string } | undefined)?.imageFileId), h3PromptStale: Boolean(payload.h3PromptSnapshot), videoStale: Boolean(payload.videoFileId) }), now, row.id, userId);
+        updateSegment.run(JSON.stringify({ ...payload, needsReview: true, staleReason: reason, h3PromptStale: Boolean(payload.h3PromptSnapshot), videoStale: Boolean(payload.videoFileId) }), now, row.id, userId);
     });
 }
 
@@ -552,85 +547,31 @@ function shotVideoChanged(previous: string, next: Record<string, unknown>) {
     return before.videoFileId !== next.videoFileId || before.actualFirstFrameFileId !== next.actualFirstFrameFileId || before.actualLastFrameFileId !== next.actualLastFrameFileId;
 }
 
-function normalizeStoryboard(value: unknown) {
-    if (!Array.isArray(value)) return [];
-    return value.slice(0, 9).map((panel, index) => ({ id: typeof panel === "object" && panel && "id" in panel ? String(panel.id) : nanoid(), position: index, durationSeconds: 4, characterRefs: [], sceneRefs: [], propRefs: [], ...(typeof panel === "object" && panel ? panel : {}) }));
-}
-function assertStoryboardSize(value: unknown) {
-    if (value === undefined) return;
-    if (!Array.isArray(value) || value.length < 4 || value.length > 9) throw directorError(400, "DIRECTOR_STORYBOARD_SIZE", "每个剧情段落的故事板必须包含 4–9 格");
-}
-
 function normalizeShotPayload(payload: Record<string, unknown>, sequence: SequenceRow, userId: string) {
     const audioReferences = h3AudioReferencesInput.parse(payload.audioReferences);
     for (const { fileId } of audioReferences) {
         const file = getStoredFile(userId, fileId);
         if (!file || !file.mime_type.startsWith("audio/")) throw directorError(400, "DIRECTOR_AUDIO_REFERENCE_INVALID", "音频参考文件不存在或不是音频");
     }
-    const shotIds = z.array(id).default([]).parse(payload.shotIds);
+    const segmentRanges = z.array(segmentRangeSchema).min(1).parse(payload.segmentRanges);
+    const segmentIds = [...new Set(segmentRanges.map((range) => range.segmentId))];
+    const videoReferences = z.array(videoReferenceSchema).max(3).default([]).parse(payload.videoReferences);
     const referenceImages = z.array(projectMediaPath).default([]).parse(payload.referenceImages);
-    for (const shotId of shotIds) if (!db.prepare("SELECT 1 FROM director_file_index WHERE user_id=? AND project_id=? AND entity_id=? AND kind='shot-design'").get(userId, sequence.project_id, shotId)) throw directorError(400, "DIRECTOR_TASK_SHOT", `制作任务关联的镜头不存在：${shotId}`);
+    for (const shotId of segmentIds) if (!db.prepare("SELECT 1 FROM director_file_index WHERE user_id=? AND project_id=? AND entity_id=? AND kind='segment-design'").get(userId, sequence.project_id, shotId)) throw directorError(400, "DIRECTOR_TASK_SHOT", `制作任务关联的镜头不存在：${shotId}`);
     const dependencies = typeof payload.dependencies === "object" && payload.dependencies ? payload.dependencies : parseJson<Record<string, unknown>>(sequence.payload, {}).dependencies;
     const legacy = payload.references && typeof payload.references === "object" ? payload.references as Record<string, unknown> : {};
     const refs = (value: unknown) => Array.isArray(value) ? value : [];
     const durationSeconds = Number(payload.durationSeconds ?? payload.duration ?? 4);
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw directorError(400, "DIRECTOR_TASK_DURATION", "制作任务时长必须大于 0");
-    const existingSheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : undefined;
-    const existingFrames = Array.isArray(existingSheet?.frames) ? existingSheet.frames as Array<Record<string, unknown>> : [];
-    const frameCount = existingFrames.length;
-    const sheetChanged = false;
-    const storyboardSheet = existingSheet ? { ...existingSheet, frames: normalizeStoryboardFrames(existingFrames, durationSeconds) } : { revision: 1, layout: "single", frames: [] };
     const { references: _references, h3ModeOverride: _h3ModeOverride, firstFrameFileId: _firstFrameFileId, lastFrameFileId: _lastFrameFileId, ...cleanPayload } = payload;
-    return { ...cleanPayload, shotIds, referenceImages, audioReferences, entityKind: "production-task", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), storyboardFrameCount: frameCount, storyboardSheet, ...(sheetChanged ? { videoStale: Boolean(payload.videoFileId) } : {}), dependencies, needsReview: false };
+    return { ...cleanPayload, segmentRanges, segmentIds, videoReferences, referenceImages, audioReferences, entityKind: "production-task", durationSeconds, boundary: payload.boundary === "continue" ? "continue" : "cut", characterRefs: refs(payload.characterRefs).length ? refs(payload.characterRefs) : refs(legacy.characters), sceneRefs: refs(payload.sceneRefs).length ? refs(payload.sceneRefs) : refs(legacy.scenes), propRefs: refs(payload.propRefs).length ? refs(payload.propRefs) : refs(legacy.props), audioCues: refs(payload.audioCues), dependencies, needsReview: false };
 }
 
-export function recommendedStoryboardFrameCount(durationSeconds: number) { return durationSeconds <= 6 ? 4 : durationSeconds <= 10 ? 6 : 9; }
-export function storyboardLayout(frameCount: number): DirectorStoryboardLayout { return frameCount <= 1 ? "single" : frameCount === 9 ? "3x3" : frameCount === 6 ? "3x2" : "2x2"; }
-
-function buildStoryboardSheet(duration: number, frameCount: number, payload: Record<string, unknown>, source: Array<Record<string, unknown>> = [], revision = 1) {
-    const intent = String(payload.description || payload.action || "");
-    const frames = Array.from({ length: frameCount }, (_, position) => {
-        const timeSeconds = Number((duration * position / Math.max(1, frameCount - 1)).toFixed(2));
-        const nearest = source.length ? source[Math.round(position * (source.length - 1) / Math.max(1, frameCount - 1))] : undefined;
-        return { id: nanoid(), position, shotNumber: Number(nearest?.shotNumber ?? nearest?.shot ?? 1), timeSeconds, kind: position === 0 ? "shot-start" : position === frameCount - 1 ? "shot-end" : "keyframe", description: String(nearest?.description || `${timeSeconds} 秒时清晰呈现“${intent}”的第 ${position + 1} 个连续视觉节拍`), action: String(nearest?.action || payload.action || ""), cameraAngle: String(nearest?.cameraAngle || payload.cameraAngle || ""), cameraMove: String(nearest?.cameraMove || payload.cameraMove || ""), h3Visual: String(nearest?.h3Visual || ""), dialogue: String(nearest?.dialogue || ""), sound: String(nearest?.sound || payload.sound || "") };
-    });
-    return { revision: Math.max(1, revision), layout: storyboardLayout(frameCount), frames: normalizeStoryboardFrames(frames, duration) };
-}
-
-function normalizeStoryboardFrames(frames: Array<Record<string, unknown>>, duration: number) {
-    return frames.map((frame, position) => {
-        const { guideEnabled: _guideEnabled, guideStrength: _guideStrength, croppedFileId: _croppedFileId, resolvedFrameIndex: _resolvedFrameIndex, shot: _shot, ...rest } = frame;
-        return {
-            ...rest,
-            id: String(frame.id || nanoid()),
-            position,
-            shotNumber: Math.max(1, Math.round(Number(frame.shotNumber ?? frame.shot ?? 1) || 1)),
-            timeSeconds: Math.max(0, Number(frame.timeSeconds) || 0),
-            kind: frame.kind === "shot-start" || frame.kind === "shot-end" ? frame.kind : "keyframe",
-            description: String(frame.description || ""),
-            action: String(frame.action || ""),
-            cameraAngle: String(frame.cameraAngle || ""),
-            cameraMove: String(frame.cameraMove || ""),
-            h3Visual: String(frame.h3Visual || ""),
-            dialogue: String(frame.dialogue || ""),
-            sound: String(frame.sound || ""),
-        };
-    });
-}
-
-function storyboardPlanChanged(before: Record<string, unknown>, after: Record<string, unknown>) {
-    const values = (payload: Record<string, unknown>) => {
-        const sheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : {};
-        const frames = Array.isArray(sheet.frames) ? sheet.frames as Array<Record<string, unknown>> : [];
-        return frames.map((frame) => [String(frame.id), Number(frame.shotNumber || 1), Number(frame.timeSeconds || 0), String(frame.kind || "keyframe"), String(frame.description || ""), String(frame.action || ""), String(frame.cameraAngle || ""), String(frame.cameraMove || ""), String(frame.h3Visual || ""), String(frame.dialogue || ""), String(frame.sound || "")]);
-    };
-    return JSON.stringify(values(before)) !== JSON.stringify(values(after));
-}
 
 function validateTimeline(userId: string, projectId: string, payload: Record<string, unknown>) {
-    const shotIds = new Set((db.prepare("SELECT id FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>).map((row) => row.id));
+    const segmentIds = new Set((db.prepare("SELECT id FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>).map((row) => row.id));
     const order = Array.isArray(payload.videoClips) ? payload.videoClips.map((clip: any) => clip.taskId) : [];
-    if (order.some((shotId) => typeof shotId !== "string" || !shotIds.has(shotId))) throw directorError(400, "DIRECTOR_TIMELINE_SEGMENT", "时间线包含不属于本项目的视频段");
+    if (order.some((shotId) => typeof shotId !== "string" || !segmentIds.has(shotId))) throw directorError(400, "DIRECTOR_TIMELINE_SEGMENT", "时间线包含不属于本项目的视频段");
 }
 
 function requireDocumentContent(userId: string, projectId: string, kind: string) {
@@ -668,14 +609,10 @@ function sequenceResponse(row: SequenceRow) { return { id: row.id, projectId: ro
 function videoSegmentResponse(row: ShotRow) { return { id: row.id, projectId: row.project_id, sequenceId: row.sequence_id, position: row.position, title: row.title, status: row.status, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function videoSegmentPromptResponse(segment: ReturnType<typeof videoSegmentResponse>) {
     const payload = segment.payload as Record<string, unknown>;
-    const sheet = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown> : {};
-    const frames = Array.isArray(sheet.frames) ? sheet.frames as Array<Record<string, unknown>> : [];
     return { ...segment, payload: {
-        shotIds: payload.shotIds, referenceImages: payload.referenceImages, promptPath: payload.promptPath, videoPrompt: payload.videoPrompt, videoFileId: payload.videoFileId, videoDurationSeconds: payload.videoDurationSeconds,
+        segmentRanges: payload.segmentRanges, videoReferences: payload.videoReferences, videoStale: Boolean(payload.videoStale), referenceImages: payload.referenceImages, promptPath: payload.promptPath, videoPrompt: payload.videoPrompt, videoFileId: payload.videoFileId, videoDurationSeconds: payload.videoDurationSeconds,
         audioReferences: payload.audioReferences, durationSeconds: payload.durationSeconds, sourceSceneId: payload.sourceSceneId, sourceBeatIds: payload.sourceBeatIds, sourceDurationSeconds: payload.sourceDurationSeconds, dramaticBeat: payload.dramaticBeat, openingState: payload.openingState, endingState: payload.endingState, boundary: payload.boundary, continuationFromSegmentId: payload.continuationFromSegmentId, description: payload.description, action: payload.action, dialogue: payload.dialogue, narration: payload.narration, soundDesign: payload.soundDesign, h3VisualDescription: payload.h3VisualDescription, h3Soundscape: payload.h3Soundscape, h3NonDiegeticMusic: payload.h3NonDiegeticMusic,
         characterRefs: payload.characterRefs, sceneRefs: payload.sceneRefs, propRefs: payload.propRefs,
-        storyboardStale: Boolean(payload.storyboardStale), videoStale: Boolean(payload.videoStale),
-        storyboardSheet: { revision: sheet.revision, layout: sheet.layout, hasImage: Boolean(sheet.imageFileId), hasPrompt: Boolean(sheet.promptSnapshot), frames: frames.map((frame) => ({ id: frame.id, position: frame.position, shotNumber: frame.shotNumber, timeSeconds: frame.timeSeconds, kind: frame.kind, description: frame.description, action: frame.action, cameraAngle: frame.cameraAngle, cameraMove: frame.cameraMove, h3Visual: frame.h3Visual, dialogue: frame.dialogue, sound: frame.sound })) },
     } };
 }
 function timelineResponse(row: TimelineRow) { return { projectId: row.project_id, payload: parseJson(row.payload, {}), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at }; }

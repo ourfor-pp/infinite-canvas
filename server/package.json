@@ -7,7 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
-    "test": "tsx --test src/*.test.ts src/**/*.test.ts"
+    "test": "tsx --test src/*.test.ts src/**/*.test.ts",
+    "previs:install": "playwright install --with-deps chromium",
+    "previs:check": "node scripts/check-previs.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.0",
@@ -22,11 +24,14 @@
     "busboy": "^1.6.0",
     "chokidar": "4.0.3",
     "epub2": "3.0.2",
+    "esbuild": "0.25.12",
     "express": "^5.1.0",
     "gray-matter": "^4.0.3",
     "html-to-text": "9.0.5",
     "nanoid": "^5.1.6",
     "pdfjs-dist": "5.4.296",
+    "playwright": "1.62.1",
+    "three": "0.180.0",
     "webdav": "^5.9.0",
     "ws": "^8.18.3",
     "yaml": "^2.9.0",
@@ -40,6 +45,7 @@
     "@types/html-to-text": "^9.0.4",
     "@types/node": "^22.18.12",
     "@types/pdfkit": "^0.17.6",
+    "@types/three": "0.180.0",
     "@types/ws": "^8.18.1",
     "pdfkit": "^0.19.1",
     "tsx": "^4.20.6",

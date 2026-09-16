@@ -7,9 +7,13 @@ RUN --mount=type=cache,target=/root/.bun/install/cache bun install --cache-dir=/
 COPY VERSION /app/VERSION
 COPY CHANGELOG.md /app/CHANGELOG.md
 COPY web ./
+# 网页与后台共用声明式预演求值器及固定版本 Three.js。
+COPY server/package.json server/package-lock.json /app/server/
+RUN --mount=type=cache,target=/root/.bun/install/cache cd /app/server && bun install --cache-dir=/root/.bun/install/cache
+COPY server/src/previs /app/server/src/previs
 RUN bun run build
 
-# 运行镜像：只启动静态前端，AI 请求由浏览器前台直连用户自己的接口。
+# 此镜像仅包含静态前端；Express、媒体与预演工作进程部署仍需单独配置。
 FROM nginx:1.27-alpine
 
 COPY --from=web-build /app/web/dist /usr/share/nginx/html

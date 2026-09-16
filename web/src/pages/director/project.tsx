@@ -1,7 +1,7 @@
 import { generationPhaseLabel } from "@/lib/generation-status";
-import { ShotWorkspace } from "./shot-workspace";
+import { SequenceWorkspace } from "./sequence-workspace";
 import { EditWorkspace } from "./edit-workspace";
-import { readDirectorQuery } from "@/services/director-queries";
+import { readDirectorQuery, readDirectorSegmentPlans } from "@/services/director-queries";
 import { DirectorMedia } from "./components/director-media";
 import { currentDirectorPreviewItems, directorMediaUrl, useDeferredDirectorValue, useDirectorResourceVersion } from "./use-director-sync";
 import { directorSync } from "@/stores/use-director-store";
@@ -192,7 +192,7 @@ export default function DirectorProjectPage() {
                         {active === "story" || active === "script" ? <Writing key={active} projectId={id} kind={active} state={state} onRefresh={refresh} /> : null}
                         {active === "style" ? <DirectorTreatmentPage projectId={id} workspace={state.workspace} activeStyleId={state.activeStyleId} styles={styles} onRefresh={refresh} /> : null}
                         {active === "assets" ? <AssetGallery projectId={id} state={state} assets={assets} generations={generations} agentCollapsed={agentCollapsed} onGeneration={applyGeneration} onRefresh={refresh} /> : null}
-                        {active === "storyboard" ? <ShotWorkspace projectId={id} state={state} onRefresh={refresh} /> : null}
+                        {active === "storyboard" ? <SequenceWorkspace projectId={id} state={state} onRefresh={refresh} /> : null}
                         {active === "studio" || active === "edit" ? <EditWorkspace mode={active === "edit" ? "edit" : "production"} projectId={id} state={state} onRefresh={refresh} /> : null}
                     </section>
                 </div>
@@ -297,7 +297,7 @@ function generationBelongsToDirector(generation: ServerGeneration, projectId: st
 
 function generationAssetId(generation: ServerGeneration) { return String(recordValue(recordValue(recordValue(generation.request).params).__creativeAsset).assetId || ""); }
 function generationStyleId(generation: ServerGeneration) { const params = recordValue(recordValue(generation.request).params); return String(recordValue(params.__visualStyleBoard).styleId || recordValue(params.__visualStyleAnalysis).styleId || ""); }
-function generationTaskMeta(generation: ServerGeneration, assets: CreativeAsset[]) { const params = recordValue(recordValue(generation.request).params); const asset = assets.find((item) => item.id === generationAssetId(generation)); const storyboard = recordValue(params.__directorStoryboardSheet); const segment = recordValue(params.__directorSegment); const storyboardReview = recordValue(params.__directorStoryboardReview); const media = generation.kind === "image" ? "图片" : generation.kind === "video" ? "视频" : generation.kind === "audio" ? "声音" : generation.kind === "transcription" ? "转写" : "分析"; return { title: asset ? `${asset.name} · ${media}` : storyboard.segmentId ? "整张故事板 · 图片" : segment.segmentId ? "视频段 · 视频" : storyboardReview.segmentId ? "整张故事板 · 视觉检查" : `${media}生成`, subtitle: generation.modelId || "生成服务" }; }
+function generationTaskMeta(generation: ServerGeneration, assets: CreativeAsset[]) { const params = recordValue(recordValue(generation.request).params); const asset = assets.find((item) => item.id === generationAssetId(generation)); const segment = recordValue(params.__directorSegment); const media = generation.kind === "image" ? "图片" : generation.kind === "video" ? "视频" : generation.kind === "audio" ? "声音" : generation.kind === "transcription" ? "转写" : "分析"; return { title: asset ? `${asset.name} · ${media}` : segment.segmentId ? "视频段 · 视频" : `${media}生成`, subtitle: generation.modelId || "生成服务" }; }
 
 function formatTaskTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }); }
 function recordValue(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -329,14 +329,16 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
         finally { setProjectBusy(""); if (importRef.current) importRef.current.value = ""; }
     };
     const documents = Object.fromEntries(state.documents.map((item) => [item.kind, item]));
+    const [segmentCount, setSegmentCount] = useState(0);
+    const segmentVersion = useDirectorResourceVersion(state.workspace.projectId, "segments");
+    useEffect(() => { let live = true; void readDirectorSegmentPlans(state.workspace.projectId).then((items) => { if (live) setSegmentCount(items.length); }).catch(() => {}); return () => { live = false; }; }, [state.workspace.projectId, segmentVersion]);
     const stale = state.sequences.filter((item) => item.payload.needsReview).length + state.videoSegments.filter((item) => item.payload.needsReview || item.payload.videoStale).length;
     const readyAssets = assets.filter((item) => item.payload.variants.some((variant) => variant.kind === "image")).length;
     const stages = [
         Boolean(documents.story?.content.trim()),
         Boolean(styles.find((item) => item.id === state.activeStyleId)),
         Boolean(documents.script?.content.trim()),
-        state.videoSegments.length > 0,
-        state.videoSegments.length > 0 && state.videoSegments.every((item) => item.payload.storyboardSheet?.imageFileId),
+        segmentCount > 0,
         state.videoSegments.length > 0 && state.videoSegments.every((item) => item.payload.videoFileId),
     ];
     const progress = Math.round((stages.filter(Boolean).length / stages.length) * 100);
@@ -344,10 +346,9 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
         { label: "故事", detail: documents.story?.content.trim() ? "已编写" : "待创作", done: stages[0], target: "story" as const },
         { label: "导演方案", detail: styles.find((item) => item.id === state.activeStyleId)?.name || "待设置", done: stages[1], target: "style" as const },
         { label: "剧本", detail: stages[2] ? "已编写" : "待创作", done: stages[2], target: "script" as const },
-        { label: "分镜规划", detail: `${state.videoSegments.length} 个视频段`, done: stages[3], target: "storyboard" as const },
-        { label: "故事板", detail: `${state.videoSegments.filter((item) => item.payload.storyboardSheet?.imageFileId).length}/${state.videoSegments.length}`, done: stages[4], target: "storyboard" as const },
-        { label: "视频段", detail: `${state.videoSegments.filter((item) => item.payload.videoFileId).length}/${state.videoSegments.length}`, done: stages[5], target: "storyboard" as const },
-        { label: "成片", detail: stages[5] ? "可合成" : "待就绪", done: false, target: "edit" as const },
+        { label: "分镜与预演", detail: `${segmentCount} 个分镜段`, done: stages[3], target: "storyboard" as const },
+        { label: "视频段", detail: `${state.videoSegments.filter((item) => item.payload.videoFileId).length}/${state.videoSegments.length}`, done: stages[4], target: "studio" as const },
+        { label: "成片", detail: stages[4] ? "可合成" : "待就绪", done: false, target: "edit" as const },
     ];
     const nextStage = stageItems.find((item) => !item.done) || stageItems.at(-1)!;
     return (
@@ -416,7 +417,6 @@ function Overview({ state, assets, styles, onNavigate }: { state: DirectorState;
                     <div className="mt-5 space-y-3">
                         <Notice count={state.sources.filter((item) => item.status === "failed").length} label="失败的来源任务" />
                         <Notice count={stale} label="上游变化，待检查" />
-                        <Notice count={state.videoSegments.filter((item) => !item.payload.storyboardSheet?.imageFileId).length} label="缺少故事板的视频段" />
                         <Notice count={state.videoSegments.filter((item) => !item.payload.videoFileId).length} label="缺少视频的视频段" />
                     </div>
                 </section>
@@ -1171,7 +1171,7 @@ function AssetUsagesTab({ detail, onLocate }: { detail: DirectorAssetDetail; onL
             <div className="divide-y divide-slate-100">{group.items.map((item) => <button key={item.id} type="button" className="group grid w-full cursor-pointer grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition hover:bg-blue-50/50" onClick={() => onLocate(item.id)}>
                 <span className="font-mono text-[10px] text-slate-400">SEG {String(item.segmentPosition + 1).padStart(2, "0")}</span>
                 <span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-800 group-hover:text-blue-700">{item.title}</span><span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400"><span className="inline-flex items-center gap-1"><Clock3 className="size-3" />{item.durationSeconds} 秒</span><span>·</span><span>{item.variantId ? `变体 ${item.variantId}` : "基础设计"}</span></span></span>
-                <span className="flex shrink-0 items-center gap-2"><span className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] ${item.storyboardReady ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-400"}`}><ImageIcon className="size-3" />故事板{item.storyboardReady ? "已就绪" : "待生成"}</span><span className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] ${item.videoReady ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-400"}`}><Video className="size-3" />视频{item.videoReady ? "已就绪" : "待生成"}</span><ChevronRight className="ml-1 size-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-blue-600" /></span>
+                <span className="flex shrink-0 items-center gap-2"><span className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] ${item.videoReady ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-400"}`}><Video className="size-3" />视频{item.videoReady ? "已就绪" : "待生成"}</span><ChevronRight className="ml-1 size-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-blue-600" /></span>
             </button>)}</div>
         </section>)}</div> : <div className="grid min-h-72 place-items-center text-center"><div><ListVideo className="mx-auto size-8 text-slate-300" /><p className="mt-3 text-sm text-slate-500">还没有被视频段引用</p><p className="mt-1 text-xs text-slate-400">分镜绑定这个素材后会自动出现在这里。</p></div></div>}
     </div></ScrollArea>;

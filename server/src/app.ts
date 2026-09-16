@@ -1,4 +1,6 @@
 import { canvasNodeTypeSchema } from "./agent/canvas-tools.js";
+import { createDirectorLookFrame, readDirectorPrevis, updateDirectorLookFrame } from "./director-previs.js";
+import { cancelPrevisRender, createPrevisRender, getPrevisRender, listPrevisRenders, retryPrevisRender } from "./director-previs-render.js";
 import { registerGenerationEffects } from "./generation-effects.js";
 import { listMediaCapabilities } from "./media-capabilities.js";
 import { createMediaGeneration, prepareMediaGeneration } from "./media-generation.js";
@@ -39,10 +41,10 @@ import {
     listDirectorVideoSegments, getDirectorDocument, getDirectorScreenplayBreakdown, getDirectorState, listDirectorSequences, listDirectorSourceChunks, retryDirectorSource,
     updateDirectorDocument, updateDirectorScreenplayBreakdown, updateDirectorSequence, updateDirectorTimeline, updateDirectorVideoSegment, updateDirectorWorkspace, updateDirectorSegmentAssetReference,
 } from "./director.js";
-import { cancelDirectorRender, createDirectorRender, createDirectorStoryboardGeneration, createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflightWithFraming, getDirectorPlaybackPlan, listDirectorRenders, retryDirectorRender } from "./director-render.js";
+import { cancelDirectorRender, createDirectorRender,  createDirectorVideoSegmentGeneration, getDirectorVideoSegmentPreflightWithFraming, getDirectorPlaybackPlan, listDirectorRenders, retryDirectorRender } from "./director-render.js";
 import { getDirectorCastReview, startDirectorCastReview } from "./director-cast-review.js";
 import {
-    resolveDirectorReferenceImage, resolveDirectorMediaFile, readDirectorShotStoryboards, listDirectorShotDesigns, saveDirectorShotDesign, addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
+    resolveDirectorReferenceImage, resolveDirectorMediaFile,  listDirectorSegmentPlans, saveDirectorSegmentPlan, addDirectorAssetMediaInput, ensureDirectorProjectWorkspace, exportDirectorProjectZip, getDirectorAssetDetail, getDirectorValidation, importDirectorProjectZip,
     readDirectorLogicalDocument, readDirectorStyleBoard, readDirectorTextFile, removeDirectorAssetMediaInput, removeDirectorProjectWorkspace, trashDirectorAssetVariant, validateDirectorProject, writeDirectorDocumentPart, writeDirectorMarkdown,
 } from "./director-workspace.js";
 
@@ -206,6 +208,7 @@ api.get("/director/projects/:id", route((req) => {
 api.post("/director/projects/:id/validate", route((req) => validateDirectorProject(req.user.id, routeId(req), typeof req.body?.scope === "string" ? req.body.scope : "")));
 api.get("/director/projects/:id/validation", route((req) => getDirectorValidation(req.user.id, routeId(req))));
 api.get("/director/projects/:id/reference-image", route((req) => resolveDirectorReferenceImage(req.user.id, routeId(req), String(req.query.path || ""))));
+api.get("/director/projects/:id/reference-video", route((req) => { const value = resolveDirectorMediaFile(req.user.id, routeId(req), String(req.query.path || ""), "video"); return { fileId: value.fileId }; }));
 api.get("/director/projects/:id/file", route((req) => readDirectorTextFile(req.user.id, routeId(req), String(req.query.path || ""))));
 api.put("/director/projects/:id/file", route((req) => writeDirectorMarkdown(req.user.id, routeId(req), String(req.body?.path || ""), String(req.body?.content || ""), typeof req.headers["if-match"] === "string" ? req.headers["if-match"].replace(/^\"|\"$/g, "") : undefined)));
 api.get("/director/projects/:id/direction/style-board", (req, res, next) => {
@@ -263,16 +266,26 @@ api.get("/director/projects/:id/sequences", route((req) => listDirectorSequences
 api.post("/director/projects/:id/sequences", route((req) => createDirectorSequence(req.user.id, routeId(req), req.body), 201));
 api.put("/director/sequences/:id", route((req) => updateDirectorSequence(req.user.id, routeId(req), req.body)));
 api.delete("/director/sequences/:id", route((req) => deleteDirectorSequence(req.user.id, routeId(req))));
-api.get("/director/projects/:id/shots", route((req) => listDirectorShotDesigns(req.user.id, routeId(req), Number(req.query.offset) || 0, Number(req.query.limit) || 50)));
-api.get("/director/projects/:id/shots/:shotId/storyboards", route((req) => readDirectorShotStoryboards(req.user.id, routeId(req), String(req.params.shotId), Number(req.query.offset) || 0, Number(req.query.limit) || 50)));
-api.put("/director/projects/:id/shots", route((req) => saveDirectorShotDesign(req.user.id, routeId(req), req.body)));
+api.get("/director/projects/:id/segments", route((req) => listDirectorSegmentPlans(req.user.id, routeId(req), Number(req.query.offset) || 0, Number(req.query.limit) || 50)));
+api.get("/director/projects/:id/segments/:segmentId/previs", route((req) => readDirectorPrevis(req.user.id, routeId(req), String(req.params.segmentId))));
+api.get("/director/projects/:id/segments/:segmentId/previs-renders", route((req) => listPrevisRenders(req.user.id, routeId(req), String(req.params.segmentId), Number(req.query.offset) || 0)));
+api.post("/director/projects/:id/segments/:segmentId/previs-renders", route((req) => createPrevisRender(req.user.id, routeId(req), String(req.params.segmentId), req.body), 202));
+api.get("/director/projects/:id/previs-renders/:renderId", route((req) => getPrevisRender(req.user.id, routeId(req), String(req.params.renderId))));
+api.post("/director/projects/:id/previs-renders/:renderId/cancel", route((req) => cancelPrevisRender(req.user.id, routeId(req), String(req.params.renderId))));
+api.post("/director/projects/:id/previs-renders/:renderId/retry", route((req) => retryPrevisRender(req.user.id, routeId(req), String(req.params.renderId)), 202));
+api.post("/director/projects/:id/segments/:segmentId/look-frames", route((req) => {
+    const frame = createDirectorLookFrame(req.user.id, routeId(req), String(req.params.segmentId), req.body?.time, req.body?.expectedHash, req.body?.frameId);
+    const render = createPrevisRender(req.user.id, routeId(req), String(req.params.segmentId), { expectedHash: frame.sourceHash, kind: "frame", frameId: frame.id, start: frame.time });
+    return { frame, render };
+}, 202));
+api.patch("/director/projects/:id/segments/:segmentId/look-frames/:frameId", route((req) => updateDirectorLookFrame(req.user.id, routeId(req), String(req.params.segmentId), String(req.params.frameId), req.body)));
+api.put("/director/projects/:id/segments", route((req) => saveDirectorSegmentPlan(req.user.id, routeId(req), req.body)));
 api.get("/director/projects/:id/production-tasks", route((req) => listDirectorVideoSegments(req.user.id, routeId(req), req.query)));
 api.post("/director/projects/:id/production-tasks", route((req) => createDirectorVideoSegment(req.user.id, routeId(req), req.body), 201));
 api.put("/director/production-tasks/:id", route((req) => updateDirectorVideoSegment(req.user.id, routeId(req), req.body)));
 api.put("/director/production-tasks/:id/asset-reference", route((req) => updateDirectorSegmentAssetReference(req.user.id, routeId(req), req.body)));
 api.delete("/director/production-tasks/:id", route((req) => deleteDirectorVideoSegment(req.user.id, routeId(req))));
 api.get("/director/production-tasks/:id/preflight", asyncRoute((req) => getDirectorVideoSegmentPreflightWithFraming(req.user.id, routeId(req))));
-api.post("/director/production-tasks/:id/storyboard/generate", route((req) => createDirectorStoryboardGeneration(req.user.id, routeId(req), req.body), 202));
 api.post("/director/production-tasks/:id/generate", asyncRoute((req) => createDirectorVideoSegmentGeneration(req.user.id, routeId(req), req.body), 201));
 api.get("/director/projects/:id/playback-plan", asyncRoute((req) => getDirectorPlaybackPlan(req.user.id, routeId(req))));
 api.put("/director/projects/:id/timeline", route((req) => updateDirectorTimeline(req.user.id, routeId(req), req.body)));

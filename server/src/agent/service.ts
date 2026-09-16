@@ -438,8 +438,8 @@ export function listAgentReferences(userId: string, projectId: string, query: { 
         state.sequences.forEach((sequence) => items.push({ key: `director:sequence:${sequence.id}`, label: sequence.title, detail: "剧情段落", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "sequence", entityId: sequence.id } }));
         const tasks = db.prepare("SELECT id,title FROM director_shots WHERE user_id=? AND project_id=? AND instr(lower(title),?)>0 ORDER BY position,id LIMIT ?").all(userId, projectId, q, limit) as Array<{ id: string; title: string }>;
         tasks.forEach((task) => items.push({ key: `director:production-task:${task.id}`, label: task.title, detail: "制作任务", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "production-task", entityId: task.id } }));
-        const shots = db.prepare("SELECT entity_id,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND instr(lower(json_extract(metadata,'$.name')),?)>0 ORDER BY json_extract(metadata,'$.order'),path LIMIT ?").all(userId, projectId, q, limit) as Array<{ entity_id: string; metadata: string }>;
-        shots.forEach((shot) => items.push({ key: `director:shot-design:${shot.entity_id}`, label: String(parseJson<Record<string, unknown>>(shot.metadata, {}).name), detail: "镜头设计", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "shot-design", entityId: shot.entity_id } }));
+        const shots = db.prepare("SELECT entity_id,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='segment-design' AND instr(lower(json_extract(metadata,'$.name')),?)>0 ORDER BY json_extract(metadata,'$.order'),path LIMIT ?").all(userId, projectId, q, limit) as Array<{ entity_id: string; metadata: string }>;
+        shots.forEach((shot) => items.push({ key: `director:segment-design:${shot.entity_id}`, label: String(parseJson<Record<string, unknown>>(shot.metadata, {}).name), detail: "镜头设计", segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "segment-design", entityId: shot.entity_id } }));
         items.push({ key: "director:timeline", label: "时间线", detail: `REV ${state.timeline.revision}`, segment: { type: "director", mentionId: nanoid(), projectId, entityKind: "timeline", entityId: "timeline" } });
     }
     if (sceneHasReference(scene, "asset")) listAgentCreativeAssets(userId, projectId).forEach((asset) => items.push({ key: `asset:${asset.id}`, label: asset.name, detail: asset.kind === "character" ? "角色" : asset.kind === "scene" ? "场景" : "道具", segment: { type: "asset", mentionId: nanoid(), projectId, assetId: asset.id } }));
@@ -812,7 +812,7 @@ function mergeAllowedTools(...lists: string[][]) {
 
 type ProviderNonNull = NonNullable<ReturnType<typeof getProviderRow>>;
 
-export function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; path?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
+export function buildPrompt(session: SessionRow, context: { input?: string; attachments?: Array<{ fileId: string; name: string; mimeType: string; path: string }>; references?: Array<{ projectId: string; nodeId: string; node: unknown }>; assetReferences?: Array<{ projectId: string; assetId: string; nodeId?: string; path?: string; asset: unknown }>; styleReferences?: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }>; directorReferences?: Array<{ projectId: string; entityKind: string; entityId: string; timeSeconds?: number; objectId?: string; lookFrameId?: string; entity: unknown }> }, skill: BuiltInAgentSkill | null) {
     const sections = [context.input || "请处理本次请求。"];
     if (skill && session.engine === "codex") sections.unshift(`读取并遵循 .agents/skills/${skill.id}/SKILL.md（${skill.name}）完成本次请求。`);
     else if (skill) sections.unshift(`使用原生 Skill 工具加载并遵循“${skill.id}”（${skill.name}）完成本次请求。Skill 已同步到当前会话，不要使用 Read 查找服务端 Skill 源文件。`);
@@ -954,7 +954,7 @@ function validateMessageInput(input: AgentMessageInput) {
             z.object({ type: z.literal("canvas"), ...mention, nodeId: z.string().trim().min(1).max(128) }),
             z.object({ type: z.literal("asset"), ...mention, assetId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional(), path: z.string().trim().max(500).optional() }),
             z.object({ type: z.literal("style"), ...mention, styleId: z.string().trim().min(1).max(128), nodeId: z.string().trim().min(1).max(128).optional() }),
-            z.object({ type: z.literal("director"), ...mention, entityKind: z.enum(["story", "script", "directing-plan", "sequence", "shot-design", "production-task", "video-segment", "timeline"]), entityId: z.string().trim().min(1).max(128) }),
+            z.object({ type: z.literal("director"), ...mention, entityKind: z.enum(["story", "script", "directing-plan", "sequence", "segment-design", "production-task", "video-segment", "timeline"]), entityId: z.string().trim().min(1).max(128), timeSeconds: z.number().finite().nonnegative().optional(), objectId: z.string().trim().min(1).max(128).optional(), lookFrameId: z.string().trim().min(1).max(128).optional() }),
         ])).min(1).max(200) }),
         attachmentFileIds: z.array(z.string().max(128)).max(20).optional().default([]),
     }).superRefine((value, issue) => {
@@ -972,7 +972,7 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
     const references: Array<{ projectId: string; nodeId: string; node: unknown }> = [];
     const assetReferences: Array<{ projectId: string; assetId: string; nodeId?: string; path?: string; asset: unknown }> = [];
     const styleReferences: Array<{ projectId: string; styleId: string; nodeId?: string; style: unknown }> = [];
-    const directorReferences: Array<{ projectId: string; entityKind: string; entityId: string; entity: unknown }> = [];
+    const directorReferences: Array<{ projectId: string; entityKind: string; entityId: string; timeSeconds?: number; objectId?: string; lookFrameId?: string; entity: unknown }> = [];
     const skills: BuiltInAgentSkill[] = [];
     const displayParts: string[] = [];
     const displaySegments: Array<Record<string, unknown>> = [];
@@ -1006,12 +1006,12 @@ function prepareMessage(userId: string, projectId: string, document: AgentCompos
                 ? state.documents.find((item) => item.kind === segment.entityKind)
                 : segment.entityKind === "directing-plan" ? { workspace: state.workspace, activeStyleId: state.activeStyleId }
                 : segment.entityKind === "sequence" ? state.sequences.find((item) => item.id === segment.entityId)
-                : segment.entityKind === "shot-design" ? (() => { const row = db.prepare("SELECT path,sha256,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=?").get(userId, projectId, segment.entityId) as { path: string; sha256: string; metadata: string } | undefined; return row ? { id: segment.entityId, title: String(parseJson<Record<string, unknown>>(row.metadata, {}).name || segment.entityId), path: row.path, hash: row.sha256 } : undefined; })()
+                : segment.entityKind === "segment-design" ? (() => { const row = db.prepare("SELECT path,sha256,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='segment-design' AND entity_id=?").get(userId, projectId, segment.entityId) as { path: string; sha256: string; metadata: string } | undefined; return row ? { id: segment.entityId, title: String(parseJson<Record<string, unknown>>(row.metadata, {}).name || segment.entityId), path: row.path, hash: row.sha256 } : undefined; })()
                 : segment.entityKind === "video-segment" || segment.entityKind === "production-task" ? state.videoSegments.find((item) => item.id === segment.entityId)
                 : state.timeline;
             if (!entity) throw agentError(404, "AGENT_DIRECTOR_REFERENCE_NOT_FOUND", "导演台引用不存在或不属于当前项目");
             const label = segment.entityKind === "story" ? "故事" : segment.entityKind === "script" ? "剧本" : segment.entityKind === "directing-plan" ? "导演方案" : segment.entityKind === "timeline" ? "时间线" : "title" in entity ? String(entity.title) : segment.entityId;
-            directorReferences.push({ projectId, entityKind: segment.entityKind, entityId: segment.entityId, entity }); displayParts.push(`@${label}`); displaySegments.push({ ...segment, label });
+            directorReferences.push({ projectId, entityKind: segment.entityKind, entityId: segment.entityId, timeSeconds: segment.timeSeconds, objectId: segment.objectId, lookFrameId: segment.lookFrameId, entity }); displayParts.push(`@${label}`); displaySegments.push({ ...segment, label });
         }
     }
     const displayText = displayParts.join("").trim() || (attachments.length ? `发送了 ${attachments.length} 个附件` : "引用了项目内容");
@@ -1103,10 +1103,10 @@ function restoreShotReferenceNames(events: AgentEvent[], userId: string, project
         if (!Array.isArray(content?.segments)) continue;
         let changed = false;
         for (const segment of content.segments) {
-            if (segment.type !== "director" || segment.entityKind !== "shot-design" || segment.projectId !== projectId || (segment.label && segment.label !== segment.entityId)) continue;
+            if (segment.type !== "director" || segment.entityKind !== "segment-design" || segment.projectId !== projectId || (segment.label && segment.label !== segment.entityId)) continue;
             const id = String(segment.entityId);
             if (!names.has(id)) {
-                const row = db.prepare("SELECT metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=?").get(userId, projectId, id) as { metadata: string } | undefined;
+                const row = db.prepare("SELECT metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='segment-design' AND entity_id=?").get(userId, projectId, id) as { metadata: string } | undefined;
                 names.set(id, row ? String(parseJson<Record<string, unknown>>(row.metadata, {}).name || id) : id);
             }
             segment.label = names.get(id); changed = true;

@@ -1,0 +1,470 @@
+{
+  "scene": {
+    "version": 1,
+    "id": "station",
+    "name": "桥边相遇",
+    "order": 1,
+    "summary": "三人在桥边交叉相遇，递还盒子后离开。",
+    "objects": [
+      {
+        "id": "a",
+        "name": "蓝衣高个",
+        "kind": "human",
+        "position": [
+          -3,
+          0,
+          0
+        ],
+        "height": 1.85,
+        "build": 0.85,
+        "color": "#377bb5"
+      },
+      {
+        "id": "b",
+        "name": "红衣矮个",
+        "kind": "human",
+        "position": [
+          3,
+          0,
+          0.7
+        ],
+        "height": 1.6,
+        "build": 1.2,
+        "color": "#b65b61"
+      },
+      {
+        "id": "c",
+        "name": "绿衣长耳",
+        "kind": "animal",
+        "position": [
+          0,
+          0,
+          -3
+        ],
+        "height": 1.7,
+        "ears": 0.6,
+        "tail": 0.3,
+        "color": "#559d80"
+      },
+      {
+        "id": "parcel",
+        "name": "小盒子",
+        "kind": "box",
+        "position": [
+          -3,
+          1,
+          0
+        ],
+        "size": [
+          0.25,
+          0.2,
+          0.25
+        ],
+        "color": "#b79162"
+      },
+      {
+        "id": "floor",
+        "name": "地面",
+        "kind": "ground",
+        "position": [
+          0,
+          -0.1,
+          0
+        ],
+        "size": [
+          14,
+          0.2,
+          14
+        ],
+        "color": "#c7cbd0"
+      },
+      {
+        "id": "bridge",
+        "name": "木桥",
+        "kind": "bridge",
+        "position": [
+          0,
+          0,
+          -4.5
+        ],
+        "size": [
+          3,
+          0.25,
+          2
+        ],
+        "color": "#89979c"
+      }
+    ]
+  },
+  "plan": {
+    "version": 1,
+    "segmentId": "meeting",
+    "duration": 24,
+    "initial": {
+      "a": {
+        "position": [
+          -3,
+          0,
+          0
+        ],
+        "yaw": 1.57
+      },
+      "b": {
+        "position": [
+          3,
+          0,
+          0.7
+        ],
+        "yaw": -1.57
+      },
+      "c": {
+        "position": [
+          0,
+          0,
+          -3
+        ],
+        "yaw": 0
+      }
+    },
+    "tracks": [
+      {
+        "objectId": "a",
+        "keys": [
+          {
+            "time": 0,
+            "position": [
+              -3,
+              0,
+              0
+            ],
+            "yaw": 1.57
+          },
+          {
+            "time": 5,
+            "position": [
+              -0.5,
+              0,
+              0
+            ],
+            "yaw": 1.57
+          },
+          {
+            "time": 16,
+            "position": [
+              -0.5,
+              0,
+              0
+            ],
+            "yaw": 1.57
+          },
+          {
+            "time": 19,
+            "position": [
+              -0.5,
+              0,
+              0
+            ],
+            "yaw": -1.57
+          },
+          {
+            "time": 24,
+            "position": [
+              -3,
+              0,
+              0
+            ],
+            "yaw": -1.57
+          }
+        ]
+      },
+      {
+        "objectId": "b",
+        "keys": [
+          {
+            "time": 0,
+            "position": [
+              3,
+              0,
+              0.7
+            ],
+            "yaw": -1.57
+          },
+          {
+            "time": 5,
+            "position": [
+              0.5,
+              0,
+              0
+            ],
+            "yaw": -1.57
+          },
+          {
+            "time": 18,
+            "position": [
+              0.5,
+              0,
+              0
+            ],
+            "yaw": -1.57
+          },
+          {
+            "time": 20,
+            "position": [
+              0.5,
+              0,
+              0
+            ],
+            "yaw": 1.57
+          },
+          {
+            "time": 24,
+            "position": [
+              3,
+              0,
+              0.7
+            ],
+            "yaw": 1.57
+          }
+        ]
+      },
+      {
+        "objectId": "c",
+        "keys": [
+          {
+            "time": 0,
+            "position": [
+              0,
+              0,
+              -3
+            ],
+            "yaw": 0
+          },
+          {
+            "time": 4,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "yaw": 0.7
+          },
+          {
+            "time": 8,
+            "position": [
+              3.5,
+              0,
+              3
+            ],
+            "yaw": 0.7
+          },
+          {
+            "time": 16,
+            "position": [
+              3.5,
+              0,
+              3
+            ],
+            "yaw": 0.7
+          },
+          {
+            "time": 24,
+            "position": [
+              6,
+              0,
+              6
+            ],
+            "yaw": 0.7
+          }
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "id": "a-walk",
+        "objectId": "a",
+        "kind": "walk",
+        "start": 0,
+        "end": 5
+      },
+      {
+        "id": "b-walk",
+        "objectId": "b",
+        "kind": "walk",
+        "start": 0,
+        "end": 5
+      },
+      {
+        "id": "c-cross",
+        "objectId": "c",
+        "kind": "walk",
+        "start": 0,
+        "end": 8
+      },
+      {
+        "id": "a-hold",
+        "objectId": "a",
+        "kind": "hold",
+        "start": 0,
+        "end": 10
+      },
+      {
+        "id": "a-give",
+        "objectId": "a",
+        "kind": "give",
+        "target": "b",
+        "start": 10,
+        "end": 13
+      },
+      {
+        "id": "b-take",
+        "objectId": "b",
+        "kind": "give",
+        "target": "a",
+        "side": "left",
+        "start": 10,
+        "end": 13
+      },
+      {
+        "id": "b-hold",
+        "objectId": "b",
+        "kind": "hold",
+        "side": "left",
+        "start": 13,
+        "end": 24
+      },
+      {
+        "id": "a-leave",
+        "objectId": "a",
+        "kind": "walk",
+        "start": 19,
+        "end": 24
+      },
+      {
+        "id": "b-leave",
+        "objectId": "b",
+        "kind": "walk",
+        "start": 20,
+        "end": 24
+      },
+      {
+        "id": "c-leave",
+        "objectId": "c",
+        "kind": "walk",
+        "start": 16,
+        "end": 24
+      }
+    ],
+    "attachments": [
+      {
+        "time": 0,
+        "objectId": "parcel",
+        "parentId": "a",
+        "hand": "right"
+      },
+      {
+        "time": 12,
+        "objectId": "parcel",
+        "parentId": "b",
+        "hand": "left"
+      }
+    ],
+    "shots": [
+      {
+        "id": "wide",
+        "name": "交叉相遇",
+        "start": 0,
+        "end": 8,
+        "keys": [
+          {
+            "time": 0,
+            "position": [
+              5,
+              3,
+              8
+            ],
+            "target": [
+              0,
+              1,
+              0
+            ],
+            "fov": 45
+          }
+        ]
+      },
+      {
+        "id": "handoff",
+        "name": "递还盒子",
+        "start": 8,
+        "end": 16,
+        "keys": [
+          {
+            "time": 8,
+            "position": [
+              0,
+              2.1,
+              4.2
+            ],
+            "target": [
+              0,
+              1.1,
+              0
+            ],
+            "fov": 40
+          },
+          {
+            "time": 16,
+            "position": [
+              0,
+              1.8,
+              3.6
+            ],
+            "target": [
+              0,
+              1.1,
+              0
+            ],
+            "fov": 40
+          }
+        ]
+      },
+      {
+        "id": "leave",
+        "name": "道别离开",
+        "start": 16,
+        "end": 24,
+        "keys": [
+          {
+            "time": 16,
+            "position": [
+              -5,
+              3,
+              7
+            ],
+            "target": [
+              0,
+              1,
+              0
+            ],
+            "fov": 45
+          }
+        ]
+      }
+    ],
+    "dialogue": [
+      {
+        "id": "line-a",
+        "objectId": "a",
+        "start": 9,
+        "end": 11,
+        "text": "你的盒子落在桥边了。"
+      },
+      {
+        "id": "line-b",
+        "objectId": "b",
+        "start": 14,
+        "end": 16,
+        "text": "谢谢，我还以为找不到了。"
+      }
+    ]
+  }
+}

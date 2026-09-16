@@ -41,7 +41,7 @@
 - [H3 Short-drama Quality Target](./research/h3-short-drama-quality-target.md)
 - [H3 Iteration Decision and Acceptance Gaps](./research/h3-iteration-decision.md)
 - [生成能力与导演台职责梳理](./research/generation-capability-boundaries.md)
-- [导演 v2 实施与验收](./research/director-v2-acceptance.md)
+- [导演 v3 三维预演实施与验收](./research/director-v3-acceptance.md)
 - [MiniMax H3 Ref2V v1.0 and Upgrade Validation](./research/minimax-h3-ref8-upgrade-validation.md)
 - [MiniMax H3 Community Anomaly Research](./research/minimax-h3-community-anomalies.md)
 

@@ -1,4 +1,4 @@
-import { convertDirectorV1, upgradeDirectorV2 } from "./director-v2.js";
+import { parsePrevis, sceneSchema } from "./previs/model.js";
 import { directorResources, directorResourcesForPaths, markDirectorProjectChanged } from "./director-sync.js";
 import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
@@ -15,7 +15,7 @@ import { addH3Archive, validateH3Archive, restoreH3Archive } from "./h3-archive.
 import { config } from "./config.js";
 import { db, parseJson } from "./database.js";
 import { collectFileIds, getStoredFile, syncFileRefs } from "./file-store.js";
-import { screenplayScene, screenplayReviewIssue, shotDesignFileSchema, segmentFileSchema, storyboardFileSchema, timelineFileSchema } from "./director-file-contract.js";
+import { screenplayScene, screenplayReviewIssue, segmentDesignFileSchema, segmentFileSchema, timelineFileSchema } from "./director-file-contract.js";
 import { h3AudioReferencesInput } from "./h3-prompt.js";
 import { inferVisualStyleMediumFamily, serializeVisualStyleMarkdown } from "./visual-style-contract.js";
 
@@ -56,14 +56,13 @@ type AssetRow = { id: string; project_id: string; kind: "character" | "scene" | 
 export type DirectorAssetMedia = { id: string; fileId: string; path: string; name: string; mediaRole: string; kind: "image" | "audio" };
 export type DirectorAssetVisualWorkspace = { id: string; label: string; kind: "primary" | "variant"; variantId?: string; description: string; prompt: string; promptPath: string; hash: string; inputs: DirectorAssetMedia[]; outputs: DirectorAssetMedia[] };
 export type DirectorAssetSoundWorkspace = { prompt: string; promptPath: string; hash: string; sampleText: string; suggestedDurationSeconds?: number; input?: DirectorAssetMedia; output?: DirectorAssetMedia };
-export type DirectorAssetUsage = { id: string; title: string; sequenceId: string; sequenceTitle: string; sequencePosition: number; segmentPosition: number; durationSeconds: number; variantId?: string; storyboardReady: boolean; videoReady: boolean };
+export type DirectorAssetUsage = { id: string; title: string; sequenceId: string; sequenceTitle: string; sequencePosition: number; segmentPosition: number; durationSeconds: number; variantId?: string; videoReady: boolean };
 export type DirectorAssetDetail = { assetId: string; projectId: string; kind: AssetRow["kind"]; name: string; revision: number; folderPath: string; dossier: { path: string; content: string; hash: string }; primaryVisual: DirectorAssetVisualWorkspace; variants: DirectorAssetVisualWorkspace[]; sound: DirectorAssetSoundWorkspace; usages: DirectorAssetUsage[] };
 export type DirectorAssetGenerationTarget = { assetId: string; target: "primary-visual" | "variant-visual" | "sound"; variantId?: string; expectedHash: string };
 type StyleRow = { id: string; name: string; mode: string; template_id: string | null; description: string; dna: string; reference_files: string; revision: number; updated_at: string };
 
-const projectSchema = z.object({ format: z.literal("infinite-canvas-director"), version: z.literal(2), id: z.string().min(1), name: z.string().min(1) }).passthrough();
+const projectSchema = z.object({ format: z.literal("infinite-canvas-director"), version: z.literal(3), id: z.string().min(1), name: z.string().min(1) }).passthrough();
 const entitySchema = z.object({ id: z.string().min(1), kind: z.string().min(1), name: z.string().optional(), title: z.string().optional() }).passthrough();
-const storyboardSchema = storyboardFileSchema;
 const promptReferenceSchema = z.object({
     path: z.string().trim().min(1),
     purpose: z.enum(["style_reference", "identity_reference", "wardrobe_reference", "composition_reference", "reference_input"]).default("reference_input"),
@@ -98,27 +97,20 @@ export function ensureDirectorProjectWorkspace(userId: string, projectId: string
     if (!project) throw workspaceError(404, "PROJECT_NOT_FOUND", "导演项目不存在");
     const root = directorProjectRoot(userId, projectId);
     const storage = db.prepare("SELECT 1 FROM director_project_storage WHERE user_id=? AND project_id=?").get(userId, projectId);
-    if (!storage || !existsSync(resolve(root, "project.yaml"))) migrateDirectorProject(userId, projectId);
-    upgradeDirectorV2(userId, projectId, root, validateDirectorRoot);
-    backfillDirectionReferenceFiles(userId, projectId, root);
-    backfillCreativePositioning(root);
+    if (!storage || !existsSync(resolve(root, "project.yaml"))) initializeDirectorProject(userId, projectId);
+    projectSchema.parse(parseYaml(readFileSync(resolve(root, "project.yaml"), "utf8")));
     const instructions = projectAgents(project.title);
     if (!existsSync(resolve(root, "AGENTS.md")) || readFileSync(resolve(root, "AGENTS.md"), "utf8") !== instructions) writeFileAtomic(resolve(root, "AGENTS.md"), instructions);
     watchDirectorWorkspace(userId, projectId, root);
     return root;
 }
 
-export function migrateAllDirectorProjects() {
-    const projects = db.prepare("SELECT id,user_id FROM projects WHERE kind='director'").all() as Array<{ id: string; user_id: string }>;
-    return projects.map(({ user_id, id }) => migrateDirectorProject(user_id, id));
-}
-
-export function migrateDirectorProject(userId: string, projectId: string) {
+export function initializeDirectorProject(userId: string, projectId: string) {
     const project = db.prepare("SELECT * FROM projects WHERE id=? AND user_id=? AND kind='director'").get(projectId, userId) as ProjectRow | undefined;
     if (!project) throw workspaceError(404, "PROJECT_NOT_FOUND", "导演项目不存在");
     const root = directorProjectRoot(userId, projectId);
     if (existsSync(resolve(root, "project.yaml"))) {
-        upgradeDirectorV2(userId, projectId, root, validateDirectorRoot);
+        projectSchema.parse(parseYaml(readFileSync(resolve(root, "project.yaml"), "utf8")));
         const diagnostics = validateDirectorRoot(root);
         indexDirectorProject(userId, projectId, diagnostics);
         return { projectId, root, diagnostics, files: walkFiles(root).length };
@@ -128,7 +120,7 @@ export function migrateDirectorProject(userId: string, projectId: string) {
     createSkeleton(building);
     const workspace = db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow;
     writeYaml(resolve(building, "project.yaml"), {
-        format: "infinite-canvas-director", version: 1, id: project.id, name: project.title,
+        format: "infinite-canvas-director", version: 3, id: project.id, name: project.title,
         targetDurationSeconds: workspace?.target_duration_seconds || 600, aspectRatio: workspace?.aspect_ratio || "16:9",
         language: workspace?.language || "zh-CN", stage: workspace?.stage || "source",
     });
@@ -137,21 +129,16 @@ export function migrateDirectorProject(userId: string, projectId: string) {
     exportDocuments(userId, projectId, building);
     exportDirection(userId, projectId, building, workspace);
     exportAssets(userId, projectId, building);
-    exportStoryboards(userId, projectId, building);
     exportTimeline(userId, projectId, building);
-    try { convertDirectorV1(building); } catch (error) { throw workspaceError(400, "DIRECTOR_IMPORT_INVALID", error instanceof Error ? error.message : "工程格式无效"); }
+    try { projectSchema.parse(parseYaml(readFileSync(resolve(building, "project.yaml"), "utf8"))); } catch { throw workspaceError(400, "DIRECTOR_IMPORT_INVALID", "仅支持 v3 导演工程，旧工程不再自动转换"); }
     const diagnostics = validateDirectorRoot(building);
     const fatal = diagnostics.filter((item) => item.severity === "error");
     if (fatal.length) {
         rmSync(building, { recursive: true, force: true });
-        throw workspaceError(409, "DIRECTOR_MIGRATION_INVALID", "导演项目迁移校验失败", fatal);
+        throw workspaceError(409, "DIRECTOR_INITIALIZATION_INVALID", "新导演工程初始化校验失败", fatal);
     }
     mkdirSync(dirname(root), { recursive: true });
-    const backup = `${root}.pre-file-backup`;
-    if (existsSync(root)) {
-        rmSync(backup, { recursive: true, force: true });
-        renameSync(root, backup);
-    }
+    if (existsSync(root)) throw workspaceError(409, "DIRECTOR_ROOT_EXISTS", "工程目录已存在但缺少 v3 清单，拒绝覆盖");
     renameSync(building, root);
     indexDirectorProject(userId, projectId, diagnostics);
     return { projectId, root, diagnostics, files: walkFiles(root).length };
@@ -185,10 +172,10 @@ export function resolveDirectorReferenceImage(userId: string, projectId: string,
     else if (relative.includes("/inputs/")) { const number = basename(relative).match(/reference-(\d+)/)?.[1]; name = number ? `补充参考 ${number}` : "补充参考"; }
     else {
         for (let folder = dirname(media.path); folder !== root; folder = dirname(folder)) {
-            const document = ["character.md", "location.md", "prop.md", "shot.md", "task.md"].map((file) => resolve(folder, file)).find((file) => existsSync(file));
+            const document = ["character.md", "location.md", "prop.md", "segment.md", "task.md"].map((file) => resolve(folder, file)).find((file) => existsSync(file));
             if (!document) continue;
             const data = matter(readFileSync(safeWorkspacePath(root, posixRelative(root, document)), "utf8")).data;
-            name = String(data.name || data.title || name) + (/^storyboard\./i.test(basename(relative)) ? " · 故事板" : "");
+            name = String(data.name || data.title || name);
             break;
         }
     }
@@ -260,7 +247,7 @@ export async function importDirectorProjectZip(userId: string, projectId: string
             writeFileSync(target, data);
         }
     }
-    try { convertDirectorV1(building); } catch (error) { throw workspaceError(400, "DIRECTOR_IMPORT_INVALID", error instanceof Error ? error.message : "工程格式无效"); }
+    try { projectSchema.parse(parseYaml(readFileSync(resolve(building, "project.yaml"), "utf8"))); } catch { throw workspaceError(400, "DIRECTOR_IMPORT_INVALID", "仅支持 v3 导演工程，旧工程不再自动转换"); }
     const diagnostics = validateDirectorRoot(building);
     if (diagnostics.some((item) => item.severity === "error")) {
         rmSync(building, { recursive: true, force: true });
@@ -304,81 +291,30 @@ export function readDirectorTextFile(userId: string, projectId: string, relative
     return { path: posixRelative(root, path), content: readFileSync(path, "utf8"), hash: hashFile(path) };
 }
 
-function shotStoryboardFolders(root: string, folder: string) {
-    // A shot may have one board beside shot.md, or more pages in boards/<page>/.
-    const pageRoot = resolve(folder, "boards");
-    return [folder, ...(existsSync(pageRoot) ? readdirSync(safeWorkspacePath(root, posixRelative(root, pageRoot)), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => safeWorkspacePath(root, posixRelative(root, resolve(pageRoot, entry.name)))).sort((a, b) => a.localeCompare(b, "en", { numeric: true })) : [])]
-        .filter((directory) => existsSync(resolve(directory, "prompt.md")) || readdirSync(directory).some((name) => /^storyboard\.(png|jpe?g|webp|gif)$/i.test(name)));
-}
-
-function shotStoryboardFiles(directory: string) {
-    return readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /^storyboard\.(png|jpe?g|webp|gif)$/i.test(entry.name)).map((entry) => entry.name).sort();
-}
-
-export function listDirectorShotDesigns(userId: string, projectId: string, offset = 0, limit = 50) {
+export function listDirectorSegmentPlans(userId: string, projectId: string, offset = 0, limit = 50) {
     if (!db.prepare("SELECT 1 FROM projects WHERE id=? AND user_id=? AND kind='director'").get(projectId, userId)) throw workspaceError(404, "PROJECT_NOT_FOUND", "导演项目不存在");
-    const rows = db.prepare("SELECT path,sha256,revision,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' ORDER BY json_extract(metadata,'$.sequenceId'),json_extract(metadata,'$.order'),path LIMIT ? OFFSET ?").all(userId, projectId, Math.max(1, Math.min(100, limit)), Math.max(0, offset)) as Array<{ path: string; sha256: string; revision: number; metadata: string }>;
-    const total = (db.prepare("SELECT count(*) total FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design'").get(userId, projectId) as { total: number }).total;
+    const rows = db.prepare("SELECT path,sha256,revision,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='segment-design' ORDER BY json_extract(metadata,'$.sequenceId'),json_extract(metadata,'$.order'),path LIMIT ? OFFSET ?").all(userId, projectId, Math.max(1, Math.min(100, limit)), Math.max(0, offset)) as Array<{ path: string; sha256: string; revision: number; metadata: string }>;
+    const total = (db.prepare("SELECT count(*) total FROM director_file_index WHERE user_id=? AND project_id=? AND kind='segment-design'").get(userId, projectId) as { total: number }).total;
     const root = directorProjectRoot(userId, projectId);
     return { total, offset, items: rows.map((row) => {
-        const metadata = parseJson<Record<string, unknown>>(row.metadata, {});
-        const directory = shotStoryboardFolders(root, dirname(safeWorkspacePath(root, row.path))).find((folder) => shotStoryboardFiles(folder).length === 1);
-        const imagePath = directory ? safeWorkspacePath(root, posixRelative(root, resolve(directory, shotStoryboardFiles(directory)[0]!))) : undefined;
-        return { ...metadata, sequenceId: directorMirrorId("director_sequences", userId, projectId, String(metadata.sequenceId)), path: row.path, hash: row.sha256, revision: row.revision,
-            storyboardImage: imagePath ? { path: posixRelative(root, imagePath), fileId: registerDirectorMediaFile(userId, projectId, root, imagePath), hash: hashFile(imagePath) } : undefined };
+        const metadata = segmentDesignFileSchema.parse(parseJson<Record<string, unknown>>(row.metadata, {}));
+        return { ...metadata, content: matter(readFileSync(safeWorkspacePath(root, row.path), "utf8")).content, sequenceId: directorMirrorId("director_sequences", userId, projectId, String(metadata.sequenceId)), path: row.path, hash: row.sha256, revision: row.revision };
     }) };
 }
 
-export function readDirectorShotStoryboards(userId: string, projectId: string, shotId: string, offset = 0, limit = 50) {
-    const root = directorProjectRoot(userId, projectId);
-    const row = db.prepare("SELECT path,metadata FROM director_file_index WHERE user_id=? AND project_id=? AND kind='shot-design' AND entity_id=? AND EXISTS (SELECT 1 FROM projects WHERE projects.id=director_file_index.project_id AND projects.user_id=director_file_index.user_id AND projects.kind='director')").get(userId, projectId, shotId) as { path: string; metadata: string } | undefined;
-    if (!row || !existsSync(safeWorkspacePath(root, row.path))) throw workspaceError(404, "DIRECTOR_SHOT_NOT_FOUND", "镜头不存在");
-    const folder = dirname(safeWorkspacePath(root, row.path));
-    const folders = shotStoryboardFolders(root, folder);
-    const start = Math.max(0, Math.floor(offset));
-    const items = folders.slice(start, start + Math.max(1, Math.min(50, Math.floor(limit)))).map((directory) => {
-        const errors: string[] = [];
-        const images = shotStoryboardFiles(directory);
-        if (images.length > 1) errors.push("同一故事板页面存在多个图片版本，请只保留一个 storyboard 图片文件");
-        const imagePath = images.length === 1 ? safeWorkspacePath(root, posixRelative(root, resolve(directory, images[0]!))) : undefined;
-        const promptPath = safeWorkspacePath(root, posixRelative(root, resolve(directory, "prompt.md")));
-        let prompt = "", promptHash = "";
-        let references: Array<{ path: string; purpose: string; name: string; fileId?: string; hash?: string; error?: string }> = [];
-        if (existsSync(promptPath)) {
-            try {
-                const document = matter(readFileSync(promptPath, "utf8"));
-                prompt = document.content; promptHash = hashFile(promptPath);
-                references = promptReferenceSchema.array().max(50).parse(document.data.references || []).map((reference) => {
-                    const item = { path: reference.path, purpose: reference.purpose, name: reference.label || basename(reference.path) };
-                    try {
-                        const path = safeWorkspacePath(root, reference.path);
-                        if (!existsSync(path) || !statSync(path).isFile() || !mediaMimeType(path).startsWith("image/")) return { ...item, error: "引用图片不存在或类型无效" };
-                        return { ...item, fileId: registerDirectorMediaFile(userId, projectId, root, path), hash: hashFile(path) };
-                    } catch { return { ...item, error: "引用路径无效" }; }
-                });
-            } catch { errors.push("故事板提示词或 references 格式无效，请检查 prompt.md"); }
-        }
-        return { id: posixRelative(root, directory), title: String(parseJson<Record<string, unknown>>(row.metadata, {}).name || shotId) + (directory === folder ? "" : ` · ${basename(directory)}`),
-            image: imagePath ? { path: posixRelative(root, imagePath), fileId: registerDirectorMediaFile(userId, projectId, root, imagePath), hash: hashFile(imagePath) } : undefined,
-            prompt, promptPath: posixRelative(root, promptPath), promptHash, references, errors };
-    });
-    return { shotId, total: folders.length, offset: start, items };
-}
-
-export function saveDirectorShotDesign(userId: string, projectId: string, body: unknown) {
-    const input = z.object({ design: shotDesignFileSchema, content: z.string().default(""), hash: z.string() }).parse(body);
-    delete input.design.storyboardImage;
+export function saveDirectorSegmentPlan(userId: string, projectId: string, body: unknown) {
+    const input = z.object({ design: segmentDesignFileSchema, content: z.string().default(""), hash: z.string() }).parse(body);
     input.design.sequenceId = directorExternalId(projectId, input.design.sequenceId);
     const root = ensureDirectorProjectWorkspace(userId, projectId);
-    const sequencePath = findEntityFile(resolve(root, "storyboards"), "sequence.md", input.design.sequenceId);
+    const sequencePath = findEntityFile(resolve(root, "scenes"), "scene.json", input.design.sequenceId);
     if (!sequencePath) throw workspaceError(400, "SHOT_SEQUENCE_MISSING", "镜头所属场景不存在");
-    const existing = findEntityFile(resolve(root, "storyboards"), "shot.md", input.design.id);
-    const path = existing || resolve(dirname(sequencePath), `shot-${slug(input.design.id)}`, "shot.md");
+    const existing = findEntityFile(resolve(root, "scenes"), "segment.md", input.design.id);
+    const path = existing || resolve(dirname(sequencePath), "segments", input.design.id, "segment.md");
     const result = writeDirectorMarkdown(userId, projectId, posixRelative(root, path), matter.stringify(input.content, JSON.parse(JSON.stringify(input.design))), input.hash);
     const tasks = db.prepare("SELECT id,payload FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>;
     for (const task of tasks) {
         const payload = parseJson<Record<string, unknown>>(task.payload, {});
-        if (Array.isArray(payload.shotIds) && payload.shotIds.includes(input.design.id)) db.prepare("UPDATE director_shots SET payload=?,revision=revision+1 WHERE user_id=? AND id=?").run(JSON.stringify({ ...payload, needsReview: true, videoStale: Boolean(payload.videoFileId) }), userId, task.id);
+        if (Array.isArray(payload.segmentRanges) && (payload.segmentRanges as Array<{ segmentId: string }>).some((range) => range.segmentId === input.design.id)) db.prepare("UPDATE director_shots SET payload=?,revision=revision+1 WHERE user_id=? AND id=?").run(JSON.stringify({ ...payload, needsReview: true, videoStale: Boolean(payload.videoFileId) }), userId, task.id);
     }
     markDirectorProjectChanged(userId, projectId, ["segments"]);
     return result;
@@ -443,7 +379,7 @@ export function resolveDirectorEntityReference(userId: string, projectId: string
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     let path = safeWorkspacePath(root, relativePath);
     if (existsSync(path) && statSync(path).isDirectory()) {
-        const entry = ["character.md", "location.md", "prop.md", "sequence.md", "shot.md", "task.md"].map((name) => resolve(path, name)).find((candidate) => existsSync(candidate));
+        const entry = ["character.md", "location.md", "prop.md", "scene.json", "segment.md", "task.md"].map((name) => resolve(path, name)).find((candidate) => existsSync(candidate));
         if (!entry) throw workspaceError(404, "DIRECTOR_ENTITY_NOT_FOUND", "目录中没有可识别的导演实体文件");
         path = entry;
     }
@@ -514,7 +450,7 @@ export function syncDirectorDirectionFiles(userId: string, projectId: string) {
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     const workspace = db.prepare("SELECT * FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, projectId) as WorkspaceRow | undefined;
     const project = db.prepare("SELECT id,title FROM projects WHERE user_id=? AND id=?").get(userId, projectId) as { id: string; title: string };
-    writeYaml(resolve(root, "project.yaml"), { format: "infinite-canvas-director", version: 2, id: project.id, name: project.title, targetDurationSeconds: workspace?.target_duration_seconds || 600, aspectRatio: workspace?.aspect_ratio || "16:9", language: workspace?.language || "zh-CN", stage: workspace?.stage || "source" });
+    writeYaml(resolve(root, "project.yaml"), { format: "infinite-canvas-director", version: 3, id: project.id, name: project.title, targetDurationSeconds: workspace?.target_duration_seconds || 600, aspectRatio: workspace?.aspect_ratio || "16:9", language: workspace?.language || "zh-CN", stage: workspace?.stage || "source" });
     exportDirection(userId, projectId, root, workspace);
     indexDirectorProject(userId, projectId, validateDirectorRoot(root));
 }
@@ -595,7 +531,7 @@ export function getDirectorAssetDetail(userId: string, assetId: string): Directo
         const refs = Array.isArray(value[row.kind === "character" ? "characterRefs" : row.kind === "scene" ? "sceneRefs" : "propRefs"]) ? value[row.kind === "character" ? "characterRefs" : row.kind === "scene" ? "sceneRefs" : "propRefs"] as Array<Record<string, unknown>> : [];
         const reference = refs.find((item) => String(item.id || "") === row.id || String(item.id || "") === directorExternalId(row.project_id, row.id));
         if (!reference) return [];
-        return [{ id: segment.id, title: segment.title, sequenceId: segment.sequence_id, sequenceTitle: segment.sequence_title || "未分组", sequencePosition: segment.sequence_position, segmentPosition: segment.segment_position, durationSeconds: Number(value.durationSeconds || 4), variantId: String(reference.variantId || "") || undefined, storyboardReady: Boolean((value.storyboardSheet as Record<string, unknown> | undefined)?.imageFileId), videoReady: Boolean(value.videoFileId) }];
+        return [{ id: segment.id, title: segment.title, sequenceId: segment.sequence_id, sequenceTitle: segment.sequence_title || "未分组", sequencePosition: segment.sequence_position, segmentPosition: segment.segment_position, durationSeconds: Number(value.durationSeconds || 4), variantId: String(reference.variantId || "") || undefined, videoReady: Boolean(value.videoFileId) }];
     });
     return {
         assetId: row.id, projectId: row.project_id, kind: row.kind, name: row.name, revision: row.revision, folderPath: posixRelative(root, folder),
@@ -686,9 +622,10 @@ export function syncDirectorSequenceFile(userId: string, projectId: string, sequ
     const sequence = db.prepare("SELECT * FROM director_sequences WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, sequenceId) as SequenceRow | undefined;
     if (!sequence) return;
     const externalId = directorExternalId(projectId, sequenceId);
-    const sequencePath = findEntityFile(resolve(root, "storyboards"), "sequence.md", externalId);
-    const folder = sequencePath ? dirname(sequencePath) : resolve(root, "storyboards", `seq-${pad(sequence.position + 1)}-${slug(sequence.title) || "sequence"}`);
-    writeMarkdown(resolve(folder, "sequence.md"), { id: externalId, kind: "sequence", name: sequence.title, order: sequence.position + 1, sourceRevision: sequence.revision }, sequence.summary || "");
+    const sequencePath = findEntityFile(resolve(root, "scenes"), "scene.json", externalId);
+    const folder = sequencePath ? dirname(sequencePath) : resolve(root, "scenes", `seq-${pad(sequence.position + 1)}-${slug(sequence.title) || "sequence"}`);
+    const prior = sequencePath ? JSON.parse(readFileSync(sequencePath, "utf8")) : { version: 1, objects: [] };
+    writeFileAtomic(resolve(folder, "scene.json"), JSON.stringify({ ...prior, id: externalId, name: sequence.title, order: sequence.position + 1, summary: sequence.summary || "" }, null, 2) + "\n");
     indexDirectorProject(userId, projectId, validateDirectorRoot(root));
 }
 
@@ -701,12 +638,11 @@ export function syncDirectorVideoSegmentFile(userId: string, projectId: string, 
     syncDirectorSequenceFile(userId, projectId, sequence.id);
     const externalSequenceId = directorExternalId(projectId, sequence.id);
     const externalSegmentId = directorExternalId(projectId, segment.id);
-    const sequencePath = findEntityFile(resolve(root, "storyboards"), "sequence.md", externalSequenceId);
+    const sequencePath = findEntityFile(resolve(root, "scenes"), "scene.json", externalSequenceId);
     if (!sequencePath) return;
     const existing = findEntityFile(resolve(root, "productions"), "task.md", externalSegmentId);
     const folder = existing ? dirname(existing) : resolve(root, "productions", externalSegmentId);
     const payload = parseJson<Record<string, unknown>>(segment.payload, {});
-    const sheet = documentRecord(payload.storyboardSheet || payload.storyboard);
     const references = {
         characters: externalizeReferences(projectId, payload.characterRefs),
         locations: externalizeReferences(projectId, payload.sceneRefs),
@@ -723,14 +659,6 @@ export function syncDirectorVideoSegmentFile(userId: string, projectId: string, 
     const segmentData = { ...previousDocument?.data, id: externalSegmentId, kind: "production-task", name: segment.title, sequenceId: externalSequenceId, order: segment.position + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references, audioReferences, ...segmentNarrativeMetadata(payload, projectId), sourceRevision: segment.revision };
     const segmentBody = String(payload.description ?? payload.action ?? "");
     if (!previousDocument || previousDocument.content.trim() !== segmentBody.trim() || !isDeepStrictEqual({ ...previousDocument.data, sourceRevision: undefined }, { ...segmentData, sourceRevision: undefined })) writeMarkdown(resolve(folder, "task.md"), segmentData, segmentBody);
-    if (payload.generationIntent !== "transition" && Array.isArray(sheet.frames) && sheet.frames.length) {
-        const storyboardPath = resolve(folder, "storyboard.yaml");
-        const storyboardData = { version: 1, segmentId: externalSegmentId, layout: sheet.layout || "2x2", frames: framesToFile(projectId, sheet.frames) };
-        if (!existsSync(storyboardPath) || !isDeepStrictEqual(parseYaml(readFileSync(storyboardPath, "utf8")), storyboardData)) writeYaml(storyboardPath, storyboardData);
-    }
-    writeFileAtomic(resolve(folder, "storyboard-prompt.md"), String(sheet.promptSnapshot || sheet.prompt || payload.storyboardPrompt || ""));
-    const storyboardFileId = String(sheet.fileId || sheet.imageFileId || "");
-    if (storyboardFileId) copyNamedFile(userId, storyboardFileId, resolve(folder, "storyboard.png"));
     const videoFolder = folder;
     if (!existsSync(resolve(videoFolder, "video-prompt.md"))) writeFileAtomic(resolve(videoFolder, "video-prompt.md"), "");
     const video = documentRecord(payload.video);
@@ -739,12 +667,23 @@ export function syncDirectorVideoSegmentFile(userId: string, projectId: string, 
     copyCurrentMedia(userId, String(video.previewFileId || video.fileId || (qualityPreset === "preview" ? currentVideoFileId : "")), resolve(videoFolder, "preview.mp4"));
     copyCurrentMedia(userId, String(video.finalFileId || (qualityPreset === "final" ? currentVideoFileId : "")), resolve(videoFolder, "final.mp4"));
     copyCurrentMedia(userId, String(payload.nativeAudioFileId || video.modelAudioFileId || payload.modelAudioFileId || ""), resolve(videoFolder, "model-audio.wav"));
-    if (currentVideoFileId) writeFileAtomic(resolve(videoFolder, "result.json"), JSON.stringify({ video: qualityPreset === "final" ? "final.mp4" : "preview.mp4", qualityPreset, durationSeconds: Number(payload.videoDurationSeconds || payload.durationSeconds), audio: payload.nativeAudioFileId ? "model-audio.wav" : null }, null, 2));
+    if (currentVideoFileId) writeFileAtomic(resolve(videoFolder, "result.json"), JSON.stringify({ video: qualityPreset === "final" ? "final.mp4" : "preview.mp4", qualityPreset, durationSeconds: Number(payload.videoDurationSeconds || payload.durationSeconds), audio: payload.nativeAudioFileId ? "model-audio.wav" : null, inputSnapshot: portableVideoInputs(userId, root, payload.videoInputSnapshot) }, null, 2));
     indexDirectorProject(userId, projectId, validateDirectorRoot(root));
 }
 
+function portableVideoInputs(userId: string, root: string, value: unknown) {
+    if (!value || typeof value !== "object") return undefined;
+    const snapshot = value as Record<string, unknown>;
+    return { ...snapshot, references: (Array.isArray(snapshot.references) ? snapshot.references : []).map((ref: Record<string, unknown>) => {
+        const { fileId, ...rest } = ref, file = getStoredFile(userId, String(fileId));
+        if (!file) throw new Error("实际生成输入已丢失，不能保存结果来源");
+        const path = posixRelative(root, file.path); safeWorkspacePath(root, path);
+        return { ...rest, path, hash: hashFile(file.path) };
+    }) };
+}
+
 export function trashDirectorSequenceFolder(userId: string, projectId: string, sequenceId: string) {
-    trashEntityFolder(userId, projectId, "storyboards", "sequence.md", sequenceId);
+    trashEntityFolder(userId, projectId, "scenes", "scene.json", sequenceId);
 }
 
 export function trashDirectorVideoSegmentFolder(userId: string, projectId: string, segmentId: string) {
@@ -782,7 +721,7 @@ export function reconcileDirectorProjectFiles(userId: string, projectId: string)
         const current = db.prepare("SELECT payload FROM director_screenplay_breakdowns WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string } | undefined;
         if (current && current.payload !== payload) db.prepare("UPDATE director_screenplay_breakdowns SET payload=?,script_revision=(SELECT revision FROM director_documents WHERE user_id=? AND project_id=? AND kind='script'),revision=revision+1,updated_at=? WHERE user_id=? AND project_id=?").run(payload, userId, projectId, now, userId, projectId);
     }
-    reconcileStoryboards(userId, projectId, root, now);
+    reconcileProductions(userId, projectId, root, now);
     const timelinePath = resolve(root, "timeline", "timeline.json");
     const timeline = timelineFromFile(userId, projectId, root, JSON.parse(readFileSync(timelinePath, "utf8")));
     const current = db.prepare("SELECT payload FROM director_timelines WHERE user_id=? AND project_id=?").get(userId, projectId) as { payload: string } | undefined;
@@ -907,36 +846,6 @@ function exportDirection(userId: string, projectId: string, root: string, worksp
     writeMarkdown(resolve(root, "direction", "directing-rules.md"), { id: "directing-rules", kind: "directing-rules", name: "导演规则" }, `# 导演规则\n\n${Object.entries(labels).map(([key, label]) => `## ${label}\n\n${rules[key] || ""}`).join("\n\n")}`);
 }
 
-function backfillDirectionReferenceFiles(userId: string, projectId: string, root: string) {
-    const stylePath = resolve(root, "direction", "visual-style.md");
-    if (!existsSync(stylePath)) return;
-    const document = matter(readFileSync(stylePath, "utf8"));
-    if (document.data.referenceBoard || document.data.sourceReference) return;
-    const project = db.prepare("SELECT payload FROM projects WHERE user_id=? AND id=?").get(userId, projectId) as { payload: string } | undefined;
-    const activeStyleId = String(parseJson<{ defaultVisualStyleId?: string }>(project?.payload, {}).defaultVisualStyleId || "");
-    const style = (activeStyleId
-        ? db.prepare("SELECT reference_files FROM visual_styles WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, activeStyleId)
-        : db.prepare("SELECT reference_files FROM visual_styles WHERE user_id=? AND project_id=? ORDER BY updated_at DESC LIMIT 1").get(userId, projectId)) as { reference_files: string } | undefined;
-    const references = syncDirectionReferenceFiles(userId, root, parseJson(style?.reference_files, {}));
-    if (!references.board && !references.source) return;
-    writeMarkdown(stylePath, {
-        ...document.data,
-        ...(references.board ? { referenceBoard: references.board } : {}),
-        ...(references.source ? { sourceReference: references.source } : {}),
-    }, document.content);
-}
-
-function backfillCreativePositioning(root: string) {
-    const rulesPath = resolve(root, "direction", "directing-rules.md");
-    if (!existsSync(rulesPath)) return;
-    const document = matter(readFileSync(rulesPath, "utf8"));
-    if (/^##\s+(?:创作定位|positioning)\s*$/m.test(document.content)) return;
-    const content = /^#\s+导演规则\s*$/m.test(document.content)
-        ? document.content.replace(/^#\s+导演规则\s*$/m, "# 导演规则\n\n## 创作定位\n")
-        : `# 导演规则\n\n## 创作定位\n\n${document.content.trim()}`;
-    writeMarkdown(rulesPath, document.data, content.trim());
-}
-
 function exportAssets(userId: string, projectId: string, root: string) {
     const rows = db.prepare("SELECT * FROM creative_assets WHERE user_id=? AND project_id=? ORDER BY created_at").all(userId, projectId) as AssetRow[];
     const counters = { character: 0, scene: 0, prop: 0 };
@@ -957,34 +866,6 @@ function exportAssets(userId: string, projectId: string, root: string) {
         copyAssetMedia(userId, payload, folder, row.kind);
         ensureDirectorAssetProductionFiles(userId, projectId, root, folder, row, payload, false);
     }
-}
-
-function exportStoryboards(userId: string, projectId: string, root: string) {
-    const sequences = db.prepare("SELECT * FROM director_sequences WHERE user_id=? AND project_id=? ORDER BY position,created_at").all(userId, projectId) as SequenceRow[];
-    const segments = db.prepare("SELECT * FROM director_shots WHERE user_id=? AND project_id=? ORDER BY sequence_id,position,created_at").all(userId, projectId) as SegmentRow[];
-    sequences.forEach((sequence, sequenceIndex) => {
-        const seqName = `seq-${pad(sequenceIndex + 1)}-${slug(sequence.title) || "sequence"}`;
-        writeMarkdown(resolve(root, "storyboards", seqName, "sequence.md"), { id: sequence.id, kind: "sequence", name: sequence.title, order: sequenceIndex + 1, sourceRevision: sequence.revision }, sequence.summary || "");
-        segments.filter((segment) => segment.sequence_id === sequence.id).forEach((segment, segmentIndex) => {
-            const payload = parseJson<Record<string, unknown>>(segment.payload, {});
-            const folder = resolve(root, "storyboards", seqName, `seg-${pad(segmentIndex + 1)}-${slug(segment.title) || "segment"}`);
-            const refs = { characters: payload.characterRefs || [], locations: payload.sceneRefs || [], props: payload.propRefs || [] };
-            writeMarkdown(resolve(folder, "segment.md"), { id: segment.id, kind: "video-segment", name: segment.title, sequenceId: sequence.id, order: segmentIndex + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references: refs, ...segmentNarrativeMetadata(payload, projectId), sourceRevision: segment.revision }, String(payload.description ?? payload.action ?? ""));
-            const board = payload.storyboardSheet && typeof payload.storyboardSheet === "object" ? payload.storyboardSheet as Record<string, unknown>
-                : payload.storyboard && typeof payload.storyboard === "object" ? payload.storyboard as Record<string, unknown> : {};
-            if (payload.generationIntent !== "transition") writeYaml(resolve(folder, "storyboard.yaml"), { version: 1, segmentId: segment.id, layout: board.layout || "2x2", frames: framesToFile(projectId, board.frames) });
-            writeFileAtomic(resolve(folder, "storyboard-prompt.md"), String(board.prompt || payload.storyboardPrompt || ""));
-            copyNamedFile(userId, String(board.imageFileId || board.fileId || ""), resolve(folder, "storyboard.png"));
-            const videoFolder = resolve(root, "videos", `seg-${segment.id}`);
-            if (!existsSync(resolve(videoFolder, "video-prompt.md"))) writeFileAtomic(resolve(videoFolder, "video-prompt.md"), "");
-            const video = payload.video && typeof payload.video === "object" ? payload.video as Record<string, unknown> : {};
-            const currentVideoFileId = String(payload.videoFileId || "");
-            const qualityPreset = String(payload.videoQualityPreset || payload.qualityPreset || "preview");
-            copyNamedFile(userId, String(video.previewFileId || video.fileId || (qualityPreset === "preview" ? currentVideoFileId : "")), resolve(videoFolder, "preview.mp4"));
-            copyNamedFile(userId, String(video.finalFileId || (qualityPreset === "final" ? currentVideoFileId : "")), resolve(videoFolder, "final.mp4"));
-            copyNamedFile(userId, String(payload.nativeAudioFileId || video.modelAudioFileId || payload.modelAudioFileId || ""), resolve(videoFolder, "model-audio.wav"));
-        });
-    });
 }
 
 function reconcileDirection(userId: string, projectId: string, root: string, now: string) {
@@ -1103,12 +984,13 @@ function reconcileAssets(userId: string, projectId: string, root: string, now: s
     for (const row of db.prepare("SELECT id FROM creative_assets WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>) if (!seen.has(row.id)) db.prepare("DELETE FROM creative_assets WHERE id=? AND user_id=?").run(row.id, userId);
 }
 
-function reconcileStoryboards(userId: string, projectId: string, root: string, now: string) {
+function reconcileProductions(userId: string, projectId: string, root: string, now: string) {
     const seenSequences = new Set<string>();
     const seenSegments = new Set<string>();
-    const sequenceFiles = walkFiles(resolve(root, "storyboards")).filter((path) => basename(path) === "sequence.md");
+    const sequenceFiles = walkFiles(resolve(root, "scenes")).filter((path) => basename(path) === "scene.json");
     for (const sequencePath of sequenceFiles) {
-        const document = matter(readFileSync(sequencePath, "utf8"));
+        const scene = sceneSchema.parse(JSON.parse(readFileSync(sequencePath, "utf8")));
+        const document = { data: { ...scene, kind: "sequence" }, content: scene.summary };
         const entity = entitySchema.parse(document.data);
         const sequenceId = directorMirrorId("director_sequences", userId, projectId, entity.id);
         seenSequences.add(sequenceId);
@@ -1124,23 +1006,19 @@ function reconcileStoryboards(userId: string, projectId: string, root: string, n
             const segmentId = directorMirrorId("director_shots", userId, projectId, segmentEntity.id);
             seenSegments.add(segmentId);
             const segmentFolder = dirname(segmentPath);
-            const storyboard = segmentDocument.data.generationIntent === "transition" || !existsSync(resolve(segmentFolder, "storyboard.yaml")) ? { layout: "single", frames: [] } : storyboardSchema.parse(parseYaml(readFileSync(resolve(segmentFolder, "storyboard.yaml"), "utf8")));
             const existing = db.prepare("SELECT title,position,payload FROM director_shots WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, segmentId) as { title: string; position: number; payload: string } | undefined;
             const currentPayload = parseJson<Record<string, unknown>>(existing?.payload, {});
             const references = documentRecord(segmentDocument.data.references);
-            const currentSheet = documentRecord(currentPayload.storyboardSheet);
-            const prompt = existsSync(resolve(segmentFolder, "storyboard-prompt.md")) ? readFileSync(resolve(segmentFolder, "storyboard-prompt.md"), "utf8") : "";
-            const frames = storyboard.frames.map((frame, position) => ({ ...frame, position, dialogue: "", dialogues: frame.dialogues?.map((cue) => ({ ...cue, speakerAssetId: directorMirrorId("creative_assets", userId, projectId, cue.speakerAssetId) })) || [] }));
-            const sheetChanged = Boolean(existing) && (currentSheet.layout !== storyboard.layout || JSON.stringify(framesToFile(projectId, currentSheet.frames)) !== JSON.stringify(framesToFile(projectId, frames)) || String(currentSheet.promptSnapshot || "") !== prompt);
-            const nextSheet: Record<string, unknown> = { ...currentSheet, revision: (Number(currentSheet.revision) || 1) + Number(sheetChanged), layout: storyboard.layout, frames, ...(sheetChanged && currentSheet.imageFileId ? { review: { status: "stale", summary: "工程提示已修改，请重新生成故事板", issues: [] } } : {}) };
-            const storyboardImage = resolve(segmentFolder, "storyboard.png");
-            nextSheet.imageFileId = existsSync(storyboardImage) ? registerDirectorMediaFile(userId, projectId, root, storyboardImage) : undefined;
-            if (prompt || "promptSnapshot" in currentSheet) nextSheet.promptSnapshot = prompt;
-            const shotDesignHashes = Object.fromEntries((Array.isArray(segmentDocument.data.shotIds) ? segmentDocument.data.shotIds : []).map((id: string) => { const path = findEntityFile(resolve(root, "storyboards"), "shot.md", id); return [id, path ? hashFile(path) : "missing"]; }));
+            const ranges = segmentFileSchema.parse(segmentDocument.data).segmentRanges;
+            const shotDesignHashes = Object.fromEntries(ranges.map(({ segmentId: id }) => {
+                const path = findEntityFile(resolve(root, "scenes"), "segment.md", id);
+                const inputs = path ? [path, resolve(dirname(path), "previs.json"), resolve(dirname(path), "../../scene.json")] : [];
+                return [id, inputs.map((file) => existsSync(file) ? hashFile(file) : "missing").join(":")];
+            }));
             const designChanged = Boolean(existing && currentPayload.shotDesignHashes && JSON.stringify(currentPayload.shotDesignHashes) !== JSON.stringify(shotDesignHashes));
             const payload: Record<string, unknown> = {
                 ...currentPayload,
-                shotDesignHashes,
+                shotDesignHashes, segmentIds: [...new Set(ranges.map((range) => range.segmentId))],
                 ...(designChanged ? { needsReview: true, videoStale: Boolean(currentPayload.videoFileId) } : {}),
                 ...Object.fromEntries(segmentNarrativeKeys.map((key) => [key, undefined])),
                 ...segmentNarrativeMetadata(segmentDocument.data),
@@ -1155,24 +1033,9 @@ function reconcileStoryboards(userId: string, projectId: string, root: string, n
                     const path = safeWorkspacePath(root, String(reference.path || ""));
                     return existsSync(path) ? [{ purpose: reference.purpose, description: reference.description, fileId: registerDirectorMediaFile(userId, projectId, root, path), ...(reference.speakerAssetId ? { speakerAssetId: directorMirrorId("creative_assets", userId, projectId, String(reference.speakerAssetId)) } : {}) }] : [];
                 })),
-                storyboardSheet: nextSheet,
+
             };
-            if (existing && (sheetChanged || JSON.stringify(segmentNarrativeMetadata(currentPayload)) !== JSON.stringify(segmentNarrativeMetadata(payload)))) payload.videoStale = Boolean(currentPayload.videoFileId);
-            if (sheetChanged) { payload.storyboardStale = Boolean(currentSheet.imageFileId); payload.h3PromptStale = true; payload.needsReview = true; }
-            if (existsSync(storyboardImage)) {
-                const imageHash = hashFile(storyboardImage);
-                if (currentPayload.storyboardImageHash && currentPayload.storyboardImageHash !== imageHash) payload.storyboardStale = false;
-                payload.storyboardImageHash = imageHash;
-                const reviewPath = safeWorkspacePath(root, posixRelative(root, resolve(segmentFolder, "quality-review.md")));
-                const review = existsSync(reviewPath) ? matter(readFileSync(reviewPath, "utf8")) : undefined;
-                const acceptedInputs = documentRecord(review?.data.acceptedInputs);
-                if (Object.keys(acceptedInputs).length || documentRecord(currentSheet.review).acceptedInputs) {
-                    const hashes = { image: imageHash, storyboard: hashFile(resolve(segmentFolder, "storyboard.yaml")), prompt: hashFile(resolve(segmentFolder, "storyboard-prompt.md")), segment: hashFile(segmentPath) };
-                    const accepted = review?.data.status === "accepted" && Boolean(review.content.trim()) && Object.entries(hashes).every(([key, hash]) => acceptedInputs[key] === hash);
-                    payload.storyboardStale = !accepted;
-                    nextSheet.review = { status: accepted ? "accepted" : "stale", summary: accepted ? review!.content.trim() : "采用记录与当前故事板文件不一致，请重新审阅", issues: [], acceptedInputs };
-                }
-            }
+            if (existing && (JSON.stringify(segmentNarrativeMetadata(currentPayload)) !== JSON.stringify(segmentNarrativeMetadata(payload)))) payload.videoStale = Boolean(currentPayload.videoFileId);
             const videoFolder = segmentFolder;
             const videoPromptPath = safeWorkspacePath(root, posixRelative(root, resolve(videoFolder, "video-prompt.md")));
             const videoPrompt = existsSync(videoPromptPath) ? readFileSync(videoPromptPath, "utf8") : "";
@@ -1182,10 +1045,19 @@ function reconcileStoryboards(userId: string, projectId: string, root: string, n
             const previewVideo = resolve(videoFolder, "preview.mp4");
             const modelAudio = resolve(videoFolder, "model-audio.wav");
             const resultPath = resolve(videoFolder, "result.json");
-            const result = existsSync(resultPath) ? JSON.parse(readFileSync(resultPath, "utf8")) as { video: string; qualityPreset: string; durationSeconds: number; audio: string | null } : undefined;
+            const result = existsSync(resultPath) ? JSON.parse(readFileSync(resultPath, "utf8")) as { video: string; qualityPreset: string; durationSeconds: number; audio: string | null; inputSnapshot?: Record<string, unknown> } : undefined;
             const selectedVideo = result ? safeWorkspacePath(root, posixRelative(root, resolve(videoFolder, result.video))) : undefined;
             const videoPath = selectedVideo && existsSync(selectedVideo) ? selectedVideo : !result && existsSync(finalVideo) ? finalVideo : !result && existsSync(previewVideo) ? previewVideo : undefined;
             if (result) { payload.videoQualityPreset = result.qualityPreset; payload.videoDurationSeconds = result.durationSeconds; }
+            if (result?.inputSnapshot) {
+                const snapshot = result.inputSnapshot;
+                payload.videoInputSnapshot = { ...snapshot, references: (Array.isArray(snapshot.references) ? snapshot.references : []).map((reference: Record<string, unknown>) => {
+                    const { path: referencePath, hash, ...rest } = reference, path = safeWorkspacePath(root, String(referencePath));
+                    if (!existsSync(path) || hashFile(path) !== hash) throw new Error(`实际生成输入快照损坏：${referencePath}`);
+                    return { ...rest, fileId: registerDirectorMediaFile(userId, projectId, root, path) };
+                }) };
+                if (typeof snapshot.prompt === "string" && snapshot.prompt !== videoPrompt || snapshot.designHashes && JSON.stringify(snapshot.designHashes) !== JSON.stringify(shotDesignHashes)) payload.videoStale = true;
+            }
             payload.videoFileId = videoPath ? registerDirectorMediaFile(userId, projectId, root, videoPath) : undefined;
             payload.videoContentVersion = videoPath ? hashFile(videoPath) : undefined;
             payload.nativeAudioFileId = (!result || result.audio) && existsSync(modelAudio) ? registerDirectorMediaFile(userId, projectId, root, modelAudio) : undefined;
@@ -1202,15 +1074,8 @@ function reconcileStoryboards(userId: string, projectId: string, root: string, n
     for (const row of db.prepare("SELECT id FROM director_sequences WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string }>) if (!seenSequences.has(row.id)) db.prepare("DELETE FROM director_sequences WHERE id=? AND user_id=?").run(row.id, userId);
 }
 
-function framesToFile(projectId: string, value: unknown) {
-    return (Array.isArray(value) ? value : []).map((value) => {
-        const frame = documentRecord(value);
-        return { id: frame.id, shotNumber: frame.shotNumber, timeSeconds: frame.timeSeconds, kind: frame.kind, description: frame.description || "", action: frame.action || "", cameraAngle: frame.cameraAngle || "", cameraMove: frame.cameraMove || "", h3Visual: frame.h3Visual || "", sound: frame.sound || "", dialogues: (Array.isArray(frame.dialogues) ? frame.dialogues : []).map((value) => { const cue = documentRecord(value); return { ...cue, speakerAssetId: directorExternalId(projectId, String(cue.speakerAssetId)) }; }) };
-    });
-}
-
 const segmentLinkKeys = ["continuationFromSegmentId", "transitionFromSegmentId", "transitionToSegmentId"];
-const segmentNarrativeKeys = ["shotIds", "referenceImages", "useOpeningGuide", "sourceSceneId", "sourceBeatIds", "sourceDurationSeconds", "dramaticBeat", "openingState", "endingState", "boundary", "generationIntent", ...segmentLinkKeys, "h3VisualDescription", "h3Soundscape", "h3NonDiegeticMusic"];
+const segmentNarrativeKeys = ["segmentRanges", "referenceImages", "videoReferences", "sourceSceneId", "sourceBeatIds", "sourceDurationSeconds", "dramaticBeat", "openingState", "endingState", "boundary", "generationIntent", ...segmentLinkKeys, "h3VisualDescription", "h3Soundscape", "h3NonDiegeticMusic"];
 function segmentNarrativeMetadata(value: Record<string, unknown>, projectId?: string) {
     return Object.fromEntries(segmentNarrativeKeys.filter((key) => value[key] !== undefined).map((key) => [key, projectId && segmentLinkKeys.includes(key) ? directorExternalId(projectId, String(value[key])) : value[key]]));
 }
@@ -1292,8 +1157,8 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
     const files = (existsSync(scope) && statSync(scope).isFile() ? [scope] : walkFiles(scope))
         .filter((path) => !ignoredExportRoots.has(posixRelative(root, path).split("/")[0]!));
     const ids = new Map<string, string>();
-    const knownEntities = new Map(walkFiles(root).filter((path) => path.endsWith(".md") && !lstatSync(path).isSymbolicLink() && !ignoredExportRoots.has(posixRelative(root, path).split("/")[0])).flatMap((path) => {
-        try { const data = matter(readFileSync(path, "utf8")).data; return typeof data.id === "string" ? [[data.id, { kind: String(data.kind), path }] as const] : []; } catch { return []; }
+    const knownEntities = new Map(walkFiles(root).filter((path) => (path.endsWith(".md") || basename(path) === "scene.json") && !lstatSync(path).isSymbolicLink() && !ignoredExportRoots.has(posixRelative(root, path).split("/")[0])).flatMap((path) => {
+        try { const data = basename(path) === "scene.json" ? { ...JSON.parse(readFileSync(path, "utf8")), kind: "sequence" } : matter(readFileSync(path, "utf8")).data; return typeof data.id === "string" ? [[data.id, { kind: String(data.kind), path }] as const] : []; } catch { return []; }
     }));
     const documents: Array<{ path: string; data: Record<string, unknown> }> = [];
     for (const path of files) {
@@ -1301,28 +1166,21 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
         if (rel.includes("..") || lstatSync(path).isSymbolicLink()) { diagnostics.push(diag("error", "ILLEGAL_PATH", rel, "工程包含非法路径或符号链接")); continue; }
         if (path.endsWith(".md")) validateParsed(path, () => {
             const parsed = matter(readFileSync(path, "utf8"));
-            if (["AGENTS.md", "prompt.md", "storyboard-prompt.md", "video-prompt.md"].includes(basename(path)) || basename(path).startsWith("original.")) return;
+            if (["AGENTS.md", "prompt.md", "video-prompt.md"].includes(basename(path)) || basename(path).startsWith("original.")) return;
             const entity = entitySchema.parse(parsed.data);
             if (entity.kind === "production-task") segmentFileSchema.parse(parsed.data);
-            if (entity.kind === "shot-design") shotDesignFileSchema.parse(parsed.data);
+            if (entity.kind === "segment-design") segmentDesignFileSchema.parse(parsed.data);
             documents.push({ path: rel, data: parsed.data as Record<string, unknown> });
             if (ids.has(entity.id)) diagnostics.push({ ...diag("error", "DUPLICATE_ID", rel, `实体 ID 与 ${ids.get(entity.id)} 重复`), entityId: entity.id });
             else ids.set(entity.id, rel);
         }, diagnostics, root, "FRONTMATTER_INVALID");
-        if (basename(path) === "storyboard.yaml") validateParsed(path, () => {
-            if (existsSync(resolve(dirname(path), "task.md")) && matter(readFileSync(resolve(dirname(path), "task.md"), "utf8")).data.generationIntent === "transition") return;
-            const board = storyboardSchema.parse(parseYaml(readFileSync(path, "utf8")));
-            const segmentPath = resolve(dirname(path), "task.md");
-            if (existsSync(segmentPath)) {
-                const segment = matter(readFileSync(segmentPath, "utf8")).data;
-                for (const [index, frame] of board.frames.entries()) for (const cue of frame.dialogues || []) {
-                    if (cue.endSeconds > Number(segment.durationSeconds)) diagnostics.push(diag("error", "DIALOGUE_WINDOW", rel, `frames.${index}.dialogues：对白超出视频段时长`));
-                    const speakers = documentRecord(segment.references).characters;
-                    if (!Array.isArray(speakers) || !speakers.some((ref) => (typeof ref === "string" ? ref : documentRecord(ref).id) === cue.speakerAssetId)) diagnostics.push(diag("error", "DIALOGUE_SPEAKER", rel, `frames.${index}.dialogues：说话人必须在本段角色引用中`));
-                }
-            }
-            if (existsSync(segmentPath) && String(matter(readFileSync(segmentPath, "utf8")).data.id || "") !== board.segmentId) diagnostics.push(diag("error", "STORYBOARD_SEGMENT_MISMATCH", rel, "故事板 segmentId 与所在视频段不一致"));
-        }, diagnostics, root, "STORYBOARD_INVALID");
+        if (basename(path) === "scene.json") validateParsed(path, () => { const scene = sceneSchema.parse(JSON.parse(readFileSync(path, "utf8"))); documents.push({ path: rel, data: { ...scene, kind: "sequence" } }); if (ids.has(scene.id)) throw new Error("场景 ID 重复"); ids.set(scene.id, rel); }, diagnostics, root, "PREVIS_SCENE_INVALID");
+        if (basename(path) === "previs.json") validateParsed(path, () => {
+            const scenePath = resolve(dirname(path), "../../scene.json");
+            const parsed = parsePrevis(JSON.parse(readFileSync(safeWorkspacePath(root, posixRelative(root, scenePath)), "utf8")), JSON.parse(readFileSync(path, "utf8")));
+            const segment = matter(readFileSync(resolve(dirname(path), "segment.md"), "utf8"));
+            if (parsed.plan.segmentId !== segment.data.id) throw new Error("预演所属分镜段不匹配");
+        }, diagnostics, root, "PREVIS_INVALID");
         if (basename(path) === "timeline.json") validateParsed(path, () => {
             const timeline = timelineSchema.parse(JSON.parse(readFileSync(path, "utf8")));
             const segmentIds = new Set(walkFiles(resolve(root, "productions")).filter((file) => basename(file) === "task.md").map((file) => matter(readFileSync(file, "utf8")).data.id));
@@ -1360,11 +1218,11 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
             if (Number.isFinite(order) && sequenceOrders.has(order)) diagnostics.push(diag("error", "DUPLICATE_SEQUENCE_ORDER", document.path, `剧情段落顺序与 ${sequenceOrders.get(order)} 重复`));
             else if (Number.isFinite(order)) sequenceOrders.set(order, document.path);
         }
-        if (kind === "shot-design") {
+        if (kind === "segment-design") {
             if (knownEntities.get(String(document.data.sequenceId))?.kind !== "sequence") diagnostics.push(diag("error", "SHOT_SEQUENCE_MISSING", document.path, "镜头所属场景不存在"));
             for (const image of (document.data.referenceImages || []) as string[]) if (!existsSync(safeWorkspacePath(root, image))) diagnostics.push(diag("warning", "SHOT_REFERENCE_MISSING", document.path, `镜头参考图不存在：${image}`));
         }
-        if (kind === "shot-design") {
+        if (kind === "segment-design") {
             if (document.data.sourceSceneId) {
                 const scene = breakdown?.scenes.find((scene) => scene.id === document.data.sourceSceneId);
                 if (!scene) diagnostics.push(diag("error", "SHOT_SOURCE_SCENE", document.path, "sourceSceneId 未对应制作拆解中的场次"));
@@ -1372,7 +1230,7 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
             } else diagnostics.push(diag("warning", "SHOT_SOURCE_PENDING", document.path, "镜头尚未关联来源场次与节拍，请在内容覆盖检查时补齐"));
         }
         if (kind !== "production-task") continue;
-        for (const shotId of (document.data.shotIds || []) as string[]) if (knownEntities.get(shotId)?.kind !== "shot-design") diagnostics.push(diag("error", "TASK_SHOT_MISSING", document.path, `任务引用的镜头不存在：${shotId}`));
+        for (const shotId of ((document.data.segmentRanges || []) as Array<{ segmentId: string }>).map((range) => range.segmentId)) if (knownEntities.get(shotId)?.kind !== "segment-design") diagnostics.push(diag("error", "TASK_SHOT_MISSING", document.path, `任务引用的镜头不存在：${shotId}`));
         const duration = Number(document.data.durationSeconds);
         if (!Number.isFinite(duration) || duration <= 0) diagnostics.push(diag("error", "TASK_DURATION", document.path, "制作任务时长必须为正数"));
         const sequenceId = String(document.data.sequenceId || "");
@@ -1413,7 +1271,7 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
         if (!selectedTasks.size) return;
         const selectedShots = new Set([...selectedTasks].flatMap((id) => {
             const task = knownEntities.get(id);
-            return task ? matter(readFileSync(task.path, "utf8")).data.shotIds || [] : [];
+            return task ? (matter(readFileSync(task.path, "utf8")).data.segmentRanges || []).map((range: { segmentId: string }) => range.segmentId) : [];
         }));
         const covered = new Set([...selectedShots].flatMap((id) => {
             const shot = knownEntities.get(String(id));
@@ -1491,7 +1349,7 @@ function indexDirectorProject(userId: string, projectId: string, diagnostics: Di
             const revision = prior ? prior.revision + Number(prior.sha256 !== sha) : 1;
             const info = fileInfo(path);
             const fileDiagnostics = diagnostics.filter((item) => item.path === rel);
-            upsert.run(userId, projectId, rel, info.entityId, info.kind, sha, revision, statSync(path).size, info.mediaType, info.kind === "shot-design" ? JSON.stringify({ ...matter(readFileSync(path, "utf8")).data, content: matter(readFileSync(path, "utf8")).content }) : "{}", JSON.stringify(fileDiagnostics), now);
+            upsert.run(userId, projectId, rel, info.entityId, info.kind, sha, revision, statSync(path).size, info.mediaType, info.kind === "segment-design" ? JSON.stringify({ ...matter(readFileSync(path, "utf8")).data, content: matter(readFileSync(path, "utf8")).content }) : "{}", JSON.stringify(fileDiagnostics), now);
             seen.add(rel);
         }
         for (const path of previous.keys()) if (!seen.has(path)) {
@@ -1499,8 +1357,8 @@ function indexDirectorProject(userId: string, projectId: string, diagnostics: Di
             db.prepare("DELETE FROM director_file_index WHERE user_id=? AND project_id=? AND path=?").run(userId, projectId, path);
         }
         const rootHash = createHash("sha256").update(Array.from(seen).sort().map((path) => `${path}:${hashFile(resolve(root, path))}`).join("\n")).digest("hex");
-        db.prepare(`INSERT INTO director_project_storage(user_id,project_id,format_version,root_hash,migrated_at,indexed_at) VALUES(?,?,2,?,?,?)
-            ON CONFLICT(user_id,project_id) DO UPDATE SET format_version=2,root_hash=excluded.root_hash,indexed_at=excluded.indexed_at`).run(userId, projectId, rootHash, now, now);
+        db.prepare(`INSERT INTO director_project_storage(user_id,project_id,format_version,root_hash,migrated_at,indexed_at) VALUES(?,?,3,?,?,?)
+            ON CONFLICT(user_id,project_id) DO UPDATE SET format_version=3,root_hash=excluded.root_hash,indexed_at=excluded.indexed_at`).run(userId, projectId, rootHash, now, now);
     })();
     db.prepare(`INSERT INTO director_sync_versions(user_id,project_id,version,needs_reconcile,diagnostics) VALUES(?,?,0,?,?)
         ON CONFLICT(user_id,project_id) DO UPDATE SET needs_reconcile=excluded.needs_reconcile,diagnostics=excluded.diagnostics`).run(userId, projectId, Number(!applied && (previouslyPending || changedPaths.length > 0)), JSON.stringify(diagnostics));
@@ -1514,7 +1372,7 @@ function registerDirectorProjectMedia(userId: string, projectId: string, root: s
     for (const path of walkFiles(root)) if (mediaMimeType(path)) registerDirectorMediaFile(userId, projectId, root, path);
 }
 
-function registerDirectorMediaFile(userId: string, projectId: string, root: string, path: string) {
+export function registerDirectorMediaFile(userId: string, projectId: string, root: string, path: string) {
     return registerDirectorStoredFile(userId, projectId, root, path, mediaMimeType(path) || "application/octet-stream");
 }
 
@@ -1599,7 +1457,7 @@ function mimeTypeForPath(path: string) {
     return mediaMimeType(path) || ({ ".pdf": "application/pdf", ".epub": "application/epub+zip", ".md": "text/markdown", ".txt": "text/plain" } as Record<string, string>)[extname(path).toLowerCase()] || "application/octet-stream";
 }
 
-function directorExternalId(projectId: string, mirrorId: string) {
+export function directorExternalId(projectId: string, mirrorId: string) {
     const prefix = `${projectId}:`;
     return mirrorId.startsWith(prefix) ? mirrorId.slice(prefix.length) : mirrorId;
 }
@@ -1623,7 +1481,7 @@ function externalizeReferences(projectId: string, value: unknown) {
 }
 
 function createSkeleton(root: string) {
-    ["sources", "story/chapters", "screenplay/scenes", "screenplay/breakdown", "direction/references", "assets/characters", "assets/locations", "assets/props", "storyboards", "productions", "timeline", "renders", ".trash"].forEach((path) => mkdirSync(resolve(root, path), { recursive: true }));
+    ["sources", "story/chapters", "screenplay/scenes", "screenplay/breakdown", "direction/references", "assets/characters", "assets/locations", "assets/props", "scenes", "productions", "timeline", "renders", ".trash"].forEach((path) => mkdirSync(resolve(root, path), { recursive: true }));
 }
 
 function copyAssetMedia(userId: string, payload: Record<string, unknown>, folder: string, kind: AssetRow["kind"]) {
@@ -1806,7 +1664,7 @@ function copyCurrentMedia(userId: string, fileId: string, target: string) {
 function findEntityFile(root: string, filename: string, entityId: string) {
     return walkFiles(root).find((path) => {
         if (basename(path) !== filename) return false;
-        try { return matter(readFileSync(path, "utf8")).data.id === entityId; }
+        try { return (filename.endsWith(".json") ? JSON.parse(readFileSync(path, "utf8")) : matter(readFileSync(path, "utf8")).data).id === entityId; }
         catch { return false; }
     });
 }
@@ -1897,7 +1755,7 @@ function writeFileAtomic(path: string, content: string | Buffer) {
     renameSync(temporary, path);
 }
 
-function safeWorkspacePath(root: string, path: string) {
+export function safeWorkspacePath(root: string, path: string) {
     if (path.includes("\\") || path.startsWith("/")) throw workspaceError(400, "DIRECTOR_PATH_INVALID", "只能使用项目内相对路径");
     const target = resolve(root, path);
     if (target !== root && !target.startsWith(`${root}${sep}`)) throw workspaceError(400, "DIRECTOR_PATH_ESCAPE", "路径超出当前导演项目");
@@ -1925,6 +1783,9 @@ function validateParsed(path: string, parse: () => void, diagnostics: DirectorDi
 function fileInfo(path: string) {
     const extension = extname(path).toLowerCase();
     const mediaType = mediaMimeType(path)?.split("/")[0] || null;
+    if (basename(path) === "scene.json") {
+        try { const scene = sceneSchema.parse(JSON.parse(readFileSync(path, "utf8"))); return { entityId: scene.id, kind: "sequence", mediaType }; } catch { /* validator reports it */ }
+    }
     if (extension === ".md") {
         try {
             const data = matter(readFileSync(path, "utf8")).data as Record<string, unknown>;
@@ -1944,7 +1805,7 @@ function diag(severity: DirectorDiagnostic["severity"], code: string, path: stri
 function workspaceError(status: number, code: string, message: string, details?: unknown) { return Object.assign(new Error(message), { status, code, details }); }
 
 function projectAgents(title: string) {
-    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；时间线使用 JSON，故事板画格使用 YAML。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；导演规则首章“创作定位”概括题材、类型、基调、时代地域、目标观众与核心命题，不得另建重复文件；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；\`character.md\`、\`location.md\` 或 \`prop.md\` 是权威主档案。\n- 角色基础设计位于 \`identity/\`，场景与道具基础设计位于 \`design/\`；\`prompt.md\` 正文必须是可以原样发送给当前模型的完整最终提示词，程序不会再追加风格、版式、人物或参考用途说明。\n- 提示词采用的项目内参考图在 \`prompt.md\` Frontmatter 的 \`references\` 中逐项声明 \`path\`、\`purpose\` 和可选 \`label\`；用户上传的专属参考仍放在同目录 \`inputs/\`。程序只校验并原样提交这些显式输入，不自动选择风格板。\n- 当前主结果以 \`primary.*\` 命名；切换模型、视觉风格或素材身份后应先按对应 Skill 显式修订 \`prompt.md\`，不得依赖运行时隐藏拼接。\n- 角色声音位于 \`voice/\`，场景与道具声音位于 \`sound/\`；\`sound.md\` 正文是唯一声音提示词，试听文本和建议时长只写 Frontmatter，参考声音最多一个并命名为 \`reference.*\`，当前结果命名为 \`primary.*\`。\n- 每个生产变体位于 \`variants/var-NNN-slug/\`，必须包含带稳定 ID 的 \`variant.md\`、独立 \`prompt.md\`、可选 \`inputs/\` 和当前 \`primary.*\`；不得把多个变体压回主档或扁平媒体数组。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- v2 镜头设计写入 storyboards/<场景>/shot-<ID>/shot.md，预计时长不受生成窗口限制；制作任务写入 productions/<任务ID>/task.md，以 shotIds 声明覆盖镜头，允许多对多关系。\n- 图片是显式可选参考，支持单图或多宫格，不要求先生图；任务最终提示位于同目录 video-prompt.md，原样提交，referenceImages 显式列出采用图片。\n- timeline/timeline.json 使用 videoClips，每个片段有独立 id、taskId、trimIn、trimOut、linkedAudio；允许重复来源，声音可独立跨画面编排。生成完成不自动入轨，计划镜头时点不能当作实际剪接点。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
+    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；场景、预演与时间线使用 JSON。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；导演规则首章“创作定位”概括题材、类型、基调、时代地域、目标观众与核心命题，不得另建重复文件；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；\`character.md\`、\`location.md\` 或 \`prop.md\` 是权威主档案。\n- 角色基础设计位于 \`identity/\`，场景与道具基础设计位于 \`design/\`；\`prompt.md\` 正文必须是可以原样发送给当前模型的完整最终提示词，程序不会再追加风格、版式、人物或参考用途说明。\n- 提示词采用的项目内参考图在 \`prompt.md\` Frontmatter 的 \`references\` 中逐项声明 \`path\`、\`purpose\` 和可选 \`label\`；用户上传的专属参考仍放在同目录 \`inputs/\`。程序只校验并原样提交这些显式输入，不自动选择风格板。\n- 当前主结果以 \`primary.*\` 命名；切换模型、视觉风格或素材身份后应先按对应 Skill 显式修订 \`prompt.md\`，不得依赖运行时隐藏拼接。\n- 角色声音位于 \`voice/\`，场景与道具声音位于 \`sound/\`；\`sound.md\` 正文是唯一声音提示词，试听文本和建议时长只写 Frontmatter，参考声音最多一个并命名为 \`reference.*\`，当前结果命名为 \`primary.*\`。\n- 每个生产变体位于 \`variants/var-NNN-slug/\`，必须包含带稳定 ID 的 \`variant.md\`、独立 \`prompt.md\`、可选 \`inputs/\` 和当前 \`primary.*\`；不得把多个变体压回主档或扁平媒体数组。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- v3 场景空间写 scenes/<场景>/scene.json，分镜段设计写其 segments/<段>/segment.md；每段包含多个连续镜头与完整时间预算，动作与摄影只写同目录 previs.json。稳定对象 ID 与 assetId 绑定身份，各段必须显式 initial，不依赖隐式继承。\n- 默认先完成粗模预演，图片缺失不阻塞；用户明确跳过时在 segment.md 设置 previsMode: skip。声明式数据由共享求值器播放，不写任意执行脚本。\n- 制作任务写 productions/<任务ID>/task.md，以 segmentRanges 声明覆盖段的 start/end 时间范围；videoReferences 显式引用当前来源 hash、同范围的导出视频和用途，预演默认静音。\n- 可选定妆帧在分镜段 look-frames/<ID>/，用 frame.json 记录时间、sourceHash、captureHash、captureId 与 useForVideo，prompt.md 原样提交、references 显式声明输入；提取图在 inputs/previs.png，用 inputs/capture.json 核对请求、版本、时刻与内容哈希；当前结果 primary.*。重绘失败保留旧图和来源版本。Codex 原生生图采用后将 sourceHash 更新为本次 captureHash，并调用 director_validate 登记。\n- 任务最终提示位于同目录 video-prompt.md，referenceImages 显式列出角色图与采用定妆帧；提交保存不可变输入快照，上游变化仅标记待检查，失败保留旧结果。\n- timeline/timeline.json 使用 videoClips，每个片段有独立 id、taskId、trimIn、trimOut、linkedAudio；允许重复来源，声音可独立跨画面编排。生成完成不自动入轨，计划镜头时点不能当作实际剪接点。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
 }
 
 export function readDirectorMusicPrompt(userId: string, projectId: string, promptPath: string, expectedHash: string) {

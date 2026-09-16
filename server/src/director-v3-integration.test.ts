@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, unlinkSync
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
-const temp = mkdtempSync(join(tmpdir(), "director-v2-integration-"));
+const temp = mkdtempSync(join(tmpdir(), "director-v3-integration-"));
 process.env.DATA_DIR = temp;
 process.env.AUTH_MODE = "dev";
 process.env.APP_SECRET = "isolated-test";
@@ -22,21 +22,21 @@ async function request(path: string, body?: unknown, method = body === undefined
     assert.ok(response.ok, `${method} ${path}: ${JSON.stringify(result.error)}`);
     return result.data;
 }
-test("v2 镜头多对多任务、保存恢复、无图预检、独立选片与固定快照真实合成", async () => {
-    const projectId = "v2-integration";
+test("v3 分镜段多对多任务、保存恢复、无图预检、独立选片与固定快照真实合成", async () => {
+    const projectId = "v3-integration";
     await request("/projects", { id: projectId, kind: "director", title: "隔离剪辑验收" });
     let state = await request(`/director/projects/${projectId}`);
     assert.deepEqual(state.timeline.payload.videoClips, []);
     await request(`/director/projects/${projectId}/documents/script`, { revision: state.documents.find((item: any) => item.kind === "script").revision, content: "# 场景\n\n甲转身。乙停步注视。" }, "PUT");
     await request(`/director/projects/${projectId}/screenplay-breakdown`, { revision: 1, scriptRevision: 2, scenes: [{ id: "scene", heading: "内景 门前", title: "门前", location: "门前", timeOfDay: "日", interiorExterior: "interior", characterNames: [], propNames: [], openingState: "甲面向门外", endingState: "乙停步", dramaticTurn: "发现对方", requiredDialogue: [], beats: [{ id: "turn", summary: "甲转身", estimatedSeconds: 30 }, { id: "stop", summary: "乙停步", estimatedSeconds: 15 }], estimatedSeconds: 45 }], reviewIssues: [] }, "PUT");
     const sequence = await request(`/director/projects/${projectId}/sequences`, { id: "sequence", title: "门前" });
-    for (const [id, name] of [["main", "主镜头"], ["reaction", "反应镜头"]]) await request(`/director/projects/${projectId}/shots`, { design: { id, kind: "shot-design", name, sequenceId: sequence.id, order: id === "main" ? 1 : 2, sourceSceneId: "scene", sourceBeatIds: [id === "main" ? "turn" : "stop"], estimatedSeconds: id === "main" ? 45 : 6 }, hash: "", content: "可独立完成的文字设计" }, "PUT");
-    const designs = await request(`/director/projects/${projectId}/shots`);
+    for (const [id, name] of [["main", "主镜头"], ["reaction", "反应镜头"]]) await request(`/director/projects/${projectId}/segments`, { design: { id, kind: "segment-design", name, sequenceId: sequence.id, order: id === "main" ? 1 : 2, sourceSceneId: "scene", sourceBeatIds: [id === "main" ? "turn" : "stop"], estimatedSeconds: id === "main" ? 45 : 6, previsMode: "skip" }, hash: "", content: "可独立完成的文字设计" }, "PUT");
+    const designs = await request(`/director/projects/${projectId}/segments`);
     assert.equal(designs.total, 2); assert.equal(designs.items[0].estimatedSeconds, 45);
     const { createSession, sendMessage, getSessionEvents, subscribeConversation } = await import("./agent/service.js");
     const session = createSession("dev-admin", projectId, "引用名称测试");
     db.prepare("UPDATE agent_sessions SET status='running' WHERE id=?").run(session.id);
-    const mention = { type: "director" as const, mentionId: "mention-main", projectId, entityKind: "shot-design" as const, entityId: "main" };
+    const mention = { type: "director" as const, mentionId: "mention-main", projectId, entityKind: "segment-design" as const, entityId: "main" };
     const queued = await sendMessage("dev-admin", projectId, { preferredSessionId: session.id, clientMessageId: "name-test", submissionMode: "queue", content: { version: 1, segments: [mention, { type: "text", text: " 请修订" }] } });
     assert.equal(queued.queuedMessages[0].displayText, "@主镜头 请修订");
     const stored = { text: "@main 请修订", content: { version: 1, segments: [{ ...mention, label: "main" }, { type: "text", text: " 请修订" }] } };
@@ -51,14 +51,14 @@ test("v2 镜头多对多任务、保存恢复、无图预检、独立选片与�
     unsubscribe();
     assert.equal(replay.find((event) => event.type === "delta").events[0].payload.text, "@主镜头 请修订");
     assert.equal(JSON.parse((db.prepare("SELECT payload FROM agent_events WHERE session_id=? AND seq=1").get(session.id) as { payload: string }).payload).text, "@main 请修订", "展示恢复不改写历史数据库");
-    let task = await request(`/director/projects/${projectId}/production-tasks`, { id: "task", sequenceId: sequence.id, title: "主画面与反应", payload: { durationSeconds: 8, shotIds: ["main", "reaction"], referenceImages: [] } });
-    const long = await request(`/director/projects/${projectId}/production-tasks`, { id: "long", sequenceId: sequence.id, title: "长镜头后半", payload: { durationSeconds: 30, shotIds: ["main"] } });
+    let task = await request(`/director/projects/${projectId}/production-tasks`, { id: "task", sequenceId: sequence.id, title: "主画面与反应", payload: { durationSeconds: 8, segmentRanges: [{ segmentId: "main", start: 0, end: 4 }, { segmentId: "reaction", start: 0, end: 4 }], referenceImages: [] } });
+    const long = await request(`/director/projects/${projectId}/production-tasks`, { id: "long", sequenceId: sequence.id, title: "长镜头后半", payload: { durationSeconds: 30, segmentRanges: [{ segmentId: "main", start: 4, end: 34 }] } });
     const checked = await request(`/director/production-tasks/${long.id}/preflight`);
     assert.equal(long.payload.durationSeconds, 30, "镜头与任务保留创作时长，执行限制交给媒体能力预检");
     assert.ok(checked.blockedReasons.length > 0, "缺少最终提示或执行器时不得声称可提交");
     assert.ok(!checked.blockedReasons.some((reason: string) => reason.includes("缺少故事板")));
     state = await request(`/director/projects/${projectId}`);
-    assert.deepEqual(state.videoSegments.find((item: any) => item.id === "task").payload.shotIds, ["main", "reaction"]);
+    assert.deepEqual(state.videoSegments.find((item: any) => item.id === "task").payload.segmentIds, ["main", "reaction"]);
     const source = join(temp, "source.mp4");
     execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=160x90:r=24:d=3", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", source]);
     const media = storeLocalFile("dev-admin", source, "source.mp4", "video/mp4");
@@ -74,11 +74,11 @@ test("v2 镜头多对多任务、保存恢复、无图预检、独立选片与�
     const validation = await request(`/director/projects/${projectId}/validation`);
     assert.ok(!validation.diagnostics.some((item: any) => item.code === "EDIT_CONTENT_UNCOVERED"), "重复裁切与重叠任务按镜头来源覆盖检查，不要求任务时长守恒");
     const selected = state.videoSegments.find((item: any) => item.id === "task");
-    await request(`/director/production-tasks/${selected.id}`, { revision: selected.revision, payload: { shotIds: ["main"] } }, "PUT");
+    await request(`/director/production-tasks/${selected.id}`, { revision: selected.revision, payload: { segmentRanges: [{ segmentId: "main", start: 0, end: 8 }] } }, "PUT");
     const uncovered = await request(`/director/projects/${projectId}/validation`);
     assert.ok(uncovered.diagnostics.some((item: any) => item.code === "EDIT_CONTENT_UNCOVERED" && item.message.includes("stop")));
     const freshTask = (await request(`/director/projects/${projectId}`)).videoSegments.find((item: any) => item.id === "task");
-    await request(`/director/production-tasks/${freshTask.id}`, { revision: freshTask.revision, payload: { shotIds: ["main", "reaction"] } }, "PUT");
+    await request(`/director/production-tasks/${freshTask.id}`, { revision: freshTask.revision, payload: { segmentRanges: [{ segmentId: "main", start: 0, end: 4 }, { segmentId: "reaction", start: 0, end: 4 }] } }, "PUT");
     const plan = await request(`/director/projects/${projectId}/playback-plan`);
     assert.deepEqual(plan.segments.map((clip: any) => clip.clipId), ["first", "reaction-cut"]);
     assert.equal(plan.duration, 2); assert.equal(plan.audio.length, 1); assert.equal(plan.audio[0].start, .25);
@@ -112,38 +112,53 @@ test("v2 镜头多对多任务、保存恢复、无图预检、独立选片与�
 });
 
 
-test("镜头故事板直接读取文件与显式参考，分页、替换、删除和归属隔离", async () => {
-    const projectId = "board-files";
-    await request("/projects", { id: projectId, kind: "director", title: "故事板文件回归" });
-    await request(`/director/projects/${projectId}/documents/script`, { revision: 1, content: "# 场景\n人物抬头。" }, "PUT");
-    const sequence = await request(`/director/projects/${projectId}/sequences`, { id: "board-sequence", title: "场景" });
-    await request(`/director/projects/${projectId}/shots`, { design: { id: "board-shot", kind: "shot-design", name: "新镜头", sequenceId: sequence.id, order: 1 }, hash: "", content: "镜头正文" }, "PUT");
-    const shot = (await request(`/director/projects/${projectId}/shots`)).items[0];
-    const root = directorProjectRoot("dev-admin", projectId), folder = dirname(join(root, shot.path));
-    const image = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
-    writeFileSync(join(folder, "storyboard.gif"), image);
-    writeFileSync(join(folder, "reference.gif"), image);
-    const reference = `${dirname(shot.path)}/reference.gif`;
-    writeFileSync(join(folder, "prompt.md"), `---\nreferences:\n  - path: ${reference}\n    purpose: identity_reference\n    label: 人物参考\n---\n完整新提示词\n`);
-    const url = `/director/projects/${projectId}/shots/${shot.id}/storyboards`;
-    let page = await request(url);
-    assert.equal(page.total, 1); assert.equal(page.items[0].prompt, "完整新提示词\n");
-    assert.deepEqual(page.items[0].errors, []); assert.equal(page.items[0].references[0].name, "人物参考");
-    assert.ok(page.items[0].references[0].fileId); assert.match(page.items[0].image.path, /storyboard.gif$/);
-    const named = await request(`/director/projects/${projectId}/reference-image?path=${encodeURIComponent(page.items[0].image.path)}`);
-    assert.equal(named.name, "新镜头 · 故事板"); assert.equal(named.fileId, page.items[0].image.fileId);
-    const oldHash = page.items[0].image.hash, id = page.items[0].image.fileId;
-    assert.deepEqual((await request(`/director/projects/${projectId}/shots`)).items[0].storyboardImage, page.items[0].image);
-    writeFileSync(join(folder, "storyboard.gif"), Buffer.concat([image, Buffer.from("changed")]));
-    page = await request(url); assert.equal(page.items[0].image.fileId, id); assert.notEqual(page.items[0].image.hash, oldHash);
-    assert.equal((await request(`/director/projects/${projectId}/shots`)).items[0].storyboardImage.hash, page.items[0].image.hash);
-    for (const name of ["page-10", "page-2"]) { const dir = join(folder, "boards", name); mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "prompt.md"), name); }
-    page = await request(url + "?offset=1&limit=1"); assert.equal(page.total, 3); assert.equal(page.items.length, 1); assert.match(page.items[0].id, /page-2$/);
-    unlinkSync(join(folder, "storyboard.gif")); page = await request(url); assert.equal(page.items[0].image, undefined);
-    assert.equal((await request(`/director/projects/${projectId}/shots`)).items[0].storyboardImage, undefined);
-    writeFileSync(join(folder, "prompt.md"), "---\nreferences:\n  - path: ../../outside.png\n    purpose: identity_reference\n---\n正文");
-    page = await request(url); assert.ok(page.items[0].errors.length || page.items[0].references[0]?.error);
-    assert.equal((await fetch(base + `/director/projects/v2-integration/shots/${shot.id}/storyboards`)).status, 404);
-    const { readDirectorShotStoryboards } = await import("./director-workspace.js");
-    assert.throws(() => readDirectorShotStoryboards("other-user", projectId, shot.id));
+
+test("预演独立状态、定妆帧版本、快照与读取归属隔离", async () => {
+    const projectId = "previs-files", userId = "dev-admin";
+    await request("/projects", { id: projectId, kind: "director", title: "预演文件回归" });
+    await request(`/director/projects/${projectId}/documents/script`, { revision: 1, content: "# 桥边\n三人相遇并递还盒子。" }, "PUT");
+    const sequence = await request(`/director/projects/${projectId}/sequences`, { id: "station", title: "桥边相遇" });
+    await request(`/director/projects/${projectId}/segments`, { design: { id: "meeting", kind: "segment-design", name: "桥边相遇", sequenceId: sequence.id, order: 1, estimatedSeconds: 24 }, hash: "", content: "交叉走位、递物与道别" }, "PUT");
+    const segment = (await request(`/director/projects/${projectId}/segments`)).items[0];
+    const root = directorProjectRoot(userId, projectId), folder = dirname(join(root, segment.path));
+    const sample = JSON.parse(readFileSync(new URL("./agent/scenes/director/skills/director-stage-previs/references/example.json", import.meta.url), "utf8"));
+    writeFileSync(join(folder, "../../scene.json"), JSON.stringify(sample.scene));
+    writeFileSync(join(folder, "previs.json"), JSON.stringify(sample.plan));
+    const workspace = await import("./director-workspace.js");
+    workspace.reconcileDirectorProjectFiles(userId, projectId);
+    const previs = await import("./director-previs.js");
+    const current = await request(`/director/projects/${projectId}/segments/meeting/previs`);
+    assert.deepEqual(current.diagnostics, []); assert.equal(current.plan.shots.length, 3);
+    assert.equal(current.previsMode, "required");
+    assert.throws(() => previs.readDirectorPrevis("other", projectId, "meeting"));
+    assert.equal((await fetch(base + `/director/projects/v3-integration/segments/meeting/previs`)).status, 404);
+    assert.throws(() => previs.createDirectorLookFrame(userId, projectId, "meeting", 10, "old-hash"), /预演已经修改/);
+    const frame = previs.createDirectorLookFrame(userId, projectId, "meeting", 10, current.hash);
+    const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aVZ0AAAAASUVORK5CYII=", "base64");
+    writeFileSync(join(root, frame.path, "primary.png"), image);
+    workspace.reconcileDirectorProjectFiles(userId, projectId);
+    let viewed = previs.readDirectorPrevis(userId, projectId, "meeting");
+    assert.equal(viewed.lookFrames[0].stale, false); assert.ok(viewed.lookFrames[0].fileId);
+    const before = readFileSync(join(folder, "previs.json"), "utf8");
+    sample.plan.shots[0].keys[0].position[0] += 1;
+    writeFileSync(join(folder, "previs.json"), JSON.stringify(sample.plan));
+    viewed = previs.readDirectorPrevis(userId, projectId, "meeting");
+    assert.equal(viewed.lookFrames[0].stale, true);
+    assert.equal(viewed.lookFrames[0].sourceHash, current.hash);
+    previs.createDirectorLookFrame(userId, projectId, "meeting", 10, viewed.hash, frame.id);
+    assert.equal(previs.readDirectorPrevis(userId, projectId, "meeting").lookFrames[0].stale, true, "提取新画面不冒充旧图已重绘");
+    const snapshot = previs.freezeDirectorGenerationInputs(userId, projectId, "immutable", "run-1", [{ fileId: viewed.lookFrames[0].fileId!, kind: "image" }], "原始提示", { meeting: viewed.hash });
+    const frozenFile = (await import("./file-store.js")).getStoredFile(userId, snapshot.references[0].fileId)!;
+    writeFileSync(join(root, frame.path, "primary.png"), "changed");
+    assert.deepEqual(readFileSync(frozenFile.path), image);
+    assert.equal(readFileSync(join(root, "productions/immutable/runs/run-1/prompt.md"), "utf8"), "原始提示");
+    assert.throws(() => previs.freezeDirectorGenerationInputs(userId, projectId, "immutable", "run-2", [], "", { meeting: current.hash }), /预演在提交期间变化/);
+    const snapshotManifest = JSON.parse(readFileSync(join(root, snapshot.path), "utf8"));
+    assert.equal(snapshotManifest.previs[0].hash, viewed.hash);
+    // Invalid optional images do not block otherwise valid staging.
+    writeFileSync(join(root, frame.path, "frame.json"), "{}");
+    assert.equal(previs.validDirectorPrevis(userId, projectId, "meeting").diagnostics.length, 0);
+    assert.equal(previs.readDirectorPrevis(userId, projectId, "meeting").warnings.length, 1);
+    writeFileSync(join(folder, "previs.json"), before);
+    assert.throws(() => previs.updateDirectorLookFrame(userId, projectId, "meeting", "missing", { remove: true, expectedHash: "wrong" }), /预演已经修改/);
 });

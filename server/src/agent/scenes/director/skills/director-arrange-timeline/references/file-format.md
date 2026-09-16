@@ -1,4 +1,4 @@
-# 时间线 v2
+# v3 工程中的时间线
 
 权威文件为 `timeline/timeline.json`，完整例子见 [timeline.json](timeline.json)。
 

@@ -1,0 +1,5 @@
+import type { PrevisScene, PrevisPlan } from "../../../server/src/previs/model";
+export type { PrevisScene, PrevisPlan };
+export type LookFrame = { id: string; time: number; sourceHash: string; useForVideo: boolean; path: string; imagePath?: string; fileId?: string; stale: boolean; prompt: string; references: Array<{ path: string; purpose: string; label?: string }> };
+export type PrevisDocument = { segmentId: string; scene: PrevisScene | null; plan: PrevisPlan | null; hash: string; diagnostics: string[]; warnings?: string[]; lookFrames: LookFrame[]; bindings: Array<{ objectId: string; name: string; assetId?: string; fileId?: string }>; aspectRatio: string; previsMode: "required" | "skip" };
+export type PrevisRender = { id: string; segmentId: string; status: "queued" | "running" | "succeeded" | "failed" | "cancelled"; progress: number; error: string | null; sourceHash: string; start: number; end: number; kind: "video" | "frame"; result: { fileId: string; path: string; width: number; height: number; frames: number; duration: number } | null };

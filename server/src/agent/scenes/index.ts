@@ -31,8 +31,8 @@ const directorToolIds = [
     "director_generate_music",
     "director_validate",
     "director_trash",
-    "director_generate_asset", "director_analyze_style", "director_generate_style_references",
-    "director_generate_storyboard", "director_read_shots", "director_read_tasks", "director_read_edit", "director_edit_timeline", "director_preflight_tasks", "director_generate_task",
+    "director_generate_asset", "director_generate_look_frame", "director_analyze_style", "director_generate_style_references",
+    "director_read_segments", "director_read_previs", "director_render_previs", "director_capture_look_frame", "director_previs_render_status", "director_read_tasks", "director_read_edit", "director_edit_timeline", "director_preflight_tasks", "director_generate_task",
     "director_list_models", "director_get_generation_status", "director_list_renders", "director_start_render", "director_cancel_render", "director_retry_render", "director_navigate", "media_understand_audios", "media_prepare_video_overview", "media_sample_video_frames", "ask_user",
 ] as const;
 
@@ -46,8 +46,8 @@ const definitions = {
     },
     director: {
         id: "director", projectKind: "director", systemPrompt: directorSystemPrompt,
-        skillIds: ["director-write-story", "director-adapt-long-fiction", "director-write-screenplay", "director-breakdown-screenplay", "director-breakdown-assets", "director-design-character", "director-design-scene", "director-design-prop", "director-design-style", "director-generate-assets", "director-plan-storyboards", "director-generate-video-segments", "director-check-continuity", "director-arrange-timeline"],
-        codexTools: [...mediaToolIds, "director_validate", "director_trash", "director_generate_sound", "director_generate_music", "director_read_shots", "director_read_tasks", "director_read_edit", "director_edit_timeline", "director_preflight_tasks", "director_generate_task", "director_list_models", "director_get_generation_status", "director_list_renders", "director_start_render", "director_cancel_render", "director_retry_render", "media_understand_audios", "media_sample_video"].map((id) => ({ id, policy: "auto" as const })),
+        skillIds: ["director-write-story", "director-adapt-long-fiction", "director-write-screenplay", "director-breakdown-screenplay", "director-breakdown-assets", "director-design-character", "director-design-scene", "director-design-prop", "director-design-style", "director-generate-assets", "director-plan-sequences", "director-stage-previs", "director-generate-video-segments", "director-check-continuity", "director-arrange-timeline"],
+        codexTools: [...mediaToolIds, "director_validate", "director_trash", "director_generate_sound", "director_generate_music", "director_read_segments", "director_read_previs", "director_render_previs", "director_capture_look_frame", "director_previs_render_status", "director_read_tasks", "director_read_edit", "director_edit_timeline", "director_preflight_tasks", "director_generate_task", "director_list_models", "director_get_generation_status", "director_list_renders", "director_start_render", "director_cancel_render", "director_retry_render", "media_understand_audios", "media_sample_video"].map((id) => ({ id, policy: "auto" as const })),
         tools: directorToolIds.map((id) => ({ id, policy: "auto" as const })),
         referenceKinds: ["director", "asset", "style"],
         composer: { placeholder: "描述导演任务，输入 / 调用 Skill，@ 引用故事、制作任务或素材…", referenceLabel: "引用导演台内容", emptyTitle: "和导演台一起创作", emptyDescription: "Agent 已绑定当前导演项目，可以创作或改编章节式故事、编写剧本、规划分镜并按需补充素材和制作成片。", suggestions: ["把创意写成可直接阅读的章节式故事", "从故事改写可拍摄的分场剧本", "规划场景镜头与制作任务"] },

@@ -1,4 +1,5 @@
 import { resumeGenerationEffects } from "./generation-effects.js";
+import { resumePrevisRenders } from "./director-previs-render.js";
 import { setDirectorSyncEmitter } from "./director-sync.js";
 import { chmodSync, existsSync, lstatSync, unlinkSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
@@ -104,6 +105,7 @@ void resumeGenerationEffects();
 setInterval(() => { void resumeGenerationEffects(); }, 30_000).unref();
 resumeDirectorSourceProcessing();
 resumeDirectorRenders();
+resumePrevisRenders();
 recoverAgentRuns();
 cleanupUnreferencedFiles();
 setInterval(cleanupUnreferencedFiles, 60 * 60 * 1000).unref();

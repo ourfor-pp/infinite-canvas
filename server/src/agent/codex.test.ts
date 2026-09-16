@@ -176,12 +176,12 @@ test("Codex 场景只保留声音 MCP 生成，内置 Agent 继续保留图片�
     const { buildAgentToolDefinitions } = await import("./mcp/index.js");
     const context = { session: { projectId: "p" }, run: { userId: "u" } } as Parameters<typeof buildAgentToolDefinitions>[0];
     const native = buildAgentToolDefinitions(context, agentScenes.director, "codex");
-    assert.ok(!native.some((tool) => ["director_generate_storyboard", "director_generate_style_references"].includes(tool.name)));
+    assert.ok(!native.some((tool) => ["director_generate_look_frame", "director_generate_style_references"].includes(tool.name)));
     const sound = z.object(native.find((tool) => tool.name === "director_generate_sound")!.inputSchema).strict();
     assert.equal(sound.safeParse({ assetPath: "assets/props/prop-1", expectedHash: "hash" }).success, true);
     assert.equal(sound.safeParse({ assetPath: "assets/props/prop-1", expectedHash: "hash", target: "primary-visual" }).success, false);
     const builtin = buildAgentToolDefinitions(context, agentScenes.director);
-    assert.ok(builtin.some((tool) => tool.name === "director_generate_storyboard"));
+    assert.ok(builtin.some((tool) => tool.name === "director_generate_look_frame"));
 });
 
 

@@ -9,14 +9,14 @@ description: 导演工程的权威文件、结构校验与成片归档
 
 ## 工程布局
 
-- `project.yaml`：格式版本和项目设置。
+- `project.yaml`：固定 `version: 3` 与项目设置；旧 v1/v2 工程不导入、不自动转换。
 - `story/index.md`、`story/chapters/`：故事总览与章节。
 - `screenplay/index.md`、`screenplay/scenes/`：剧本总览与场次；`screenplay/breakdown/` 保存制作拆解。
 - `direction/visual-style.md` 与 `direction/directing-rules.md`：视觉风格和导演规则两份权威文档。
 - `assets/characters/`、`assets/locations/`、`assets/props/`：素材主档、视觉设计、声音与持续状态变体。
-- `storyboards/<sequence>/<segment>/`：`segment.md`、`storyboard.yaml`、`storyboard-prompt.md` 和一张完整 `storyboard.png`。独立 transition 视频段不需要故事板。
-- `videos/seg-<稳定视频段ID>/`：视频提示、`preview.mp4` / `final.mp4`、`model-audio.wav`。
-- `timeline/timeline.json`：视频段顺序与声音轨；外部声音归入 `timeline/inputs/`。
+- `scenes/<场景>/scene.json`：共享空间、粗模与素材身份绑定；`segments/<分镜段>/segment.md` 保存段设计，`previs.json` 保存动作与摄影，`look-frames/` 保存可选定妆帧。
+- `productions/<任务ID>/`：`task.md` 以 `segmentRanges` 声明覆盖范围，`videoReferences` 声明显式视频输入；`video-prompt.md` 是最终提示，`runs/` 保存每次提交时的媒体、预演与提示快照。
+- `timeline/timeline.json`：独立 `videoClips` 选片、裁切与声音轨；外部声音归入 `timeline/inputs/`。
 - `renders/<renderId>/final.mp4` 与 `render.json`：每次成功成片及时间线快照、来源视频段、时长、尺寸、帧率和成片 SHA-256。失败或取消不产生成功归档，重试不覆盖成功版本。
 
 Markdown Frontmatter 保存稳定 ID、顺序、来源和引用。引用媒体使用工程根目录相对路径；数据库 fileId 由服务端解析，不写进时间线或视频段音频引用。目录名与显示名称可以变化，实体 ID 保持稳定。
@@ -25,7 +25,8 @@ Markdown Frontmatter 保存稳定 ID、顺序、来源和引用。引用媒体�
 
 规范与完整样例随对应领域 Skill 提供，避免出现两套不同格式：
 
-- `server/src/agent/scenes/director/skills/director-plan-storyboards/references/file-format.md`，及 `examples/sequence.md`、`examples/segment.md`、`examples/storyboard.yaml`。
+- `server/src/agent/scenes/director/skills/director-plan-sequences/references/file-format.md`。
+- `server/src/agent/scenes/director/skills/director-stage-previs/references/format.md` 与 `example.json`。
 - `server/src/agent/scenes/director/skills/director-breakdown-screenplay/references/breakdown-schema.md` 与 `scene-example.md`。
 - `server/src/agent/scenes/director/skills/director-arrange-timeline/references/file-format.md` 与 `timeline.json`。
 
@@ -41,10 +42,14 @@ Markdown Frontmatter 保存稳定 ID、顺序、来源和引用。引用媒体�
 
 页面保存使用原子替换与 `If-Match`。内置 Agent 使用受工程路径约束的文件工具；Codex 使用独立沙箱中的命令、文件编辑及原生生图能力，可以操作工程文件与媒体，账户凭据和其他工程不可访问。引擎细节见 [Codex 接入](./director-codex)。
 
-结构校验返回文件路径、错误码、严重性与字段位置，检查类型、顺序、引用、Shot 时间、对白窗口、素材类别、声音路径与时间线轨道。草稿缺少媒体可提示待补；显式引用不存在的媒体、非法路径或结构错误会阻止生成及导出。生产前 `director_validate_video_segments` 进一步检查叙事、英文提示和实际媒体条件。
+结构校验返回文件路径、错误码、严重性与字段位置，检查类型、顺序、引用、分镜段区间与预演镜头覆盖、对白窗口、素材类别、声音路径与时间线轨道。草稿缺少媒体可提示待补；显式引用不存在的媒体、非法路径或结构错误会阻止生成及导出。生产前 `director_validate_video_segments` 进一步检查叙事、英文提示和实际媒体条件。
 
 Codex 可用 `segmentPaths` 校验、用 `segmentPath` 生成；`director_start_render({})` 解析当前时间线，不需猜测数据库 revision。生成与合成仍遵循用户已授权范围。
 
 ## 工程交换
 
-ZIP 包含创作文件、当前引用媒体和成功成片，排除凭据、会话、队列、缓存、`.trash` 和未采用的生成历史。导入先在临时目录解包，拒绝越界路径与符号链接，通过校验后重建授权及索引并原子切换。Docker 静态资源路径与实际生产部署仍需单独验收。
+ZIP 包含创作文件、当前引用媒体和成功成片，排除凭据、会话、队列、缓存和 `.trash`；任务目录中的提交快照随工程保留。导入先在临时目录解包，拒绝越界路径与符号链接，通过校验后重建授权及索引并原子切换。Docker 静态资源路径与实际生产部署仍需单独验收。
+
+## 预演运行与验收
+
+网页和后台共用固定版本 Three.js 求值器。后台使用独立 Chromium 工作进程和 FFmpeg 逐帧导出，默认静音、24 fps、短边 480，并发 1；安装命令与实际验收边界见 [v3 实施记录](../../../research/director-v3-acceptance.md)。定妆帧以预演来源哈希、时间锚点和提取回执绑定，相关上游修改只提示待检查。生成图片可选，默认预演必需，跳过应在段文件中显式声明 `previsMode: skip`。
