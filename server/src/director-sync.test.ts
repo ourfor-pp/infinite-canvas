@@ -106,7 +106,7 @@ test("删除被视频段引用的素材仍更新投影，保留缺失引用诊�
     await request("/director/projects/delete-referenced/documents/script", { method: "PUT", body: JSON.stringify({ revision: 1, content: "雨夜拿起道具。" }) });
     const sequence = await request("/director/projects/delete-referenced/sequences", { method: "POST", body: JSON.stringify({ title: "雨夜" }) });
     workspace.saveDirectorSegmentPlan("sync-user", "delete-referenced", { design: { id: "main", kind: "segment-design", sequenceId: sequence.body.data.id, name: "拿起道具", order: 1, estimatedSeconds: 8, previsMode: "skip" }, content: "拿起道具", hash: "" });
-    const segment = await request("/director/projects/delete-referenced/production-tasks", { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "拿起道具", payload: { durationSeconds: 8, segmentRanges: [{ segmentId: "main", start: 0, end: 8 }], propRefs: [{ id: asset.id, revision: asset.revision }] } }) });
+    const segment = await request("/director/projects/delete-referenced/production-tasks", { method: "POST", body: JSON.stringify({ sequenceId: sequence.body.data.id, title: "拿起道具", payload: { durationSeconds: 8, segmentId: "main", propRefs: [{ id: asset.id, revision: asset.revision }] } }) });
     assert.equal(segment.response.status, 201);
     const detail = workspace.getDirectorAssetDetail("sync-user", asset.id);
     rmSync(join(folder, detail.folderPath), { recursive: true });
@@ -134,7 +134,7 @@ test("删除音频依赖清空视频段与时间线引用，保留工程诊断",
     await request("/director/projects/delete-audio/documents/script", { method: "PUT", body: JSON.stringify({ revision: 1, content: "雨声。" }) });
     const sequence = await request("/director/projects/delete-audio/sequences", { method: "POST", body: JSON.stringify({ id: "audio-sequence", title: "雨声" }) });
     workspace.saveDirectorSegmentPlan("sync-user", "delete-audio", { design: { id: "main", kind: "segment-design", sequenceId: sequence.body.data.id, name: "听雨", order: 1, estimatedSeconds: 8, previsMode: "skip" }, content: "听雨", hash: "" });
-    await request("/director/projects/delete-audio/production-tasks", { method: "POST", body: JSON.stringify({ id: "audio-segment", sequenceId: sequence.body.data.id, title: "听雨", payload: { durationSeconds: 8, segmentRanges: [{ segmentId: "main", start: 0, end: 8 }] } }) });
+    await request("/director/projects/delete-audio/production-tasks", { method: "POST", body: JSON.stringify({ id: "audio-segment", sequenceId: sequence.body.data.id, title: "听雨", payload: { durationSeconds: 8, segmentId: "main" } }) });
     const path = join(folder, "productions/audio-segment/task.md");
     const audio = join(folder, "productions/audio-segment/model-audio.wav"); mkdirSync(dirname(audio), { recursive: true }); writeFileSync(audio, "audio fixture");
     writeFileSync(path, readFileSync(path, "utf8").replace("audioReferences: []", "audioReferences:\n  - path: productions/audio-segment/model-audio.wav\n    purpose: sound\n    description: Rain ambience"));

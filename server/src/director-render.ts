@@ -50,7 +50,8 @@ async function prepareDirectorShotGeneration(userId: string, shotId: string, inp
     validateShotAssetRefs(userId, shot.project_id, payload);
     const route = resolveH3Route(payload);
     const workspace = db.prepare("SELECT aspect_ratio FROM director_workspaces WHERE user_id=? AND project_id=?").get(userId, shot.project_id) as WorkspaceRow;
-    const modelRef = value.model || `comfyui::minimax-h3-${route.mode}-local`;
+    const modelRef = value.model || String(payload.videoModel || `comfyui::minimax-h3-${route.mode}-local`);
+    if (modelRef !== payload.videoModel) throw renderError(409, "DIRECTOR_VIDEO_MODEL_MISMATCH", "请先在分镜中调整视频模型与时长，再生成完整分镜段");
     const selection = resolveSelectableModel(modelRef, "video");
     const model = selection.model as AiModelDefinition;
     if (!model.videoModes?.includes(route.mode)) throw renderError(409, "DIRECTOR_H3_MODE_UNSUPPORTED", `所选模型不支持 ${route.mode.toUpperCase()} 模式`);
@@ -82,9 +83,9 @@ async function prepareDirectorShotGeneration(userId: string, shotId: string, inp
     const request: AiGenerationRequest = { kind: "video", model: modelRef, mode: route.mode, operation: nativeContinuation ? "extend" : "generate", prompt, references,
         continuation: previousState ? { generationId: previousState.generationId, fileId: previousState.fileId } : undefined,
         params: { seconds: Number(payload.durationSeconds || 4), ratio: workspace.aspect_ratio, qualityPreset: value.qualityPreset, ...(value.recipe ? { recipe: value.recipe } : {}), allowTurbo: turboEligible },
-        metadata: { directorSegment: { projectId: shot.project_id, segmentId: shotId, revision: shot.revision, previsHashes: preflight.previsHashes, designHashes: payload.shotDesignHashes, segmentRanges: payload.segmentRanges, mode: route.mode, reason: routeReason, qualityPreset: value.qualityPreset, promptPath: promptSource.path, promptHash: promptSource.hash, previousState, dependencies: payload.dependencies } } };
+        metadata: { directorSegment: { projectId: shot.project_id, segmentId: shotId, revision: shot.revision, previsHashes: preflight.previsHashes, designHashes: payload.shotDesignHashes, sourceSegmentId: payload.segmentId, mode: route.mode, reason: routeReason, qualityPreset: value.qualityPreset, promptPath: promptSource.path, promptHash: promptSource.hash, previousState, dependencies: payload.dependencies } } };
     const { plan } = await validateMediaGeneration(userId, id, selection.modelId, request);
-    if (plan.outputSeconds !== undefined && plan.outputSeconds + 1 / 24 < Number(payload.durationSeconds)) throw renderError(409, "DIRECTOR_OUTPUT_TOO_SHORT", "模型实际输出短于本次覆盖范围，请明确重新划分制作任务", { plan, segmentRanges: payload.segmentRanges });
+    if (plan.outputSeconds !== undefined && plan.outputSeconds + 1 / 24 < Number(payload.durationSeconds)) throw renderError(409, "DIRECTOR_OUTPUT_TOO_SHORT", "模型实际输出短于完整分镜段，请回到分镜重新拆段", { plan, sourceSegmentId: payload.segmentId });
     const current = segmentRow(userId, shotId);
     if (current.revision !== shot.revision || readDirectorVideoPrompt(userId, shot.project_id, shotId).hash !== promptSource.hash) throw renderError(409, "DIRECTOR_CONFLICT", "校验期间制作任务或提示词已变化，请重新提交");
     request.params = { ...request.params, seed: plan.seed, recipe: plan.recipe };
@@ -98,7 +99,7 @@ export async function createDirectorVideoSegmentGeneration(userId: string, shotI
     request.metadata = { ...request.metadata, inputSnapshot: frozen.path };
     const generation = createGeneration(userId, request, id);
     const { h3ModeOverride: _h3ModeOverride, firstFrameFileId: _firstFrameFileId, lastFrameFileId: _lastFrameFileId, ...cleanPayload } = payload;
-    const nextPayload = { ...cleanPayload, h3Mode: route.mode, h3ModeReason: routeReason, h3PromptSnapshot: { mode: route.mode, qualityPreset: value.qualityPreset, plan, prompt, promptPath: promptSource.path, promptHash: promptSource.hash, references: frozen.references, inputSnapshot: frozen.path, temporalGuides, previsHashes: preflight.previsHashes, segmentRanges: payload.segmentRanges }, videoGenerationId: generation.id, videoStale: Boolean(payload.videoStale) };
+    const nextPayload = { ...cleanPayload, h3Mode: route.mode, h3ModeReason: routeReason, h3PromptSnapshot: { mode: route.mode, qualityPreset: value.qualityPreset, plan, prompt, promptPath: promptSource.path, promptHash: promptSource.hash, references: frozen.references, inputSnapshot: frozen.path, temporalGuides, previsHashes: preflight.previsHashes, sourceSegmentId: payload.segmentId }, videoGenerationId: generation.id, videoStale: Boolean(payload.videoStale) };
     db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=?").run(JSON.stringify(nextPayload), new Date().toISOString(), shotId, userId);
     syncDirectorVideoSegmentFile(userId, shot.project_id, shotId);
     emitRender(userId, { type: "video-segment", projectId: shot.project_id, data: { id: shotId, revision: shot.revision + 1, payload: nextPayload } });
@@ -109,7 +110,7 @@ export function getDirectorVideoSegmentPreflight(userId: string, segmentId: stri
     const segment = segmentRow(userId, segmentId), payload = parseJson<Record<string, unknown>>(segment.payload, {});
     const route = resolveH3Route(payload), blockedReasons: string[] = [], warnings: string[] = [];
     let candidates: ReturnType<typeof getDirectorTaskImageReferences> = [];
-    let previs: ReturnType<typeof getTaskPrevisInputs> = { files: [], hashes: {}, warnings: [], ranges: [] };
+    let previs: ReturnType<typeof getTaskPrevisInputs> = { files: [], hashes: {}, warnings: [] };
     try { candidates = getDirectorTaskImageReferences(userId, segment.project_id, payload.referenceImages); } catch (error) { blockedReasons.push((error as Error).message); }
     try { previs = getTaskPrevisInputs(userId, segment.project_id, payload); warnings.push(...previs.warnings); } catch (error) { blockedReasons.push((error as Error).message); }
     const videoSelected = route.mode === "ref2va" ? candidates : [];
@@ -233,7 +234,7 @@ export async function syncDirectorGeneration(row: GenerationRow) {
     syncDirectorLookFrameGeneration(row);
     if (row.status !== "succeeded") return;
     if (row.kind !== "video") return;
-    const request = parseJson<{ metadata?: { directorSegment?: { projectId?: string; segmentId?: string; revision?: number; previsHashes?: Record<string, string>; designHashes?: Record<string, string>; segmentRanges?: unknown; mode?: string; qualityPreset?: H3QualityPreset; promptHash?: string; previousState?: { context: { frames: number } } } } }>(row.request, {});
+    const request = parseJson<{ metadata?: { directorSegment?: { projectId?: string; segmentId?: string; revision?: number; previsHashes?: Record<string, string>; designHashes?: Record<string, string>; sourceSegmentId?: string; mode?: string; qualityPreset?: H3QualityPreset; promptHash?: string; previousState?: { context: { frames: number } } } } }>(row.request, {});
     const context = request.metadata?.directorSegment;
     if (!context?.projectId || !context.segmentId) return;
     const result = parseJson<{ files?: Array<{ id?: string; fileId?: string }>; continuationStates?: Array<{ fileId?: string }>; cumulativeVideos?: Array<{ fileId?: string }>; execution?: { context?: unknown; recipe?: string } }>(row.result, {});
@@ -270,7 +271,7 @@ export async function syncDirectorGeneration(row: GenerationRow) {
         if (latestPayload.videoGenerationId !== row.id || Number(latestPayload.durationSeconds || 4) !== duration) return;
         const generationDurationMs = Math.max(0, new Date(row.updated_at).getTime() - new Date(row.created_at).getTime());
         const inputRequest = parseJson<AiGenerationRequest>(row.request, {} as AiGenerationRequest);
-        const payload = { ...latestPayload, videoInputSnapshot: { mode: context.mode, qualityPreset: context.qualityPreset, prompt: inputRequest.prompt, references: inputRequest.references || [], inputSnapshot: inputRequest.metadata?.inputSnapshot, previsHashes: context.previsHashes, designHashes: context.designHashes, segmentRanges: context.segmentRanges }, h3CumulativeVideo: cumulativeVideo, videoAdoptedGenerationId: row.id, videoDurationSeconds: renderedDuration, h3ContinuationState: continuationState, videoFileId: storedVideo.id, videoGenerationId: row.id, videoQualityPreset: context.qualityPreset || "preview", videoRecipeSnapshot: result.execution, videoNativeResolution: stateContext ? `${stateContext.width}×${stateContext.height}` : undefined, videoGenerationDurationMs: generationDurationMs, actualFirstFrameFileId: firstFile.id, actualLastFrameFileId: lastFile.id, nativeAudioFileId: nativeAudioFileId || undefined, nativeAudioStatus: nativeAudioFileId ? "ready" : "missing", videoStale: Boolean(context.designHashes && JSON.stringify(context.designHashes) !== JSON.stringify(latestPayload.shotDesignHashes)) || Boolean(context.promptHash && readDirectorVideoPrompt(row.user_id, context.projectId, context.segmentId).hash !== context.promptHash) || Object.entries(context.previsHashes || {}).some(([id, hash]) => { try { return readDirectorPrevis(row.user_id, context.projectId!, id).hash !== hash; } catch { return true; } }) };
+        const payload = { ...latestPayload, videoInputSnapshot: { mode: context.mode, qualityPreset: context.qualityPreset, prompt: inputRequest.prompt, references: inputRequest.references || [], inputSnapshot: inputRequest.metadata?.inputSnapshot, previsHashes: context.previsHashes, designHashes: context.designHashes, sourceSegmentId: context.sourceSegmentId }, h3CumulativeVideo: cumulativeVideo, videoAdoptedGenerationId: row.id, videoDurationSeconds: renderedDuration, h3ContinuationState: continuationState, videoFileId: storedVideo.id, videoGenerationId: row.id, videoQualityPreset: context.qualityPreset || "preview", videoRecipeSnapshot: result.execution, videoNativeResolution: stateContext ? `${stateContext.width}×${stateContext.height}` : undefined, videoGenerationDurationMs: generationDurationMs, actualFirstFrameFileId: firstFile.id, actualLastFrameFileId: lastFile.id, nativeAudioFileId: nativeAudioFileId || undefined, nativeAudioStatus: nativeAudioFileId ? "ready" : "missing", videoStale: Boolean(context.designHashes && JSON.stringify(context.designHashes) !== JSON.stringify(latestPayload.shotDesignHashes)) || Boolean(context.promptHash && readDirectorVideoPrompt(row.user_id, context.projectId, context.segmentId).hash !== context.promptHash) || Object.entries(context.previsHashes || {}).some(([id, hash]) => { try { return readDirectorPrevis(row.user_id, context.projectId!, id).hash !== hash; } catch { return true; } }) };
         const adopted = db.transaction(() => {
             const updated = db.prepare("UPDATE director_shots SET payload=?,revision=revision+1,updated_at=? WHERE id=? AND user_id=? AND revision=?").run(JSON.stringify(payload), new Date().toISOString(), context.segmentId, row.user_id, latestShot.revision);
             if (!updated.changes) return false;

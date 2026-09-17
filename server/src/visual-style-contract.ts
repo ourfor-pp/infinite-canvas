@@ -47,3 +47,12 @@ export function serializeVisualStyleMarkdown(name: string, description: string, 
         "## 避免元素", exclusions.map((item) => `- ${item}`).join("\n"),
     ].join("\n\n");
 }
+
+export function buildVisualStyleBoardPrompt(name: string, description: string, dna: Partial<VisualStyleDna>) {
+    return [
+        "生成一张横版统一风格板，以以下完整视觉方案为依据：",
+        serializeVisualStyleMarkdown(name, description, dna),
+        "画面自然分为左、中、右三个等宽区域：左侧是中性角色造型，物种与外形类别遵循角色呈现；中间是无人环境，遵循场景呈现；右侧是中性物件，遵循道具呈现。三个区域共享同一媒介、渲染、色彩、光线、材质与后期语言。只生成一个图片文件。",
+        "角色不复用现实人物或项目角色身份；场景不包含剧情事件；道具不带品牌。整张图无标题、标签、说明文字、UI、Logo、水印和对白气泡。",
+    ].join("\n\n");
+}

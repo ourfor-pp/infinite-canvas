@@ -15,9 +15,11 @@ import { addH3Archive, validateH3Archive, restoreH3Archive } from "./h3-archive.
 import { config } from "./config.js";
 import { db, parseJson } from "./database.js";
 import { collectFileIds, getStoredFile, syncFileRefs } from "./file-store.js";
+import { directorVideoLimits } from "./director-video-plan.js";
 import { screenplayScene, screenplayReviewIssue, segmentDesignFileSchema, segmentFileSchema, timelineFileSchema } from "./director-file-contract.js";
 import { h3AudioReferencesInput } from "./h3-prompt.js";
 import { inferVisualStyleMediumFamily, serializeVisualStyleMarkdown } from "./visual-style-contract.js";
+import { creativeAssetPayloadSchema } from "./creative-assets.js";
 
 export type DirectorDiagnostic = {
     severity: "error" | "warning" | "info";
@@ -298,13 +300,14 @@ export function listDirectorSegmentPlans(userId: string, projectId: string, offs
     const root = directorProjectRoot(userId, projectId);
     return { total, offset, items: rows.map((row) => {
         const metadata = segmentDesignFileSchema.parse(parseJson<Record<string, unknown>>(row.metadata, {}));
-        return { ...metadata, content: matter(readFileSync(safeWorkspacePath(root, row.path), "utf8")).content, sequenceId: directorMirrorId("director_sequences", userId, projectId, String(metadata.sequenceId)), path: row.path, hash: row.sha256, revision: row.revision };
+        return { ...metadata, videoLimits: directorVideoLimits(metadata.videoModel), content: matter(readFileSync(safeWorkspacePath(root, row.path), "utf8")).content, sequenceId: directorMirrorId("director_sequences", userId, projectId, String(metadata.sequenceId)), path: row.path, hash: row.sha256, revision: row.revision };
     }) };
 }
 
 export function saveDirectorSegmentPlan(userId: string, projectId: string, body: unknown) {
     const input = z.object({ design: segmentDesignFileSchema, content: z.string().default(""), hash: z.string() }).parse(body);
     input.design.sequenceId = directorExternalId(projectId, input.design.sequenceId);
+    delete input.design.videoLimits;
     const root = ensureDirectorProjectWorkspace(userId, projectId);
     const sequencePath = findEntityFile(resolve(root, "scenes"), "scene.json", input.design.sequenceId);
     if (!sequencePath) throw workspaceError(400, "SHOT_SEQUENCE_MISSING", "镜头所属场景不存在");
@@ -314,7 +317,7 @@ export function saveDirectorSegmentPlan(userId: string, projectId: string, body:
     const tasks = db.prepare("SELECT id,payload FROM director_shots WHERE user_id=? AND project_id=?").all(userId, projectId) as Array<{ id: string; payload: string }>;
     for (const task of tasks) {
         const payload = parseJson<Record<string, unknown>>(task.payload, {});
-        if (Array.isArray(payload.segmentRanges) && (payload.segmentRanges as Array<{ segmentId: string }>).some((range) => range.segmentId === input.design.id)) db.prepare("UPDATE director_shots SET payload=?,revision=revision+1 WHERE user_id=? AND id=?").run(JSON.stringify({ ...payload, needsReview: true, videoStale: Boolean(payload.videoFileId) }), userId, task.id);
+        if (payload.segmentId === input.design.id) db.prepare("UPDATE director_shots SET payload=?,revision=revision+1 WHERE user_id=? AND id=?").run(JSON.stringify({ ...payload, needsReview: true, videoStale: Boolean(payload.videoFileId) }), userId, task.id);
     }
     markDirectorProjectChanged(userId, projectId, ["segments"]);
     return result;
@@ -656,7 +659,7 @@ export function syncDirectorVideoSegmentFile(userId: string, projectId: string, 
     });
     syncFileRefs(userId, "director_shot", segmentId, payload);
     const previousDocument = existing ? matter(readFileSync(existing, "utf8")) : undefined;
-    const segmentData = { ...previousDocument?.data, id: externalSegmentId, kind: "production-task", name: segment.title, sequenceId: externalSequenceId, order: segment.position + 1, durationSeconds: payload.durationSeconds || payload.duration || 4, references, audioReferences, ...segmentNarrativeMetadata(payload, projectId), sourceRevision: segment.revision };
+    const segmentData = { ...previousDocument?.data, id: externalSegmentId, kind: "production-task", name: segment.title, sequenceId: externalSequenceId, order: segment.position + 1, references, audioReferences, ...segmentNarrativeMetadata(payload, projectId), sourceRevision: segment.revision };
     const segmentBody = String(payload.description ?? payload.action ?? "");
     if (!previousDocument || previousDocument.content.trim() !== segmentBody.trim() || !isDeepStrictEqual({ ...previousDocument.data, sourceRevision: undefined }, { ...segmentData, sourceRevision: undefined })) writeMarkdown(resolve(folder, "task.md"), segmentData, segmentBody);
     const videoFolder = folder;
@@ -976,6 +979,7 @@ function reconcileAssets(userId: string, projectId: string, root: string, now: s
                 primaryImageId: media.find((item) => item.kind === "image")?.id || null,
                 primaryAudioId: media.find((item) => item.kind === "audio")?.id || null,
             };
+            creativeAssetPayloadSchema.parse(payload);
             const name = entity.name || entity.title || entity.id;
             if (!existing) db.prepare("INSERT INTO creative_assets(id,user_id,project_id,kind,name,status,payload,revision,created_at,updated_at) VALUES(?,?,?,?,?,'draft',?,1,?,?)").run(mirrorId, userId, projectId, kind, name, JSON.stringify(payload), now, now);
             else if (existing.name !== name || JSON.stringify(parseJson(existing.payload, {})) !== JSON.stringify(payload)) db.prepare("UPDATE creative_assets SET name=?,payload=?,revision=revision+1,updated_at=? WHERE user_id=? AND project_id=? AND id=?").run(name, JSON.stringify(payload), now, userId, projectId, mirrorId);
@@ -1009,8 +1013,11 @@ function reconcileProductions(userId: string, projectId: string, root: string, n
             const existing = db.prepare("SELECT title,position,payload FROM director_shots WHERE user_id=? AND project_id=? AND id=?").get(userId, projectId, segmentId) as { title: string; position: number; payload: string } | undefined;
             const currentPayload = parseJson<Record<string, unknown>>(existing?.payload, {});
             const references = documentRecord(segmentDocument.data.references);
-            const ranges = segmentFileSchema.parse(segmentDocument.data).segmentRanges;
-            const shotDesignHashes = Object.fromEntries(ranges.map(({ segmentId: id }) => {
+            const targetSegmentId = segmentFileSchema.parse(segmentDocument.data).segmentId;
+            const designPath = findEntityFile(resolve(root, "scenes"), "segment.md", targetSegmentId);
+            if (!designPath) throw new Error(`分镜段不存在：${targetSegmentId}`);
+            const design = segmentDesignFileSchema.parse(matter(readFileSync(designPath, "utf8")).data);
+            const shotDesignHashes = Object.fromEntries([targetSegmentId].map((id) => {
                 const path = findEntityFile(resolve(root, "scenes"), "segment.md", id);
                 const inputs = path ? [path, resolve(dirname(path), "previs.json"), resolve(dirname(path), "../../scene.json")] : [];
                 return [id, inputs.map((file) => existsSync(file) ? hashFile(file) : "missing").join(":")];
@@ -1018,13 +1025,13 @@ function reconcileProductions(userId: string, projectId: string, root: string, n
             const designChanged = Boolean(existing && currentPayload.shotDesignHashes && JSON.stringify(currentPayload.shotDesignHashes) !== JSON.stringify(shotDesignHashes));
             const payload: Record<string, unknown> = {
                 ...currentPayload,
-                shotDesignHashes, segmentIds: [...new Set(ranges.map((range) => range.segmentId))],
+                shotDesignHashes,
                 ...(designChanged ? { needsReview: true, videoStale: Boolean(currentPayload.videoFileId) } : {}),
                 ...Object.fromEntries(segmentNarrativeKeys.map((key) => [key, undefined])),
                 ...segmentNarrativeMetadata(segmentDocument.data),
                 ...Object.fromEntries(segmentLinkKeys.filter((key) => segmentDocument.data[key]).map((key) => [key, directorMirrorId("director_shots", userId, projectId, String(segmentDocument.data[key]))])),
                 promptPath: posixRelative(root, resolve(segmentFolder, "video-prompt.md")),
-                durationSeconds: Number(segmentDocument.data.durationSeconds) || 4,
+                durationSeconds: design.estimatedSeconds, videoModel: design.videoModel,
                 characterRefs: remapReferences("creative_assets", userId, projectId, references.characters),
                 sceneRefs: remapReferences("creative_assets", userId, projectId, references.locations),
                 propRefs: remapReferences("creative_assets", userId, projectId, references.props),
@@ -1075,7 +1082,7 @@ function reconcileProductions(userId: string, projectId: string, root: string, n
 }
 
 const segmentLinkKeys = ["continuationFromSegmentId", "transitionFromSegmentId", "transitionToSegmentId"];
-const segmentNarrativeKeys = ["segmentRanges", "referenceImages", "videoReferences", "sourceSceneId", "sourceBeatIds", "sourceDurationSeconds", "dramaticBeat", "openingState", "endingState", "boundary", "generationIntent", ...segmentLinkKeys, "h3VisualDescription", "h3Soundscape", "h3NonDiegeticMusic"];
+const segmentNarrativeKeys = ["segmentId", "referenceImages", "videoReferences", "sourceSceneId", "sourceBeatIds", "sourceDurationSeconds", "dramaticBeat", "openingState", "endingState", "boundary", "generationIntent", ...segmentLinkKeys, "h3VisualDescription", "h3Soundscape", "h3NonDiegeticMusic"];
 function segmentNarrativeMetadata(value: Record<string, unknown>, projectId?: string) {
     return Object.fromEntries(segmentNarrativeKeys.filter((key) => value[key] !== undefined).map((key) => [key, projectId && segmentLinkKeys.includes(key) ? directorExternalId(projectId, String(value[key])) : value[key]]));
 }
@@ -1168,6 +1175,7 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
             const parsed = matter(readFileSync(path, "utf8"));
             if (["AGENTS.md", "prompt.md", "video-prompt.md"].includes(basename(path)) || basename(path).startsWith("original.")) return;
             const entity = entitySchema.parse(parsed.data);
+            if (["character.md", "location.md", "prop.md"].includes(basename(path))) creativeAssetPayloadSchema.pick({ designProfile: true, mediaDrafts: true, dependencies: true }).partial().parse(parsed.data);
             if (entity.kind === "production-task") segmentFileSchema.parse(parsed.data);
             if (entity.kind === "segment-design") segmentDesignFileSchema.parse(parsed.data);
             documents.push({ path: rel, data: parsed.data as Record<string, unknown> });
@@ -1180,6 +1188,8 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
             const parsed = parsePrevis(JSON.parse(readFileSync(safeWorkspacePath(root, posixRelative(root, scenePath)), "utf8")), JSON.parse(readFileSync(path, "utf8")));
             const segment = matter(readFileSync(resolve(dirname(path), "segment.md"), "utf8"));
             if (parsed.plan.segmentId !== segment.data.id) throw new Error("预演所属分镜段不匹配");
+            const design = segmentDesignFileSchema.parse(segment.data);
+            if (Math.abs(parsed.plan.duration - design.estimatedSeconds) > 1e-6) throw new Error("预演时长必须等于完整分镜段时长");
         }, diagnostics, root, "PREVIS_INVALID");
         if (basename(path) === "timeline.json") validateParsed(path, () => {
             const timeline = timelineSchema.parse(JSON.parse(readFileSync(path, "utf8")));
@@ -1197,6 +1207,7 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
     const segmentOrders = new Map<string, Map<number, string>>();
     const documentPartOrders = new Map<string, Map<number, string>>([["story/chapters/", new Map()], ["screenplay/scenes/", new Map()]]);
     const variantMediaReady = new Map<string, boolean>();
+    const productionOwners = new Map<string, string>();
     for (const document of documents) {
         if (String(document.data.kind || "") !== "asset-variant") continue;
         const id = String(document.data.id || "");
@@ -1230,9 +1241,14 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
             } else diagnostics.push(diag("warning", "SHOT_SOURCE_PENDING", document.path, "镜头尚未关联来源场次与节拍，请在内容覆盖检查时补齐"));
         }
         if (kind !== "production-task") continue;
-        for (const shotId of ((document.data.segmentRanges || []) as Array<{ segmentId: string }>).map((range) => range.segmentId)) if (knownEntities.get(shotId)?.kind !== "segment-design") diagnostics.push(diag("error", "TASK_SHOT_MISSING", document.path, `任务引用的镜头不存在：${shotId}`));
-        const duration = Number(document.data.durationSeconds);
-        if (!Number.isFinite(duration) || duration <= 0) diagnostics.push(diag("error", "TASK_DURATION", document.path, "制作任务时长必须为正数"));
+        for (const shotId of [String(document.data.segmentId || "")]) if (knownEntities.get(shotId)?.kind !== "segment-design") diagnostics.push(diag("error", "TASK_SHOT_MISSING", document.path, `任务引用的镜头不存在：${shotId}`));
+        const targetId = String(document.data.segmentId || ""), target = knownEntities.get(targetId);
+        if (productionOwners.has(targetId)) diagnostics.push(diag("error", "DUPLICATE_SEGMENT_PRODUCTION", document.path, `分镜段已有制作记录：${productionOwners.get(targetId)}`));
+        else productionOwners.set(targetId, document.path);
+        if (target?.kind === "segment-design") {
+            const design = matter(readFileSync(resolve(root, target.path), "utf8")).data;
+            if (document.data.sequenceId !== design.sequenceId) diagnostics.push(diag("error", "TASK_SCENE_MISMATCH", document.path, "制作记录须与分镜段属于同一场景"));
+        }
         const sequenceId = String(document.data.sequenceId || "");
         if (knownEntities.get(sequenceId)?.kind !== "sequence") diagnostics.push(diag("error", "SEGMENT_SEQUENCE_MISSING", document.path, `视频段引用的剧情段落不存在：${sequenceId}`));
         const sequencePath = knownEntities.get(sequenceId)?.path;
@@ -1271,7 +1287,7 @@ export function validateDirectorRoot(root: string, scope = root): DirectorDiagno
         if (!selectedTasks.size) return;
         const selectedShots = new Set([...selectedTasks].flatMap((id) => {
             const task = knownEntities.get(id);
-            return task ? (matter(readFileSync(task.path, "utf8")).data.segmentRanges || []).map((range: { segmentId: string }) => range.segmentId) : [];
+            return task ? [matter(readFileSync(task.path, "utf8")).data.segmentId] : [];
         }));
         const covered = new Set([...selectedShots].flatMap((id) => {
             const shot = knownEntities.get(String(id));
@@ -1805,7 +1821,7 @@ function diag(severity: DirectorDiagnostic["severity"], code: string, path: stri
 function workspaceError(status: number, code: string, message: string, details?: unknown) { return Object.assign(new Error(message), { status, code, details }); }
 
 function projectAgents(title: string) {
-    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；场景、预演与时间线使用 JSON。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；导演规则首章“创作定位”概括题材、类型、基调、时代地域、目标观众与核心命题，不得另建重复文件；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；\`character.md\`、\`location.md\` 或 \`prop.md\` 是权威主档案。\n- 角色基础设计位于 \`identity/\`，场景与道具基础设计位于 \`design/\`；\`prompt.md\` 正文必须是可以原样发送给当前模型的完整最终提示词，程序不会再追加风格、版式、人物或参考用途说明。\n- 提示词采用的项目内参考图在 \`prompt.md\` Frontmatter 的 \`references\` 中逐项声明 \`path\`、\`purpose\` 和可选 \`label\`；用户上传的专属参考仍放在同目录 \`inputs/\`。程序只校验并原样提交这些显式输入，不自动选择风格板。\n- 当前主结果以 \`primary.*\` 命名；切换模型、视觉风格或素材身份后应先按对应 Skill 显式修订 \`prompt.md\`，不得依赖运行时隐藏拼接。\n- 角色声音位于 \`voice/\`，场景与道具声音位于 \`sound/\`；\`sound.md\` 正文是唯一声音提示词，试听文本和建议时长只写 Frontmatter，参考声音最多一个并命名为 \`reference.*\`，当前结果命名为 \`primary.*\`。\n- 每个生产变体位于 \`variants/var-NNN-slug/\`，必须包含带稳定 ID 的 \`variant.md\`、独立 \`prompt.md\`、可选 \`inputs/\` 和当前 \`primary.*\`；不得把多个变体压回主档或扁平媒体数组。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- v3 场景空间写 scenes/<场景>/scene.json，分镜段设计写其 segments/<段>/segment.md；每段包含多个连续镜头与完整时间预算，动作与摄影只写同目录 previs.json。稳定对象 ID 与 assetId 绑定身份，各段必须显式 initial，不依赖隐式继承。\n- 默认先完成粗模预演，图片缺失不阻塞；用户明确跳过时在 segment.md 设置 previsMode: skip。声明式数据由共享求值器播放，不写任意执行脚本。\n- 制作任务写 productions/<任务ID>/task.md，以 segmentRanges 声明覆盖段的 start/end 时间范围；videoReferences 显式引用当前来源 hash、同范围的导出视频和用途，预演默认静音。\n- 可选定妆帧在分镜段 look-frames/<ID>/，用 frame.json 记录时间、sourceHash、captureHash、captureId 与 useForVideo，prompt.md 原样提交、references 显式声明输入；提取图在 inputs/previs.png，用 inputs/capture.json 核对请求、版本、时刻与内容哈希；当前结果 primary.*。重绘失败保留旧图和来源版本。Codex 原生生图采用后将 sourceHash 更新为本次 captureHash，并调用 director_validate 登记。\n- 任务最终提示位于同目录 video-prompt.md，referenceImages 显式列出角色图与采用定妆帧；提交保存不可变输入快照，上游变化仅标记待检查，失败保留旧结果。\n- timeline/timeline.json 使用 videoClips，每个片段有独立 id、taskId、trimIn、trimOut、linkedAudio；允许重复来源，声音可独立跨画面编排。生成完成不自动入轨，计划镜头时点不能当作实际剪接点。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
+    return `# ${title}\n\n此目录是导演项目的唯一创作权威源。\n\n- 只使用项目内相对路径，不创建符号链接，不访问凭据、运行目录或其他项目。\n- Markdown 正文承载创作内容，必要元数据放 YAML Frontmatter；场景、预演与时间线使用 JSON。\n- ID 稳定，改名不得改变 ID 或目录 ID 前缀；依赖和并发以内容哈希为准，不手工递增 REV。\n- 故事在产品中是一份连续文档：\`story/index.md\` 只存总览和阅读顺序，正文按章写入 \`story/chapters/chapter-NNN.md\`。即使只有一章也不得把正文重复写入总览。\n- 剧本在产品中是一份连续文档：\`screenplay/index.md\` 只存总览和阅读顺序，正文按场写入 \`screenplay/scenes/scene-NNN.md\`。制作拆解单独写入 \`screenplay/breakdown/\`。\n- 章节和场次必须设置稳定 ID 与从 1 开始的唯一 \`order\`；增删或换序时同步更新总览，不复制正文。\n- 视觉风格和导演规则分别维护在 \`direction/visual-style.md\` 与 \`direction/directing-rules.md\`；导演规则首章“创作定位”概括题材、类型、基调、时代地域、目标观众与核心命题，不得另建重复文件；当前统一风格板位于 \`direction/references/style-board.*\`，并由视觉风格 Frontmatter 的 \`referenceBoard\` 相对路径引用，不得改用数据库文件 ID 或模板静态图代替。\n- 一个素材文件夹代表一个角色、场景或道具；\`character.md\`、\`location.md\` 或 \`prop.md\` 是权威主档案。主档 Frontmatter 的 dependencies 是对象，无依赖时省略或写 {}，不得写数组。\n- 角色基础设计位于 \`identity/\`，场景与道具基础设计位于 \`design/\`；\`prompt.md\` 正文必须是可以原样发送给当前模型的完整最终提示词，程序不会再追加风格、版式、人物或参考用途说明。\n- 提示词采用的项目内参考图在 \`prompt.md\` Frontmatter 的 \`references\` 中逐项声明 \`path\`、\`purpose\` 和可选 \`label\`；用户上传的专属参考仍放在同目录 \`inputs/\`。程序只校验并原样提交这些显式输入，不自动选择风格板。\n- 当前主结果以 \`primary.*\` 命名；切换模型、视觉风格或素材身份后应先按对应 Skill 显式修订 \`prompt.md\`，不得依赖运行时隐藏拼接。\n- 角色声音位于 \`voice/\`，场景与道具声音位于 \`sound/\`；\`sound.md\` 正文是唯一声音提示词，试听文本和建议时长只写 Frontmatter，参考声音最多一个并命名为 \`reference.*\`，当前结果命名为 \`primary.*\`。\n- 每个生产变体位于 \`variants/var-NNN-slug/\`，必须包含带稳定 ID 的 \`variant.md\`、独立 \`prompt.md\`、可选 \`inputs/\` 和当前 \`primary.*\`；不得把多个变体压回主档或扁平媒体数组。\n- 只有跨多个视频段持续存在或缺图会明显破坏连续性的变化才建立变体，不创建视角、服装和状态的排列组合。\n- v3 场景空间写 scenes/<场景>/scene.json，分镜段设计写其 segments/<段>/segment.md；完整戏由场景承载；分镜按当前 videoModel 时长窗口提前拆段，每段对应一次完整视频生成，可含多个短镜头，以 estimatedSeconds 定义整段时长，动作与摄影只写同目录 previs.json。稳定对象 ID 与 assetId 绑定身份，各段必须显式 initial，不依赖隐式继承。本段必要素材对象及采用变体在 segment.md 的 assetReferences: [{objectId, variantId?}] 声明；几何部件不要求独立生图，initial 不代表本段出场清单。\n- 默认先完成粗模预演，图片缺失不阻塞预演编排；授权定妆帧或视频样片时，先复用或补齐当前目标必要的素材图，不能将粗模当作角色身份依据，也不扩展为全剧全量生成。用户明确跳过时在 segment.md 设置 previsMode: skip。声明式数据由共享求值器播放，不写任意执行脚本。\n- 制作任务写 productions/<任务ID>/task.md，以唯一 segmentId 关联一个完整分镜段；不在 task.md 重复写时长或模型，不在制作阶段截取范围。videoReferences 显式引用当前来源 hash、整段 0–estimatedSeconds 的导出视频和用途，预演默认静音。\n- 可选定妆帧在分镜段 look-frames/<ID>/，用 frame.json 记录时间、sourceHash、captureHash、captureId 与 useForVideo，prompt.md 原样提交、references 显式声明输入；提取图在 inputs/previs.png，用 inputs/capture.json 核对请求、版本、时刻与内容哈希；当前结果 primary.*。重绘失败保留旧图和来源版本。Codex 原生生图采用后将 sourceHash 更新为本次 captureHash，并调用 director_validate 登记。\n- 任务最终提示位于同目录 video-prompt.md，referenceImages 显式列出角色图与采用定妆帧；提交保存不可变输入快照，上游变化仅标记待检查，失败保留旧结果。\n- timeline/timeline.json 使用 videoClips，每个片段有独立 id、taskId、trimIn、trimOut、linkedAudio；允许重复来源，声音可独立跨画面编排。生成完成不自动入轨，计划镜头时点不能当作实际剪接点。\n- 生成工具读取工作区相对路径中的提示词和媒体；任何付费媒体生成前先运行工程校验，存在 error 时先修复。\n- 删除或移动内容先放入 \`.trash/\`，不要永久删除。\n`;
 }
 
 export function readDirectorMusicPrompt(userId: string, projectId: string, promptPath: string, expectedHash: string) {

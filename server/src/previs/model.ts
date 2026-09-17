@@ -22,12 +22,13 @@ export const previsSchema = z.object({
     tracks: z.array(z.object({ objectId: id, keys: z.array(transform.extend({ time: number.min(0) })).min(1).max(2000) }).strict()).max(200).default([]),
     actions: z.array(z.object({
         id, objectId: id, kind: z.enum(["stand", "walk", "run", "turn", "look", "raise", "point", "hold", "give", "touch"]),
-        start: number.min(0), end: number.positive(), side: z.enum(["left", "right"]).default("right"), target: id.optional(),
+        start: number.min(0), end: number.positive(), phaseSeconds: number.min(0).optional(), side: z.enum(["left", "right"]).default("right"), target: id.optional(),
     }).strict()).max(2000).default([]),
     attachments: z.array(z.object({ time: number.min(0), objectId: id, parentId: id.nullable(), hand: z.enum(["left", "right"]).default("right"), offset: vec3.default([0, 0, 0]), position: vec3.optional() }).strict()).max(2000).default([]),
     shots: z.array(z.object({ id, name: z.string().min(1).max(200), start: number.min(0), end: number.positive(), keys: z.array(cameraKey).min(1).max(2000) }).strict()).min(1).max(200),
     dialogue: z.array(z.object({ id, objectId: id.optional(), start: number.min(0), end: number.positive(), text: z.string().max(4000) }).strict()).max(1000).default([]),
 }).strict();
+export type PrevisAssetReference = { objectIds: string[]; name: string; assetId?: string; variantId?: string; fileId?: string; status: "ready" | "unbound" | "missing-image"; reason?: string };
 export type PrevisScene = z.infer<typeof sceneSchema>;
 export type PrevisPlan = z.infer<typeof previsSchema>;
 export type Vec3 = z.infer<typeof vec3>;

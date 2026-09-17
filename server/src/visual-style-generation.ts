@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { createGeneration } from "./generation-service.js";
+import { buildVisualStyleBoardPrompt } from "./visual-style-contract.js";
 import { getVisualStyle } from "./visual-styles.js";
 import { listModelDefaults, listPublicModels } from "./provider-service.js";
 
@@ -22,13 +23,7 @@ export function createVisualStyleReferences(userId: string, styleId: string, raw
     return createGeneration(userId, {
         kind: "image",
         model: modelRef,
-        prompt: [
-            `为视觉风格「${style.name}」生成一张统一风格板。`,
-            style.description,
-            "只生成一个横版图片文件。画面自然分为左、中、右三个等宽区域：左侧是一名不对应任何项目角色的中性人物造型，中间是无人环境场景，右侧是一件中性道具。三个区域必须严格共享同一种媒介、渲染方式、色彩、光线、材质与后期语言，用于证明同一视觉风格可以覆盖角色、场景和道具。不要生成三张独立图片。",
-            "人物不得复用现实人物或项目角色身份；场景不得包含人物或剧情事件；道具不得带品牌。整张图无标题、无标签、无说明文字、无 UI、无 Logo、无水印，不使用对白气泡。",
-            `统一排除：${style.dna.exclusions.join("、") || "水印、Logo、文字、边框、UI、故事情节"}。`,
-        ].filter(Boolean).join("\n\n"),
+        prompt: buildVisualStyleBoardPrompt(style.name, style.description, style.dna),
         references: sourceReference,
         params: {
             size: "16:9",

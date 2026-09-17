@@ -7,13 +7,13 @@ import { segmentDesignFileSchema, segmentFileSchema, timelineFileSchema } from "
 
 const read = (path: string) => readFileSync(new URL(`./agent/scenes/director/skills/${path}`, import.meta.url), "utf8");
 const sample = () => JSON.parse(read("director-stage-previs/references/example.json"));
-const segment = () => ({ id: "task", kind: "production-task", sequenceId: "station", order: 1, durationSeconds: 8, segmentRanges: [{ segmentId: "meeting", start: 0, end: 8 }] });
+const segment = () => ({ id: "task", kind: "production-task", sequenceId: "station", order: 1, segmentId: "meeting" });
 const timeline = () => JSON.parse(read("director-arrange-timeline/references/timeline.json"));
 
 test("随 Skill 发布的完整样例符合实际文件契约", () => {
-    assert.equal(segmentFileSchema.parse(segment()).segmentRanges[0].segmentId, "meeting");
+    assert.equal(segmentFileSchema.parse(segment()).segmentId, "meeting");
     const { scene, plan } = sample();
-    assert.equal(parsePrevis(scene, plan).plan.duration, 24);
+    assert.equal(parsePrevis(scene, plan).plan.duration, 12);
     assert.equal(timelineFileSchema.parse(timeline()).tracks?.[0].clips[0].duration, 6);
 });
 
@@ -46,9 +46,13 @@ test("时间线保留淡入淡出并拒绝越界包络", () => {
     }
 });
 
- test("分镜段时间预算独立于生成窗口，预演默认必需", () => {
-    assert.equal(segmentDesignFileSchema.parse({ id: "long", kind: "segment-design", name: "长镜头", sequenceId: "scene", order: 1, estimatedSeconds: 120 }).estimatedSeconds, 120);
-    assert.equal(segmentFileSchema.parse({ ...segment(), durationSeconds: 120 }).durationSeconds, 120);
-    assert.equal(segmentDesignFileSchema.parse({ id: "s", kind: "segment-design", name: "段", sequenceId: "scene", order: 1 }).previsMode, "required");
+test("分镜按模型窗口拆段，制作只关联完整段", () => {
+    const design = { id: "s", kind: "segment-design", name: "段", sequenceId: "scene", order: 1, estimatedSeconds: 8 };
+    assert.equal(segmentDesignFileSchema.parse(design).previsMode, "required");
+    for (const estimatedSeconds of [0, 3.9, 15.1, 120]) assert.equal(segmentDesignFileSchema.safeParse({ ...design, estimatedSeconds }).success, false);
+    for (const estimatedSeconds of [4, 8, 15]) assert.equal(segmentDesignFileSchema.safeParse({ ...design, estimatedSeconds }).success, true);
+    assert.equal(segmentDesignFileSchema.safeParse({ ...design, videoModel: "unknown" }).success, false);
+    assert.equal(segmentFileSchema.safeParse({ ...segment(), segmentId: undefined }).success, false);
     assert.equal(segmentFileSchema.safeParse({ ...segment(), segmentRanges: [] }).success, false);
+    assert.equal(segmentFileSchema.safeParse({ ...segment(), durationSeconds: 8 }).success, false);
 });

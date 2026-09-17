@@ -39,7 +39,7 @@ export const agentApi = {
     events: (id: string, beforeSeq: number, limit = 500) => serverRequest<AgentEvent[]>(`/agent/sessions/${encodeURIComponent(id)}/events?beforeSeq=${beforeSeq}&limit=${limit}`),
     turnIndex: (id: string) => serverRequest<AgentTurnIndexItem[]>(`/agent/sessions/${encodeURIComponent(id)}/turn-index`),
     queued: (id: string) => serverRequest<AgentQueuedMessage[]>(`/agent/sessions/${encodeURIComponent(id)}/queued-messages`),
-    createSession: (projectId: string, engine: AgentEngine = "builtin") => serverRequest<AgentSession>(`/agent/projects/${encodeURIComponent(projectId)}/sessions`, { method: "POST", body: JSON.stringify({ engine }) }),
+    createSession: (projectId: string, engine: AgentEngine = "codex") => serverRequest<AgentSession>(`/agent/projects/${encodeURIComponent(projectId)}/sessions`, { method: "POST", body: JSON.stringify({ engine }) }),
     send: (projectId: string, input: Record<string, unknown>) => serverRequest<AgentConversation>(`/agent/projects/${encodeURIComponent(projectId)}/messages`, { method: "POST", body: JSON.stringify(input) }),
     steerQueued: (sessionId: string, messageId: string) => serverRequest<AgentConversation>(`/agent/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}/steer`, { method: "POST" }),
     retryQueued: (sessionId: string, messageId: string) => serverRequest<AgentQueuedMessage[]>(`/agent/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}/retry`, { method: "POST" }),

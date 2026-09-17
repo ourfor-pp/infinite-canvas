@@ -11,7 +11,7 @@ vi.mock("./codex-model-picker", () => ({ CodexModelPicker: () => null }));
 vi.mock("./agent-draft-storage", () => ({ agentDraftStorage: { get: async () => ({ version: 1, document: { version: 1, segments: [{ type: "text", text: "尚未发送的草稿" }] }, attachments: [], followUpMode: "steer" }), set: async () => {}, remove: async () => {} } }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("画布 Codex 会话重新检查就绪状态，恢复发送按钮并保留草稿", async () => {
+it.each([true, false])("画布默认 Codex 检查就绪状态并保留草稿（已有会话：%s）", async (hasSession) => {
     const scrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
     Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: vi.fn() });
     vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
@@ -23,7 +23,8 @@ it("画布 Codex 会话重新检查就绪状态，恢复发送按钮并保留草
     vi.spyOn(agentApi, "references").mockResolvedValue([]);
     vi.spyOn(agentApi, "turnIndex").mockResolvedValue([]);
     const session = { id: "codex-readiness", projectId: "canvas-readiness", engine: "codex", title: "Codex", status: "idle", eventSeq: 0, pendingDecision: null, events: [] } as unknown as Awaited<ReturnType<typeof agentApi.conversation>>["session"];
-    vi.spyOn(agentApi, "conversation").mockResolvedValue({ projectId: "canvas-readiness", session, sessions: [session!], queuedMessages: [] });
+    vi.spyOn(agentApi, "createSession").mockResolvedValue(session!);
+    vi.spyOn(agentApi, "conversation").mockResolvedValue({ projectId: "canvas-readiness", session: hasSession ? session : null, sessions: hasSession ? [session!] : [], queuedMessages: [] });
     const holder = document.createElement("div"); document.body.append(holder); const root = createRoot(holder);
     try {
         await act(async () => root.render(<MemoryRouter><App><LocalAgentPanel projectId="canvas-readiness" /></App></MemoryRouter>));

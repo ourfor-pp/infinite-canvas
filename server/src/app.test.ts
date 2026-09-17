@@ -219,9 +219,9 @@ test("导演项目隔离、长篇分块、阶段确认与过期依赖", async ()
     const promptSegment = orderedState.body.data.videoSegments[1];
     const framingPreflightResponse = await api(`/director/production-tasks/${promptSegment.id}/preflight`, userOne);
     assert.ok(Array.isArray(framingPreflightResponse.body.data.blockedReasons), "异步预检返回实际预检内容");
-    const promptView = listDirectorVideoSegments(userOne["X-Trim-Userid"], projectId, { sequenceId: laterSequence.body.data.id, view: "prompt" }) as unknown as { items: Array<{ payload: { segmentRanges: unknown[]; storyboardSheet?: unknown } }> };
+    const promptView = listDirectorVideoSegments(userOne["X-Trim-Userid"], projectId, { sequenceId: laterSequence.body.data.id, view: "prompt" }) as unknown as { items: Array<{ payload: { segmentId: string; storyboardSheet?: unknown } }> };
     assert.equal(promptView.items[0].payload.storyboardSheet, undefined);
-    assert.equal(promptView.items[0].payload.segmentRanges.length, 1);
+    assert.ok(promptView.items[0].payload.segmentId);
     const removed = await api(`/director/production-tasks/${segment.body.data.id}/storyboard/generate`, userOne, { method: "POST", body: JSON.stringify({ revision: 1 }) });
     assert.equal(removed.response.status, 404);
     const directorStyle = await api(`/projects/${projectId}/visual-styles`, userOne, { method: "POST", body: JSON.stringify({ name: "雨夜冷调", mode: "custom", description: "冷灰雨夜电影风格" }) });
@@ -1044,7 +1044,7 @@ test("导演原生状态绑定来源并拒绝过期、篡改及跨用户续接",
     assert.equal((await api(`/director/projects/${projectId}`, userOne)).response.status, 200);
     db.prepare("INSERT INTO director_sequences(id,user_id,project_id,position,title,created_at,updated_at) VALUES(?,?,?,0,'场次',?,?)").run("h3-binding-sequence", userId, projectId, now, now);
     await stagingFixture(userId, projectId, "h3-binding-sequence", "h3-design");
-    const initialPayload = { durationSeconds: 4, videoGenerationId: generationId, segmentRanges: [{ segmentId: "h3-design", start: 0, end: 4 }] };
+    const initialPayload = { durationSeconds: 4, videoGenerationId: generationId, segmentId: "h3-design" };
     db.prepare("INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,payload,created_at,updated_at) VALUES(?,?,?,'h3-binding-sequence',0,'片段',?,?,?)").run(segmentId, userId, projectId, JSON.stringify(initialPayload), now, now);
     const sourcePath = join(testData, "h3-source.mp4"), statePath = join(testData, "h3-state.safetensors");
     await promisify(execFileCallback)("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=64x64:r=24", "-f", "lavfi", "-i", "anullsrc=r=32000:cl=stereo", "-vf", "drawbox=color=white:t=fill:enable='eq(n,106)'", "-frames:v", "107", "-t", String(107 / 24), "-c:v", "libx264", "-c:a", "aac", sourcePath]);
@@ -1214,7 +1214,7 @@ test("导演显式原声编排保留刷新及混音音量", async () => {
         const segmentId = `native-audio-${suffix}`, sequenceId = `native-sequence-${suffix}`, generationId = `native-audio-generation-${suffix}`;
         db.prepare("INSERT INTO director_sequences(id,user_id,project_id,position,title,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").run(sequenceId, userId, projectId, position, "场次", now, now);
         await stagingFixture(userId, projectId, sequenceId, `${segmentId}-design`);
-        db.prepare("INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,payload,created_at,updated_at) VALUES(?,?,?,?,0,'片段',?,?,?)").run(segmentId, userId, projectId, sequenceId, JSON.stringify({ durationSeconds: 4, videoGenerationId: generationId, segmentRanges: [{ segmentId: `${segmentId}-design`, start: 0, end: 4 }] }), now, now);
+        db.prepare("INSERT INTO director_shots(id,user_id,project_id,sequence_id,position,title,payload,created_at,updated_at) VALUES(?,?,?,?,0,'片段',?,?,?)").run(segmentId, userId, projectId, sequenceId, JSON.stringify({ durationSeconds: 4, videoGenerationId: generationId, segmentId: `${segmentId}-design` }), now, now);
         db.prepare("INSERT INTO generations(id,user_id,kind,status,model_id,request,result,created_at,updated_at) VALUES(?,?,'video','succeeded','test',?,?,?,?)").run(generationId, userId, JSON.stringify({ metadata: { directorSegment: { projectId, segmentId } } }), JSON.stringify({ files: [video] }), now, now);
         // These fixtures model production entities, whose files exist before the
         // asynchronous generation callback yields to the workspace watcher.
@@ -1538,7 +1538,7 @@ async function taskFixture(path: string, headers: Record<string, string>, init: 
     const id = `fixture-segment-${++fixtureSegmentNumber}`;
     const result = await api(path.replace(/production-tasks$/, "segments"), headers, { method: "PUT", body: JSON.stringify({ design: { id, kind: "segment-design", name: task.title, sequenceId: task.sequenceId, order: fixtureSegmentNumber, estimatedSeconds: task.payload?.durationSeconds || 4, previsMode: "skip", sourceSceneId: task.payload?.sourceSceneId, sourceBeatIds: task.payload?.sourceBeatIds || [] }, hash: "", content: "独立 API 回归所需分镜段" }) });
     assert.equal(result.response.status, 200, JSON.stringify(result.body));
-    task.payload = { ...task.payload, segmentRanges: [{ segmentId: id, start: 0, end: task.payload?.durationSeconds || 4 }] };
+    task.payload = { ...task.payload, segmentId: id };
     return api(path, headers, { ...init, body: JSON.stringify(task) });
 }
 

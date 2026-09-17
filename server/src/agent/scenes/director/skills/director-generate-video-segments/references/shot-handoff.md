@@ -1,11 +1,11 @@
 # 分镜段到制作任务
 
-分镜段定义完整表演与多个机位；任务以 `segmentRanges: [{segmentId,start,end}]` 明确本次覆盖的段内范围；时间线定义实际采用的素材时间。三种时间不能混用。
+完整戏由场景承载，分镜阶段按当前模型能力提前拆段；每段可含多个镜头，制作记录以唯一 `segmentId` 关联一整个分镜段；时间线定义实际采用的素材时间。三种时间不能混用。
 
-默认先导出相应范围的预演视频，保存导出 `.mp4` 与同名 `.json`。`videoReferences` 显式记录 `path/purpose/includeAudio:false/segmentId/sourceHash/start/end`。来源或范围改变时重新导出，不复用旧视频冒充当前预演。明确跳过的分镜段才允许仅用文字和其他参考制作。
+默认先导出该分镜段 0–estimatedSeconds 的完整预演视频，保存导出 `.mp4` 与同名 `.json`。`videoReferences` 显式记录 `path/purpose/includeAudio:false/segmentId/sourceHash/start/end`。来源或范围改变时重新导出，不复用旧视频冒充当前预演。明确跳过的分镜段才允许仅用文字和其他参考制作。
 
-`task.md` 保存时长、范围、输入与依赖，`video-prompt.md` 保存原样提交的正文。预演、角色、定妆帧与音频分别按预检列出的顺序编号；定妆帧只有 useForVideo:true 时才能加入 referenceImages。H3 规则只查统一 media-generation Skill，不混入预演格式。
+`segment.md` 保存唯一的 estimatedSeconds 与 videoModel；`task.md` 只保存 segmentId、输入与依赖，不重复保存时长或模型，`video-prompt.md` 保存原样提交的正文。预演、角色、定妆帧与音频分别按预检列出的顺序编号；定妆帧只有 useForVideo:true 时才能加入 referenceImages。H3 规则只查统一 media-generation Skill，不混入预演格式。
 
-一个超过模型窗口的分镜段拆成多个制作任务，每个任务保留准确覆盖范围。单次预检返回实际帧数与时长，必要时明确调整划分，不能静默裁切动作。原生续接沿用当前上游状态和配方，不混用基础版与加速版状态。
+超过模型窗口时回到分镜，按动作、对白和切镜落点重编成多个完整段，并维护各段初始状态和衔接；不在制作阶段截取或拉伸。单次预检返回实际帧数与时长，不满足整段预算时拒绝提交。原生续接沿用当前上游状态和配方，不混用基础版与加速版状态。
 
 提交固定提示、预演和媒体快照。上游变化只标记关联结果待检查；生成失败保留旧结果。实际检查身份、动作、切镜、声音与可用入出点后才编排时间线，任务成功不等于质量验收。

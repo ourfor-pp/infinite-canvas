@@ -177,8 +177,8 @@ export type DirectorVideoSegment = {
         characterRefs?: DirectorAssetRef[];
         sceneRefs?: DirectorAssetRef[];
         propRefs?: DirectorAssetRef[];
-        segmentIds?: string[];
-        segmentRanges?: Array<{ segmentId: string; start: number; end: number }>;
+        segmentId?: string;
+        videoModel?: string;
         videoReferences?: Array<{ path: string; purpose: string; includeAudio: boolean }>;
         videoInputSnapshot?: DirectorH3PromptSnapshot;
         actualFirstFrameFileId?: string;
@@ -210,7 +210,7 @@ export type DirectorVideoSegment = {
 
 export type DirectorVideoSegmentPreflight = { guideFraming?: { input: { width: number; height: number }; target: { width: number; height: number }; crop: { x: number; y: number; width: number; height: number } }; plan?: { capabilityVersion: string; mode: string; recipe?: string; seed: number; width?: number; height?: number; outputFrames?: number; outputSeconds?: number; overlapFrames?: number }; storyboardFileId?: string; transitionInputs?: { firstFrameFileId?: string; lastFrameFileId?: string }; selected: Array<{ fileId: string; name: string; purpose: "主角色" | "出镜角色" | "场景" | "关键道具" | "视觉风格"; assetId?: string }>; omitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoSelected: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; videoOmitted: Array<{ fileId: string; name: string; purpose: string; assetId?: string }>; assetBlockedReasons: string[]; promptValidation: { blockedReasons: string[]; warnings: string[] }; blockedReasons: string[]; warnings: string[]; route: { mode: H3GenerationMode; reason: string }; capabilities: { turboPreview: boolean; nativeState: boolean } };
 export type DirectorEditClip = { id: string; taskId: string; trimIn: number; trimOut: number; linkedAudio: boolean };
-export type DirectorSegmentPlan = { previsMode: "required" | "skip"; id: string; kind: "segment-design"; name: string; sequenceId: string; order: number; sourceSceneId?: string; sourceBeatIds: string[]; estimatedSeconds?: number; purpose: string; staging: string; camera: string; action: string; dialogue: string; sound: string; openingState: string; endingState: string; connection: string; referenceImages: string[]; content: string; path?: string; hash: string; revision?: number };
+export type DirectorSegmentPlan = { previsMode: "required" | "skip"; id: string; kind: "segment-design"; name: string; sequenceId: string; order: number; sourceSceneId?: string; sourceBeatIds: string[]; estimatedSeconds: number; videoModel: string; videoLimits?: { min: number; max: number }; purpose: string; staging: string; camera: string; action: string; dialogue: string; sound: string; openingState: string; endingState: string; connection: string; referenceImages: string[]; content: string; path?: string; hash: string; revision?: number };
 export type DirectorTimelineClip = { id: string; taskId?: string; fadeIn?: number; fadeOut?: number; segmentId?: string; fileId?: string; start: number; duration: number; trimIn?: number; trimOut?: number; volume?: number; muted?: boolean; loop?: boolean };
 export type DirectorTimeline = {
     projectId: string;

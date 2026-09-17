@@ -79,7 +79,7 @@ export function createPrevisRenderer(canvas: HTMLCanvasElement, data: { scene: P
         }
         for (const action of state.actions) {
             const rig = rigs.get(action.objectId)!;
-            const phase = state.time - action.start;
+            const phase = state.time - action.start + (action.phaseSeconds || 0);
             if (action.kind === "walk" || action.kind === "run") {
                 const swing = Math.sin(phase * (action.kind === "run" ? 14 : 9)) * (action.kind === "run" ? .75 : .4);
                 rig.legs.forEach((leg, i) => { leg.rotation.x = swing * (i % 2 ? -1 : 1); });
@@ -89,7 +89,7 @@ export function createPrevisRenderer(canvas: HTMLCanvasElement, data: { scene: P
         world.updateMatrixWorld(true);
         for (const action of state.actions) {
             const rig = rigs.get(action.objectId)!, arm = rig.arms[action.side];
-            if (action.kind === "raise") arm.rotation.z = (action.side === "left" ? 1 : -1) * 2.7 * T.MathUtils.smoothstep(state.time - action.start, 0, Math.min(.5, action.end - action.start));
+            if (action.kind === "raise") arm.rotation.z = (action.side === "left" ? 1 : -1) * 2.7 * T.MathUtils.smoothstep(state.time - action.start + (action.phaseSeconds || 0), 0, Math.min(.5, action.end - action.start + (action.phaseSeconds || 0)));
             if (action.kind === "hold") arm.rotation.x = -1.3;
             if (action.target && ["look", "point", "touch", "give"].includes(action.kind)) {
                 const target = rigs.get(action.target)!, targetObject = data.scene.objects.find((o) => o.id === action.target)!;

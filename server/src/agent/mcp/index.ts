@@ -292,11 +292,11 @@ export function buildAgentToolDefinitions(
           (input) => trashDirectorProjectPath(run.userId, projectId, String((input as { path: string }).path)),
         ),
         call("director_read_segments", "分页读取分镜段设计与文件 hash；每段可包含多个镜头，时长独立于单次生成窗口。", { offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(20).default(10) }, (input) => { const value = input as { offset: number; limit: number }; return listDirectorSegmentPlans(run.userId, projectId, value.offset, value.limit); }),
-        call("director_read_previs", "按字段与分页读取当前分镜段预演、诊断和版本；修改使用工程文件，完成后校验。", { segmentId: z.string(), section: z.enum(["summary", "objects", "shots", "tracks", "actions", "attachments", "dialogue", "lookFrames"]).default("summary"), offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(20).default(10) }, (input) => {
+        call("director_read_previs", "按字段与分页读取当前分镜段预演、诊断和版本；修改使用工程文件，完成后校验。", { segmentId: z.string(), section: z.enum(["summary", "objects", "shots", "tracks", "actions", "attachments", "dialogue", "lookFrames", "assetReferences"]).default("summary"), offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(20).default(10) }, (input) => {
             const value = input as { segmentId: string; section: string; offset: number; limit: number }, state = readDirectorPrevis(run.userId, projectId, value.segmentId);
             const common = { segmentId: value.segmentId, hash: state.hash, aspectRatio: state.aspectRatio, previsMode: state.previsMode, diagnostics: state.diagnostics, duration: state.plan?.duration };
-            if (value.section === "summary") return { ...common, counts: { objects: state.scene?.objects.length || 0, shots: state.plan?.shots.length || 0, actions: state.plan?.actions.length || 0, lookFrames: state.lookFrames.length } };
-            const items = value.section === "objects" ? (state.scene?.objects || []).map((object: { id: string }) => ({ ...object, initial: state.plan?.initial[object.id] })) : value.section === "lookFrames" ? state.lookFrames : state.plan?.[value.section] || [];
+            if (value.section === "summary") return { ...common, counts: { objects: state.scene?.objects.length || 0, shots: state.plan?.shots.length || 0, actions: state.plan?.actions.length || 0, lookFrames: state.lookFrames.length, assetReferences: state.assetReferences.length } };
+            const items = value.section === "assetReferences" ? state.assetReferences : value.section === "objects" ? (state.scene?.objects || []).map((object: { id: string }) => ({ ...object, initial: state.plan?.initial[object.id] })) : value.section === "lookFrames" ? state.lookFrames : state.plan?.[value.section] || [];
             return { ...common, total: items.length, offset: value.offset, items: items.slice(value.offset, value.offset + value.limit) };
         }),
         call("director_render_previs", "导出明确时间范围的静音预演视频，返回持久任务；不能把成功导出当作生成成片。", { segmentId: z.string(), expectedHash: z.string(), start: z.number().nonnegative().default(0), end: z.number().positive().optional() }, (input) => { const { segmentId, ...request } = input as { segmentId: string; expectedHash: string }; return createPrevisRender(run.userId, projectId, segmentId, request); }),
@@ -518,7 +518,7 @@ export function buildAgentToolDefinitions(
 
         call(
           "director_preflight_tasks",
-          "只读校验制作任务的实际模型时长窗口、显式输入、最终提示与续接状态；按 segmentRanges 与预演导出范围核对，不静默拉伸或截断剧情。",
+          "只读校验制作任务的实际模型时长窗口、显式输入、最终提示与续接状态；按 segmentId 与整段预演导出核对，不静默拉伸或截断剧情。",
           { ...(engine === "codex" ? {} : { segmentIds: z.array(z.string().min(1)).min(1).max(100).optional() }), taskPaths: z.array(z.string().min(1)).min(1).max(100).optional() },
           async (input) => {
             reconcileDirectorProjectFiles(run.userId, projectId);

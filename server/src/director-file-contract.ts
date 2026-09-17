@@ -1,14 +1,14 @@
 import { z } from "zod";
+import { defaultDirectorVideoModel, validateDirectorSegmentDuration } from "./director-video-plan.js";
 import { h3AudioReferenceInput } from "./h3-prompt.js";
 
 export const projectMediaPath = z.string().min(1).refine((path) => !path.startsWith("/") && !path.includes("\\") && !path.split("/").some((part) => !part || part === "." || part === "..") && !/^[a-z]+:/i.test(path), "必须使用工程根目录内的相对文件路径");
 const id = z.string().regex(/^[a-zA-Z0-9_-]+$/).max(128);
 const reference = z.union([id, z.object({ id, variantId: id.optional() }).passthrough()]);
-export const segmentRangeSchema = z.object({ segmentId: id, start: z.number().nonnegative(), end: z.number().positive() }).strict().refine((range) => range.end > range.start, "制作范围结束时间必须晚于开始时间");
 export const videoReferenceSchema = z.object({ path: projectMediaPath, purpose: z.string().min(1), sourceHash: z.string().optional(), segmentId: id.optional(), start: z.number().nonnegative().optional(), end: z.number().positive().optional(), includeAudio: z.boolean().default(false) }).strict();
 export const segmentFileSchema = z.object({
-    id, kind: z.literal("production-task"), sequenceId: id, order: z.number().int().positive(), durationSeconds: z.number().positive(),
-    segmentRanges: z.array(segmentRangeSchema).min(1), referenceImages: z.array(projectMediaPath).default([]), videoReferences: z.array(videoReferenceSchema).max(3).default([]),
+    id, kind: z.literal("production-task"), sequenceId: id, order: z.number().int().positive(), durationSeconds: z.never().optional(), videoModel: z.never().optional(),
+    segmentId: id, segmentRanges: z.never().optional(), segmentIds: z.never().optional(), referenceImages: z.array(projectMediaPath).default([]), videoReferences: z.array(videoReferenceSchema).max(3).default([]),
     sourceSceneId: id.optional(), sourceBeatIds: z.array(id).optional(), sourceDurationSeconds: z.number().positive().optional(),
     dramaticBeat: z.string().optional(), openingState: z.string().optional(), endingState: z.string().optional(),
     boundary: z.enum(["cut", "continue"]).optional(), continuationFromSegmentId: id.optional(),
@@ -48,12 +48,15 @@ export const screenplayReviewIssue = z.object({
 
 export const segmentDesignFileSchema = z.object({
     id, kind: z.literal("segment-design"), name: z.string().min(1), sequenceId: id, order: z.number().int().positive(),
-    sourceSceneId: id.optional(), sourceBeatIds: z.array(id).default([]), estimatedSeconds: z.number().positive().optional(),
+    sourceSceneId: id.optional(), sourceBeatIds: z.array(id).default([]), estimatedSeconds: z.number().positive(), videoModel: z.string().default(defaultDirectorVideoModel),
     purpose: z.string().default(""), staging: z.string().default(""), camera: z.string().default(""),
     action: z.string().default(""), dialogue: z.string().default(""), sound: z.string().default(""),
     openingState: z.string().default(""), endingState: z.string().default(""), connection: z.string().default(""),
     referenceImages: z.array(projectMediaPath).default([]), previsMode: z.enum(["required", "skip"]).default("required"),
-}).passthrough();
+    assetReferences: z.array(z.object({ objectId: id, variantId: id.optional() }).strict()).max(200).optional(),
+}).passthrough().superRefine((value, ctx) => {
+    try { validateDirectorSegmentDuration(value.estimatedSeconds, value.videoModel); } catch (error) { ctx.addIssue({ code: "custom", path: ["estimatedSeconds"], message: (error as Error).message }); }
+});
 export type ShotDesignFile = z.infer<typeof segmentDesignFileSchema>;
 export type ProductionTaskFile = z.infer<typeof segmentFileSchema>;
 export type DirectorEdit = z.infer<typeof timelineFileSchema>;

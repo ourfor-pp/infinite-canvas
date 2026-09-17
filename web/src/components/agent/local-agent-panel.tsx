@@ -113,14 +113,14 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
     const lastStreamEventAtRef = useRef(Date.now());
     const reconcilingRef = useRef(false);
     const staleSkillWarningRef = useRef("");
-    const engineState = capabilities?.engines?.find((item) => item.id === (session?.engine || "builtin"));
+    const engineState = capabilities?.engines?.find((item) => item.id === (session?.engine || "codex"));
     const busy = session?.status === "running" || session?.status === "waiting_for_user";
     eventsRef.current = events;
     const eventKey = `${pendingMessage?.event.payload.clientMessageId || ""}:${events.at(-1)?.seq || 0}:${String(events.at(-1)?.payload?.text || "").length}:${events.length}`;
     const { scrollRef, atBottomRef, showBottom: showScrollBottom, unread: unreadCount, onScroll: updateScroll, scrollBottom, preserveBeforePrepend, restoreAfterPrepend, beforeCollapse } = useAgentScroll({ sessionId: session?.id, eventKey, contentRef });
 
     useEffect(() => {
-        if ((capabilities?.sceneId !== "director" && session?.engine !== "codex") || busy) return;
+        if ((capabilities?.sceneId !== "director" && (session?.engine || "codex") !== "codex") || busy) return;
         let disposed = false;
         let pending = false;
         const refresh = async () => {
@@ -402,7 +402,7 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
         }
     };
 
-    const newSession = async (engine: AgentEngine = "builtin") => {
+    const newSession = async (engine: AgentEngine = "codex") => {
         try {
             const created = await agentApi.createSession(projectId, engine);
             setConversation((current) => current ? { ...current, sessions: [created, ...current.sessions], session: created } : current);
@@ -546,7 +546,7 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
                     </button>
                 </div>
                 {session?.engine === "codex" ? <span className="text-xs opacity-50">Codex</span> : null}
-                {capabilities?.engines?.some((item) => item.id === "codex") ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "builtin", label: "新建内置 Agent 对话" }, { key: "codex", label: "新建 Codex 对话" }], onClick: ({ key }) => void newSession(key as AgentEngine) }}><Button type="text" shape="circle" aria-label="选择引擎新建会话" icon={<Plus className="size-4" />} disabled={busy} /></Dropdown> : <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={() => void newSession()} disabled={busy} /></Tooltip>}
+                {capabilities?.engines?.some((item) => item.id === "codex") ? <Dropdown trigger={["click"]} menu={{ items: [{ key: "codex", label: "新建 Codex 对话（默认）" }, { key: "builtin", label: "新建内置 Agent 对话" }], onClick: ({ key }) => void newSession(key as AgentEngine) }}><Button type="text" shape="circle" aria-label="选择引擎新建会话" icon={<Plus className="size-4" />} disabled={busy} /></Dropdown> : <Tooltip title="新建会话"><Button type="text" shape="circle" icon={<Plus className="size-4" />} onClick={() => void newSession()} disabled={busy} /></Tooltip>}
                 <Tooltip title="历史会话"><Button type="text" shape="circle" icon={<History className="size-4" />} onClick={() => setHistoryOpen(true)} /></Tooltip>
             </header>
 
