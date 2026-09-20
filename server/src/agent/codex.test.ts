@@ -249,6 +249,14 @@ test("Codex 移除四项重复 MCP，内置 Agent 保留；同步 Skill 只引�
     }
     const mediaSkill = join(root, ".agents", "skills", "media-generation");
     for (const reference of ["h3.md", "music3.md", "official-h3-prompt.md"]) assert.ok(existsSync(join(mediaSkill, "references", reference)));
+    const { config } = await import("../config.js");
+    for (const engine of ["builtin", "codex"] as const) {
+        syncBuiltInAgentSkills(root, sceneSkillIds(agentScenes.director), engine);
+        const destination = join(root, engine === "codex" ? ".agents" : ".claude", "skills", "media-generation", "references");
+        for (const reference of ["h3-motion.md", "official-h3/upstream-skill.md", "official-h3/references/base-en.txt", "official-h3/references/ref-en.txt"]) {
+            assert.deepEqual(readFileSync(join(destination, reference)), readFileSync(join(config.mediaCapabilitySkillsDir, "media-generation", "references", reference)));
+        }
+    }
     assert.match(readFileSync(join(mediaSkill, "SKILL.md"), "utf8"), /media_list_capabilities/);
 
     for (const id of sceneSkillIds(agentScenes.director)) {

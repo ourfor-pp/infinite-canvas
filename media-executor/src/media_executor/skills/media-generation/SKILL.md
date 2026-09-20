@@ -14,7 +14,7 @@ allowed-tools: [mcp__infinite_canvas__media_list_capabilities, mcp__infinite_can
 
 | 能力 | 服务实现 | 需要读取的说明 |
 | --- | --- | --- |
-| 参考视频生成、首尾帧、时间锚点、原生续接 | H3 | [视频输入与提示](references/h3.md)，其中链接官方提示规则 |
+| 参考视频生成、首尾帧、时间锚点、原生续接 | H3 | [视频输入与提示](references/h3.md)；编写或重做前读取其链接的完整官方指南与示例、动作与参考检查，不能沿用旧摘要 |
 | 文本生成音乐 | Music3 | [音乐输入与提示](references/music3.md) |
 | 音色设计、固定音色合成与参考克隆 | Qwen TTS | [Qwen 音色设计与复用](references/qwen.md)；按模式校验参数，Base 不接受情绪或语速指令 |
 | 普通语音与声音克隆 | VoxCPM2 | [离线转写和 VoxCPM2](references/audio.md)；归一化、参考降噪及极致克隆参数 |

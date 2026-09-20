@@ -4,6 +4,8 @@
 
 默认先导出该分镜段 0–estimatedSeconds 的完整预演视频，保存导出 `.mp4` 与同名 `.json`。`videoReferences` 显式记录 `path/purpose/includeAudio:false/segmentId/sourceHash/start/end`。来源或范围改变时重新导出，不复用旧视频冒充当前预演。明确跳过的分镜段才允许仅用文字和其他参考制作。
 
+查看实际导出视频后，在 purpose、提示定义与 retention 中一致说明预演保留的空间、机位、切点和节奏。代理动作不等于成片运动：动物或精细接触动作由当前段的具体表演描述承载，不要求模型照搬人形动作；预演本身存在冲突时先修订与重导出，不能仅加否定句掩盖。
+
 `segment.md` 保存唯一的 estimatedSeconds 与 videoModel；`task.md` 只保存 segmentId、输入与依赖，不重复保存时长或模型，`video-prompt.md` 保存原样提交的正文。预演、角色、定妆帧与音频分别按预检列出的顺序编号；定妆帧只有 useForVideo:true 时才能加入 referenceImages。H3 规则只查统一 media-generation Skill，不混入预演格式。
 
 超过模型窗口时回到分镜，按动作、对白和切镜落点重编成多个完整段，并维护各段初始状态和衔接；不在制作阶段截取或拉伸。单次预检返回实际帧数与时长，不满足整段预算时拒绝提交。原生续接沿用当前上游状态和配方，不混用基础版与加速版状态。

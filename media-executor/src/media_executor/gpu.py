@@ -89,7 +89,7 @@ class Scheduler:
             candidates = [name for name, state in states.items() if name != target and not state.get("busy") and (state.get("loaded") or any(memory.processes.get(pid, 0) for pid in state.get("pids", [])))]
             candidates.sort(key=lambda name: used.get(name, 0))
             must_evict = (force or row is None) and any(name not in evicted for name in candidates)
-            busy = [name for name, state in states.items() if state.get("busy")]
+            busy = [name for name, state in states.items() if name != target and state.get("busy")]
             report({"phase": "reclaiming" if memory.free < required or must_evict else "loading", "freeBytes": memory.free,
                     "requiredBytes": required, "foreignBytes": foreign, "profileKnown": row is not None, "events": events})
             if memory.free >= required and not must_evict and not busy:
