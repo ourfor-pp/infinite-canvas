@@ -102,7 +102,8 @@ export function validateGenerationRequest(userId: string, input: AiGenerationReq
         if (!selection.model.inputs.includes(kind)) throw generationError("AI_MODEL_INPUT_UNSUPPORTED", "所选模型不支持当前参考素材类型");
         const role = reference.role || "reference";
         const videoModel = selection.model as AiModelDefinition;
-        if (input.kind === "video" && role !== "reference" && !videoModel.videoReferenceRoles?.includes(role)) throw generationError("AI_MODEL_VIDEO_REFERENCE_UNSUPPORTED", `所选视频模型未声明 ${role} 能力`);
+        if (role === "emotion" && (input.kind !== "audio" || kind !== "audio" || selection.providerId !== "local-media" || selection.modelId !== "indextts-2.5-local")) throw generationError("AI_MODEL_INPUT_UNSUPPORTED", "情绪参考仅适用于 IndexTTS 语音克隆");
+        if (input.kind === "video" && role !== "reference" && (role === "emotion" || !videoModel.videoReferenceRoles?.includes(role))) throw generationError("AI_MODEL_VIDEO_REFERENCE_UNSUPPORTED", `所选视频模型未声明 ${role} 能力`);
         if (input.kind === "video" && role === "continuation" && !videoModel.videoExtend && videoModel.videoContinuationMode !== "reference") throw generationError("AI_MODEL_VIDEO_EXTEND_UNSUPPORTED", "所选视频模型不支持续接参考");
         if (["first-frame", "last-frame"].includes(role) && kind !== "image") throw generationError("AI_VIDEO_FRAME_KIND", "首帧和尾帧引用必须是图片");
         if (!getStoredFile(userId, reference.fileId)) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");
@@ -324,6 +325,7 @@ async function uploadComfyFile(baseUrl: string, userId: string, fileId: string, 
 
 async function uploadComfyReferences(baseUrl: string, userId: string, references: NonNullable<AiGenerationRequest["references"]>, signal: AbortSignal) {
     return Promise.all(references.map(async (reference) => {
+        if (reference.role === "emotion") throw generationError("AI_MODEL_INPUT_UNSUPPORTED", "ComfyUI 工作流不接受独立情绪参考");
         const uploaded = await uploadComfyFile(baseUrl, userId, reference.fileId, signal);
         return { fileId: reference.fileId, kind: reference.kind || storedKind(uploaded.mimeType), role: reference.role, name: uploaded.name };
     }));

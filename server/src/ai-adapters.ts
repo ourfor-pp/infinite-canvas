@@ -12,7 +12,7 @@ import type { GenerationPurpose } from "./comfy-workflows.js";
 
 export type GenerationMessage = { role: "system" | "user" | "assistant"; content: unknown };
 export type GenerationKind = MediaKind | "transcription";
-export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text">; role?: "reference" | "first-frame" | "last-frame" | "continuation"; purpose?: "reference_input" | "identity_reference" | "wardrobe_reference" | "composition_reference"; label?: string; source?: "style" | "asset" | "canvas" | "primary"; transcript?: string; frameIndex?: number; includeAudio?: boolean };
+export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text">; role?: "reference" | "first-frame" | "last-frame" | "continuation" | "emotion"; purpose?: "reference_input" | "identity_reference" | "wardrobe_reference" | "composition_reference"; label?: string; source?: "style" | "asset" | "canvas" | "primary"; transcript?: string; frameIndex?: number; includeAudio?: boolean };
 export type AiGenerationRequest = {
     kind: GenerationKind;
     model?: string;

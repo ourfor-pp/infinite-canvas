@@ -23,7 +23,7 @@ from . import comfy_jobs, native_jobs
 from .gpu import Nvml, Scheduler, PeakMonitor, profile_key
 from .lifecycle import ManagedRuntime
 from .worker_runtime import WorkerRuntime, RUNTIME_FOLDERS, RUNTIME_ROOT
-from . import qwen
+from . import qwen, indextts
 
 ROOT = Path(os.getenv("MEDIA_EXECUTOR_DATA_DIR", "./data")).resolve()
 FILES = ROOT / "files"
@@ -45,6 +45,8 @@ MODELS = {
     "moss-soundeffect-v2-local": {"engine": "moss", "modes": ["ambient", "sfx"], "operations": ["generate"], "inputs": ["text"], "maxDurationSeconds": 30},
 }
 MODELS.update({model: qwen.describe(model) for model in qwen.MODELS})
+if os.getenv("INDEX_TTS_ENABLED") == "1":
+    MODELS[indextts.MODEL] = indextts.describe()
 if os.getenv("ACE_STEP_ENABLED") == "1":
     MODELS["ace-step-v15-xl-sft-local"] = {"engine": "ace", "modes": ["music"], "operations": ["generate", "cover", "remix"], "inputs": ["text", "audio"], "maxReferenceAudios": 1}
 if os.getenv("STABLE_AUDIO_3_LICENSE_ACCEPTED") == "1":
@@ -55,7 +57,7 @@ class Reference(BaseModel):
     fileId: str
     kind: Literal["image", "video", "audio"] = "audio"
     transcript: str | None = None
-    role: Literal["reference", "first-frame", "last-frame", "continuation"] = "reference"
+    role: Literal["reference", "first-frame", "last-frame", "continuation", "emotion"] = "reference"
     frameIndex: int | None = None
     includeAudio: bool = True
 

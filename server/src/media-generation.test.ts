@@ -29,12 +29,13 @@ const executor = createServer(async (req, res) => {
     assert.equal(req.headers["x-media-protocol"], "2");
     const send = (body: unknown, status = 200) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); };
     if (req.url === "/v1/capabilities") return send({ version: "2", capabilities: [{ id: "minimax-music3-local", available: true, modes: ["music"], operations: ["generate"] }] });
-    if (req.url === "/health") return send({ protocolVersion: "2", models: { "qwen3-asr-1.7b-local": { engine: "asr" } }, runtimes: { asr: true }, comfyFeatures: { music3: true }, h3Runtime: null });
+    if (req.url === "/health") return send({ protocolVersion: "2", models: { "qwen3-asr-1.7b-local": { engine: "asr" }, "indextts-2.5-local": { engine: "index" } }, runtimes: { asr: true }, configuredRuntimes: { index: true }, comfyFeatures: { music3: true }, h3Runtime: null });
     if (req.url === "/v1/files") { for await (const _ of req) { /* consume multipart */ } return send({ id: "uploaded-audio" }); }
     if (req.url === "/v1/jobs/validate") {
         const chunks = []; for await (const chunk of req) chunks.push(chunk);
         const input = JSON.parse(Buffer.concat(chunks).toString());
-        if (input.mode !== "transcription") { assert.equal(input.mode, "music"); assert.equal(input.operation, "generate"); }
+        if (input.mode === "speech") { assert.equal(input.model, "indextts-2.5-local"); assert.equal(input.operation, "clone"); }
+        else if (input.mode !== "transcription") { assert.equal(input.mode, "music"); assert.equal(input.operation, "generate"); }
         assert.equal(input.metadata, undefined);
         return send({ valid: true, plan: { capabilityVersion: "1", mode: input.mode, seed: 42 } });
     }
@@ -208,4 +209,22 @@ test("画布统一入口发现、校验、提交、查询和采用中立结果",
     const adopted = await call("canvas_adopt_result", { generationId: task.id, fileId: status.result.files[0].fileId, expectedRevision: 1 });
     assert.ok(adopted.nodeId);
     assert.equal((await call("canvas_get_state", {})).nodes[0].type, "audio");
+});
+
+test("IndexTTS 保留情绪参考用途与时长参数，结果落库后 ACK", async () => {
+    const { storeLocalFile } = await import("./file-store.js");
+    const path = join(root, "index-reference.wav");
+    writeFileSync(path, "transport fixture");
+    const reference = storeLocalFile("dev-admin", path, "reference.wav", "audio/wav");
+    const task = await createMediaGeneration("dev-admin", { kind: "audio", model: "local-media::indextts-2.5-local", mode: "speech", operation: "clone", prompt: "原样台词。", params: { durationFactor: 1.2, emotionStrength: .6 }, references: [
+        { kind: "audio", fileId: reference.id, role: "emotion" }, { kind: "audio", fileId: reference.id, role: "reference" },
+    ] }, "index-project");
+    for (let i = 0; i < 250 && !acknowledged.has(task.id); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    const row = getGenerationForAgent("dev-admin", task.id)!;
+    assert.equal(row.status, "succeeded", row.error || "not completed");
+    assert.ok(acknowledged.has(task.id));
+    assert.deepEqual(jobs.get(task.id)?.params, { durationFactor: 1.2, emotionStrength: .6, seed: 42 });
+    assert.deepEqual((jobs.get(task.id)?.references as Array<{ role: string }>).map(ref => ref.role), ["emotion", "reference"]);
+    assert.equal(jobs.get(task.id)?.prompt, "原样台词。");
+    assert.ok(JSON.parse(row.result || "{}").files[0].fileId);
 });

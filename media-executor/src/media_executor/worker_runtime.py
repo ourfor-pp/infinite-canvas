@@ -10,7 +10,7 @@ import httpx
 
 from .lifecycle import ManagedRuntime
 
-RUNTIME_FOLDERS = {"qwen": "qwen_tts", "moss": "moss_sfx", "asr": "qwen_asr", "vox": "voxcpm", "ace": "ace_step", "stable": "stable_audio"}
+RUNTIME_FOLDERS = {"qwen": "qwen_tts", "moss": "moss_sfx", "asr": "qwen_asr", "vox": "voxcpm", "index": "indextts", "ace": "ace_step", "stable": "stable_audio"}
 RUNTIME_ROOT = Path(os.getenv("MEDIA_EXECUTOR_RUNTIME_ROOT", str(Path(__file__).resolve().parents[2] / "runtimes")))
 
 

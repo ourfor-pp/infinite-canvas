@@ -3,7 +3,7 @@ import hashlib
 from pathlib import Path
 
 from . import h3, music
-from .. import qwen
+from .. import qwen, indextts
 
 COMFY_MODELS = {*h3.MODELS, music.MODEL}
 
@@ -49,6 +49,8 @@ def prepare(request, runtime, files: Path):
     definition = next((x for x in describe(runtime)["capabilities"] if x["id"] == request["model"]), None)
     if not definition or not definition["available"]:
         raise ValueError("requested model capability is unavailable")
+    if request["model"] != indextts.MODEL and any(ref.get("role") == "emotion" for ref in request.get("references", [])):
+        raise ValueError("emotion references are only supported by IndexTTS")
     for ref in request.get("references", []): input_path(files, ref["fileId"])
     if request["model"] in h3.MODELS:
         state = request.get("continuation")
@@ -65,6 +67,10 @@ def prepare(request, runtime, files: Path):
             raise ValueError("audio reference capability mismatch")
         if definition.get("engine") == "qwen":
             qwen.validate(request["model"], request.get("prompt", ""), request.get("params", {}), request.get("references", []))
+        if definition.get("engine") == "index":
+            indextts.validate(request.get("prompt", ""), request.get("params", {}), request.get("references", []))
+            for ref in request.get("references", []):
+                indextts.validate_audio(input_path(files, ref["fileId"]))
         if definition.get("engine") == "asr":
             if len(request.get("references", [])) != 1:
                 raise ValueError("ASR requires exactly one audio file")

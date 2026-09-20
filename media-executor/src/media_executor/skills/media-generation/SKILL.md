@@ -18,6 +18,7 @@ allowed-tools: [mcp__infinite_canvas__media_list_capabilities, mcp__infinite_can
 | 文本生成音乐 | Music3 | [音乐输入与提示](references/music3.md) |
 | 音色设计、固定音色合成与参考克隆 | Qwen TTS | [Qwen 音色设计与复用](references/qwen.md)；按模式校验参数，Base 不接受情绪或语速指令 |
 | 普通语音与声音克隆 | VoxCPM2 | [离线转写和 VoxCPM2](references/audio.md)；归一化、参考降噪及极致克隆参数 |
+| 参考克隆、数值时长和情绪控制 | IndexTTS 2.5 | [IndexTTS 输入与参数](references/indextts.md)；音色与情绪参考分开，不支持文字情绪指令 |
 | 音频转写、参考文本对齐 | Qwen3-ASR | [离线转写和 VoxCPM2](references/audio.md)；输出权威 JSON，按片段分页读取 |
 | 环境声与音效 | MOSS SoundEffect | 按目录选择 ambient 或 sfx 的 generate |
 | 音乐生成、翻唱与重混 | ACE-Step，启用时提供 | 按目录选择 music 的 generate、cover 或 remix |

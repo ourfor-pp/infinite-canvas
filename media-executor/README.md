@@ -53,6 +53,14 @@ ComfyUI 的 `custom_nodes/` 需链接仓库 `comfy-runtime/` 状态扩展，保�
 
 当前 v0.15.2 已在本机完成正式切换、应用 ASR/Vox 落库、旧 H3 状态续接及固定输入模型对照，证据与听审边界见 [部署验收](../docs/research/audio-v0152-acceptance.md)。
 
+## IndexTTS 2.5
+
+`indextts-2.5-local` 提供 `speech/clone`，音色参考为 `role: reference`，可选情绪参考为 `role: emotion`；每段音频不超过 15 秒。支持 `language`、`durationFactor`、`intervalSilence`、`emotionVector`、`emotionStrength` 和 `seed`，参数边界见 [使用说明](src/media_executor/skills/media-generation/references/indextts.md)。不内置演示音色、不加载 QwenEmotion、不做后期变速。
+
+运行 `bash scripts/install-indextts.sh` 安装固定代码与 Python 3.11 独立环境；然后用执行器 Python 运行 `scripts/download-indextts.py --ssd-root <SSD目录> --entry-root /data/sas/models`。`models/indextts.json` 固定官方 ModelScope 权重与官方 Hugging Face 辅助模型来源，每个文件校验 SHA-256，已校验文件直接复用。
+
+加载执行器环境、设置 maintenance 并排空已有任务后，运行 `PYTHONPATH=src .venv/bin/python scripts/qualify-indextts.py --reference <参考WAV>`。该脚本核对固定源码与全部权重，使用统一 GPU 调度执行真实工作进程推理，成功记录 `indextts-qualification.json`，退出时停止自己的工作进程。通过后才配置 `INDEX_TTS_ENABLED=1` 与绑定源码、模型和依赖的 `MEDIA_EXECUTOR_INDEX_REVISION`，重启执行器并清除 maintenance；失败保留禁用状态。现有应用与执行器须配套更新以识别 emotion 引用，最后验证应用上传、生成、下载落库与 ACK。没有独立端口或模型 systemd 服务。
+
 ## H3 隔离加速验证
 
 `h3-experiments.json` 固定 ComfyUI、VDN/PDD 节点和原作者增量权重。LightX2V、VDN 优先使用官方 ModelScope 同仓；PAI 无对应同仓时使用官方 Hugging Face。下载脚本校验尺寸和 SHA256，安装脚本建立独立 `.venv`，均不切换现有服务或默认模型。

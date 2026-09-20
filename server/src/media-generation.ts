@@ -11,7 +11,7 @@ export const mediaGenerationShape = {
     operation: z.string().min(1).default("generate"),
     prompt: z.string().max(200_000).default(""),
     params: z.record(z.string(), z.unknown()).default({}).refine((value) => !Object.keys(value).some((key) => key.startsWith("__") || ["baseUrl", "apiKey", "authToken", "headers", "script"].includes(key)), "仅接受媒体能力参数"),
-    references: z.array(z.object({ fileId: z.string().min(1), kind: z.enum(["image", "video", "audio"]), role: z.enum(["reference", "first-frame", "last-frame", "continuation"]).optional(), frameIndex: z.number().int().min(-1).optional(), includeAudio: z.boolean().optional(), transcript: z.string().max(20_000).optional() })).max(12).default([]),
+    references: z.array(z.object({ fileId: z.string().min(1), kind: z.enum(["image", "video", "audio"]), role: z.enum(["reference", "first-frame", "last-frame", "continuation", "emotion"]).optional(), frameIndex: z.number().int().min(-1).optional(), includeAudio: z.boolean().optional(), transcript: z.string().max(20_000).optional() })).max(12).default([]),
     continuation: z.object({ generationId: z.string().min(1), fileId: z.string().min(1) }).optional(),
 };
 export const mediaGenerationSchema = z.object(mediaGenerationShape).refine((value) => value.kind === "transcription" || value.prompt.trim().length > 0, { path: ["prompt"], message: "提示词不能为空" });

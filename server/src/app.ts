@@ -78,7 +78,7 @@ const generationSchema = z.object({
     continuation: z.object({ generationId: idSchema, fileId: idSchema }).optional(),
     messages: z.array(z.object({ role: z.enum(["system", "user", "assistant"]), content: z.string().max(200_000) })).max(500).optional(),
     params: generationParamsSchema.optional(),
-    references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional(), role: z.enum(["reference", "first-frame", "last-frame", "continuation"]).optional(), transcript: z.string().max(20_000).optional(), frameIndex: z.number().int().min(-1).optional(), includeAudio: z.boolean().optional() })).optional(),
+    references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional(), role: z.enum(["reference", "first-frame", "last-frame", "continuation", "emotion"]).optional(), transcript: z.string().max(20_000).optional(), frameIndex: z.number().int().min(-1).optional(), includeAudio: z.boolean().optional() })).optional(),
 }).superRefine((value, context) => {
     if (value.purpose === "default" && !value.model) context.addIssue({ code: "custom", path: ["model"], message: "普通生成必须指定模型" });
     if (value.kind !== "transcription" && !value.prompt?.trim() && !value.messages?.length && !value.purpose.startsWith("image-upscale-")) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });

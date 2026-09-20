@@ -61,3 +61,28 @@ def test_asr_silence_does_not_load_gpu_and_alignment_marks_source(tmp_path, monk
     assert result["segments"][0]["timestampSource"] == "forced-alignment"
     assert result["segments"][0]["words"][0] == {"text": "你好", "start": 0.1, "end": 0.8}
     assert len(loads) == 1
+
+
+def test_indextts_maps_duration_and_emotion_without_rewriting_text(tmp_path, monkeypatch):
+    generated = []
+    model = NS(infer=lambda **kw: generated.append(kw) or Path(kw["output_path"]).write_bytes(b"audio"))
+    module = adapter("indextts", monkeypatch, {
+        "torch": NS(manual_seed=lambda _: None, set_num_threads=lambda _: None, cuda=NS(manual_seed_all=lambda _: None), backends=NS(cuda=NS(enable_cudnn_sdp=lambda _: None))),
+        "indextts.infer_v2_5": NS(IndexTTS2=lambda **_: model),
+    })
+    monkeypatch.setattr(module, "MODEL_ROOT", tmp_path)
+    for name in ("config.yaml", "hf_cache/w2v-bert-2.0/model.safetensors", "hf_cache/bigvgan/bigvgan_generator.pt", "hf_cache/campplus_cn_common.bin"):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    monkeypatch.setattr(module.indextts, "validate_audio", lambda _: None)
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kw: None)
+    value = module.Request(prompt="原样 台词。", params={"seed": 2**40, "durationFactor": 1.35, "intervalSilence": 300, "emotionStrength": .6}, references=[
+        {"path": "emotion.wav", "kind": "audio", "role": "emotion"}, {"path": "voice.wav", "kind": "audio", "role": "reference"}], outputDir=str(tmp_path))
+    result = module.runtime.run(value, module.synthesize)
+    assert generated[0]["text"] == "原样 台词。"
+    assert generated[0]["duration_factor"] == 1.35 and generated[0]["interval_silence"] == 300
+    assert generated[0]["emo_alpha"] == .6 and generated[0]["use_emo_text"] is False
+    assert generated[0]["spk_audio_prompt"].endswith("input-reference.wav")
+    assert generated[0]["emo_audio_prompt"].endswith("input-emotion.wav")
+    assert Path(result["files"][0]["path"]).read_bytes() == b"audio"
