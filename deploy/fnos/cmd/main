@@ -1,0 +1,19 @@
+#!/bin/bash
+set -eu
+pidfile="${TRIM_PKGVAR}/proxy.pid"
+case "$1" in
+ start)
+  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then exit 0; fi
+  "${TRIM_APPDEST}/proxy" >> "${TRIM_PKGVAR}/proxy.log" 2>&1 &
+  echo $! > "$pidfile"
+  sleep 1
+  kill -0 "$(cat "$pidfile")"
+  ;;
+ stop)
+  if [[ -f "$pidfile" ]]; then kill "$(cat "$pidfile")" 2>/dev/null || true; rm -f "$pidfile"; fi
+  ;;
+ status)
+  [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null || exit 3
+  ;;
+ *) exit 1 ;;
+esac

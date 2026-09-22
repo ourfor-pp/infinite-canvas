@@ -17,10 +17,14 @@ export type CanvasResourceReference = {
     previewUrl?: string;
     text?: string;
     active: boolean;
+    connectionId?: string;
 };
 
 export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true);
+    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true).map((reference) => ({
+        ...reference,
+        connectionId: connections.find((connection) => connection.fromNodeId === reference.nodeId && connection.toNodeId === node.id)?.id,
+    }));
 }
 
 export function buildCanvasResourceReferences(nodes: CanvasNodeData[]) {
@@ -54,10 +58,7 @@ export async function resolveCanvasReferenceImages(references: CanvasResourceRef
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
     if (configInputs.length) return configInputs;
-    const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
-    if (ownInputs.length) return ownInputs;
-    const node = nodes.find((item) => item.id === nodeId);
-    return node && isResourceNode(node) ? [node] : [];
+    return getContextResourceNodes(nodeId, nodes, connections);
 }
 
 export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {

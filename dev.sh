@@ -198,6 +198,10 @@ require_command python3
 require_command systemctl
 require_command systemd-run
 require_command uv
+require_command ss
+require_command setsid
+
+python3 "$project_dir/scripts/stop-dev.py" "$project_dir" 3000 3001
 
 start_comfyui
 executor_pid=""
@@ -214,51 +218,57 @@ if [[ ! -d "$web_dir/node_modules" ]]; then
 fi
 
 export VITE_LOCAL_COMFYUI_DEFAULT="true"
+export APP_BASE_PATH=/app/infinite-canvas
+export VITE_BASE="$APP_BASE_PATH/"
 
 server_pid=""
+web_pid=""
 cleanup() {
+    if [[ -n "$web_pid" ]]; then
+        kill -- "-$web_pid" >/dev/null 2>&1 || true
+    fi
     if [[ -n "$server_pid" ]]; then
-        kill "$server_pid" >/dev/null 2>&1 || true
+        kill -- "-$server_pid" >/dev/null 2>&1 || true
     fi
     if [[ -n "$executor_pid" ]]; then
         kill "$executor_pid" >/dev/null 2>&1 || true
     fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-if curl -fsS "http://127.0.0.1:3001/api/session" >/dev/null 2>&1; then
-    echo "Infinite Canvas 后端已运行：http://127.0.0.1:3001"
-else
-    echo "正在启动 Infinite Canvas 后端"
-    (
-        cd "$server_dir"
-        PORT=3001 AUTH_MODE=dev DATA_DIR="$server_data_dir" MEDIA_EXECUTOR_URL="$executor_local_url" MEDIA_EXECUTOR_TOKEN="$executor_token" exec bun run dev
-    ) &
-    server_pid="$!"
-    for _ in {1..60}; do
-        if curl -fsS "http://127.0.0.1:3001/api/session" >/dev/null 2>&1; then
-            break
-        fi
-        if ! kill -0 "$server_pid" >/dev/null 2>&1; then
-            echo "后端启动失败" >&2
-            exit 1
-        fi
-        sleep 0.25
-    done
-    if ! curl -fsS "http://127.0.0.1:3001/api/session" >/dev/null 2>&1; then
-        echo "后端启动超时" >&2
+echo "正在启动 Infinite Canvas 后端"
+(
+    cd "$server_dir"
+    PORT=3001 AUTH_MODE=dev DATA_DIR="$server_data_dir" MEDIA_EXECUTOR_URL="$executor_local_url" MEDIA_EXECUTOR_TOKEN="$executor_token" exec setsid bun run dev
+) &
+server_pid="$!"
+for _ in {1..60}; do
+    if curl -fsS "http://127.0.0.1:3001${APP_BASE_PATH}/api/session" >/dev/null 2>&1; then
+        break
+    fi
+    if ! kill -0 "$server_pid" >/dev/null 2>&1; then
+        echo "后端启动失败" >&2
         exit 1
     fi
+    sleep 0.25
+done
+if ! curl -fsS "http://127.0.0.1:3001${APP_BASE_PATH}/api/session" >/dev/null 2>&1; then
+    echo "后端启动超时" >&2
+    exit 1
 fi
 
-curl -fsS -X PUT "http://127.0.0.1:3001/api/admin/media-executor/settings" \
+curl -fsS -X PUT "http://127.0.0.1:3001${APP_BASE_PATH}/api/admin/media-executor/settings" \
     -H "Content-Type: application/json" \
     --data "{\"url\":\"$executor_local_url\",\"token\":\"$executor_token\",\"stableAudio3LicenseAccepted\":false}" \
     >/dev/null
 echo "媒体执行器已注册为本地供应商"
 
 echo "正在启动 Infinite Canvas"
-echo "本机访问：http://localhost:3000"
-echo "局域网访问：http://192.168.3.55:3000"
+echo "本机访问：http://localhost:3000${APP_BASE_PATH}/"
+echo "局域网访问：http://192.168.199.152:3000${APP_BASE_PATH}/"
 cd "$web_dir"
-bun run dev
+setsid bun run dev --strictPort &
+web_pid="$!"
+wait -n "$server_pid" "$web_pid"

@@ -55,7 +55,7 @@ export default defineConfig({
     server: {
         fs: { allow: [webDir, resolve(webDir, "../server/src/previs"), resolve(webDir, "../server/node_modules")] },
         proxy: {
-            "/api": {
+            [`${basePrefix}/api`]: {
                 target: process.env.VITE_SERVER_PROXY || "http://127.0.0.1:3001",
                 ws: true,
             },

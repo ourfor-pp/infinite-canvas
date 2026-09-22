@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Image as AntImage, Input, Popover, Tag, Tooltip } from "antd";
-import { ArrowUp, Bot, ChevronDown, ImageIcon, LoaderCircle, Music2, Paperclip, Sparkles, Square, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { App, Button, Image as AntImage, Tooltip } from "antd";
+import { ArrowUp, Bot, ImageIcon, LoaderCircle, Music2, Plus, Sparkles, Square, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "@/components/canvas/canvas-audio-settings-popover";
@@ -18,8 +18,8 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
     const [draft, setDraft] = useState(target.snapshot.draft);
     const [saving, setSaving] = useState(false);
     const [busy, setBusy] = useState(false);
-    const [previewOpen, setPreviewOpen] = useState(false);
-    const [preview, setPreview] = useState<Awaited<ReturnType<NonNullable<MediaEditorTarget["preview"]>>> | null>(null);
+    const [uploading, setUploading] = useState(false);
+    const [dragging, setDragging] = useState(false);
     const uploadRef = useRef<HTMLInputElement>(null);
     const imageMode = target.kind === "image" ? target.imageMode || (target.snapshot.references.length ? "edit" : "generate") : undefined;
     const snapshotSignature = JSON.stringify(target.snapshot.draft);
@@ -29,8 +29,6 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
         draftRef.current = target.snapshot.draft;
         dirtyRef.current = false;
         setDraft(target.snapshot.draft);
-        setPreview(null);
-        setPreviewOpen(false);
     }, [target.key]);
     useEffect(() => {
         if (dirtyRef.current) return;
@@ -54,7 +52,6 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
         draftRef.current = next;
         dirtyRef.current = true;
         setDraft(next);
-        setPreview(null);
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => void save(), 600);
     };
@@ -87,48 +84,65 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
         catch (error) { message.error(error instanceof Error ? error.message : "生成失败"); }
         finally { setBusy(false); }
     };
-    const setPreviewVisible = async (open: boolean) => {
-        setPreviewOpen(open);
-        if (!open || preview || !target.preview || !await save()) return;
-        try { setPreview(await target.preview(draftRef.current)); }
-        catch (error) { message.error(error instanceof Error ? error.message : "无法读取发送预览"); }
+    const uploadFiles = async (files: File[]) => {
+        const upload = target.uploadReference;
+        if (!upload || uploading) return;
+        const accepted = files.filter((file) => file.type.startsWith(`${target.kind}/`));
+        if (accepted.length !== files.length) message.error(target.kind === "image" ? "请上传图片文件" : "请上传音频文件");
+        setUploading(true);
+        try {
+            for (const file of accepted) {
+                try { await upload(file); }
+                catch (error) { message.error(error instanceof Error ? error.message : "上传失败"); }
+            }
+        } finally { setUploading(false); }
     };
     const running = target.snapshot.running;
     const promptPlaceholder = target.kind === "image" ? "补充本次要调整的画面、构图或细节（可留空）" : target.separateSpeechTranscript ? "描述音色、语速、口音与情绪" : draft.audioMode === "ambient" ? "描述空间层次、远近声场和氛围" : draft.audioMode === "sfx" ? "描述动作、材质、力度和声音质感" : "输入要朗读的文本";
 
-    return <section className="w-full" data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+    return <section className="w-full" data-canvas-no-zoom
+        onDragOver={(event) => {
+            if (!target.uploadReference || !event.dataTransfer.types.includes("Files")) return;
+            event.preventDefault(); event.stopPropagation();
+            event.dataTransfer.dropEffect = "copy";
+            setDragging(true);
+        }}
+        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+        onDropCapture={(event) => {
+            if (!target.uploadReference || !event.dataTransfer.files.length) return;
+            event.preventDefault(); event.stopPropagation(); setDragging(false);
+            void uploadFiles(Array.from(event.dataTransfer.files));
+        }}
+        onPasteCapture={(event) => {
+            if (!target.uploadReference || !event.clipboardData.files.length) return;
+            event.preventDefault(); event.stopPropagation();
+            void uploadFiles(Array.from(event.clipboardData.files));
+        }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
         <div className="mb-2 flex items-center justify-between gap-3"><div><div className="text-sm font-semibold">{target.semanticLabel}</div><div className="mt-0.5 text-[11px] opacity-45">{saving ? "正在保存草稿" : "修改只影响下一次生成"}</div></div>{target.askAgent ? <Button type="text" size="small" icon={<Bot className="size-3.5" />} onClick={() => void target.askAgent?.(draftRef.current)}>交给 Agent</Button> : null}</div>
         {target.separateSpeechTranscript ? <input value={draft.transcript || ""} onChange={(event) => change({ transcript: event.target.value })} className="mb-2 h-9 w-full rounded-xl border border-current/10 bg-transparent px-3 text-sm outline-none focus:border-blue-400/70" placeholder="输入一句试听台词" /> : null}
-        {target.snapshot.references.length ? <ReferenceShelf references={target.snapshot.references} onRemove={target.removeReference ? async (reference) => {
-            change({ prompt: removeReferenceLabel(draftRef.current.prompt, reference.label) });
+        {target.snapshot.references.length || target.uploadReference ? <ReferenceShelf references={target.snapshot.references} dragging={dragging} uploadControl={target.uploadReference ? <Tooltip title={`上传参考${target.kind === "image" ? "图" : "音频"}，支持拖入或粘贴`}><button type="button" aria-label={target.kind === "image" ? "上传参考图" : "上传参考音频"} disabled={uploading} className="grid size-11 shrink-0 place-items-center rounded-lg border border-dashed border-current/20 bg-transparent opacity-60 transition hover:bg-black/5 hover:opacity-100 disabled:cursor-wait dark:hover:bg-white/10" onClick={() => uploadRef.current?.click()}>{uploading ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-5" />}</button></Tooltip> : null} onRemove={target.removeReference ? async (reference) => {
+            change({ prompt: removeReferenceLabel(draftRef.current.prompt, target.mentionReferences?.find((item) => item.nodeId === reference.nodeId)?.label || reference.label) });
             try { await target.removeReference?.(reference); } catch (error) { message.error(error instanceof Error ? error.message : "移除参考素材失败"); }
         } : undefined} /> : null}
         <CanvasPromptChipInput value={draft.prompt} references={target.mentionReferences || []} onActivateReference={target.activateReference} onChange={(prompt) => change({ prompt })} onSubmit={() => void run()} className="thin-scrollbar h-56 w-full resize-none rounded-xl border border-current/10 bg-transparent px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400/70" placeholder={promptPlaceholder} />
 
         <div className="mt-3 flex min-w-0 items-center gap-3 border-t border-current/10 pt-3">
             <div className="thin-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
-                <ModelPicker config={editorConfig} value={editorConfig.model} onChange={(model) => updateConfig("model", model)} capability={target.kind} audioMode={draft.audioMode} imageMode={imageMode} appearance="toolbar" className="!h-9 !min-w-44 !max-w-60 shrink-0" />
+                <ModelPicker config={editorConfig} value={editorConfig.model} onChange={(model) => updateConfig("model", model)} capability={target.kind} audioMode={draft.audioMode} imageMode={imageMode} appearance="toolbar" className="!h-9 !min-w-44 !max-w-none shrink-0" />
                 {target.kind === "image" ? <CanvasImageSettingsPopover config={editorConfig} onConfigChange={(key, value) => updateConfig(String(key), value)} appearance="toolbar" buttonClassName="shrink-0" /> : <CanvasAudioSettingsPopover config={editorConfig} onConfigChange={(key, value) => updateConfig(audioSettingKey(key), value)} appearance="toolbar" buttonClassName="shrink-0" />}
-                {target.uploadReference ? <Tooltip title={`上传参考${target.kind === "image" ? "图" : "音频"}`}><Button type="text" className="!size-10 shrink-0 !p-0" icon={<Paperclip className="size-4" />} onClick={() => uploadRef.current?.click()} /></Tooltip> : null}
-                {target.preview ? <Popover open={previewOpen} onOpenChange={(open) => void setPreviewVisible(open)} placement="topLeft" trigger="click" arrow={false} zIndex={1280} content={<PreviewDetails preview={preview} />} overlayClassName="media-request-preview-popover"><Button type="text" className="shrink-0 !h-10 !px-2" icon={<ChevronDown className={`size-3.5 transition-transform ${previewOpen ? "rotate-180" : ""}`} />}>最终提示词</Button></Popover> : null}
             </div>
             <Button type={running ? "default" : "primary"} danger={Boolean(running)} className="!size-11 shrink-0 !rounded-full !p-0" disabled={!running && !canGenerate} icon={running ? <Square className="size-3.5 fill-current" /> : busy ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />} onClick={() => running ? void target.stop?.() : void run()} aria-label={running ? "停止生成" : "开始生成"} />
         </div>
         {running ? <div className="mt-2 flex items-center gap-2 text-[11px] opacity-55"><Sparkles className="size-3 animate-pulse" />生成中 {Math.round(running.progress * 100)}%</div> : null}
-        <input ref={uploadRef} type="file" accept={target.kind === "image" ? "image/*" : "audio/*"} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void target.uploadReference?.(file).catch((error) => message.error(error instanceof Error ? error.message : "上传失败")); }} />
+        <input ref={uploadRef} type="file" multiple accept={target.kind === "image" ? "image/*" : "audio/*"} className="hidden" onChange={(event) => { const files = Array.from(event.target.files || []); event.currentTarget.value = ""; void uploadFiles(files); }} />
     </section>;
 }
 
-function PreviewDetails({ preview }: { preview: Awaited<ReturnType<NonNullable<MediaEditorTarget["preview"]>>> | null }) {
-    if (!preview) return <div className="w-[min(560px,calc(100vw-48px))] p-3 text-xs opacity-45">正在组装最终提示词…</div>;
-    const warnings = "warnings" in preview ? preview.warnings : [];
-    return <div className="w-[min(560px,calc(100vw-48px))] p-3"><div className="mb-2 text-xs font-semibold">后端最终使用的提示词</div><div className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl bg-black/[0.035] p-3 text-xs leading-5 dark:bg-white/[0.055]">{preview.prompt}</div>{preview.instructions ? <div className="mt-3"><span className="text-[11px] opacity-45">声音指令</span><div className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-xl bg-black/[0.035] p-3 text-xs leading-5 dark:bg-white/[0.055]">{preview.instructions}</div></div> : null}{warnings.length ? <div className="mt-3 flex flex-wrap gap-1">{warnings.map((warning) => <Tag key={warning.code} color={warning.blocking ? "error" : "warning"}>{warning.message}</Tag>)}</div> : null}</div>;
-}
-
-function ReferenceShelf({ references, onRemove }: { references: MediaEditorReference[]; onRemove?: (reference: MediaEditorReference) => void }) {
+function ReferenceShelf({ references, onRemove, uploadControl, dragging }: { references: MediaEditorReference[]; onRemove?: (reference: MediaEditorReference) => void; uploadControl?: ReactNode; dragging?: boolean }) {
     const images = references.filter((reference) => reference.kind === "image" && reference.url);
-    return <div className="mb-2 flex min-h-12 items-center gap-2 overflow-x-auto rounded-xl border border-current/10 px-2 py-2">
+    return <div tabIndex={0} aria-label="参考素材" className={`mb-2 flex min-h-12 items-center gap-2 overflow-x-auto rounded-xl border px-2 py-2 outline-none focus-visible:border-current/40 ${dragging ? "border-current/50" : "border-current/10"}`}>
         {images.length ? <AntImage.PreviewGroup classNames={{ popup: { root: "media-image-preview" } }} preview={{ zIndex: 1320 }}>{references.map((reference) => <ReferenceItem key={reference.id} reference={reference} onRemove={onRemove} />)}</AntImage.PreviewGroup> : references.map((reference) => <ReferenceItem key={reference.id} reference={reference} onRemove={onRemove} />)}
+        {uploadControl}
     </div>;
 }
 
@@ -136,7 +150,7 @@ function ReferenceItem({ reference, onRemove }: { reference: MediaEditorReferenc
     return <div className="group/reference relative size-11 shrink-0 overflow-hidden rounded-lg border border-current/10 bg-black/[0.035] dark:bg-white/[0.055]" title={`${reference.source === "canvas" ? "画布连线" : "上传参考"} · ${reference.label}`}>
         {reference.kind === "image" && reference.url ? <AntImage rootClassName="size-full" src={reference.url} alt={reference.label} className="!size-full !object-cover" preview={{ mask: false }} /> : reference.kind === "audio" && reference.url ? <audio src={reference.url} controls className="absolute inset-0 size-full opacity-0" /> : <span className="grid size-full place-items-center">{reference.kind === "image" ? <ImageIcon className="size-4 opacity-50" /> : <Music2 className="size-4 opacity-50" />}</span>}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 py-0.5 text-center text-[9px] text-white">{reference.label.replace(/^@/, "")}</span>
-        {onRemove ? <button type="button" aria-label={`移除${reference.label}`} className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/70 text-white opacity-0 transition-opacity group-hover/reference:opacity-100 focus:opacity-100" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onRemove(reference); }}><X className="size-3" /></button> : null}
+        {onRemove && reference.removable !== false ? <button type="button" title="移除参考并断开连线" aria-label={`移除${reference.label}`} className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/70 text-white opacity-80 transition-opacity hover:opacity-100 focus:opacity-100" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onRemove(reference); }}><X className="size-3" /></button> : null}
     </div>;
 }
 

@@ -63,8 +63,8 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
 
     return (
         <>
-            <span ref={buttonRef} className="inline-flex min-w-0">
-                <Button data-control-appearance={appearance} size="small" type="text" className={appearance === "toolbar" ? `!h-9 !max-w-[180px] !justify-start !rounded-lg !border-0 !bg-transparent !px-2 !shadow-none hover:!bg-black/5 dark:hover:!bg-white/10 ${buttonClassName || ""}` : buttonClassName || "!h-8 !max-w-[180px] !justify-start !rounded-full !px-2.5"} style={{ background: appearance === "toolbar" ? "transparent" : theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-4" />} onClick={() => updateOpen(!open)}>
+            <span ref={buttonRef} className="inline-flex min-w-0 shrink-0">
+                <Button data-control-appearance={appearance} size="small" type="text" className={appearance === "toolbar" ? `!h-9 !max-w-none !justify-start !rounded-lg !border-0 !bg-transparent !px-2 !shadow-none hover:!bg-black/5 dark:hover:!bg-white/10 ${buttonClassName || ""}` : buttonClassName || "!h-8 !max-w-[180px] !justify-start !rounded-full !px-2.5"} style={{ background: appearance === "toolbar" ? "transparent" : theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-4" />} onClick={() => updateOpen(!open)}>
                     <span className="truncate">
                         {imageQualityLabel(quality)} · {imageSizeLabel(activeSize)} · {t("canvas.controls.images", { count })}
                     </span>

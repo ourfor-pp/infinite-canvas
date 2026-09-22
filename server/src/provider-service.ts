@@ -238,6 +238,18 @@ export function listPublicModels() {
     ];
 }
 
+// The administrator view uses the same selectable models as the canvas, plus dedicated workflows.
+export function listExecutorModels() {
+    const server = db.prepare("SELECT models FROM comfy_servers WHERE id='media-executor' AND enabled=1").get() as { models: string } | undefined;
+    const enabled = new Set(parseJson<string[]>(server?.models, []));
+    const catalog = getMediaExecutorCatalog();
+    const models = listPublicModels().filter((model) => model.providerId === "local-media" || model.providerId === "comfyui" && enabled.has(model.id));
+    return [
+        ...models.map((model) => ({ id: model.id, value: model.value, name: model.name, output: model.output, imageModes: model.imageModes, audioModes: model.audioModes, maxReferenceImages: model.maxReferenceImages, engine: model.providerId === "comfyui" ? "comfy" : catalog.models[model.id]?.engine || "comfy", specialWorkflow: false })),
+        ...Object.entries(COMFY_MODEL_DEFINITIONS).filter(([id, model]) => enabled.has(id) && !model.selectable).map(([id, model]) => ({ id, value: `comfyui::${id}`, name: model.name, output: model.output, imageModes: model.imageModes, audioModes: model.audioModes, maxReferenceImages: model.maxReferenceImages, engine: "comfy", specialWorkflow: true })),
+    ];
+}
+
 export function listModelEndpoints() {
     return modelEndpoints.map((key) => modelEndpointRegistry[key]);
 }

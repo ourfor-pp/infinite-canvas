@@ -27,13 +27,14 @@ type CanvasNodePromptPanelProps = {
     onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
     onStop: (nodeId: string) => void;
     onUploadReference?: (nodeId: string, kind: "image" | "audio", file: File) => Promise<void>;
+    onRemoveReference?: (connectionId: string) => void;
     mentionReferences?: CanvasResourceReference[];
     onImageSettingsOpenChange?: (open: boolean) => void;
     modeOverride?: CanvasNodeGenerationMode; // Plugin nodes set their generation type through useBuiltinPanel.mode.
     projectId?: string;
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, onUploadReference, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, onUploadReference, onRemoveReference, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
     const { t } = useTranslation();
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useMissingModelNotice();
@@ -41,7 +42,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const mode = modeOverride ?? defaultMode(node.type);
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
-    const imageMode = hasImageContent || mentionReferences.some((item) => item.kind === "image" && item.active) ? "edit" : "generate";
+    const imageMode = mentionReferences.some((item) => item.kind === "image" && item.active) ? "edit" : "generate";
     const config = buildNodeConfig(globalConfig, node, mode, imageMode);
     const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
@@ -81,7 +82,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             mentionReferences,
             snapshot: {
                 draft: { prompt, model: config.model, params: metadataParams(node), audioMode: mode === "audio" ? "speech" : undefined },
-                references: mentionReferences.filter((item) => item.kind === mode).map((item) => ({ id: item.id, label: item.title, kind: mode, url: item.previewUrl, source: "canvas" })),
+                references: mentionReferences.filter((item) => item.kind === mode).map((item) => ({ id: item.id, nodeId: item.nodeId, label: item.title, kind: mode, url: item.previewUrl, source: "canvas", removable: Boolean(item.connectionId) })),
                 variants: mode === "image" ? (node.metadata?.images || []).filter((item) => item.content).map((item) => ({ id: item.id, label: item.prompt || node.title, kind: "image", url: item.content, prompt: item.prompt, primary: item.id === primaryImageId })) : node.metadata?.content ? [{ id: node.id, label: node.title, kind: "audio", url: node.metadata.content, primary: true }] : [],
                 running: isRunning ? { status: "running", progress: 0 } : undefined,
             },
@@ -91,13 +92,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             },
             generate: (draft) => onGenerate(node.id, mode, draft.prompt),
             stop: () => onStop(node.id),
+            removeReference: onRemoveReference ? (reference) => {
+                const connectionId = mentionReferences.find((item) => item.id === reference.id)?.connectionId;
+                if (connectionId) onRemoveReference(connectionId);
+            } : undefined,
             uploadReference: onUploadReference ? (file) => onUploadReference(node.id, mode, file) : undefined,
-            preview: async (draft) => {
-                const texts = mentionReferences.filter((item) => item.kind === "text" && item.active && item.text?.trim()).map((item) => item.text!.trim());
-                return { prompt: [draft.prompt, ...texts].filter(Boolean).join("\n\n"), instructions: mode === "audio" ? String(draft.params.audioInstructions || "") : "" };
-            },
         };
-        return <div data-canvas-no-zoom className="w-[430px] max-w-[calc(100vw-24px)] rounded-[20px] border p-4 shadow-2xl backdrop-blur" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}><MediaEditor target={mediaTarget} /></div>;
+        return <div data-canvas-no-zoom className="w-full rounded-[20px] border p-4 shadow-2xl backdrop-blur" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}><MediaEditor target={mediaTarget} /></div>;
     }
 
     return (

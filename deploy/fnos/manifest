@@ -1,0 +1,10 @@
+appname = infinite-canvas
+version = 0.1.3
+display_name = 无线画布
+desc = 通过局域网 HTTP 代理访问开发电脑，飞牛仅作为访问入口。
+platform = x86
+source = thirdparty
+maintainer = Infinite Canvas
+distributor = Infinite Canvas
+desktop_uidir = ui
+desktop_applaunchname = infinite-canvas.Application

@@ -18,7 +18,7 @@ import { COMFY_MODELS, COMFY_REQUIREMENTS } from "./comfy-workflows.js";
 import { getStoredFile, receiveUpload, sendStoredFile, storedFileResponse, syncFileRefs } from "./file-store.js";
 import { cancelGeneration, cancelGenerationByAdmin, createGeneration, generationResponse, type GenerationRow } from "./generation-service.js";
 import { createBackup, getBackupSettings, listBackups, restoreBackup, saveBackupSettings, testBackupConnection } from "./backup-service.js";
-import { clearProviderCredentials, deleteProvider, discoverProviderModels, getAiGlobalSettings, listAdminProviders, listModelDefaults, listModelEndpoints, listPublicModels, providerInputSchema, pruneModelDefaults, saveAiGlobalSettings, saveModelDefaults, saveProvider, testProvider } from "./provider-service.js";
+import { clearProviderCredentials, deleteProvider, discoverProviderModels, getAiGlobalSettings, listAdminProviders, listModelDefaults, listModelEndpoints, listPublicModels, listExecutorModels, providerInputSchema, pruneModelDefaults, saveAiGlobalSettings, saveModelDefaults, saveProvider, testProvider } from "./provider-service.js";
 import { agentAdminRouter, agentRouter } from "./agent/routes.js";
 import { handleAgentProviderProxy } from "./agent/provider-proxy.js";
 import { removeAgentProjectWorkspace } from "./agent/service.js";
@@ -421,12 +421,12 @@ api.post("/admin/comfyui/servers/:id/test", requireAdmin, asyncRoute(async (req)
 
 api.get("/admin/media-executor/status", requireAdmin, asyncRoute(async () => {
     const executor = getMediaExecutorSettings();
-    if (!executor.url || !executor.token) return { ...publicMediaExecutorSettings(executor), configured: false, available: false, models: [] };
+    if (!executor.url || !executor.token) return { ...publicMediaExecutorSettings(executor), configured: false, available: false, models: [], catalog: [] };
     try {
         const value = await refreshMediaExecutorCatalog(executor);
-        return { ...publicMediaExecutorSettings(executor), configured: true, available: value.available, models: Object.keys(value.models), modelDetails: value.models, runtimes: value.runtimes };
+        return { ...publicMediaExecutorSettings(executor), configured: true, available: value.available, models: Object.keys(value.models), modelDetails: value.models, runtimes: value.runtimes, configuredRuntimes: value.configuredRuntimes, catalog: listExecutorModels() };
     } catch {
-        return { ...publicMediaExecutorSettings(executor), configured: true, available: false, models: [] };
+        return { ...publicMediaExecutorSettings(executor), configured: true, available: false, models: [], catalog: [] };
     }
 }));
 api.put("/admin/media-executor/settings", requireAdmin, asyncRoute(async (req) => {

@@ -9,7 +9,7 @@ process.env.DATA_DIR = root;
 process.env.AUTH_MODE = "dev";
 process.env.APP_SECRET = "qwen-image-test";
 const { refreshMediaExecutorCatalog, saveMediaExecutorSettings } = await import("./media-executor-settings.js");
-const { listPublicModels, resolveImageModel } = await import("./provider-service.js");
+const { listPublicModels, listExecutorModels, resolveImageModel } = await import("./provider-service.js");
 const { prepareExecutorRequest } = await import("./media-capabilities.js");
 const { db } = await import("./database.js");
 const { storeLocalFile } = await import("./file-store.js");
@@ -25,10 +25,17 @@ test("画布模型目录按执行器能力暴露 Qwen 2.1 文生图和十图编�
     assert.equal(item.name, "Qwen Image 2.1");
     assert.deepEqual(item.imageModes, ["generate", "edit"]);
     assert.equal(item.maxReferenceImages, 10);
+    const admin = listExecutorModels().find((item) => item.value === value)!;
+    assert.equal(admin.name, item.name);
+    assert.deepEqual(admin.imageModes, item.imageModes);
+    assert.equal(admin.maxReferenceImages, item.maxReferenceImages);
+    assert.equal(admin.engine, "comfy");
+    assert.equal(admin.specialWorkflow, false);
     for (const mode of ["generate", "edit"] as const) assert.equal(resolveImageModel(value, mode).providerId, "local-media");
     ready = false;
     await refreshMediaExecutorCatalog();
     assert.equal(listPublicModels().some((item) => item.value === value), false);
+    assert.equal(listExecutorModels().some((item) => item.value === value), false);
     assert.throws(() => resolveImageModel(value, "generate"), /尚未部署或运行时离线/);
 });
 
@@ -62,4 +69,17 @@ test("画布图片参考上传后走 image-edit，尺寸转为参考分辨率", 
     assert.equal(result.mode, "image-edit");
     assert.deepEqual(result.params, { referenceResolution: 2048 });
     assert.equal(result.references[0].fileId, "uploaded.png");
+});
+
+
+test("管理员与画布复用全部可选本地模型，专用工作流独立标记，休眠模型仍可用", async (t) => {
+    t.mock.method(globalThis, "fetch", async () => Response.json({ protocolVersion: "2", models: { "qwen3-asr-1.7b-local": { engine: "asr" } }, runtimes: { asr: false }, configuredRuntimes: { asr: true }, comfyFeatures: { qwenImage21: true, music3: true } }));
+    await refreshMediaExecutorCatalog();
+    const admin = listExecutorModels();
+    const selectable = listPublicModels().filter((item) => ["local-media", "comfyui"].includes(item.providerId));
+    assert.deepEqual(admin.filter((item) => !item.specialWorkflow).map((item) => item.value).sort(), selectable.map((item) => item.value).sort());
+    assert.equal(admin.find((item) => item.id === "minimax-music3-local")?.output, "audio");
+    assert.equal(admin.find((item) => item.id === "qwen3-asr-1.7b-local")?.output, "transcription");
+    assert.equal(admin.find((item) => item.id === "qwen-image-inpaint-local")?.specialWorkflow, true);
+    assert.equal(new Set(admin.map((item) => item.value)).size, admin.length);
 });
