@@ -80,7 +80,7 @@ export function buildComfyWorkflow(input: WorkflowInput): Workflow {
     throw Object.assign(new Error("不支持的 ComfyUI 模型"), { code: "COMFY_MODEL_UNSUPPORTED", status: 400 });
 }
 
-function dimensions(params: Record<string, unknown>, fallback = 1024) {
+export function dimensions(params: Record<string, unknown>, fallback = 1024) {
     const size = String(params.size || "1:1");
     const suffix = size.match(/-(2k|4k)$/i)?.[1]?.toLowerCase();
     if (suffix) fallback = suffix === "4k" ? 3840 : 2048;

@@ -14,6 +14,7 @@ allowed-tools: [mcp__infinite_canvas__media_list_capabilities, mcp__infinite_can
 
 | 能力 | 服务实现 | 需要读取的说明 |
 | --- | --- | --- |
+| 文生图、多参考编辑和透明 PNG（服务 API） | Qwen Image 2.1 | [图片输入与参数](references/qwen-image21.md)；宿主是否开放图片调用以工具 schema 为准，Codex 普通生图仍遵循原生能力约定 |
 | 参考视频生成、首尾帧、时间锚点、原生续接 | H3 | [视频输入与提示](references/h3.md)；编写或重做前读取其链接的完整官方指南与示例、动作与参考检查，不能沿用旧摘要 |
 | 文本生成音乐 | Music3 | [音乐输入与提示](references/music3.md) |
 | 音色设计、固定音色合成与参考克隆 | Qwen TTS | [Qwen 音色设计与复用](references/qwen.md)；按模式校验参数，Base 不接受情绪或语速指令 |

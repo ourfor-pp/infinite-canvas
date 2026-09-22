@@ -193,3 +193,33 @@ def test_music3_requires_nodes_and_all_weights(tmp_path, monkeypatch):
     assert module.health()["comfyFeatures"]["music3"] is True
     del info["MiniMaxMusic3TextEncode"]
     assert module.health()["comfyFeatures"]["music3"] is False
+
+
+def test_qwen_image_uses_shared_comfy_catalog_and_revision_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_EXECUTOR_DISABLE_WORKER", "1")
+    monkeypatch.setenv("MEDIA_EXECUTOR_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MEDIA_EXECUTOR_DISABLE_RUNTIME_HEALTH", "1")
+    monkeypatch.setenv("MEDIA_EXECUTOR_COMFY_REVISION", "unified-revision")
+    monkeypatch.setenv("MEDIA_EXECUTOR_COMFY_UNITS", "user:comfy.service")
+    import media_executor.app as module
+    from media_executor.capabilities import qwen_image
+    module = importlib.reload(module)
+    module.init_db()
+    info = {name: {} for name in qwen_image.NODES}
+    for loader, field, name in qwen_image.WEIGHTS:
+        info[loader] = {"input": {"required": {field: [[name]]}}}
+    online = True
+    class FakeClient:
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def get(self, url):
+            assert url == module.COMFY_URL + "/object_info"
+            if not online:
+                raise httpx.ConnectError("managed runtime stopped")
+            return httpx.Response(200, json=info)
+    monkeypatch.setattr(module.httpx, "Client", lambda **_: FakeClient())
+    assert module.health()["comfyFeatures"]["qwenImage21"] is True
+    online = False
+    assert module.health()["comfyFeatures"]["qwenImage21"] is True
+    monkeypatch.setenv("MEDIA_EXECUTOR_COMFY_REVISION", "changed-revision")
+    assert module.health()["comfyFeatures"]["qwenImage21"] is False

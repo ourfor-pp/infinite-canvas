@@ -25,6 +25,7 @@ export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; famil
 export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; minDurationSeconds?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: ImagePromptProfile; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean; videoModes?: H3GenerationMode[]; maxReferenceVideos?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend"; qualityPresets?: H3QualityPreset[]; supportsTemporalGuides?: boolean; maxTemporalGuides?: number; frameStride?: number; frameBase?: number; turboPreview?: boolean };
 
 const LOCAL_MEDIA_MODELS: Record<string, Omit<AiModelDefinition, "endpoint" | "enabled">> = {
+    "qwen-image-2.1-local": { id: "qwen-image-2.1-local", name: "Qwen Image 2.1", output: "image", inputs: ["text", "image"], imageModes: ["generate", "edit"], maxReferenceImages: 10 },
     "indextts-2.5-local": { id: "indextts-2.5-local", name: "IndexTTS 2.5", output: "audio", inputs: ["text", "audio"], audioModes: ["speech"], audioOperations: ["clone"], maxReferenceAudios: 2, languages: ["ZH", "EN", "JA", "ES", "AR"] },
     "qwen3-asr-1.7b-local": { id: "qwen3-asr-1.7b-local", name: "Qwen3-ASR 1.7B", output: "text", inputs: ["audio", "text"], maxReferenceAudios: 1 },
     "qwen3-asr-0.6b-local": { id: "qwen3-asr-0.6b-local", name: "Qwen3-ASR 0.6B（轻量）", output: "text", inputs: ["audio", "text"], maxReferenceAudios: 1 },
@@ -336,7 +337,7 @@ export function resolveProviderModel(value: string, expectedOutput: MediaKind | 
         const executor = getMediaExecutorSettings();
         const model = LOCAL_MEDIA_MODELS[modelId];
         if (!executor.url || !executor.token || !model || model.output !== output || !isMediaExecutorModelAvailable(modelId) || (modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted)) throw providerError(400, modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted ? "STABLE_AUDIO_LICENSE_REQUIRED" : "AI_MODEL_UNAVAILABLE", modelId === "stable-audio-3-medium-local" && !executor.stableAudio3LicenseAccepted ? "管理员尚未确认 Stable Audio 3 模型许可" : "本地媒体模型尚未部署或运行时离线");
-        return { providerId, modelId, model: { ...model, endpoint: "openai-tts" as const, enabled: true } };
+        return { providerId, modelId, model: { ...model, endpoint: model.output === "image" ? "openai-images" as const : "openai-tts" as const, enabled: true } };
     }
     if (providerId === "comfyui") {
         const output = comfyModelOutput(modelId);

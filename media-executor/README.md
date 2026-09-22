@@ -38,7 +38,7 @@ Qwen3-ASR 与 VoxCPM2 使用各自 `runtimes/` 下的 Python 3.12 环境；先�
 
 ASR 返回 `transcription.json`，区分转写和参考文本对齐；无强制对齐的片段标记 `timestampSource=vad`。完整 JSON 由应用存储，Agent 分页读取。VoxCPM2 普通生成和克隆统一走执行器任务接口。
 
-H3 生态安装器固定 ComfyUI v0.35.0，并关闭尚未纳入本机验收的 Comfy Compiler；把固定 ComfyUI、KJNodes 与 Turbo 节点部署到新的 revision 目录，在独立 8190 端口同时探测 AddGuide、Turbo、Sage Attention 和 `SaveVideo` 后才切换 `/home/cec/ComfyUI-H3-current`。旧 checkout 不删除，可用于回滚。Turbo 权重保存在 SSD 并记录 revision、SHA256 与上游许可入口；只有正式的固定样例视频和原声音频基准通过后，才应将 Turbo 作为默认预览配方。
+H3 生态安装器的初始基线为 ComfyUI v0.35.0；当前统一运行时已升级至 v0.37.0（固定 revision 见 `models/qwen-image21.json`），并关闭尚未纳入本机验收的 Comfy Compiler；把固定 ComfyUI、KJNodes 与 Turbo 节点部署到新的 revision 目录，在独立 8190 端口同时探测 AddGuide、Turbo、Sage Attention 和 `SaveVideo` 后才切换 `/home/cec/ComfyUI-H3-current`。旧 checkout 不删除，可用于回滚。Turbo 权重保存在 SSD 并记录 revision、SHA256 与上游许可入口；只有正式的固定样例视频和原声音频基准通过后，才应将 Turbo 作为默认预览配方。
 
 FLUX.2 Dev 使用 `scripts/install-flux2-dev.sh` 通过 ModelScope SDK 从官方 `Comfy-Org/flux2-dev` 同仓的固定 revision 直接下载 FP8 mixed diffusion、FP8 Mistral 3 Small 文本编码器和 VAE，不保留双份 Git LFS 对象缓存。约 53.8 GB 的实体文件保存在 NVMe 的 `/home/cec/.local/share/comfyui-models`，`/data/sas/ComfyUI/models` 仅放三个稳定软链接；安装器会校验 SHA256，并拒绝覆盖已有真实模型文件。该模型受 FLUX Non-Commercial License v2.1 约束，当前只用于本地内部测试与评估。
 
@@ -115,3 +115,13 @@ VoiceDesign 使用 `qwen3-tts-1.7b-voicedesign-local`；正文和 `params.instru
 下载仅新增模型：`scripts/download-audio-models.py --model Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign --ssd-root <SSD目录> --entry-root <模型入口>`。固定官方 revision 为 `8dd530dbed7fda907a15ac48d7f78742cc90a065`。
 
 维护时先创建执行器数据目录的 `maintenance` 文件，等待 queued/running 和未完成代理任务排空，再变更运行时。带执行器环境运行 `scripts/qualify-qwen.py --model <模型ID>`；Base 追加 `--reference <WAV> --transcript <准确原文>`。工具核对官方权重、在 GPU 调度下试生成并保存逐模型就绪记录；记录匹配后才 available，不能只凭环境存在判断。保持模型、代码与依赖不变时，进程空闲退出不影响就绪。完成验收或回滚后移除 maintenance 文件恢复接单。
+
+## Qwen Image 2.1
+
+中立 API 提供 `qwen-image-2.1-local` 的文生图、最多 10 张参考编辑和 RGBA PNG 输出，复用 ComfyUI、持久任务与统一 GPU 调度。参数见 [模型说明](src/media_executor/skills/media-generation/references/qwen-image21.md)。宿主 Codex 普通生图仍使用原生能力。
+
+`bash scripts/install-qwen-image21.sh` 从固定官方 ModelScope 同仓下载三份 INT8 ConvRot/VAE 权重并校验 SHA256，实体在 SSD，Comfy 模型目录使用软链接。版本与许可来源在 `models/qwen-image21.json`；需要支持 `TextEncodeQwenImage21` 的 ComfyUI；准备升级目录后切换现有服务，不另设模型专用 ComfyUI 实例。节点与权重齐全才报告 available，实际生成及画质需要另行验收。
+
+`bash scripts/install-qwen-image21-runtime.sh` 准备固定官方 ComfyUI 升级目录，保留现有 H3 插件和媒体、复制 CUDA 环境并记录依赖。维护排空并备份后，将现有 `arcreel-comfyui-8189.service` 与稳定入口切到该目录；Qwen、H3 和其他 Comfy 模型统一使用 `COMFYUI_URL=http://127.0.0.1:8189`、同一 unit 和 `MEDIA_EXECUTOR_COMFY_REVISION`。不创建额外端口或服务；旧目录仅作离线回退。升级核心会改变 H3 pipeline 指纹，旧续接状态不能跨指纹混用，已生成媒体保留。
+
+加载执行器环境、设置 maintenance 并排空任务后，用执行器 Python 运行 `PYTHONPATH=src .venv/bin/python scripts/qualify-qwen-image21.py --output <验收目录>`，通过真实文生图和参考编辑后再重启执行器启用配置。下载与 ACK、按需启动以及验收边界见 [接入记录](../docs/research/qwen-image21-acceptance.md)。

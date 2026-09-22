@@ -4,8 +4,9 @@ import type { AiGenerationRequest } from "./ai-adapters.js";
 import { db, parseJson } from "./database.js";
 import { getStoredFile } from "./file-store.js";
 import { getMediaExecutorSettings, MEDIA_PROTOCOL } from "./media-executor-settings.js";
+import { dimensions } from "./comfy-workflows.js";
 
-export type MediaCapability = { id: string; version: string; output: "video" | "audio" | "text"; available: boolean; modes: string[]; operations: string[]; inputs: string[]; [key: string]: unknown };
+export type MediaCapability = { id: string; version: string; output: "image" | "video" | "audio" | "text"; available: boolean; modes: string[]; operations: string[]; inputs: string[]; [key: string]: unknown };
 export type MediaPlan = { capabilityVersion: string; mode: string; recipe?: string; qualityPreset?: string; width?: number; height?: number; fps?: number; outputFrames?: number; outputSeconds?: number; overlapFrames?: number; context?: Record<string, unknown> | null; previous?: Record<string, unknown> | null; seed: number };
 export const executorComfyModels = new Set(["minimax-h3-ref2va-local", "minimax-h3-fl2va-local", "minimax-music3-local"]);
 
@@ -56,6 +57,16 @@ export async function prepareExecutorRequest(userId: string, id: string, model: 
     const references = await Promise.all(refs.map(async (ref) => ({ fileId: await upload(userId, ref.fileId, signal), kind: ref.kind || "image", role: ref.role || "reference", transcript: ref.transcript, frameIndex: ref.frameIndex, includeAudio: ref.includeAudio })));
     const continuation = state ? { fileId: await upload(userId, state.fileId, signal), sha256: state.sha256 } : undefined;
     const params = Object.fromEntries(Object.entries(request.params || {}).filter(([key]) => !key.startsWith("__")));
+    if (model === "qwen-image-2.1-local") {
+        const { count, quality: _quality, size, background, systemPrompt: _systemPrompt, ...imageParams } = params;
+        if (count !== undefined && Number(count) !== 1) throw mediaError("AI_MODEL_IMAGE_COUNT_UNSUPPORTED", "Qwen Image 2.1 每个任务生成一张图片，请分批提交");
+        if (size !== undefined && size !== "auto") {
+            const { width, height } = dimensions({ size });
+            Object.assign(imageParams, refs.length ? { referenceResolution: Math.min(2048, Math.round(Math.sqrt(width * height) / 32) * 32) } : { width, height });
+        }
+        const prompt = background === "transparent" ? `${request.prompt || ""}\nThis is an RGBA image with transparency. The image has alpha channel and the background is transparent.` : request.prompt || "";
+        return { id, model, mode: request.mode || (refs.length ? "image-edit" : "text-to-image"), operation: request.operation || "generate", prompt, params: imageParams, references, continuation };
+    }
     const mode = request.mode || (request.kind === "transcription" ? "transcription" : model.includes("ref2va") ? "ref2va" : model.includes("fl2va") ? "fl2va" : model === "minimax-music3-local" ? "music" : String(params.audioMode || "speech"));
     const operation = request.operation || (request.kind === "transcription" ? "transcribe" : state ? "extend" : String(params.audioOperation || (mode === "speech" && refs.length ? "clone" : "generate")));
     return { id, model, mode, operation, prompt: request.prompt || "", params, references, continuation };

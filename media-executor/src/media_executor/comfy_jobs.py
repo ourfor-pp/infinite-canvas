@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 
-from .capabilities import h3, music
+from .capabilities import h3, music, qwen_image
 from .capabilities.catalog import input_path
 
 
@@ -62,7 +62,8 @@ def run(app, job_id, request):
     request = {**request, "params": {**request.get("params", {}), "seed": plan["seed"]}}
     root = app.RESULTS / job_id
     root.mkdir(parents=True, exist_ok=True)
-    with httpx.Client(base_url=app.COMFY_URL, timeout=120, trust_env=False) as client:
+    url = app.COMFY_URL
+    with httpx.Client(base_url=url, timeout=120, trust_env=False) as client:
         prompt_id = record["prompt_id"]
         if not prompt_id:
             if record["submitted"]:
@@ -79,7 +80,10 @@ def run(app, job_id, request):
                     with path.open("rb") as stream:
                         value = _json(client, "POST", "/upload/image", files={"image": (path.name, stream, mimetypes.guess_type(path.name)[0] or "application/octet-stream")}, data={"overwrite": "false"})
                     uploads[ref["fileId"]] = "/".join(filter(None, [value.get("subfolder"), value["name"]]))
-                graph = h3.graph(request, plan, uploads, uploads.get((request.get("continuation") or {}).get("fileId"))) if request["model"] in h3.MODELS else music.graph(request, plan)
+                if request["model"] == qwen_image.MODEL:
+                    graph = qwen_image.graph(request, plan, uploads)
+                else:
+                    graph = h3.graph(request, plan, uploads, uploads.get((request.get("continuation") or {}).get("fileId"))) if request["model"] in h3.MODELS else music.graph(request, plan)
                 with app.connect() as db:
                     db.execute("UPDATE comfy_executions SET graph=?,submitted=1 WHERE job_id=?", (json.dumps(graph), job_id))
                 # Persist intent BEFORE POST; interrupted POST is recovered, never blindly retried.
@@ -145,6 +149,10 @@ def run(app, job_id, request):
                     else:
                         info = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-count_frames", "-show_entries", "stream=codec_type,width,height,nb_read_frames,r_frame_rate,duration:format=duration", "-of", "json", str(path)], text=True))
                         saved["media"] = info
+                        if request["model"] == qwen_image.MODEL:
+                            image = next(s for s in info["streams"] if s["codec_type"] == "video")
+                            if path.suffix.lower() != ".png" or image["width"] != plan["width"] or image["height"] != plan["height"]:
+                                raise RuntimeError("Qwen Image output does not match execution plan")
                         if request["model"] in h3.MODELS:
                             video = next(s for s in info["streams"] if s["codec_type"] == "video")
                             expected = plan["context"]["frames"] if category == "cumulativeVideos" else plan["outputFrames"]
