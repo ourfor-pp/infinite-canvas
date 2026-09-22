@@ -376,7 +376,9 @@ export const CanvasNode = React.memo(function CanvasNode({
                 }}
                 onDoubleClick={(event) => {
                     event.stopPropagation();
+                    if (isEditingContent) return;
                     onFocus?.(data);
+                    if (data.type === CanvasNodeType.Text) setIsEditingContent(true);
                 }}
             >
                 <div
