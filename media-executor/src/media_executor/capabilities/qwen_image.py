@@ -47,9 +47,9 @@ def prepare(request, files):
         return value
     steps = integer("steps", 40, 1, 100)
     resolution = integer("referenceResolution", 1024, 256, 2048, 32)
-    if mode == "image-edit":
-        if "width" in params or "height" in params:
-            raise ValueError("image-edit follows the first reference aspect ratio; use referenceResolution")
+    if mode == "image-edit" and (("width" in params) != ("height" in params)):
+        raise ValueError("image-edit requires both width and height for an explicit output size")
+    if mode == "image-edit" and "width" not in params:
         try:
             info = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "json", str(files / refs[0]["fileId"])], text=True, timeout=15))
             first = info["streams"][0]
@@ -77,7 +77,7 @@ def graph(request, plan, uploads):
     graph.update({
         "4": node("TextEncodeQwenImage21", **encode),
         "5": node("EmptyLatentImage", width=plan["width"], height=plan["height"], batch_size=1),
-        "6": node("KSampler", model=["1", 0], positive=["4", 0], negative=["4", 1], latent_image=["4", 2] if request.get("references") else ["5", 0], seed=plan["seed"], steps=plan["steps"], cfg=1, sampler_name="euler", scheduler="simple", denoise=1),
+        "6": node("KSampler", model=["1", 0], positive=["4", 0], negative=["4", 1], latent_image=["4", 2] if request.get("references") and "width" not in request.get("params", {}) else ["5", 0], seed=plan["seed"], steps=plan["steps"], cfg=1, sampler_name="euler", scheduler="simple", denoise=1),
         "7": node("VAEDecode", samples=["6", 0], vae=["3", 0]),
         "8": node("SaveImage", images=["7", 0], filename_prefix="InfiniteCanvas/Qwen-Image-2.1"),
     })

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { App, ConfigProvider } from "antd";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -16,5 +17,5 @@ const now = new Date().toISOString();
 useCanvasStore.setState({ hydrated: true, projects: [{ id: "canvas-e2e", kind: "canvas", title: "通用画布验收", revision: 1, createdAt: now, updatedAt: now, nodes: [], connections: [], chatSessions: [], activeChatId: null, backgroundMode: "lines", showImageInfo: false, viewport: { x: 0, y: 0, k: 1 } }] });
 useThemeStore.getState().setTheme(new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light");
 createRoot(document.getElementById("root")!).render(
-    <ConfigProvider><App><MemoryRouter initialEntries={["/canvas/canvas-e2e"]}><Routes><Route path="/canvas/:id" element={<CanvasProjectPage />} /></Routes></MemoryRouter></App></ConfigProvider>,
+    <QueryClientProvider client={new QueryClient()}><ConfigProvider><App><MemoryRouter initialEntries={["/canvas/canvas-e2e"]}><Routes><Route path="/canvas/:id" element={<CanvasProjectPage />} /></Routes></MemoryRouter></App></ConfigProvider></QueryClientProvider>,
 );

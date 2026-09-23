@@ -29,6 +29,7 @@ type CanvasNodeProps = {
     isConnecting: boolean;
     editRequestNonce?: number;
     showPanel: boolean;
+    toolbarBelow?: boolean;
     showImageInfo: boolean;
     mentionReferences?: CanvasResourceReference[];
     pluginHost?: CanvasPluginHost;
@@ -47,7 +48,6 @@ type CanvasNodeProps = {
     onResize: (nodeId: string, width: number, height: number, position?: Position) => void;
     onResizeEnd: (nodeId: string) => void;
     onContentChange: (nodeId: string, content: string) => void;
-    onTitleChange: (nodeId: string, title: string) => void;
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (nodeId: string, imageId: string) => void;
     onDuplicateBatchImage?: (node: CanvasNodeData, imageId: string) => void;
@@ -94,6 +94,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     isConnecting,
     editRequestNonce = 0,
     showPanel,
+    toolbarBelow = false,
     showImageInfo,
     mentionReferences = [],
     pluginHost,
@@ -111,7 +112,6 @@ export const CanvasNode = React.memo(function CanvasNode({
     onResize,
     onResizeEnd,
     onContentChange,
-    onTitleChange,
     onToggleBatch,
     onSetBatchPrimary,
     onDuplicateBatchImage,
@@ -129,8 +129,6 @@ export const CanvasNode = React.memo(function CanvasNode({
     const definition = getNodeDefinition(data.type);
     const pluginContext = useMemo<CanvasNodeContext | null>(() => (pluginHost ? buildNodeContext(pluginHost, data, theme, scale, isSelected) : null), [pluginHost, data, theme, scale, isSelected]);
     const [isEditingContent, setIsEditingContent] = useState(false);
-    const [isEditingTitle, setIsEditingTitle] = useState(false);
-    const [titleDraft, setTitleDraft] = useState(data.title || "");
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
@@ -150,7 +148,6 @@ export const CanvasNode = React.memo(function CanvasNode({
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
     const imageBorderColor = isActive ? selectionBlue : isRelated ? theme.node.muted : "transparent";
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const titleInputRef = useRef<HTMLInputElement>(null);
     const resizeRef = useRef({
         isResizing: false,
         corner: "bottom-right" as ResizeCorner,
@@ -163,34 +160,6 @@ export const CanvasNode = React.memo(function CanvasNode({
         keepRatio: false,
         ratio: 1,
     });
-
-    useEffect(() => {
-        setTitleDraft(data.title || "");
-    }, [data.title]);
-
-    useEffect(() => {
-        if (!isEditingTitle) return;
-        titleInputRef.current?.focus();
-        titleInputRef.current?.select();
-    }, [isEditingTitle]);
-
-    const finishTitleEditing = useCallback(() => {
-        const title = titleDraft.trim() || data.title || t("canvas.node.untitled");
-        setTitleDraft(title);
-        setIsEditingTitle(false);
-        if (title !== data.title) onTitleChange(data.id, title);
-    }, [data.id, data.title, onTitleChange, t, titleDraft]);
-
-    useEffect(() => {
-        if (!isEditingTitle) return;
-        const handleOutsidePointerDown = (event: PointerEvent) => {
-            const target = event.target;
-            if (target instanceof Node && titleInputRef.current?.contains(target)) return;
-            finishTitleEditing();
-        };
-        window.addEventListener("pointerdown", handleOutsidePointerDown, true);
-        return () => window.removeEventListener("pointerdown", handleOutsidePointerDown, true);
-    }, [finishTitleEditing, isEditingTitle]);
 
     useEffect(() => {
         const textarea = textareaRef.current;
@@ -327,42 +296,6 @@ export const CanvasNode = React.memo(function CanvasNode({
             }}
             onContextMenu={(event) => onContextMenu(event, data.id)}
         >
-            {(isSelected || hovered || isEditingTitle) && (
-                <div className="absolute left-3 top-[-28px] z-[65] max-w-[calc(100%-24px)]" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
-                    {isEditingTitle ? (
-                        <input
-                            ref={titleInputRef}
-                            value={titleDraft}
-                            maxLength={64}
-                            className="h-6 max-w-full border-0 border-b border-dashed bg-transparent px-0 text-left text-xs font-medium outline-none"
-                            style={{ borderColor: theme.node.muted, color: theme.node.text }}
-                            onChange={(event) => setTitleDraft(event.target.value)}
-                            onBlur={finishTitleEditing}
-                            onKeyDown={(event) => {
-                                if (event.key === "Enter") finishTitleEditing();
-                                if (event.key === "Escape") {
-                                    setTitleDraft(data.title || "");
-                                    setIsEditingTitle(false);
-                                }
-                            }}
-                        />
-                    ) : (
-                        <button
-                            type="button"
-                            className="block max-w-full truncate border-b border-dashed border-transparent px-0 py-0.5 text-left text-xs font-medium opacity-75 transition hover:border-current hover:opacity-100"
-                            style={{ color: theme.node.text }}
-                            title={t("canvas.node.renameHint")}
-                            onDoubleClick={(event) => {
-                                event.stopPropagation();
-                                setIsEditingTitle(true);
-                            }}
-                        >
-                            {data.title || t("canvas.node.untitled")}
-                        </button>
-                    )}
-                </div>
-            )}
-
             <div
                 className={`relative h-full w-full overflow-visible border-2 ${nodeRadius}`}
                 style={{
@@ -432,7 +365,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 ...(definition?.hasSourceHandle === false || data.type === CanvasNodeType.Config ? [] : [{ id: "output", label: "输出", direction: "output", dataType: "text", multiple: true, position: 0.5 } as CanvasNodePort]),
             ]).map((port) => <ConnectionHandleDot key={`${port.direction}:${port.id}`} port={port} visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, port.direction === "output" ? "source" : "target", port.id)} />) : null}
 
-            {showPanel && !isGroup && renderPanel ? <div data-canvas-node-panel className={`absolute left-1/2 top-full z-[70] -translate-x-1/2 pt-4 ${data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Audio ? "w-[800px]" : "w-[600px]"}`}>{renderPanel(data)}</div> : null}
+            {showPanel && !isGroup && renderPanel ? <div data-canvas-node-panel style={toolbarBelow ? { paddingTop: 68 / scale } : undefined} className={`absolute left-1/2 top-full z-[70] -translate-x-1/2 pt-4 ${data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Audio ? "w-[800px]" : "w-[600px]"}`}>{renderPanel(data)}</div> : null}
         </div>
     );
 });
@@ -440,6 +373,7 @@ export const CanvasNode = React.memo(function CanvasNode({
 function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot || (props.node.type === CanvasNodeType.Image && props.node.metadata?.content)) return <ImageNodeContent {...props} />;
+    if (props.node.type === CanvasNodeType.Audio && props.node.metadata?.content) return <AudioNodeContent {...props} />;
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 

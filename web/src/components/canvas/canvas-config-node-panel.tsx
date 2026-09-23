@@ -1,14 +1,16 @@
+import { videoDefaults } from "../../../../server/src/video-contract";
+import { imageContractForMode, imageDefaults } from "../../../../server/src/image-contract";
+import { audioDefaults } from "../../../../server/src/audio-contract";
 import type { CSSProperties } from "react";
 import { Image as ImageIcon, LoaderCircle, MessageSquare, Music2, Play, Settings2, Square, Video } from "lucide-react";
 import { Button, Segmented } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, resolveModelForCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, getAvailableModel, resolveModelForCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
-import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
@@ -101,13 +103,13 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
             </div>
 
             <div className="mb-2 grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_148px] items-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
-                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability={mode} imageMode={mode === "image" ? imageMode : undefined} onMissingConfig={() => openConfigDialog(true)} fullWidth />
+                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => { const vc = mode === "video" ? getAvailableModel(model)?.videoContract : undefined; const vd = vc ? videoDefaults(vc) : undefined; const contract = getAvailableModel(model)?.audioContract; const imageContract = getAvailableModel(model)?.imageContract; onConfigChange(node.id, { model, ...(vd ? { size: vd.size, seconds: vd.videoSeconds, vquality: vd.vquality, generateAudio: vd.videoGenerateAudio, watermark: vd.videoWatermark } : {}), ...(mode === "image" && imageContract ? imageDefaults(imageContractForMode(imageContract, imageMode === "edit")) : {}), ...(mode === "audio" ? { audioParams: contract ? audioDefaults(contract) : {}, audioOperation: contract?.operations[0], audioReferenceInputs: {} } : {}) }); }} capability={mode} imageMode={mode === "image" ? imageMode : undefined} onMissingConfig={() => openConfigDialog(true)} fullWidth />
                 {mode === "video" ? (
                     <CanvasVideoSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
                 ) : mode === "image" ? (
-                    <CanvasImageSettingsPopover config={config} placement="topRight" autoAdjustOverflow={false} buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })} />
+                    <CanvasImageSettingsPopover config={config} imageMode={imageMode} placement="topRight" autoAdjustOverflow={false} buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })} />
                 ) : mode === "audio" ? (
-                    <CanvasAudioSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))} />
+                    <Button type="text" icon={<Settings2 className="size-3.5" />} onClick={onComposerToggle}>音频参数</Button>
                 ) : (
                     <CanvasTextSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(_, value) => onConfigChange(node.id, { reasoningEffort: value })} />
                 )}
@@ -150,7 +152,7 @@ function InputChip({ label, value, style }: { label: string; value: string; styl
 }
 
 function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasGenerationMode, imageMode: "generate" | "edit"): AiConfig {
-    return {
+    const result = {
         ...globalConfig,
         model: resolveModelForCapability(globalConfig, node.metadata?.model, mode, mode === "image" ? imageMode : undefined),
         reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultConfig.reasoningEffort,
@@ -167,6 +169,14 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
         count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
     };
+    const c = mode === "video" ? getAvailableModel(result.model)?.videoContract : undefined;
+    return c ? { ...result, ...videoDefaults(c),
+        ...(node.metadata?.size ? { size: node.metadata.size } : {}),
+        ...(node.metadata?.seconds ? { videoSeconds: node.metadata.seconds } : {}),
+        ...(node.metadata?.vquality ? { vquality: node.metadata.vquality } : {}),
+        ...(node.metadata?.generateAudio ? { videoGenerateAudio: node.metadata.generateAudio } : {}),
+        ...(node.metadata?.watermark ? { videoWatermark: node.metadata.watermark } : {}),
+    } : result;
 }
 
 function videoConfigPatch(key: keyof AiConfig, value: string) {
@@ -174,11 +184,4 @@ function videoConfigPatch(key: keyof AiConfig, value: string) {
     if (key === "videoGenerateAudio") return { generateAudio: value };
     if (key === "videoWatermark") return { watermark: value };
     return { [key]: value };
-}
-
-function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
-    if (key === "audioVoice") return { audioVoice: value };
-    if (key === "audioFormat") return { audioFormat: value };
-    if (key === "audioSpeed") return { audioSpeed: value };
-    return { audioInstructions: value };
 }

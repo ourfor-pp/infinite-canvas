@@ -1,12 +1,14 @@
+import { imageContractForMode, imageDefaults, imageRequestParams, validateImageInput } from "../../../../../server/src/image-contract";
+import { audioDefaults, audioReferenceRules, validateAudioInput } from "../../../../../server/src/audio-contract";
+import { AudioInputs } from "./audio-inputs";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { App, Button, Image as AntImage, Tooltip } from "antd";
 import { ArrowUp, Bot, ImageIcon, LoaderCircle, Music2, Plus, Sparkles, Square, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
-import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "@/components/canvas/canvas-audio-settings-popover";
 import { CanvasImageSettingsPopover } from "@/components/canvas/canvas-image-settings-popover";
 import { CanvasPromptChipInput } from "@/components/canvas/canvas-prompt-chip-input";
-import { resolveModelForCapability } from "@/stores/use-config-store";
+import { getAvailableModel, resolveModelForCapability } from "@/stores/use-config-store";
 import type { MediaEditorDraft, MediaEditorReference, MediaEditorTarget } from "./types";
 
 export function MediaEditor({ target }: { target: MediaEditorTarget }) {
@@ -43,7 +45,7 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
     const editorConfig = useMemo(() => ({
         ...target.config,
         ...draft.params,
-        model: resolveModelForCapability(target.config, draft.model, target.kind, imageMode),
+        model: draft.model || resolveModelForCapability(target.config, draft.model, target.kind, imageMode),
         count: String(draft.params.count || target.config.count),
     }), [draft, imageMode, target.config, target.kind]);
 
@@ -70,12 +72,21 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
         } finally { setSaving(false); }
     };
     const updateConfig = (key: string, value: string) => {
-        if (key === "model") return change({ model: value });
+        if (key === "model") {
+            const contract = target.kind === "audio" ? getAvailableModel(value)?.audioContract : undefined;
+            const imageContract = target.kind === "image" ? getAvailableModel(value)?.imageContract : undefined;
+            return change({ model: value, ...(imageContract ? { params: imageDefaults(imageContractForMode(imageContract, imageMode === "edit")) } : {}), ...(target.kind === "audio" ? { params: contract ? audioDefaults(contract) : {}, operation: contract?.operations[0], referenceInputs: {} } : {}) });
+        }
         const normalized = key === "count" ? Number(value) || 1 : value;
         change({ params: { ...draftRef.current.params, [key]: normalized } });
         target.updateConfig?.(key as never, value);
     };
-    const canGenerate = canGenerateMedia(target, draft);
+    const audioContract = target.kind === "audio" ? getAvailableModel(draft.model)?.audioContract : undefined;
+    const audioErrors = target.kind === "audio" ? audioContract ? validateAudioInput(audioContract, draft.prompt, draft.params, target.snapshot.references.map((ref) => ({ kind: ref.kind, durationMs: ref.durationMs, ...draft.referenceInputs?.[ref.id] })), draft.operation) : ["当前模型缺少音频输入定义，请选择已配置的模型"] : [];
+    const imageContract = target.kind === "image" ? getAvailableModel(draft.model)?.imageContract : undefined;
+    const imageErrors = imageContract ? validateImageInput(imageContract, draft.prompt, imageRequestParams(imageContract, { ...target.config, ...draft.params }), target.snapshot.references.length) : target.kind === "image" ? ["当前图片模型缺少输入定义，请刷新模型目录"] : [];
+    const allowUpload = Boolean(target.uploadReference && (target.kind !== "audio" || (audioContract && audioReferenceRules(audioContract, draft.operation || audioContract.operations[0]).length)));
+    const canGenerate = canGenerateMedia(target, draft) && !audioErrors.length && !imageErrors.length;
     const run = async () => {
         if (!canGenerate || target.snapshot.running) return;
         if (!await save()) return;
@@ -102,34 +113,38 @@ export function MediaEditor({ target }: { target: MediaEditorTarget }) {
 
     return <section className="w-full" data-canvas-no-zoom
         onDragOver={(event) => {
-            if (!target.uploadReference || !event.dataTransfer.types.includes("Files")) return;
+            if (!allowUpload || !event.dataTransfer.types.includes("Files")) return;
             event.preventDefault(); event.stopPropagation();
             event.dataTransfer.dropEffect = "copy";
             setDragging(true);
         }}
         onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
         onDropCapture={(event) => {
-            if (!target.uploadReference || !event.dataTransfer.files.length) return;
+            if (!allowUpload || !event.dataTransfer.files.length) return;
             event.preventDefault(); event.stopPropagation(); setDragging(false);
             void uploadFiles(Array.from(event.dataTransfer.files));
         }}
         onPasteCapture={(event) => {
-            if (!target.uploadReference || !event.clipboardData.files.length) return;
+            if (!allowUpload || !event.clipboardData.files.length) return;
             event.preventDefault(); event.stopPropagation();
             void uploadFiles(Array.from(event.clipboardData.files));
         }} onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
         <div className="mb-2 flex items-center justify-between gap-3"><div><div className="text-sm font-semibold">{target.semanticLabel}</div><div className="mt-0.5 text-[11px] opacity-45">{saving ? "正在保存草稿" : "修改只影响下一次生成"}</div></div>{target.askAgent ? <Button type="text" size="small" icon={<Bot className="size-3.5" />} onClick={() => void target.askAgent?.(draftRef.current)}>交给 Agent</Button> : null}</div>
         {target.separateSpeechTranscript ? <input value={draft.transcript || ""} onChange={(event) => change({ transcript: event.target.value })} className="mb-2 h-9 w-full rounded-xl border border-current/10 bg-transparent px-3 text-sm outline-none focus:border-blue-400/70" placeholder="输入一句试听台词" /> : null}
-        {target.snapshot.references.length || target.uploadReference ? <ReferenceShelf references={target.snapshot.references} dragging={dragging} uploadControl={target.uploadReference ? <Tooltip title={`上传参考${target.kind === "image" ? "图" : "音频"}，支持拖入或粘贴`}><button type="button" aria-label={target.kind === "image" ? "上传参考图" : "上传参考音频"} disabled={uploading} className="grid size-11 shrink-0 place-items-center rounded-lg border border-dashed border-current/20 bg-transparent opacity-60 transition hover:bg-black/5 hover:opacity-100 disabled:cursor-wait dark:hover:bg-white/10" onClick={() => uploadRef.current?.click()}>{uploading ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-5" />}</button></Tooltip> : null} onRemove={target.removeReference ? async (reference) => {
+        {target.snapshot.references.length || allowUpload ? <ReferenceShelf references={target.snapshot.references} dragging={dragging} uploadControl={allowUpload ? <Tooltip title={`上传参考${target.kind === "image" ? "图" : "音频"}，支持拖入或粘贴`}><button type="button" aria-label={target.kind === "image" ? "上传参考图" : "上传参考音频"} disabled={uploading} className="grid size-11 shrink-0 place-items-center rounded-lg border border-dashed border-current/20 bg-transparent opacity-60 transition hover:bg-black/5 hover:opacity-100 disabled:cursor-wait dark:hover:bg-white/10" onClick={() => uploadRef.current?.click()}>{uploading ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-5" />}</button></Tooltip> : null} onRemove={target.removeReference ? async (reference) => {
             change({ prompt: removeReferenceLabel(draftRef.current.prompt, target.mentionReferences?.find((item) => item.nodeId === reference.nodeId)?.label || reference.label) });
             try { await target.removeReference?.(reference); } catch (error) { message.error(error instanceof Error ? error.message : "移除参考素材失败"); }
         } : undefined} /> : null}
-        <CanvasPromptChipInput value={draft.prompt} references={target.mentionReferences || []} onActivateReference={target.activateReference} onChange={(prompt) => change({ prompt })} onSubmit={() => void run()} className="thin-scrollbar h-56 w-full resize-none rounded-xl border border-current/10 bg-transparent px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400/70" placeholder={promptPlaceholder} />
+        {audioContract ? <div className="mb-1.5 text-xs opacity-65">{audioContract.promptLabel} *</div> : null}
+        <CanvasPromptChipInput value={draft.prompt} references={target.mentionReferences || []} onActivateReference={target.activateReference} onChange={(prompt) => change({ prompt })} onSubmit={() => void run()} className={`thin-scrollbar ${target.kind === "audio" ? "h-28" : "h-56"} w-full resize-none rounded-xl border border-current/10 bg-transparent px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400/70`} placeholder={audioContract?.promptLabel || promptPlaceholder} />
 
+        {audioContract ? <AudioInputs contract={audioContract} draft={draft} references={target.snapshot.references} onChange={change} /> : null}
+        {imageErrors.length ? <div role="status" className="mt-2 text-xs opacity-65">{imageErrors.join("；")}</div> : null}
+        {audioErrors.length ? <div role="status" className="mt-2 text-xs opacity-65">{audioErrors.join("；")}</div> : null}
         <div className="mt-3 flex min-w-0 items-center gap-3 border-t border-current/10 pt-3">
             <div className="thin-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5">
-                <ModelPicker config={editorConfig} value={editorConfig.model} onChange={(model) => updateConfig("model", model)} capability={target.kind} audioMode={draft.audioMode} imageMode={imageMode} appearance="toolbar" className="!h-9 !min-w-44 !max-w-none shrink-0" />
-                {target.kind === "image" ? <CanvasImageSettingsPopover config={editorConfig} onConfigChange={(key, value) => updateConfig(String(key), value)} appearance="toolbar" buttonClassName="shrink-0" /> : <CanvasAudioSettingsPopover config={editorConfig} onConfigChange={(key, value) => updateConfig(audioSettingKey(key), value)} appearance="toolbar" buttonClassName="shrink-0" />}
+                <ModelPicker config={editorConfig} value={editorConfig.model} onChange={(model) => updateConfig("model", model)} capability={target.kind} audioMode={undefined} imageMode={imageMode} appearance="toolbar" className="!h-9 !min-w-44 !max-w-none shrink-0" />
+                {target.kind === "image" ? <CanvasImageSettingsPopover config={editorConfig} imageMode={imageMode} onConfigChange={(key, value) => updateConfig(String(key), value)} appearance="toolbar" buttonClassName="shrink-0" /> : null}
             </div>
             <Button type={running ? "default" : "primary"} danger={Boolean(running)} className="!size-11 shrink-0 !rounded-full !p-0" disabled={!running && !canGenerate} icon={running ? <Square className="size-3.5 fill-current" /> : busy ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />} onClick={() => running ? void target.stop?.() : void run()} aria-label={running ? "停止生成" : "开始生成"} />
         </div>
@@ -156,10 +171,6 @@ function ReferenceItem({ reference, onRemove }: { reference: MediaEditorReferenc
 
 function removeReferenceLabel(prompt: string, label: string) {
     return prompt.split(label).join("").replace(/[ \t]{2,}/g, " ").trimStart();
-}
-
-function audioSettingKey(key: CanvasAudioSettingKey) {
-    return key === "audioVoice" ? "audioVoice" : key === "audioFormat" ? "audioFormat" : key === "audioSpeed" ? "audioSpeed" : "audioInstructions";
 }
 
 export function canGenerateMedia(target: Pick<MediaEditorTarget, "kind" | "snapshot" | "allowEmptyPrompt" | "separateSpeechTranscript">, draft: MediaEditorDraft) {

@@ -1,4 +1,5 @@
-import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
+import { videoDefaults } from "../../../../server/src/video-contract";
+import { defaultConfig, getAvailableModel, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import i18n from "@/i18n";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
@@ -92,8 +93,11 @@ export function getInputSummary(inputs: NodeGenerationInput[]) {
 }
 
 export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode): AiConfig {
-    return {
+    const result = {
         ...config,
+        audioParams: node?.metadata?.audioParams,
+        audioOperation: node?.metadata?.audioOperation,
+        audioReferenceInputs: node?.metadata?.audioReferenceInputs,
         model: resolveModelForCapability(config, node?.metadata?.model, mode),
         reasoningEffort: node?.metadata?.reasoningEffort || config.reasoningEffort || defaultConfig.reasoningEffort,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
@@ -109,6 +113,14 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
         count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
     };
+    const contract = mode === "video" ? getAvailableModel(result.model)?.videoContract : undefined;
+    return contract ? { ...result, ...videoDefaults(contract),
+        ...(node?.metadata?.size ? { size: node.metadata.size } : {}),
+        ...(node?.metadata?.seconds ? { videoSeconds: node.metadata.seconds } : {}),
+        ...(node?.metadata?.vquality ? { vquality: node.metadata.vquality } : {}),
+        ...(node?.metadata?.generateAudio ? { videoGenerateAudio: node.metadata.generateAudio } : {}),
+        ...(node?.metadata?.watermark ? { videoWatermark: node.metadata.watermark } : {}),
+    } : result;
 }
 
 export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {

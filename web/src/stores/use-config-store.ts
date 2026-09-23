@@ -1,3 +1,6 @@
+import type { VideoContract } from "../../../server/src/video-contract";
+import type { ImageContract } from "../../../server/src/image-contract";
+import type { AudioContract } from "../../../server/src/audio-contract";
 import { useMemo } from "react";
 import { create } from "zustand";
 
@@ -10,6 +13,9 @@ export type AudioOperation = "generate" | "clone" | "transform" | "extend" | "in
 export type ImageMode = "generate" | "edit";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 export type AiModelOption = {
+    videoContract?: VideoContract;
+    imageContract?: ImageContract;
+    audioContract?: AudioContract;
     id: string;
     name: string;
     value: string;
@@ -28,6 +34,9 @@ export type AiModelOption = {
 };
 
 export type AiConfig = {
+    audioParams?: Record<string, unknown>;
+    audioOperation?: string;
+    audioReferenceInputs?: Record<string, { role?: "reference" | "emotion"; transcript?: string }>;
     model: string;
     imageModel: string;
     imageEditModel: string;

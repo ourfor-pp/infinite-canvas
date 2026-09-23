@@ -15,6 +15,8 @@
 
 ## Development and Data
 
+- [画布图片、视频与音频输入契约验收](./research/canvas-media-input-contracts.md)
+
 - [中立媒体能力与执行器边界](/docs/development/media-capabilities)
 - [中立服务音乐、ASR 与 TTS 选型](./research/audio-capability-selection.md)
 

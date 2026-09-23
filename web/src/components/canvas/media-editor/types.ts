@@ -2,8 +2,8 @@ import type { AiConfig, AudioMode } from "@/stores/use-config-store";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 
 export type MediaEditorKind = "image" | "audio";
-export type MediaEditorDraft = { prompt: string; model: string; params: Record<string, unknown>; audioMode?: AudioMode; transcript?: string };
-export type MediaEditorReference = { id: string; label: string; kind: MediaEditorKind; url?: string; source: "asset" | "canvas" | "style"; nodeId?: string; removable?: boolean };
+export type MediaEditorDraft = { prompt: string; model: string; params: Record<string, unknown>; audioMode?: AudioMode; operation?: string; referenceInputs?: AiConfig["audioReferenceInputs"]; transcript?: string };
+export type MediaEditorReference = { id: string; label: string; kind: MediaEditorKind; url?: string; source: "asset" | "canvas" | "style"; nodeId?: string; durationMs?: number; removable?: boolean };
 export type MediaEditorVariant = { id: string; label: string; kind: MediaEditorKind; url: string; prompt?: string; primary?: boolean; reference?: boolean; review?: { status: "pending_review" | "approved" | "rejected"; summary?: string; issues?: string[] } };
 export type MediaEditorSnapshot = {
     draft: MediaEditorDraft;

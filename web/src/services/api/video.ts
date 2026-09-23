@@ -1,3 +1,5 @@
+import { videoRequestParams, videoReferenceRole, validateVideoInput } from "../../../../server/src/video-contract";
+import { getAvailableModel } from "@/stores/use-config-store";
 import { ensureServerReference, generationFiles } from "@/services/api/ai-generation";
 import { serverApi } from "@/services/api/server";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
@@ -25,25 +27,25 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const model = config.model || config.videoModel;
+    const contract = getAvailableModel(model)?.videoContract;
+    if (!contract) throw new Error("当前模型缺少视频输入定义，请刷新模型目录");
+    const params = videoRequestParams(contract, config);
+    const roles = [
+        ...references.map((_, i) => ({ kind: "image" as const, role: videoReferenceRole(contract, "image", i) })),
+        ...videoReferences.map(() => ({ kind: "video" as const, role: "reference" })),
+        ...audioReferences.map(() => ({ kind: "audio" as const, role: "reference" })),
+    ];
+    const errors = validateVideoInput(contract, prompt, params, roles);
+    if (errors.length) throw new Error(errors.join("；"));
     const allReferences = await Promise.all([
         ...references.map((reference) => ensureServerReference(reference, "image")),
         ...videoReferences.map((reference) => ensureServerReference(reference, "video")),
         ...audioReferences.map((reference) => ensureServerReference(reference, "audio")),
     ]);
     const generation = await serverApi.createGeneration({
-        kind: "video",
-        model: config.model || config.videoModel,
-        prompt,
-        params: {
-            seconds: config.videoSeconds,
-            size: config.size,
-            ratio: config.size,
-            resolution: config.vquality,
-            generateAudio: config.videoGenerateAudio !== "false",
-            watermark: config.videoWatermark === "true",
-            systemPrompt: config.systemPrompt,
-        },
-        references: allReferences,
+        kind: "video", videoInputVersion: 1, model, prompt, params,
+        references: allReferences.map((ref, i) => ({ ...ref, role: roles[i].role as "reference" | "first-frame" | "last-frame" })),
     });
     const abort = () => void serverApi.cancelGeneration(generation.id).catch(() => undefined);
     options?.signal?.addEventListener("abort", abort, { once: true });
@@ -54,7 +56,7 @@ export async function pollVideoGenerationTask(_config: AiConfig, task: VideoGene
     const generation = await serverApi.generation(task.id);
     if (generation.status === "failed" || generation.status === "canceled") return { status: "failed", error: generation.error || "视频生成失败" };
     if (generation.status !== "succeeded") return { status: "pending" };
-    const file = generationFiles(generation)[0];
+    const file = generationFiles(generation).find(file => file.mimeType?.startsWith("video/"));
     return file ? { status: "completed", result: { url: file.url, mimeType: file.mimeType, generationId: generation.id } } : { status: "failed", error: "视频任务没有返回文件" };
 }
 

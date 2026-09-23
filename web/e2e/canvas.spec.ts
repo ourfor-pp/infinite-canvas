@@ -81,8 +81,8 @@ test("图片节点首次生成与重做均原地回填，失败保留旧图", as
     await page.evaluate(async () => {
         const path = "/src/stores/use-config-store.ts";
         const { useConfigStore } = await import(/* @vite-ignore */ path);
-        useConfigStore.getState().hydrateFromServer({ count: "1", canvasImageCount: "1" });
-        useConfigStore.getState().hydrateModels([{ id: "test", name: "测试图片", value: "p::test", providerId: "p", providerName: "测试", output: "image", inputs: ["text", "image"], enabled: true, imageModes: ["generate", "edit"] }]);
+        useConfigStore.getState().hydrateFromServer({ count: "1", canvasImageCount: "1", size: "auto", background: "auto" });
+        useConfigStore.getState().hydrateModels([{ id: "test", name: "测试图片", value: "p::test", providerId: "p", providerName: "测试", output: "image", inputs: ["text", "image"], enabled: true, imageModes: ["generate", "edit"], imageContract: { version: 1, modes: ["generate", "edit"], maxReferenceImages: 3, sizes: ["auto", "2048x2048", "1024x1024"], qualities: ["auto", "high", "medium", "low"], backgrounds: ["auto", "transparent"], maxCount: 10, sizeLabel: "尺寸" } }]);
     });
     await page.getByRole("button", { name: "图片", exact: true }).click();
     const node = page.locator('[data-node-id^="image-"]');
@@ -152,3 +152,51 @@ test("参考图叉号仅断开对应连线并保留原节点", async ({ page }, 
     await expect(panel.getByRole("button", { name: "上传参考图", exact: true })).toBeVisible();
     await expect(panel.getByRole("button", { name: "移除目标图片", exact: true })).toHaveCount(0);
 });
+
+for (const theme of ["light", "dark"]) {
+    test(`节点无顶部标题且工具栏避让 ${theme}`, async ({ page }, testInfo) => {
+        await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
+            const request = route.request();
+            const path = new URL(request.url()).pathname;
+            if (path.endsWith("/content")) return route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><rect width="300" height="200" fill="steelblue"/></svg>' });
+            let data: unknown = [];
+            if (path === "/api/agent/config") data = { ready: false, protocolVersion: 4, storageVersion: 2 };
+            else if (path.endsWith("/capabilities")) data = { sceneId: "canvas", engines: [], skills: [], referenceKinds: ["canvas"], composer: { suggestions: [] } };
+            else if (path.endsWith("/conversation")) data = { sessions: [], session: null, queuedMessages: [] };
+            else if (request.method() === "PUT") data = { ...request.postDataJSON(), id: "canvas-e2e", revision: 2 };
+            await route.fulfill({ json: { data } });
+        });
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        await page.goto(`/__canvas-test.html?theme=${theme}`);
+        await page.getByRole("button", { name: "文本", exact: true }).click();
+        for (const type of ["text", "image"]) {
+            for (const scale of [0.75, 1.5]) {
+                for (const nearTop of [false, true]) {
+                    await page.evaluate(async ({ type, scale, nearTop }) => {
+                        const path = "/src/stores/canvas/use-canvas-store.ts";
+                        const { useCanvasStore } = await import(/* @vite-ignore */ path);
+                        const project = useCanvasStore.getState().projects[0];
+                        const content = type === "image" ? "/api/files/layout-image/content" : "测试正文";
+                        const node = { id: "layout-test", type, title: "这是一个很长的节点标题，用于检查名称省略和悬浮工具栏避让，不应该溢出节点的宽度", position: { x: 400 / scale, y: (nearTop ? 110 : 280) / scale }, width: 300, height: 200, metadata: { content } };
+                        window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: { ...project, nodes: [node], connections: [], viewport: { x: 0, y: 0, k: scale } } }));
+                    }, { type, scale, nearTop });
+                    const node = page.locator('[data-node-id="layout-test"]');
+                    await expect.poll(async () => {
+                        const box = await node.boundingBox();
+                        return box ? [Math.round(box.y), Math.round(box.width)] : [];
+                    }).toEqual([nearTop ? 110 : 280, 300 * scale]);
+                    await node.click({ position: { x: 20, y: 40 } });
+                    await expect(node.locator("[data-canvas-node-title]")).toHaveCount(0);
+                    await expect(node.getByText("这是一个很长的节点标题", { exact: false })).toHaveCount(0);
+                    const toolbar = page.locator("[data-canvas-node-toolbar]");
+                    await expect(toolbar).toBeVisible();
+                    const n = (await node.boundingBox())!;
+                    const b = (await toolbar.boundingBox())!;
+                    if (nearTop) expect(b.y).toBeGreaterThanOrEqual(n.y + n.height + 9);
+                    else expect(b.y + b.height).toBeLessThanOrEqual(n.y - 9);
+                    if (scale === 1.5) await page.screenshot({ path: testInfo.outputPath(`${type}-${nearTop ? "below" : "above"}-${theme}.png`) });
+                }
+            }
+        }
+    });
+}

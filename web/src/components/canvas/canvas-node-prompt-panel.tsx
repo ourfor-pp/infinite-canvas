@@ -1,10 +1,13 @@
+import { videoDefaults, videoRequestParams, videoReferenceRole, validateVideoInput } from "../../../../server/src/video-contract";
+import { imageContractForMode, imageDefaults } from "../../../../server/src/image-contract";
+import { audioDefaults } from "../../../../server/src/audio-contract";
 import { useEffect, useState } from "react";
 import { ArrowUp, LoaderCircle, Maximize2, Square } from "lucide-react";
 import { Button, Modal, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, resolveModelForCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, getAvailableModel, resolveModelForCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
@@ -24,7 +27,7 @@ type CanvasNodePromptPanelProps = {
     isRunning: boolean;
     onPromptChange: (nodeId: string, prompt: string) => void;
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => void;
-    onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
+    onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, audioConfig?: Partial<AiConfig>) => void;
     onStop: (nodeId: string) => void;
     onUploadReference?: (nodeId: string, kind: "image" | "audio", file: File) => Promise<void>;
     onRemoveReference?: (connectionId: string) => void;
@@ -60,10 +63,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         else onPromptChange(node.id, value);
     };
 
+    const videoContract = mode === "video" ? getAvailableModel(config.model)?.videoContract : undefined;
+    let imageIndex = 0;
+    const videoErrors = mode === "video" ? videoContract ? validateVideoInput(videoContract, prompt, videoRequestParams(videoContract, config), mentionReferences.filter(r => r.active && r.kind !== "text").map(r => ({ kind: r.kind, role: videoReferenceRole(videoContract, r.kind, r.kind === "image" ? imageIndex++ : 0) }))) : ["当前模型缺少视频输入定义"] : [];
     const submit = () => {
         const text = prompt.trim();
-        if (!text || isRunning) return;
-        onGenerate(node.id, mode, text);
+        if (!text || isRunning || videoErrors.length) return;
+        onGenerate(node.id, mode, text, mode === "video" ? config : undefined);
     };
 
     const openExpandedEditor = () => {
@@ -72,6 +78,9 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
     if (mode === "image" || mode === "audio") {
         const primaryImageId = node.metadata?.primaryImageId || node.metadata?.images?.[0]?.id;
+        const rawImageContract = mode === "image" ? getAvailableModel(config.model)?.imageContract : undefined;
+        const imageContract = rawImageContract ? imageContractForMode(rawImageContract, imageMode === "edit") : undefined;
+        const audioContract = mode === "audio" ? getAvailableModel(config.model)?.audioContract : undefined;
         const mediaTarget: MediaEditorTarget = {
             key: `canvas-node:${node.id}:${mode}`,
             kind: mode,
@@ -81,16 +90,16 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             config,
             mentionReferences,
             snapshot: {
-                draft: { prompt, model: config.model, params: metadataParams(node), audioMode: mode === "audio" ? "speech" : undefined },
-                references: mentionReferences.filter((item) => item.kind === mode).map((item) => ({ id: item.id, nodeId: item.nodeId, label: item.title, kind: mode, url: item.previewUrl, source: "canvas", removable: Boolean(item.connectionId) })),
+                draft: { prompt, model: config.model, params: mode === "audio" ? node.metadata?.audioParams || (audioContract ? audioDefaults(audioContract) : {}) : { ...(imageContract ? { ...imageDefaults(imageContract), count: Math.min(Number(config.count) || 1, imageContract.maxCount) } : {}), ...metadataParams(node) }, operation: node.metadata?.audioOperation || audioContract?.operations[0], referenceInputs: node.metadata?.audioReferenceInputs },
+                references: mentionReferences.filter((item) => item.kind === mode).map((item) => ({ id: item.id, nodeId: item.nodeId, label: item.title, kind: mode, url: item.previewUrl, durationMs: item.durationMs, source: "canvas", removable: Boolean(item.connectionId) })),
                 variants: mode === "image" ? (node.metadata?.images || []).filter((item) => item.content).map((item) => ({ id: item.id, label: item.prompt || node.title, kind: "image", url: item.content, prompt: item.prompt, primary: item.id === primaryImageId })) : node.metadata?.content ? [{ id: node.id, label: node.title, kind: "audio", url: node.metadata.content, primary: true }] : [],
                 running: isRunning ? { status: "running", progress: 0 } : undefined,
             },
             saveDraft: (draft) => {
                 setPrompt(draft.prompt);
-                onConfigChange(node.id, { composerContent: draft.prompt, model: draft.model, ...draft.params });
+                onConfigChange(node.id, { composerContent: draft.prompt, model: draft.model, ...(mode === "audio" ? { audioParams: draft.params, audioOperation: draft.operation, audioReferenceInputs: draft.referenceInputs } : draft.params) });
             },
-            generate: (draft) => onGenerate(node.id, mode, draft.prompt),
+            generate: (draft) => onGenerate(node.id, mode, draft.prompt, mode === "audio" ? { model: draft.model, audioParams: draft.params, audioOperation: draft.operation, audioReferenceInputs: draft.referenceInputs } : { model: draft.model, size: String(draft.params.size ?? config.size), quality: String(draft.params.quality ?? config.quality), background: String(draft.params.background ?? config.background), count: String(draft.params.count ?? config.count) }),
             stop: () => onStop(node.id),
             removeReference: onRemoveReference ? (reference) => {
                 const connectionId = mentionReferences.find((item) => item.id === reference.id)?.connectionId;
@@ -128,8 +137,8 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     <CanvasPromptLibrary onSelect={updatePrompt} />
                     {mode === "video" ? (
                         <>
-                            <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="video" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
-                            <CanvasVideoSettingsPopover config={config} buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
+                            <ModelPicker config={config} value={config.model} onChange={(model) => { const c = getAvailableModel(model)?.videoContract; const d = c ? videoDefaults(c) : undefined; onConfigChange(node.id, { model, ...(d ? { size: d.size, seconds: d.videoSeconds, vquality: d.vquality, generateAudio: d.videoGenerateAudio, watermark: d.videoWatermark } : {}) }); }} capability="video" appearance="toolbar" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
+                            <CanvasVideoSettingsPopover config={config} buttonClassName="!h-9 !max-w-[240px] !justify-start !rounded-lg !px-2.5" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
                         </>
                     ) : (
                         <>
@@ -142,7 +151,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     type="primary"
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
                     danger={isRunning}
-                    disabled={!isRunning && !prompt.trim()}
+                    disabled={!isRunning && (!prompt.trim() || videoErrors.length > 0)}
                     onClick={() => (isRunning ? onStop(node.id) : submit())}
                     aria-label={t(isRunning ? "canvas.promptPanel.stopGeneration" : "canvas.promptPanel.generate")}
                 >
@@ -159,6 +168,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     </span>
                 </Button>
             </div>
+            {videoErrors.length ? <div role="status" className="mt-2 text-xs opacity-65">{videoErrors.join("；")}</div> : null}
             <Modal title={t("canvas.promptPanel.editorTitle")} open={expanded} centered width={760} footer={null} onCancel={() => setExpanded(false)} destroyOnHidden>
                 <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
                     <CanvasPromptChipInput
@@ -185,7 +195,7 @@ function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
 }
 
 function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasNodeGenerationMode, imageMode: "generate" | "edit"): AiConfig {
-    return {
+    const result = {
         ...globalConfig,
         model: resolveModelForCapability(globalConfig, node.metadata?.model, mode, mode === "image" ? imageMode : undefined),
         reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultConfig.reasoningEffort,
@@ -202,6 +212,14 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
         count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
     };
+    const contract = mode === "video" ? getAvailableModel(result.model)?.videoContract : undefined;
+    return contract ? { ...result, ...videoDefaults(contract),
+        ...(node?.metadata?.size ? { size: node.metadata.size } : {}),
+        ...(node?.metadata?.seconds ? { videoSeconds: node.metadata.seconds } : {}),
+        ...(node?.metadata?.vquality ? { vquality: node.metadata.vquality } : {}),
+        ...(node?.metadata?.generateAudio ? { videoGenerateAudio: node.metadata.generateAudio } : {}),
+        ...(node?.metadata?.watermark ? { videoWatermark: node.metadata.watermark } : {}),
+    } : result;
 }
 
 function videoConfigPatch(key: keyof AiConfig, value: string) {

@@ -59,6 +59,9 @@ export type CanvasNodeMetadata = {
     vquality?: string;
     generateAudio?: string;
     watermark?: string;
+    audioParams?: Record<string, unknown>;
+    audioOperation?: string;
+    audioReferenceInputs?: Record<string, { role?: "reference" | "emotion"; transcript?: string }>;
     audioVoice?: string;
     audioFormat?: string;
     audioSpeed?: string;

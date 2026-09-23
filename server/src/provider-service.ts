@@ -1,3 +1,6 @@
+import { videoContractFor, type VideoParameters } from "./video-contract.js";
+import { imageContractFor, type ImageParameters } from "./image-contract.js";
+import { audioContractFor } from "./audio-contract.js";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { config } from "./config.js";
@@ -22,7 +25,7 @@ export type H3GenerationMode = "fl2va" | "ref2va";
 export type H3QualityPreset = "preview" | "final";
 export type ProviderCredentials = { apiKey?: string; authToken?: string };
 export type ModelEndpointDefinition = { key: ModelEndpoint; label: string; family: "openai" | "anthropic" | "gemini" | "ark"; output: MediaKind; inputs: MediaKind[]; method: "POST"; path: string; agent: boolean };
-export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; minDurationSeconds?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: ImagePromptProfile; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean; videoModes?: H3GenerationMode[]; maxReferenceVideos?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend"; qualityPresets?: H3QualityPreset[]; supportsTemporalGuides?: boolean; maxTemporalGuides?: number; frameStride?: number; frameBase?: number; turboPreview?: boolean };
+export type AiModelDefinition = { id: string; name: string; endpoint: ModelEndpoint; output: MediaKind; inputs: MediaKind[]; enabled: boolean; agentEnabled?: boolean; audioModes?: AudioMode[]; audioOperations?: AudioOperation[]; maxReferenceAudios?: number; minDurationSeconds?: number; maxDurationSeconds?: number; languages?: string[]; voices?: string[]; videoParameters?: VideoParameters; imageParameters?: ImageParameters; imageModes?: ImageMode[]; maxReferenceImages?: number; imagePromptProfile?: ImagePromptProfile; videoReferenceRoles?: VideoReferenceRole[]; videoExtend?: boolean; videoModes?: H3GenerationMode[]; maxReferenceVideos?: number; maxReferenceFiles?: number; videoFps?: number; videoNativeAudio?: boolean; videoNativeResolution?: string; videoContinuationMode?: "reference" | "extend"; qualityPresets?: H3QualityPreset[]; supportsTemporalGuides?: boolean; maxTemporalGuides?: number; frameStride?: number; frameBase?: number; turboPreview?: boolean };
 
 const LOCAL_MEDIA_MODELS: Record<string, Omit<AiModelDefinition, "endpoint" | "enabled">> = {
     "qwen-image-2.1-local": { id: "qwen-image-2.1-local", name: "Qwen Image 2.1", output: "image", inputs: ["text", "image"], imageModes: ["generate", "edit"], maxReferenceImages: 10 },
@@ -80,8 +83,23 @@ export const modelSchema = z.object({
     enabled: z.boolean().default(true),
     agentEnabled: z.boolean().default(false),
     audioModes: z.array(z.enum(audioModes)).optional(),
+    voices: z.array(z.string().trim().min(1)).optional(),
+    languages: z.array(z.string().trim().min(1)).optional(),
     imageModes: z.array(z.enum(["generate", "edit"])).max(2).optional(),
     maxReferenceImages: z.number().int().min(1).max(32).optional(),
+    videoParameters: z.object({
+        sizes: z.array(z.string().regex(/^(adaptive|[1-9]\d*x[1-9]\d*|[1-9]\d*:[1-9]\d*)$/)).min(1).max(20).optional(),
+        resolutions: z.array(z.enum(["480p", "720p", "768p", "1080p", "4k"])).max(5).optional(),
+        seconds: z.array(z.number().int().min(1).max(30)).min(1).max(30).optional(),
+        generateAudio: z.boolean().optional(), watermark: z.boolean().optional(),
+        maxImages: z.number().int().min(0).max(9).optional(), maxVideos: z.number().int().min(0).max(3).optional(), maxAudios: z.number().int().min(0).max(3).optional(), maxTotal: z.number().int().min(0).max(12).optional(),
+    }).optional(),
+    imageParameters: z.object({
+        sizes: z.array(z.string().regex(/^(auto|[1-9]\d*x[1-9]\d*|[1-9]\d*:[1-9]\d*)$/)).min(1).max(32).optional(),
+        qualities: z.array(z.string().trim().min(1)).max(10).optional(),
+        backgrounds: z.array(z.enum(["auto", "opaque", "transparent"])).optional(),
+        maxCount: z.number().int().min(1).max(15).optional(),
+    }).optional(),
     imagePromptProfile: z.enum(["generic", "gpt-image-2"]).optional(),
     videoReferenceRoles: z.array(z.enum(["reference", "first-frame", "last-frame", "continuation"])).max(4).optional(),
     videoExtend: z.boolean().optional(),
@@ -102,11 +120,22 @@ export const providerInputSchema = z.object({
         const endpoint = modelEndpointRegistry[model.endpoint];
         if (model.agentEnabled && !endpoint.agent) context.addIssue({ code: "custom", path: ["models", index, "agentEnabled"], message: "只有兼容的文本调用方案可以启用 Agent" });
         if (endpoint.output === "video") {
+            const p = model.videoParameters;
+            const issue = (message: string) => context.addIssue({ code: "custom", path: ["models", index, "videoParameters"], message });
+            if (p?.sizes?.some(v => model.endpoint === "openai-video" ? !/^\d+x\d+$/.test(v) : !/^(adaptive|\d+:\d+)$/.test(v))) issue("视频尺寸格式与调用方案不匹配");
+            if (model.endpoint === "gemini-video" && (p?.sizes?.includes("adaptive") || p?.resolutions?.some(v => !["720p", "1080p", "4k"].includes(v)))) issue("Gemini 视频不支持这些比例或分辨率");
+            if (model.endpoint === "ark-seedance" && (p?.resolutions?.some(v => !["480p", "720p", "1080p"].includes(v)) || (!model.videoReferenceRoles?.includes("reference") && ((p?.maxImages || 0) > 2 || p?.maxVideos || p?.maxAudios)))) issue("请按具体模型声明多参考能力及对应分辨率");
+            if (model.endpoint !== "ark-seedance" && (p?.generateAudio || p?.watermark || p?.maxVideos || p?.maxAudios)) issue("当前调用方案不支持声音开关、水印或音视频参考配置");
+            if (model.endpoint === "openai-video" && (p?.resolutions?.length || (p?.maxImages || 0) > 1)) issue("OpenAI 视频使用像素尺寸且最多一张参考图");
+            if (model.endpoint === "gemini-video" && (p?.maxImages || 0) > (model.videoReferenceRoles?.includes("reference") ? 3 : model.videoReferenceRoles?.includes("last-frame") ? 2 : 1)) issue("Gemini 图片数量超出当前参考模式限制");
             if (model.videoExtend && !model.videoReferenceRoles?.includes("continuation")) context.addIssue({ code: "custom", path: ["models", index, "videoReferenceRoles"], message: "视频延展模型必须声明 continuation 引用角色" });
             return;
         }
         if (endpoint.output !== "image") return;
         if (!model.imageModes?.length) context.addIssue({ code: "custom", path: ["models", index, "imageModes"], message: "请选择图片模型能力" });
+        const parameters = model.imageParameters;
+        if (parameters?.sizes?.some((size) => size !== "auto" && !(model.endpoint === "gemini-image" ? /^[1-9]\d*:[1-9]\d*$/.test(size) : /^[1-9]\d*x[1-9]\d*$/.test(size)))) context.addIssue({ code: "custom", path: ["models", index, "imageParameters", "sizes"], message: "Gemini 使用比例，其余图片方案使用像素尺寸" });
+        if (["gemini-image", "ark-image"].includes(model.endpoint) && (Number(parameters?.maxCount || 1) > 1 || parameters?.qualities?.length || parameters?.backgrounds?.length)) context.addIssue({ code: "custom", path: ["models", index, "imageParameters"], message: "当前调用方案每次生成一张，暂不支持质量与背景参数" });
         const allowed = imageModesForEndpoint(model.endpoint) || [];
         if (model.imageModes?.some((mode) => !allowed.includes(mode))) context.addIssue({ code: "custom", path: ["models", index, "imageModes"], message: "所选图片能力与调用方案不兼容" });
         if (model.imageModes?.includes("edit") && !model.maxReferenceImages) context.addIssue({ code: "custom", path: ["models", index, "maxReferenceImages"], message: "请配置图生图最多参考图数量" });
@@ -224,7 +253,7 @@ export function listPublicModels() {
     const providers = db.prepare("SELECT * FROM ai_providers WHERE enabled=1 ORDER BY created_at").all() as ProviderRow[];
     const publicModels = providers.flatMap((provider) => providerModels(provider)
         .filter((model) => model.enabled)
-        .map((model) => ({ ...model, endpoint: undefined, agentEnabled: undefined, imagePromptProfile: model.imagePromptProfile || "generic", enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
+        .map((model) => ({ ...model, videoContract: model.output === "video" ? videoContractFor(model) : undefined, audioContract: model.output === "audio" ? audioContractFor(model) : undefined, imageContract: model.output === "image" ? imageContractFor(model) : undefined, endpoint: undefined, agentEnabled: undefined, imagePromptProfile: model.imagePromptProfile || "generic", enabled: true, value: `${provider.id}::${model.id}`, providerId: provider.id, providerName: provider.name })));
     const comfyRows = db.prepare("SELECT name, models FROM comfy_servers WHERE enabled=1 ORDER BY created_at").all() as Array<{ name: string; models: string }>;
     const comfyNames = new Set(comfyRows.flatMap((row) => parseJson<string[]>(row.models, [])).filter((id) => COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS]?.selectable));
     return [
@@ -235,7 +264,7 @@ export function listPublicModels() {
             const capability = COMFY_MODEL_DEFINITIONS[id as keyof typeof COMFY_MODEL_DEFINITIONS];
             return { ...capability, supportsTemporalGuides: Boolean(capability.supportsTemporalGuides && comfyFeatures.temporalGuides), turboPreview: Boolean(capability.turboPreview && comfyFeatures.turboPreview), id, name: comfyModelName(id), value: `comfyui::${id}`, providerId: "comfyui", providerName: "ComfyUI", output, inputs: comfyModelInputs(id), audioModes: capability.audioModes ?? (output === "audio" ? ["speech" as const] : undefined), imagePromptProfile: "generic" as const, enabled: true };
         }),
-    ];
+    ].map((model) => ({ ...model, videoContract: "videoContract" in model ? model.videoContract : model.output === "video" ? videoContractFor(model) : undefined, imageContract: "imageContract" in model ? model.imageContract : model.output === "image" ? imageContractFor(model) : undefined, audioContract: "audioContract" in model ? model.audioContract : model.output === "audio" ? audioContractFor(model) : undefined }));
 }
 
 // The administrator view uses the same selectable models as the canvas, plus dedicated workflows.

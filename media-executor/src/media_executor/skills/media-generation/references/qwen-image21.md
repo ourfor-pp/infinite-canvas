@@ -3,7 +3,7 @@
 模型 ID 为 `qwen-image-2.1-local`，能力版本 `1`，通过中立服务 `/v1/jobs/validate` 和 `/v1/jobs` 调用。先查询 `/v1/capabilities` 的 available；此能力不改变宿主 Codex 普通生图使用原生工具的约定，不能假设宿主 MCP 已开放 image 请求。
 
 - 文生图：`mode: text-to-image`、`operation: generate`，不传参考图。`width`、`height` 默认 1024，各为 256–4096 的 32 倍数，总像素不超过 4,300,800，长宽比不超过 8:1。
-- 图片编辑：`mode: image-edit`，`operation: generate`，1–10 张 `kind: image, role: reference` 图片，按声明顺序对应图 1、图 2 等。输出沿用第一张参考图比例；`referenceResolution` 默认 1024，可设 256–2048 的 32 倍数，表示参考图等面积缩放的边长，不接受 width/height。
+- 图片编辑：`mode: image-edit`，`operation: generate`，1–10 张 `kind: image, role: reference` 图片，按声明顺序对应图 1、图 2 等。不传 `width` / `height` 时输出沿用第一张参考图比例；可同时指定二者设置独立输出尺寸，范围与文生图一致。`referenceResolution` 默认 1024，可设 256–2048 的 32 倍数，仅控制参考图等面积缩放，不等于输出尺寸。改变输出比例会重新构图，不能保证原图元素的位置逐像素对齐。
 - 公共参数：`steps` 默认 40、范围 1–100；`seed` 是非负安全整数；`negativePrompt` 可选。固定配方 `int8-convrot`，Euler/simple、CFG 1。不支持视频/声音参考、续接或隐式提示改写。
 - 输入 PNG 的 alpha 通道保留，输出保存为 PNG。需要透明图时在提示词中明确透明背景和 alpha 通道；实际透明度仍需查看输出，不能仅凭 PNG 扩展名认定抠图成功。
 

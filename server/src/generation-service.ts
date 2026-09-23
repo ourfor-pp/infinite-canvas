@@ -1,3 +1,6 @@
+import { videoContractFor, validateVideoInput } from "./video-contract.js";
+import { imageContractFor, validateImageInput } from "./image-contract.js";
+import { audioContractFor, validateAudioInput } from "./audio-contract.js";
 import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
 import { nanoid } from "nanoid";
@@ -78,13 +81,32 @@ export function validateGenerationRequest(userId: string, input: AiGenerationReq
     const audioReferenceCount = (input.references || []).filter((reference) => reference.kind === "audio").length;
     const videoReferenceCount = (input.references || []).filter((reference) => reference.kind === "video").length;
     if (purpose === "default" && input.kind === "image" && selection.model.maxReferenceImages && imageReferenceCount > selection.model.maxReferenceImages) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选图生图模型最多支持 ${selection.model.maxReferenceImages} 张参考图`);
+    if (input.kind === "image" && input.imageInputVersion === 1 && (!input.purpose || input.purpose === "default")) {
+        const contract = imageContractFor(selection.model);
+        if (!contract) throw generationError("AI_IMAGE_CONTRACT_MISSING", "当前图片模型缺少输入定义");
+        const errors = validateImageInput(contract, input.prompt || "", input.params || {}, imageReferenceCount);
+        if (errors.length) throw generationError("AI_IMAGE_INPUT_INVALID", errors.join("；"));
+    }
     if (input.kind === "audio") {
         const audioModel = selection.model as AiModelDefinition;
+        if (input.audioInputVersion === 1) {
+            const contract = audioContractFor(audioModel);
+            if (!contract) throw generationError("AI_AUDIO_CONTRACT_MISSING", "当前音频模型缺少输入定义");
+            const errors = validateAudioInput(contract, input.prompt || "", input.params || {}, input.references || [], input.operation);
+            if (input.mode !== contract.mode) errors.push("声音模式与模型定义不匹配");
+            if (errors.length) throw generationError("AI_AUDIO_INPUT_INVALID", errors.join("；"));
+        }
         const mode = String(input.mode || input.params?.audioMode || "speech");
         const operation = String(input.operation || input.params?.audioOperation || (audioReferenceCount ? "clone" : "generate"));
         if (audioModel.audioModes?.length && !audioModel.audioModes.includes(mode as AudioMode)) throw generationError("AI_MODEL_AUDIO_MODE_UNSUPPORTED", "所选模型不支持当前声音类型");
         if (audioModel.audioOperations?.length && !audioModel.audioOperations.includes(operation as AudioOperation)) throw generationError("AI_MODEL_AUDIO_OPERATION_UNSUPPORTED", "所选模型不支持当前声音操作");
         if (audioModel.maxReferenceAudios && audioReferenceCount > audioModel.maxReferenceAudios) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选模型最多支持 ${audioModel.maxReferenceAudios} 段参考音频`);
+    }
+    if (input.kind === "video" && input.videoInputVersion === 1) {
+        const contract = videoContractFor(selection.model);
+        if (!contract) throw generationError("AI_VIDEO_CONTRACT_MISSING", "当前模型缺少视频输入定义");
+        const errors = validateVideoInput(contract, input.prompt || "", input.params || {}, input.references || []);
+        if (errors.length) throw generationError("AI_VIDEO_INPUT_INVALID", errors.join("；"));
     }
     if (input.kind === "video") {
         const model = selection.model as AiModelDefinition;
@@ -103,7 +125,7 @@ export function validateGenerationRequest(userId: string, input: AiGenerationReq
         const role = reference.role || "reference";
         const videoModel = selection.model as AiModelDefinition;
         if (role === "emotion" && (input.kind !== "audio" || kind !== "audio" || selection.providerId !== "local-media" || selection.modelId !== "indextts-2.5-local")) throw generationError("AI_MODEL_INPUT_UNSUPPORTED", "情绪参考仅适用于 IndexTTS 语音克隆");
-        if (input.kind === "video" && role !== "reference" && (role === "emotion" || !videoModel.videoReferenceRoles?.includes(role))) throw generationError("AI_MODEL_VIDEO_REFERENCE_UNSUPPORTED", `所选视频模型未声明 ${role} 能力`);
+        if (input.kind === "video" && !input.videoInputVersion && role !== "reference" && (role === "emotion" || !videoModel.videoReferenceRoles?.includes(role))) throw generationError("AI_MODEL_VIDEO_REFERENCE_UNSUPPORTED", `所选视频模型未声明 ${role} 能力`);
         if (input.kind === "video" && role === "continuation" && !videoModel.videoExtend && videoModel.videoContinuationMode !== "reference") throw generationError("AI_MODEL_VIDEO_EXTEND_UNSUPPORTED", "所选视频模型不支持续接参考");
         if (["first-frame", "last-frame"].includes(role) && kind !== "image") throw generationError("AI_VIDEO_FRAME_KIND", "首帧和尾帧引用必须是图片");
         if (!getStoredFile(userId, reference.fileId)) throw generationError("AI_REFERENCE_NOT_FOUND", "参考素材不存在或无权访问");

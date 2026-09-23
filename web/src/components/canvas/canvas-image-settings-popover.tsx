@@ -7,9 +7,11 @@ import { useTranslation } from "react-i18next";
 import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { getAvailableModel } from "@/stores/use-config-store";
 import type { AiConfig } from "@/stores/use-config-store";
 
 type CanvasImageSettingsPopoverProps = {
+    imageMode?: "generate" | "edit";
     config: AiConfig;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
     onMissingConfig?: () => void;
@@ -21,13 +23,14 @@ type CanvasImageSettingsPopoverProps = {
     appearance?: "default" | "toolbar";
 };
 
-export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChange, buttonClassName, placement = "topLeft", appearance = "default" }: CanvasImageSettingsPopoverProps) {
+export function CanvasImageSettingsPopover({ config, imageMode, onConfigChange, onOpenChange, buttonClassName, placement = "topLeft", appearance = "default" }: CanvasImageSettingsPopoverProps) {
     const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const buttonRef = useRef<HTMLSpanElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
     const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
+    const contract = getAvailableModel(config.model)?.imageContract;
     const quality = config.quality || "auto";
     const count = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
@@ -59,14 +62,14 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
         };
     }, [onOpenChange, open]);
 
-    const panel = open && buttonRect ? <ImageSettingsPortal buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} onConfigChange={onConfigChange} /> : null;
+    const panel = open && buttonRect ? <ImageSettingsPortal buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} imageMode={imageMode} onConfigChange={onConfigChange} /> : null;
 
     return (
         <>
             <span ref={buttonRef} className="inline-flex min-w-0 shrink-0">
                 <Button data-control-appearance={appearance} size="small" type="text" className={appearance === "toolbar" ? `!h-9 !max-w-none !justify-start !rounded-lg !border-0 !bg-transparent !px-2 !shadow-none hover:!bg-black/5 dark:hover:!bg-white/10 ${buttonClassName || ""}` : buttonClassName || "!h-8 !max-w-[180px] !justify-start !rounded-full !px-2.5"} style={{ background: appearance === "toolbar" ? "transparent" : theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-4" />} onClick={() => updateOpen(!open)}>
                     <span className="truncate">
-                        {imageQualityLabel(quality)} · {imageSizeLabel(activeSize)} · {t("canvas.controls.images", { count })}
+                        {contract?.qualities.length === 0 ? "" : `${imageQualityLabel(quality)} · `}{imageSizeLabel(activeSize)} · {t("canvas.controls.images", { count })}
                     </span>
                     {appearance === "toolbar" ? <ChevronDown className={`ml-0.5 size-3.5 shrink-0 opacity-45 transition-transform ${open ? "rotate-180" : ""}`} /> : null}
                 </Button>
@@ -78,6 +81,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
 
 function ImageSettingsPortal({
     buttonRect,
+    imageMode,
     panelRef,
     placement,
     theme,
@@ -88,6 +92,7 @@ function ImageSettingsPortal({
     panelRef: RefObject<HTMLDivElement | null>;
     placement: CanvasImageSettingsPopoverProps["placement"];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    imageMode?: "generate" | "edit";
     config: AiConfig;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
 }) {
@@ -122,7 +127,7 @@ function ImageSettingsPortal({
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
         >
-            <ImageSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" />
+            <ImageSettingsPanel config={config} imageMode={imageMode} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" />
         </div>,
         document.body,
     );

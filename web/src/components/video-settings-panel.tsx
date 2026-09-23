@@ -1,3 +1,5 @@
+import { getAvailableModel } from "@/stores/use-config-store";
+import type { VideoContract } from "../../../server/src/video-contract";
 import { type ReactNode } from "react";
 import { Switch } from "antd";
 import { useTranslation } from "react-i18next";
@@ -39,6 +41,8 @@ type VideoSettingsPanelProps = {
 
 export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
     const { t } = useTranslation();
+    const contract = getAvailableModel(config.model || config.videoModel)?.videoContract;
+    if (contract) return <ModelVideoSettings contract={contract} config={config} onConfigChange={onConfigChange} className={className} />;
     if (isSeedanceVideoConfig(config)) {
         return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
@@ -278,4 +282,10 @@ function readSizeDimensions(size: string) {
     if (size === "auto") return { width: 0, height: 0 };
     const match = size.match(/^(\d+)x(\d+)$/);
     return { width: Number(match?.[1]) || 1280, height: Number(match?.[2]) || 720 };
+}
+
+
+function ModelVideoSettings({ contract: c, config, onConfigChange, className }: { contract: VideoContract } & Pick<VideoSettingsPanelProps, "config" | "onConfigChange" | "className">) {
+    const select = (key: "size" | "vquality" | "videoSeconds", label: string, values: string[]) => values.length ? <label className="flex flex-col gap-2 text-xs"><span className="opacity-65">{label}</span><select aria-label={label} className="h-9 rounded-lg border border-current/15 bg-transparent px-2" value={config[key]} onChange={e => onConfigChange(key, e.target.value)}>{values.map(value => <option key={value} value={value}>{value === "adaptive" ? "自动" : key === "videoSeconds" ? `${value} 秒` : value}</option>)}</select></label> : null;
+    return <div className={className}>{select("size", c.family === "openai" ? "输出尺寸" : "画面比例", c.sizes)}{select("vquality", "分辨率", c.resolutions)}{select("videoSeconds", "时长", c.seconds.map(String))}{c.generateAudio ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={config.videoGenerateAudio !== "false"} onChange={e => onConfigChange("videoGenerateAudio", String(e.target.checked))} />生成声音</label> : null}{c.watermark ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={config.videoWatermark === "true"} onChange={e => onConfigChange("videoWatermark", String(e.target.checked))} />水印</label> : null}<div className="text-xs opacity-55">{c.imageRoles.includes("first-frame") ? "参考图按顺序用作首帧" + (c.maxImages > 1 ? "、尾帧" : "") : "参考素材用于内容引导"}；最多 {c.maxImages} 张图、{c.maxVideos} 段视频、{c.maxAudios} 段音频{c.family === "h3" ? "；实际时长按模型支持的帧数对齐" : ""}</div></div>;
 }

@@ -40,6 +40,7 @@ type CanvasStore = {
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const serverMutationProjects = new Set<string>();
+const pendingSaves = new Map<string, Promise<void>>();
 
 export const useCanvasStore = create<CanvasStore>()((set, get) => ({
     hydrated: false,
@@ -63,7 +64,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             viewport: initialViewport,
         };
         set((state) => ({ projects: [project, ...state.projects] }));
-        void serverApi.createProject(project as unknown as Record<string, unknown>).then((saved) => mergeSavedProject(saved as unknown as CanvasProject, project.updatedAt)).catch(reportServerError);
+        trackProjectSave(project.id, serverApi.createProject(project as unknown as Record<string, unknown>).then((saved) => mergeSavedProject(saved as unknown as CanvasProject, project))).catch(reportServerError);
         return project.id;
     },
     importProject: (source) => {
@@ -84,7 +85,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             viewport: source.viewport || initialViewport,
         };
         set((state) => ({ projects: [project, ...state.projects] }));
-        void serverApi.createProject(project as unknown as Record<string, unknown>).then((saved) => mergeSavedProject(saved as unknown as CanvasProject, project.updatedAt)).catch(reportServerError);
+        trackProjectSave(project.id, serverApi.createProject(project as unknown as Record<string, unknown>).then((saved) => mergeSavedProject(saved as unknown as CanvasProject, project))).catch(reportServerError);
         return project.id;
     },
     openProject: (id) => get().projects.find((item) => item.id === id) || null,
@@ -110,7 +111,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
             replaceSavedProject(project);
             return true;
         }
-        if (saveTimers.has(project.id)) {
+        if (saveTimers.has(project.id) || pendingSaves.has(project.id)) {
             window.dispatchEvent(new CustomEvent("infinite-canvas:project-conflict", { detail: { id: project.id } }));
             return false;
         }
@@ -118,6 +119,9 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
         return true;
     },
     resolveConflict: async (id, strategy) => {
+        clearProjectSaveTimer(id);
+        await pendingSaves.get(id)?.catch(() => {});
+        clearProjectSaveTimer(id);
         if (strategy === "reload") {
             const current = (await serverApi.project(id)) as unknown as CanvasProject;
             replaceSavedProject(current);
@@ -134,13 +138,7 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
 }));
 
 export async function prepareProjectServerMutation(id: string) {
-    const timer = saveTimers.get(id);
-    if (timer) {
-        clearTimeout(timer);
-        saveTimers.delete(id);
-        const project = useCanvasStore.getState().projects.find((item) => item.id === id);
-        if (project) replaceSavedProject((await serverApi.updateProject(id, project as unknown as Record<string, unknown>)) as unknown as CanvasProject);
-    }
+    await flushProjectSave(id);
     serverMutationProjects.add(id);
     window.setTimeout(() => serverMutationProjects.delete(id), 5_000);
 }
@@ -149,35 +147,53 @@ export function cancelProjectServerMutation(id: string) {
     serverMutationProjects.delete(id);
 }
 
+function clearProjectSaveTimer(id: string) {
+    const timer = saveTimers.get(id);
+    if (timer) clearTimeout(timer);
+    saveTimers.delete(id);
+}
+
+function trackProjectSave(id: string, save: Promise<void>) {
+    const pending = save.finally(() => {
+        if (pendingSaves.get(id) === pending) pendingSaves.delete(id);
+    });
+    pendingSaves.set(id, pending);
+    return pending;
+}
+
+async function flushProjectSave(id: string): Promise<void> {
+    // A later save must read the revision returned by the previous request.
+    while (pendingSaves.has(id)) await pendingSaves.get(id);
+    if (!saveTimers.has(id)) return;
+    clearProjectSaveTimer(id);
+    const project = useCanvasStore.getState().projects.find((item) => item.id === id);
+    if (!project) return;
+    await trackProjectSave(id, serverApi.updateProject(id, project as unknown as Record<string, unknown>)
+        .then((saved) => mergeSavedProject(saved as unknown as CanvasProject, project)));
+    if (saveTimers.has(id)) await flushProjectSave(id);
+}
+
 function queueProjectSave(id: string) {
-    const current = saveTimers.get(id);
-    if (current) clearTimeout(current);
-    saveTimers.set(
-        id,
-        setTimeout(async () => {
-            saveTimers.delete(id);
-            const project = useCanvasStore.getState().projects.find((item) => item.id === id);
-            if (!project) return;
-            try {
-                mergeSavedProject((await serverApi.updateProject(id, project as unknown as Record<string, unknown>)) as unknown as CanvasProject, project.updatedAt);
-            } catch (error) {
-                if (error instanceof ServerApiError && error.code === "PROJECT_CONFLICT") {
-                    window.dispatchEvent(new CustomEvent("infinite-canvas:project-conflict", { detail: { id } }));
-                    return;
-                }
-                reportServerError(error);
+    clearProjectSaveTimer(id);
+    saveTimers.set(id, setTimeout(() => {
+        void flushProjectSave(id).catch((error) => {
+            clearProjectSaveTimer(id);
+            if (error instanceof ServerApiError && error.code === "PROJECT_CONFLICT") {
+                window.dispatchEvent(new CustomEvent("infinite-canvas:project-conflict", { detail: { id } }));
+                return;
             }
-        }, 500),
-    );
+            reportServerError(error);
+        });
+    }, 500));
 }
 
 function replaceSavedProject(project: CanvasProject) {
     useCanvasStore.setState((state) => ({ projects: state.projects.map((item) => (item.id === project.id ? project : item)) }));
 }
 
-function mergeSavedProject(project: CanvasProject, submittedUpdatedAt: string) {
+function mergeSavedProject(project: CanvasProject, submitted: CanvasProject) {
     const current = useCanvasStore.getState().projects.find((item) => item.id === project.id);
-    if (!current || current.updatedAt === submittedUpdatedAt) {
+    if (!current || current === submitted) {
         replaceSavedProject(project);
         return;
     }

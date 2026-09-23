@@ -54,7 +54,7 @@ test("画布通用图片参数转换为执行器参数，透明开关明确表�
     await assert.rejects(prepareExecutorRequest("user", "batch", model, { kind: "image", prompt, params: { count: 2 } }), /每个任务生成一张/);
 });
 
-test("画布图片参考上传后走 image-edit，尺寸转为参考分辨率", async (t) => {
+test("画布图片参考上传后走 image-edit，尺寸保留为独立输出宽高", async (t) => {
     const now = new Date().toISOString();
     db.prepare("INSERT INTO users(id,username,created_at,updated_at) VALUES('image-user','image-user',?,?)").run(now, now);
     const path = join(root, "reference.png");
@@ -65,9 +65,9 @@ test("画布图片参考上传后走 image-edit，尺寸转为参考分辨率", 
         assert.ok(init.body instanceof FormData);
         return Response.json({ id: "uploaded.png" });
     });
-    const result = await prepareExecutorRequest("image-user", "edit", model, { kind: "image", prompt: "改成红色", params: { count: 1, size: "2048x2048", quality: "auto" }, references: [{ fileId: file.id, kind: "image" }] });
+    const result = await prepareExecutorRequest("image-user", "edit", model, { kind: "image", prompt: "改成红色", params: { count: 1, size: "1536x1024", quality: "auto" }, references: [{ fileId: file.id, kind: "image" }] });
     assert.equal(result.mode, "image-edit");
-    assert.deepEqual(result.params, { referenceResolution: 2048 });
+    assert.deepEqual(result.params, { width: 1536, height: 1024 });
     assert.equal(result.references[0].fileId, "uploaded.png");
 });
 

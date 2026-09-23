@@ -2,13 +2,18 @@ import { serverApi, serverFileIdFromUrl, serverFileUrl, uploadServerFile, type S
 
 export type GenerationKind = ServerGeneration["kind"];
 export type GenerationInput = {
+    videoInputVersion?: 1;
+    imageInputVersion?: 1;
+    audioInputVersion?: 1;
+    mode?: string;
+    operation?: string;
     kind: GenerationKind;
     model?: string;
     purpose?: "default" | "image-inpaint" | "image-upscale-faithful" | "image-upscale-generative" | "image-angle";
     prompt?: string;
     messages?: Array<{ role: "system" | "user" | "assistant"; content: unknown }>;
     params?: Record<string, unknown>;
-    references?: Array<{ fileId: string; kind: "image" | "video" | "audio"; transcript?: string }>;
+    references?: Array<{ fileId: string; kind: "image" | "video" | "audio"; role?: "reference" | "emotion" | "first-frame" | "last-frame"; transcript?: string }>;
 };
 
 export async function runServerGeneration(input: GenerationInput, options?: { signal?: AbortSignal; onDelta?: (text: string) => void }) {

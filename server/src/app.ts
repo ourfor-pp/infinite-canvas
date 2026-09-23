@@ -69,6 +69,7 @@ const generationParamsSchema = jsonRecord.superRefine((value, context) => {
 registerGenerationEffects();
 
 const generationSchema = z.object({
+    videoInputVersion: z.literal(1).optional(), imageInputVersion: z.literal(1).optional(), audioInputVersion: z.literal(1).optional(),
     kind: z.enum(["image", "video", "audio", "text", "transcription"]),
     model: z.string().trim().min(3).optional(),
     purpose: z.enum(["default", "image-inpaint", "image-upscale-faithful", "image-upscale-generative", "image-angle"]).default("default"),

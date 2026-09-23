@@ -55,6 +55,9 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
 export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetadata {
     return {
         model: config.model,
+        audioParams: config.audioParams,
+        audioOperation: config.audioOperation,
+        audioReferenceInputs: config.audioReferenceInputs,
         audioVoice: config.audioVoice,
         audioFormat: config.audioFormat,
         audioSpeed: config.audioSpeed,

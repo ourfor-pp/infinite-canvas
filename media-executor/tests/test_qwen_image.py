@@ -70,3 +70,22 @@ def test_image_api_uses_durable_comfy_queue(monkeypatch, tmp_path):
         assert client.post("/v1/jobs", json=request(), headers=headers).status_code == 202
     with module.connect() as db:
         assert db.execute("SELECT count(*) FROM comfy_executions").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("width,height", [(1536, 1024), (1024, 1536)])
+def test_edit_explicit_output_size_keeps_reference_conditioning(tmp_path, width, height):
+    value = request()
+    value.update(mode="image-edit", references=[{"fileId": "ref.png", "kind": "image"}])
+    (tmp_path / "ref.png").write_bytes(b"fixture")
+    value["params"].update(width=width, height=height)
+    plan = prepare(value, runtime(), tmp_path)
+    assert (plan["width"], plan["height"]) == (width, height)
+    graph = qwen_image.graph(value, plan, {"ref.png": "ref.png"})
+    assert graph["6"]["inputs"]["latent_image"] == ["5", 0]
+    assert graph["5"]["inputs"]["width"] == width
+    assert graph["5"]["inputs"]["height"] == height
+    assert graph["4"]["inputs"]["images.image_1"] == ["rgba_1", 0]
+    assert graph["4"]["inputs"]["resolution"] == 1024
+    del value["params"]["height"]
+    with pytest.raises(ValueError, match="both width and height"):
+        prepare(value, runtime(), tmp_path)

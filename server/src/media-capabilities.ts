@@ -57,16 +57,18 @@ export async function prepareExecutorRequest(userId: string, id: string, model: 
     const references = await Promise.all(refs.map(async (ref) => ({ fileId: await upload(userId, ref.fileId, signal), kind: ref.kind || "image", role: ref.role || "reference", transcript: ref.transcript, frameIndex: ref.frameIndex, includeAudio: ref.includeAudio })));
     const continuation = state ? { fileId: await upload(userId, state.fileId, signal), sha256: state.sha256 } : undefined;
     const params = Object.fromEntries(Object.entries(request.params || {}).filter(([key]) => !key.startsWith("__")));
+    if (request.audioInputVersion === 1 && model === "minimax-music3-local" && !String(params.lyrics || "").trim()) params.lyrics = "[Instrumental]";
     if (model === "qwen-image-2.1-local") {
         const { count, quality: _quality, size, background, systemPrompt: _systemPrompt, ...imageParams } = params;
         if (count !== undefined && Number(count) !== 1) throw mediaError("AI_MODEL_IMAGE_COUNT_UNSUPPORTED", "Qwen Image 2.1 每个任务生成一张图片，请分批提交");
         if (size !== undefined && size !== "auto") {
             const { width, height } = dimensions({ size });
-            Object.assign(imageParams, refs.length ? { referenceResolution: Math.min(2048, Math.round(Math.sqrt(width * height) / 32) * 32) } : { width, height });
+            Object.assign(imageParams, { width, height });
         }
         const prompt = background === "transparent" ? `${request.prompt || ""}\nThis is an RGBA image with transparency. The image has alpha channel and the background is transparent.` : request.prompt || "";
         return { id, model, mode: request.mode || (refs.length ? "image-edit" : "text-to-image"), operation: request.operation || "generate", prompt, params: imageParams, references, continuation };
     }
+    if (request.videoInputVersion === 1 && model.startsWith("minimax-h3-")) params.qualityPreset = params.resolution === "768p" ? "final" : "preview";
     const mode = request.mode || (request.kind === "transcription" ? "transcription" : model.includes("ref2va") ? "ref2va" : model.includes("fl2va") ? "fl2va" : model === "minimax-music3-local" ? "music" : String(params.audioMode || "speech"));
     const operation = request.operation || (request.kind === "transcription" ? "transcribe" : state ? "extend" : String(params.audioOperation || (mode === "speech" && refs.length ? "clone" : "generate")));
     return { id, model, mode, operation, prompt: request.prompt || "", params, references, continuation };

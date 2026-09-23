@@ -1,8 +1,9 @@
+import { imageRequestParams, validateImageInput } from "../../../../server/src/image-contract";
 import { nanoid } from "nanoid";
 
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { ensureServerReference, generationFiles, runServerGeneration } from "@/services/api/ai-generation";
-import { modelSupportsImageMode, type AiConfig } from "@/stores/use-config-store";
+import { getAvailableModel, modelSupportsImageMode, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 
 type TextContent = string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
@@ -12,26 +13,27 @@ type RequestOptions = { signal?: AbortSignal };
 
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const generation = await runServerGeneration({
-        kind: "image",
+        kind: "image", imageInputVersion: 1,
         model: config.model || config.imageModel,
         prompt,
-        params: imageParams(config),
+        params: modelImageParams(config, prompt, 0),
     }, options);
-    return generationFiles(generation).map((file) => ({ id: file.id || nanoid(), dataUrl: file.url }));
+    return imageResults(generation);
 }
 
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions, purpose?: "image-inpaint" | "image-angle", toolParams: Record<string, unknown> = {}) {
     const files = await Promise.all([...references, ...(mask ? [mask] : [])].map((reference) => ensureServerReference(reference, "image")));
-    const editModel = [config.model, config.imageEditModel].find((model) => modelSupportsImageMode(model, "edit"));
+    const editModel = config.model || [config.imageEditModel].find((model) => modelSupportsImageMode(model, "edit"));
     const generation = await runServerGeneration({
         kind: "image",
+        ...(!purpose ? { imageInputVersion: 1 as const } : {}),
         model: purpose ? undefined : editModel,
         ...(purpose ? { purpose } : {}),
         prompt: buildImageReferencePromptText(prompt, references),
-        params: { ...imageParams(config), ...toolParams, maskFileId: mask ? files.at(-1)?.fileId : undefined },
+        params: purpose ? { ...imageParams(config), ...toolParams, maskFileId: mask ? files.at(-1)?.fileId : undefined } : modelImageParams({ ...config, model: editModel || "" }, prompt, references.length),
         references: files,
     }, options);
-    return generationFiles(generation).map((file) => ({ id: file.id || nanoid(), dataUrl: file.url }));
+    return imageResults(generation);
 }
 
 export async function requestUpscale(source: ReferenceImage, params: { mode: "faithful" | "generative"; targetLongEdge: number; sourceWidth: number; sourceHeight: number; denoise?: number }, options?: RequestOptions) {
@@ -43,7 +45,7 @@ export async function requestUpscale(source: ReferenceImage, params: { mode: "fa
         params,
         references: [reference],
     }, options);
-    return generationFiles(generation).map((file) => ({ id: file.id || nanoid(), dataUrl: file.url }));
+    return imageResults(generation);
 }
 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
@@ -73,4 +75,19 @@ function imageParams(config: AiConfig) {
         background: config.background,
         systemPrompt: config.systemPrompt,
     };
+}
+
+function modelImageParams(config: AiConfig, prompt: string, referenceCount: number) {
+    const contract = getAvailableModel(config.model || config.imageModel)?.imageContract;
+    if (!contract) throw new Error("当前图片模型缺少输入定义，请刷新模型目录");
+    const params = imageRequestParams(contract, { ...config });
+    const errors = validateImageInput(contract, prompt, params, referenceCount);
+    if (errors.length) throw new Error(errors.join("；"));
+    return { ...params, systemPrompt: config.systemPrompt };
+}
+
+function imageResults(generation: Parameters<typeof generationFiles>[0]) {
+    const files = generationFiles(generation);
+    if (!files.length || files.some((file) => !file.mimeType.startsWith("image/"))) throw new Error("图片任务没有返回有效图片文件");
+    return files.map((file) => ({ id: file.id || nanoid(), dataUrl: file.url }));
 }

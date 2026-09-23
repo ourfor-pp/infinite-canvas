@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
 import { type CanvasTheme } from "@/lib/canvas-theme";
+import { getAvailableModel } from "@/stores/use-config-store";
+import { imageContractForMode, type ImageContract } from "../../../server/src/image-contract";
 import type { AiConfig } from "@/stores/use-config-store";
 
 const qualityOptions = [
@@ -39,11 +41,12 @@ type ImageSettingsPanelProps = {
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
+    imageMode?: "generate" | "edit";
     maxCount?: number;
     quickCount?: number;
 };
 
-export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
+export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10, imageMode }: ImageSettingsPanelProps) {
     const { t } = useTranslation();
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
     const quality = config.quality || "auto";
@@ -62,6 +65,9 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
         const height = key === "height" ? next : dimensions.height;
         onConfigChange("size", `${alignDimension(width, snapDimensionToStep)}x${alignDimension(height, snapDimensionToStep)}`);
     };
+
+    const contract = getAvailableModel(config.model)?.imageContract;
+    if (contract) return <ModelImageSettings contract={imageContractForMode(contract, imageMode === "edit")} config={config} onConfigChange={onConfigChange} className={className} />;
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -259,4 +265,10 @@ function readSizeDimensions(size: string, fallback: { width: number; height: num
 
 function alignDimension(value: number, enabled: boolean) {
     return enabled ? Math.ceil(value / DIMENSION_STEP) * DIMENSION_STEP : value;
+}
+
+function ModelImageSettings({ contract, config, onConfigChange, className }: { contract: ImageContract; config: AiConfig; onConfigChange: ImageSettingsPanelProps["onConfigChange"]; className: string }) {
+    const labels: Record<string, string> = { auto: "自动", low: "低", medium: "中", high: "高", opaque: "不透明", transparent: "透明" };
+    const select = (key: "size" | "quality" | "background", label: string, options: string[]) => options.length ? <label className="flex flex-col gap-2 text-xs" key={key}><span className="opacity-65">{label}</span><select aria-label={label} className="h-9 w-full rounded-lg border border-current/15 bg-transparent px-2" value={String(config[key] || options[0])} onChange={(event) => onConfigChange(key, event.target.value)}>{!options.includes(String(config[key] || options[0])) ? <option value={String(config[key])}>请选择支持的参数</option> : null}{options.map((value) => <option key={value} value={value}>{labels[value] || value}</option>)}</select></label> : null;
+    return <div className={className}>{select("size", contract.sizeLabel, contract.sizes)}{select("quality", "质量", contract.qualities)}{select("background", "背景", contract.backgrounds)}<label className="flex flex-col gap-2 text-xs"><span className="opacity-65">生成数量（最多 {contract.maxCount} 张）</span><input aria-label="生成数量" type="number" min={1} max={contract.maxCount} step={1} className="h-9 w-full rounded-lg border border-current/15 bg-transparent px-2" value={config.count} onChange={(event) => onConfigChange("count", event.target.value)} /></label><div className="text-xs opacity-55">{contract.modes.includes("edit") ? `最多 ${contract.maxReferenceImages} 张参考图` : "仅支持文生图"}</div></div>;
 }

@@ -1,3 +1,4 @@
+import { playableAudio } from "./audio-output.js";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -14,6 +15,9 @@ export type GenerationMessage = { role: "system" | "user" | "assistant"; content
 export type GenerationKind = MediaKind | "transcription";
 export type GenerationReference = { fileId: string; kind?: Exclude<MediaKind, "text">; role?: "reference" | "first-frame" | "last-frame" | "continuation" | "emotion"; purpose?: "reference_input" | "identity_reference" | "wardrobe_reference" | "composition_reference"; label?: string; source?: "style" | "asset" | "canvas" | "primary"; transcript?: string; frameIndex?: number; includeAudio?: boolean };
 export type AiGenerationRequest = {
+    videoInputVersion?: 1;
+    imageInputVersion?: 1;
+    audioInputVersion?: 1;
     kind: GenerationKind;
     model?: string;
     purpose?: GenerationPurpose;
@@ -138,9 +142,8 @@ async function requestOpenAIImage(context: ProviderContext) {
         json: {
             model: context.model.id,
             prompt: withSystemPrompt(context),
-            n: numberParam(params.count, 1, 15, 1),
-            response_format: "b64_json",
-            output_format: "png",
+            ...(context.model.endpoint === "ark-image" && context.request.imageInputVersion ? {} : { n: numberParam(params.count, 1, 15, 1) }),
+            ...(context.model.endpoint === "ark-image" || context.model.id.startsWith("dall-e-") ? { response_format: "b64_json" } : { output_format: "png", ...(!context.request.imageInputVersion ? { response_format: "b64_json" } : {}) }),
             ...(params.quality ? { quality: params.quality } : {}),
             ...(size ? { size } : {}),
             ...(params.background ? { background: params.background } : {}),
@@ -155,9 +158,10 @@ async function requestOpenAIImageEdit(context: ProviderContext) {
     form.set("model", context.model.id);
     form.set("prompt", withSystemPrompt(context));
     form.set("n", String(numberParam(params.count, 1, 15, 1)));
-    form.set("response_format", "b64_json");
-    form.set("output_format", "png");
+    if (!context.request.imageInputVersion || context.model.id.startsWith("dall-e-")) form.set("response_format", "b64_json");
+    if (!context.model.id.startsWith("dall-e-")) form.set("output_format", "png");
     if (params.quality) form.set("quality", String(params.quality));
+    if (params.background) form.set("background", String(params.background));
     const size = normalizedImageSize(params.size, params.quality);
     if (size) form.set("size", size);
     const maskFileId = String(params.maskFileId || "");
@@ -173,7 +177,7 @@ async function generateGeminiImage(context: ProviderContext) {
     for (const reference of await referenceParts(context, "image")) parts.push({ inlineData: { mimeType: reference.mimeType, data: Buffer.from(reference.bytes).toString("base64") } });
     const response = await providerFetch(context, `/models/${encodeURIComponent(context.model.id)}:generateContent`, {
         method: "POST",
-        json: { contents: [{ role: "user", parts }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], ...(context.request.params?.size ? { imageConfig: { aspectRatio: context.request.params.size } } : {}) } },
+        json: { contents: [{ role: "user", parts }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], ...(context.request.params?.size && context.request.params.size !== "auto" ? { imageConfig: { aspectRatio: context.request.params.size } } : {}) } },
     });
     const payload = await jsonBody(response);
     const candidates = Array.isArray(payload.candidates) ? payload.candidates as Array<Record<string, unknown>> : [];
@@ -201,7 +205,7 @@ async function generateOpenAIVideo(context: ProviderContext) {
         if (context.request.params?.resolution) form.set("resolution_name", String(context.request.params.resolution));
         for (const reference of context.request.references || []) {
             const file = requireStoredFile(context.userId, reference.fileId);
-            const field = reference.role === "last-frame" ? "last_frame" : reference.role === "continuation" ? "video" : "input_reference[]";
+            const field = reference.role === "last-frame" ? "last_frame" : reference.role === "continuation" ? "video" : context.request.videoInputVersion ? "input_reference" : "input_reference[]";
             form.append(field, await openAsBlob(file.path, { type: file.mime_type }), file.original_name);
         }
         const created = await jsonBody(await providerFetch(context, "/videos", { method: "POST", body: form }));
@@ -239,7 +243,7 @@ async function generateArkVideo(context: ProviderContext) {
             content.push({ type: `${kind}_url`, [`${kind}_url`]: { url: fileDataUrl(file.path, file.mime_type) }, role });
         }
         const params = context.request.params || {};
-        const created = await jsonBody(await providerFetch(context, endpoint, { method: "POST", json: { model: context.model.id, content, ratio: params.ratio || params.size, resolution: params.resolution, duration: params.seconds, generate_audio: params.generateAudio !== false, watermark: params.watermark === true } }));
+        const created = await jsonBody(await providerFetch(context, endpoint, { method: "POST", json: { model: context.model.id, content, ratio: params.ratio || params.size, resolution: params.resolution, duration: params.seconds, ...(!context.request.videoInputVersion || params.generateAudio !== undefined ? { generate_audio: params.generateAudio !== false } : {}), ...(!context.request.videoInputVersion || params.watermark !== undefined ? { watermark: params.watermark === true } : {}) } }));
         taskId = String(created.id || asRecord(created.data).id || "");
         if (!taskId) throw adapterError("AI_VIDEO_TASK_EMPTY", "方舟没有返回任务 ID");
         context.onRemoteTask(taskId);
@@ -256,7 +260,11 @@ async function generateGeminiVideo(context: ProviderContext) {
         const last = images.find(({ item }) => item.role === "last-frame");
         if (first) instance.image = { bytesBase64Encoded: readFileSync(first.file.path).toString("base64"), mimeType: first.file.mime_type };
         if (last) instance.lastFrame = { bytesBase64Encoded: readFileSync(last.file.path).toString("base64"), mimeType: last.file.mime_type };
-        const created = await jsonBody(await providerFetch(context, `/models/${encodeURIComponent(context.model.id)}:predictLongRunning`, { method: "POST", json: { instances: [instance], parameters: { aspectRatio: context.request.params?.ratio || context.request.params?.size } } }));
+        if (context.request.videoInputVersion && images.some(({ item }) => item.role === "reference")) {
+            delete instance.image;
+            instance.referenceImages = images.map(({ file }) => ({ image: { bytesBase64Encoded: readFileSync(file.path).toString("base64"), mimeType: file.mime_type }, referenceType: "asset" }));
+        }
+        const created = await jsonBody(await providerFetch(context, `/models/${encodeURIComponent(context.model.id)}:predictLongRunning`, { method: "POST", json: { instances: [instance], parameters: { aspectRatio: context.request.params?.ratio || context.request.params?.size, ...(context.request.videoInputVersion ? { durationSeconds: context.request.params?.seconds, resolution: context.request.params?.resolution } : {}) } } }));
         taskId = String(created.name || "");
         if (!taskId) throw adapterError("AI_VIDEO_TASK_EMPTY", "Gemini 没有返回任务 ID");
         context.onRemoteTask(taskId);
@@ -308,7 +316,8 @@ async function generateGeminiAudio(context: ProviderContext) {
     const audio = parts.map((part) => asRecord(part.inlineData || part.inline_data)).find((part) => typeof part.data === "string");
     if (!audio) throw adapterError("AI_AUDIO_EMPTY", "Gemini 没有返回音频");
     const mimeType = String(audio.mimeType || audio.mime_type || "audio/mpeg");
-    return { files: [await storeBytes(context.userId, Buffer.from(String(audio.data), "base64"), mimeType, "gemini-audio.bin")] };
+    const playable = await playableAudio(Buffer.from(String(audio.data), "base64"), mimeType, context.signal);
+    return { files: [await storeBytes(context.userId, playable.bytes, playable.mimeType, playable.mimeType === "audio/wav" ? "gemini-audio.wav" : "gemini-audio.bin")] };
 }
 
 async function cancelRemote(context: ProviderContext) {

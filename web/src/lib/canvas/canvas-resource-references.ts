@@ -15,6 +15,7 @@ export type CanvasResourceReference = {
     label: string;
     title: string;
     previewUrl?: string;
+    durationMs?: number;
     text?: string;
     active: boolean;
     connectionId?: string;
@@ -98,6 +99,7 @@ function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
                 label,
                 title: node.title || label,
                 previewUrl: node.metadata?.content || resource?.url,
+                durationMs: node.metadata?.durationMs,
                 text: resourceText(node),
                 active,
             },
