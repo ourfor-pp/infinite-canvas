@@ -600,6 +600,11 @@ function ImageContent({
                     <ImageSlotStatus image={primaryImage} />
                 )}
             </div>
+            {primaryContent && node.metadata?.status === "loading" ? (
+                <div role="status" aria-label={t("canvas.node.generating")} className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl backdrop-blur-sm" style={{ background: `color-mix(in srgb, ${theme.node.fill} 65%, transparent)` }}>
+                    <LoadingContent theme={theme} />
+                </div>
+            ) : null}
             {primaryImage?.status === "error" ? <BatchImageFailureActions placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
             {isBatchRoot ? (
                 <button

@@ -83,3 +83,11 @@ test("管理员与画布复用全部可选本地模型，专用工作流独立�
     assert.equal(admin.find((item) => item.id === "qwen-image-inpaint-local")?.specialWorkflow, true);
     assert.equal(new Set(admin.map((item) => item.value)).size, admin.length);
 });
+
+test("Qwen 官方 2K 预设映射到执行器时不受通用面积限制缩小", async () => {
+    for (const size of ["2048x2048", "2400x1792", "1792x2400", "2528x1696", "1696x2528", "2752x1536", "1536x2752"]) {
+        const result = await prepareExecutorRequest("user", "image", model, { kind: "image", prompt: "茶杯", params: { size } });
+        const [width, height] = size.split("x").map(Number);
+        assert.deepEqual(result.params, { width, height });
+    }
+});

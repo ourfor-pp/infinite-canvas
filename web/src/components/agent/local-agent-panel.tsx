@@ -31,7 +31,6 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
     const navigate = useNavigate();
     const currentTheme = useThemeStore((state) => state.theme);
     const theme = themeMode === "light" ? sxhAgentLightTheme : canvasThemes[themeMode || currentTheme];
-    const canvasContext = useAgentStore((state) => state.canvasContext);
     const draft = useAgentStore((state) => state.drafts[projectId] || "");
     const savedSessionId = useAgentStore((state) => state.currentSessionIds[projectId]);
     const setDraft = useAgentStore((state) => state.setDraft);
@@ -314,6 +313,8 @@ export function LocalAgentPanel({ projectId, themeMode }: { projectId: string; t
         const name = String(event.payload.name || "");
         const input = (event.payload.input || {}) as { path?: string; ids?: string[] };
         try {
+            const context = useAgentStore.getState().canvasContext;
+            const canvasContext = context?.snapshot.projectId === projectId ? context : null;
             if (name === "site_navigate" && input.path) navigate(input.path);
             else if (name === "canvas_select_nodes") {
                 if (!canvasContext) throw new Error("当前页面没有打开画布");

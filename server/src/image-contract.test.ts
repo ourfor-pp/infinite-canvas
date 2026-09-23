@@ -32,3 +32,10 @@ test("DALL-E 不继承 GPT 图片的透明背景和质量选项", () => {
     assert.equal(contract.maxCount, 1);
     assert.deepEqual(contract.backgrounds, []);
 });
+
+test("Qwen 原生 2K 横竖预设通过文生图和编辑校验", () => {
+    const contract = imageContractFor({ id: "qwen-image-2.1-local", imageModes: ["generate", "edit"], maxReferenceImages: 10 })!;
+    for (const size of ["2048x2048", "2400x1792", "1792x2400", "2528x1696", "1696x2528", "2752x1536", "1536x2752"]) {
+        for (const refs of [0, 1]) assert.deepEqual(validateImageInput(contract, "茶杯", { size }, refs), []);
+    }
+});

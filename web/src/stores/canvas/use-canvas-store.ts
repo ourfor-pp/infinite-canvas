@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StateCreator } from "zustand";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
@@ -38,15 +38,26 @@ type CanvasStore = {
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
-const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const pendingSaves = new Map<string, Promise<void>>();
-const savedProjects = new Map<string, CanvasProject>();
-const deferredProjects = new Map<string, CanvasProject>();
-const conflictedProjects = new Set<string>();
+// Vite can reevaluate this module while React keeps the mounted canvas alive.
+// Keep one store and one save queue across those module instances.
+const hotData = import.meta.hot?.data;
+const hotState = hotData?.canvasState as {
+    store: ReturnType<typeof createCanvasStore>;
+    saveTimers: Map<string, ReturnType<typeof setTimeout>>;
+    pendingSaves: Map<string, Promise<void>>;
+    savedProjects: Map<string, CanvasProject>;
+    deferredProjects: Map<string, CanvasProject>;
+    conflictedProjects: Set<string>;
+} | undefined;
+const saveTimers = hotState?.saveTimers ?? new Map<string, ReturnType<typeof setTimeout>>();
+const pendingSaves = hotState?.pendingSaves ?? new Map<string, Promise<void>>();
+const savedProjects = hotState?.savedProjects ?? new Map<string, CanvasProject>();
+const deferredProjects = hotState?.deferredProjects ?? new Map<string, CanvasProject>();
+const conflictedProjects = hotState?.conflictedProjects ?? new Set<string>();
 const editableFields = ["title", "nodes", "connections", "chatSessions", "activeChatId", "backgroundMode", "showImageInfo", "viewport"] as const;
 const sameValue = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
-export const useCanvasStore = create<CanvasStore>()((set, get) => ({
+const createCanvasState: StateCreator<CanvasStore> = (set, get) => ({
     hydrated: false,
     projects: [],
     setHydrated: (hydrated) => set({ hydrated }),
@@ -150,9 +161,24 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
         set((state) => ({ projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)) }));
         queueProjectSave(id);
     },
-}));
+});
+
+function createCanvasStore() {
+    return create<CanvasStore>()(createCanvasState);
+}
+
+export const useCanvasStore = hotState?.store ?? createCanvasStore();
+if (hotData) {
+    if (hotState) {
+        const { hydrated, projects, openProject } = useCanvasStore.getState();
+        useCanvasStore.setState({ ...createCanvasState(useCanvasStore.setState, useCanvasStore.getState, useCanvasStore), hydrated, projects, openProject });
+    }
+    hotData.canvasState = { store: useCanvasStore, saveTimers, pendingSaves, savedProjects, deferredProjects, conflictedProjects };
+}
 
 export async function prepareProjectServerMutation(id: string) {
+    if (!useCanvasStore.getState().openProject(id)) throw new Error("画布状态尚未加载，请刷新页面后重试");
+    if (conflictedProjects.has(id)) throw new Error("画布存在尚未处理的版本冲突，请先选择重新加载或覆盖保存");
     await flushProjectSave(id);
 }
 

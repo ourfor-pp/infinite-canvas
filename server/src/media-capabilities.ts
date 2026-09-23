@@ -62,7 +62,7 @@ export async function prepareExecutorRequest(userId: string, id: string, model: 
         const { count, quality: _quality, size, background, systemPrompt: _systemPrompt, ...imageParams } = params;
         if (count !== undefined && Number(count) !== 1) throw mediaError("AI_MODEL_IMAGE_COUNT_UNSUPPORTED", "Qwen Image 2.1 每个任务生成一张图片，请分批提交");
         if (size !== undefined && size !== "auto") {
-            const { width, height } = dimensions({ size });
+            const { width, height } = dimensions({ size }, 1024, 4_300_800);
             Object.assign(imageParams, { width, height });
         }
         const prompt = background === "transparent" ? `${request.prompt || ""}\nThis is an RGBA image with transparency. The image has alpha channel and the background is transparent.` : request.prompt || "";

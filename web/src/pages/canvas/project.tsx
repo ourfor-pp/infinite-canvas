@@ -12,6 +12,7 @@ import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audi
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
 import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useMissingModelNotice } from "@/hooks/use-missing-model-notice";
+import { readCanvasImageDrag } from "@/lib/canvas/canvas-image-drag";
 import { uploadImage } from "@/services/image-storage";
 import { uploadMediaFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
@@ -22,7 +23,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
 import { isCanvasImagePreviewTarget } from "@/lib/canvas/canvas-interaction";
 import { fitNodeSize, nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
-import { App, Button, Modal } from "antd";
+import { App, Button, Image, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "@/constant/canvas";
 import { ActiveConnectionPath, ConnectionPath } from "@/components/canvas/canvas-connections";
 import { CanvasConfigComposer } from "@/components/canvas/canvas-config-composer";
@@ -1288,8 +1289,8 @@ function InfiniteCanvasPage() {
         };
     }, [finishNodeDrag, handleGlobalMouseMove, handleGlobalMouseUp, handleGlobalPointerMove]);
 
-    const createImageFileNode = useCallback(async (file: File, position: Position, targetNodeId?: string) => {
-        const image = await uploadImage(file);
+    const createImageFileNode = useCallback(async (file: File | { url: string; name: string }, position: Position, targetNodeId?: string) => {
+        const image = await uploadImage("url" in file ? file.url : file);
         const size = fitNodeSize(image.width, image.height);
         const id = `image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const newNode: CanvasNodeData = {
@@ -2096,6 +2097,11 @@ function InfiniteCanvasPage() {
     const handleDrop = useCallback(
         (event: ReactDragEvent<HTMLDivElement>) => {
             event.preventDefault();
+            const image = readCanvasImageDrag(event.dataTransfer);
+            if (image) {
+                void createImageFileNode(image, screenToCanvas(event.clientX, event.clientY)).catch((error) => message.error(error instanceof Error ? error.message : "图片添加失败"));
+                return;
+            }
             const files = Array.from(event.dataTransfer.files).filter(
                 (item) => item.type.startsWith("image/") || item.type.startsWith("video/") || isAudioFile(item),
             );
@@ -2115,7 +2121,7 @@ function InfiniteCanvasPage() {
                 }
             }
         },
-        [createAudioFileNode, createImageFileNode, createVideoFileNode, screenToCanvas],
+        [createAudioFileNode, createImageFileNode, createVideoFileNode, message, screenToCanvas],
     );
 
     const startTitleEditing = useCallback(() => {
@@ -3101,17 +3107,12 @@ function InfiniteCanvasPage() {
 
                 {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} onConfirmBatch={() => void generateFourAngles(angleNode!)} /> : null}
 
-                <Modal
-                    title={t("canvas.projectPage.imageDetails")}
-                    open={Boolean(previewNode?.metadata?.content)}
-                    centered
-                    onCancel={() => setPreviewNodeId(null)}
-                    footer={null}
-                    width="auto"
-                    styles={{ body: { padding: 0, display: "flex", justifyContent: "center", alignItems: "center", maxHeight: "80vh" } }}
-                >
-                    {previewNode?.metadata?.content ? <img src={previewNode.metadata.content} alt={previewNode.title || t("assets.kinds.image")} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} /> : null}
-                </Modal>
+                {previewNode?.metadata?.content ? <Image
+                    src={previewNode.metadata.content}
+                    alt={previewNode.title || t("assets.kinds.image")}
+                    styles={{ root: { display: "none" } }}
+                    preview={{ open: true, onOpenChange: (open) => { if (!open) setPreviewNodeId(null); } }}
+                /> : null}
 
                 <Modal
                     title={t("canvas.projectPage.clearTitle")}

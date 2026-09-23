@@ -54,14 +54,15 @@ for (const theme of ["light", "dark"]) test(`图片按模型展示参数并清�
 });
 
 
-test("Qwen 参考图编辑允许选择独立输出比例", async ({ page }, testInfo) => {
+for (const theme of ["light", "dark"]) test(`Qwen 参考图编辑支持原生 2K 和重生成动画 ${theme}`, async ({ page }, testInfo) => {
     let submitted: any;
+    let finish = false;
     await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
         const req = route.request(), path = new URL(req.url()).pathname;
         if (path.endsWith("/content")) return route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240"><rect width="240" height="240" fill="steelblue"/></svg>' });
         let data: unknown = [];
         if (path === "/api/generations" && req.method() === "POST") { submitted = req.postDataJSON(); data = { id: "ratio-test" }; }
-        else if (path.endsWith("/generations/ratio-test")) data = { id: "ratio-test", status: "succeeded", result: { files: [{ fileId: "ratio-result", mimeType: "image/svg+xml" }] } };
+        else if (path.endsWith("/generations/ratio-test")) data = { id: "ratio-test", status: finish ? "succeeded" : "running", result: { files: [{ fileId: "ratio-result", mimeType: "image/svg+xml" }] } };
         else if (path.includes("/files/")) data = { fileId: path.split("/").at(-1), mimeType: "image/svg+xml" };
         else if (path === "/api/agent/config") data = { ready: false, protocolVersion: 4, storageVersion: 2 };
         else if (path.endsWith("/capabilities")) data = { sceneId: "canvas", engines: [], skills: [], referenceKinds: ["canvas"], composer: { suggestions: [] } };
@@ -70,7 +71,7 @@ test("Qwen 参考图编辑允许选择独立输出比例", async ({ page }, test
         await route.fulfill({ json: { data } });
     });
     await page.setViewportSize({ width: 1440, height: 1080 });
-    await page.goto("/__canvas-test.html");
+    await page.goto(`/__canvas-test.html?theme=${theme}`);
     await page.addStyleTag({ content: "#root > .ant-app { height:100% }" });
     const contract = imageContractFor({ id: "qwen-image-2.1-local", imageModes: ["generate", "edit"], maxReferenceImages: 10 });
     await page.evaluate(async (contract) => {
@@ -91,17 +92,25 @@ test("Qwen 参考图编辑允许选择独立输出比例", async ({ page }, test
     await page.locator('[data-node-id="target"]').dblclick({ position: { x: 100, y: 100 } });
     const panel = page.locator("[data-canvas-node-panel]");
     await expect(panel.locator('[aria-label="参考素材"] img')).toHaveCount(1);
+    await page.waitForTimeout(400); // Wait for double-click viewport focus before opening its portal.
     const settings = panel.locator('button[data-control-appearance="toolbar"]').filter({ has: page.locator("svg.lucide-settings-2") });
     await settings.click();
     const size = page.getByLabel("输出尺寸（自动跟随参考图）", { exact: true });
     await size.selectOption("1024x1536");
     await expect(size).toHaveValue("1024x1536");
-    await size.selectOption("1536x1024");
+    await size.selectOption("1536x2752");
     await page.screenshot({ path: testInfo.outputPath("reference-output-size.png") });
     await settings.click();
     await panel.getByRole("button", { name: "开始生成", exact: true }).click();
-    await expect.poll(() => submitted?.params.size).toBe("1536x1024");
+    await expect.poll(() => submitted?.params.size).toBe("1536x2752");
+    const target = page.locator('[data-node-id="target"]');
+    await expect(target.getByRole("status")).toBeVisible();
+    await expect(target.locator(".animate-spin")).toBeVisible();
+    await expect(target.locator('img[src*="reference-image"]').first()).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("image-regenerating.png") });
+    finish = true;
     expect(submitted.references).toEqual([expect.objectContaining({ fileId: "reference-image", kind: "image" })]);
     await expect(page.locator('[data-node-id="target"] img[src*="ratio-result"]').first()).toBeVisible();
+    await expect(target.getByRole("status")).toHaveCount(0);
     await expect(page.locator("[data-node-id]")).toHaveCount(2);
 });

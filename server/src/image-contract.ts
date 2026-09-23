@@ -2,6 +2,7 @@
 export type ImageParameters = { sizes?: string[]; qualities?: string[]; backgrounds?: string[]; maxCount?: number };
 export type ImageContract = { version: 1; modes: string[]; maxReferenceImages: number; sizes: string[]; qualities: string[]; backgrounds: string[]; maxCount: number; sizeLabel: string; editSizes?: string[]; editSizeLabel?: string };
 const pixels = ["auto", "1024x1024", "1536x1024", "1024x1536", "1344x1024", "1024x1344", "1792x1024", "1024x1792", "2048x2048"];
+const qwen21Pixels = [...pixels, "2400x1792", "1792x2400", "2528x1696", "1696x2528", "2752x1536", "1536x2752"];
 const ratios = ["auto", "1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"];
 export function imageContractFor(model: { id: string; endpoint?: string; imageModes?: string[]; maxReferenceImages?: number; imageParameters?: ImageParameters }): ImageContract | undefined {
     if (!model.imageModes?.length) return undefined;
@@ -9,7 +10,7 @@ export function imageContractFor(model: { id: string; endpoint?: string; imageMo
     let sizeLabel = "尺寸";
     if (model.endpoint === "gemini-image") { parameters = { sizes: ratios, qualities: [], backgrounds: [], maxCount: 1 }; sizeLabel = "画面比例"; }
     else if (model.endpoint === "ark-image") parameters = { sizes: ["auto", "2048x2048", "2560x1440", "1440x2560"], qualities: [], backgrounds: [], maxCount: 1 };
-    else if (model.id === "qwen-image-2.1-local") parameters = { sizes: pixels, qualities: [], backgrounds: ["auto", "transparent"], maxCount: 1 };
+    else if (model.id === "qwen-image-2.1-local") parameters = { sizes: qwen21Pixels, qualities: [], backgrounds: ["auto", "transparent"], maxCount: 1 };
     else if (model.id === "qwen-image-edit-2511-local") { parameters = { sizes: ["auto"], qualities: ["auto", "high"], backgrounds: [], maxCount: 1 }; sizeLabel = "尺寸（跟随参考图）"; }
     else if (model.id.endsWith("-local")) {
         parameters = { sizes: pixels, qualities: model.id.startsWith("hidream-") || model.id.startsWith("flux2-") ? ["auto", "high"] : [], backgrounds: [], maxCount: 15 };
@@ -18,7 +19,7 @@ export function imageContractFor(model: { id: string; endpoint?: string; imageMo
     else if (model.id === "dall-e-3") parameters = { sizes: ["1024x1024", "1792x1024", "1024x1792"], qualities: ["standard", "hd"], backgrounds: [], maxCount: 1 };
     else if (model.endpoint?.startsWith("openai-images")) parameters = { sizes: ["auto", "1024x1024", "1536x1024", "1024x1536"], qualities: ["auto", "low", "medium", "high"], backgrounds: ["auto", "opaque", "transparent"], maxCount: 10 };
     else return undefined;
-    return { version: 1, modes: model.imageModes, maxReferenceImages: model.imageModes.includes("edit") ? model.maxReferenceImages || 1 : 0, ...parameters, ...model.imageParameters, sizeLabel, ...(model.id === "qwen-image-2.1-local" ? { editSizes: pixels, editSizeLabel: "输出尺寸（自动跟随参考图）" } : {}) };
+    return { version: 1, modes: model.imageModes, maxReferenceImages: model.imageModes.includes("edit") ? model.maxReferenceImages || 1 : 0, ...parameters, ...model.imageParameters, sizeLabel, ...(model.id === "qwen-image-2.1-local" ? { editSizes: qwen21Pixels, editSizeLabel: "输出尺寸（自动跟随参考图）" } : {}) };
 }
 export function imageContractForMode(contract: ImageContract, edit: boolean): ImageContract {
     return edit && contract.editSizes ? { ...contract, sizes: contract.editSizes, sizeLabel: contract.editSizeLabel || contract.sizeLabel } : contract;
