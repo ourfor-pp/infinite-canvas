@@ -5,7 +5,7 @@ import type { AgentEventKind } from "../types.js";
 import type { AgentToolDefinition } from "../mcp/index.js";
 import { serveDirectorMcp } from "./mcp.js";
 import { codexHome, codexPolicyDir, getCodexSettings, readCodexStatus, assertCodexReady } from "./settings.js";
-import { startCodexProcess, type CodexRpc, type RpcMessage } from "./process.js";
+import { codexTransportConfig, startCodexProcess, type CodexRpc, type RpcMessage } from "./process.js";
 
 type RuntimeContext = {
     sessionId: string; runId: string; workspace: string; threadId: string | null; prompt: string; instructions: string;
@@ -135,7 +135,7 @@ export class CodexRuntime {
         });
         try {
             await rpc.initialize();
-            const params: ThreadStartParams = { cwd: "/workspace", approvalPolicy: "never", developerInstructions: context.instructions, ...((context.options?.model || settings.model) ? { model: context.options?.model || settings.model } : {}) };
+            const params: ThreadStartParams = { modelProvider: codexTransportConfig.model_provider, cwd: "/workspace", approvalPolicy: "never", developerInstructions: context.instructions, ...((context.options?.model || settings.model) ? { model: context.options?.model || settings.model } : {}) };
             let response: { thread: { id: string } };
             const threadId = this.threadId || context.threadId;
             try { response = await rpc.request(threadId ? "thread/resume" : "thread/start", { ...params, ...(threadId ? { threadId } : {}) }); }

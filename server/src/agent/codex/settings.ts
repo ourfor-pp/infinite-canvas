@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { config } from "../../config.js";
@@ -13,6 +13,13 @@ export type CodexSettings = z.infer<typeof schema>;
 let verified: { binary: string; at: number } | undefined;
 let lastError = "尚未验证运行环境";
 let admin: CodexRpc | undefined;
+let adminBinary = "";
+export function codexBinaryIdentity(binary: string) {
+    if (!existsSync(binary)) return `${binary}:missing`;
+    const path = realpathSync(binary);
+    const stat = statSync(path);
+    return `${path}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+}
 let login: { loginId: string; verificationUrl: string; userCode: string } | undefined;
 let adminTimer: NodeJS.Timeout | undefined;
 let accountReady = false;
@@ -25,7 +32,7 @@ export function getCodexSettings(): CodexSettings {
 }
 export function codexPublicStatus() {
     const settings = getCodexSettings();
-    const isolated = verified?.binary === settings.binary && Date.now() - verified.at < 300_000;
+    const isolated = verified?.binary === codexBinaryIdentity(settings.binary) && Date.now() - verified.at < 300_000;
     return { enabled: settings.enabled, ready: settings.enabled && isolated && accountReady, modelName: settings.model || "Codex 默认模型", reason: !settings.enabled ? "管理员尚未启用 Codex" : !isolated ? lastError : !accountReady ? "管理员尚未登录 Codex" : "" };
 }
 export function assertCodexReady() {
@@ -45,7 +52,7 @@ export function saveCodexSettings(input: unknown) {
 
 export async function verifyCodexIsolation() {
     const settings = getCodexSettings();
-    if (verified?.binary === settings.binary && Date.now() - verified.at < 300_000) return;
+    if (verified?.binary === codexBinaryIdentity(settings.binary) && Date.now() - verified.at < 300_000) return;
     const id = randomUUID();
     const root = resolve(config.agentRoot, "codex-runtime", "probes", id);
     const workspace = resolve(root, "workspace");
@@ -61,15 +68,18 @@ export async function verifyCodexIsolation() {
             cwd: "/workspace", timeoutMs: 10_000,
         });
         if (result.exitCode !== 0 || result.stdout !== "isolated" || readFileSync(resolve(workspace, "probe"), "utf8") !== "verified") throw new Error(`Codex 隔离验证未通过：${result.stderr.slice(0, 500)}`);
-        verified = { binary: settings.binary, at: Date.now() }; lastError = "";
+        verified = { binary: codexBinaryIdentity(settings.binary), at: Date.now() }; lastError = "";
     } catch (error) {
         verified = undefined; lastError = error instanceof Error ? error.message : "Codex 隔离验证失败"; throw error;
     } finally { rpc?.close(); rmSync(root, { recursive: true, force: true }); }
 }
 async function createAdminClient() {
+    const binary = codexBinaryIdentity(getCodexSettings().binary);
+    if (admin && adminBinary !== binary) closeAdmin();
     await verifyCodexIsolation();
     if (!admin) {
         admin = startCodexProcess(resolve(config.agentRoot, "codex-runtime", "admin"), codexHome, codexPolicyDir, getCodexSettings().binary);
+        adminBinary = binary;
         const current = admin;
         current.listen((event) => {
             if (event.method === "account/login/completed") { login = undefined; accountReady = event.params?.success === true; }

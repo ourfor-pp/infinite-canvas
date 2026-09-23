@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, renameSync, symlinkSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { z } from "zod";
-import { CodexRpc, sandboxArguments } from "./codex/process.js";
+import { CodexRpc, sandboxArguments, codexTransportConfig } from "./codex/process.js";
 const root = mkdtempSync(join(tmpdir(), "director-codex-test-"));
 process.env.DATA_DIR = root;
 const [{ db }, { serveDirectorMcp }, { CodexRuntime }, { syncBuiltInAgentSkills }, { agentScenes }] = await Promise.all([
@@ -219,6 +219,7 @@ test("续聊保持原 thread 并更新场景提示、模型与思考强度", asy
     { ready: async () => {}, settings: () => ({ enabled: true, binary: "/usr/bin/codex", model: "admin-default" }), bridge: async () => ({ url: "http://127.0.0.1/mcp", token: "test", close: () => {} }), start: () => fakeRpc("complete", capture) });
     await runner.run();
     const requests = readFileSync(capture, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(requests.find((item) => item.method === "thread/resume").params.modelProvider, "openai-http");
     assert.equal(requests.find((item) => item.method === "thread/resume").params.model, "chosen-model");
     assert.equal(requests.find((item) => item.method === "thread/resume").params.developerInstructions, instructions);
     const turn = requests.find((item) => item.method === "turn/start").params;
@@ -357,4 +358,28 @@ test("画布 Codex 可原生获取并处理参考视频，业务写入仍经 MCP
     const builtin = agentScenes.canvas.systemPrompt("p", "builtin");
     assert.match(builtin, /禁止 Shell/);
     assert.doesNotMatch(builtin, /可自主使用原生命令/);
+});
+
+
+test("Codex CLI 原路径替换时使管理进程和隔离验证的版本标识失效", async () => {
+    const { codexBinaryIdentity } = await import("./codex/settings.js");
+    const binary = join(root, "binary-identity");
+    writeFileSync(binary, "old-version");
+    const previous = codexBinaryIdentity(binary);
+    assert.equal(codexBinaryIdentity(binary), previous);
+    const replacement = join(root, "binary-replacement");
+    writeFileSync(replacement, "new-version");
+    renameSync(replacement, binary);
+    assert.notEqual(codexBinaryIdentity(binary), previous);
+    rmSync(binary);
+    assert.equal(codexBinaryIdentity(binary), `${binary}:missing`);
+});
+
+test("Codex 使用 HTTP Responses 且保留账号认证和原生搜索", () => {
+    const provider = codexTransportConfig["model_providers.openai-http"];
+    assert.equal(codexTransportConfig.model_provider, "openai-http");
+    assert.equal(provider.supports_websockets, false);
+    assert.equal(provider.requires_openai_auth, true);
+    assert.equal(provider.supports_standalone_web_search, true);
+    assert.equal(provider.wire_api, "responses");
 });

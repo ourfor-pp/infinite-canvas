@@ -1,3 +1,4 @@
+import { assignCanvasReferenceNumbers, canvasNodeReferenceLabel } from "@/lib/canvas/canvas-agent-reference";
 import type { AiConfig } from "@/stores/use-config-store";
 import { getNodeToolbarLayout } from "@/lib/canvas/canvas-node-toolbar-layout";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -156,6 +157,7 @@ function InfiniteCanvasPage() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const projectId = params.id || "";
+    const hoveredReference = useAgentStore(state => state.hoveredCanvasReference);
     const agentPanelOpen = useAgentStore((state) => Boolean(state.panelOpen[projectId]));
     const toggleAgentPanel = useAgentStore((state) => state.togglePanel);
     const openAgentPanel = useAgentStore((state) => state.openPanel);
@@ -434,6 +436,13 @@ function InfiniteCanvasPage() {
             }
         };
     }, [activeChatId, backgroundMode, chatSessions, connections, createHistoryEntry, nodes, projectLoaded, showImageInfo]);
+
+    useEffect(() => {
+        if (!projectLoaded) return;
+        const previous = useCanvasStore.getState().openProject(projectId)?.agentNodeNumbers;
+        const numbers = assignCanvasReferenceNumbers(nodes, previous);
+        if (numbers !== previous) updateProject(projectId, { agentNodeNumbers: numbers });
+    }, [projectLoaded, projectId, nodes, updateProject]);
 
     useEffect(() => {
         if (!projectLoaded || historyPausedRef.current || applyingHistoryRef.current) return;
@@ -941,6 +950,17 @@ function InfiniteCanvasPage() {
         },
         [size.height, size.width],
     );
+
+    useEffect(() => {
+        const focus = (event: Event) => {
+            const detail = (event as CustomEvent<{ projectId: string; nodeId: string }>).detail;
+            if (detail?.projectId !== projectId) return;
+            setDialogNodeId(null);
+            focusNode(detail.nodeId);
+        };
+        window.addEventListener("infinite-canvas:focus-node", focus);
+        return () => window.removeEventListener("infinite-canvas:focus-node", focus);
+    }, [projectId, focusNode]);
 
     const focusNodeFromDoubleClick = useCallback((node: CanvasNodeData) => {
         const definition = getNodeDefinition(node.type);
@@ -2827,7 +2847,7 @@ function InfiniteCanvasPage() {
     const handleNodeViewImage = useCallback((node: CanvasNodeData) => setPreviewNodeId(node.id), []);
     const handleNodeRetry = useCallback((node: CanvasNodeData) => void handleRetryNode(node), [handleRetryNode]);
     const referenceNodeInAgent = useCallback((node: CanvasNodeData) => {
-        useAgentStore.getState().prepareComposer(projectId, { kind: "canvas", projectId, nodeId: node.id, title: node.title, subtitle: "画布节点" });
+        useAgentStore.getState().prepareComposer(projectId, { kind: "canvas", projectId, nodeId: node.id, title: canvasNodeReferenceLabel(node, projectId), subtitle: "画布节点" });
         setDialogNodeId(null);
         setContextMenu(null);
     }, [projectId]);
@@ -2973,7 +2993,7 @@ function InfiniteCanvasPage() {
                             data={node}
                             scale={viewport.k}
                             isSelected={selectedNodeIds.has(node.id)}
-                            isRelated={relatedHighlight.nodeIds.has(node.id)}
+                            isRelated={relatedHighlight.nodeIds.has(node.id) || (hoveredReference?.projectId === projectId && hoveredReference.nodeId === node.id)}
                             isFocusRelated={activeNodeId === node.id}
                             isConnectionTarget={connectionTargetNodeId === node.id}
                             isConnecting={Boolean(connectingParams)}

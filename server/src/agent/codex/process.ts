@@ -56,11 +56,18 @@ export function sandboxArguments(workspace: string, home: string, policyDir: str
     return args;
 }
 
+// This deployment repeatedly loses Responses WebSockets before falling back to HTTP.
+// Preserve OpenAI authentication and native web-search capability.
+export const codexTransportConfig = {
+    "model_provider": "openai-http",
+    "model_providers.openai-http": { name: "OpenAI", wire_api: "responses", requires_openai_auth: true, supports_websockets: false, supports_standalone_web_search: true },
+};
+
 export function startCodexProcess(workspace: string, home: string, policyDir: string, binary = "/usr/bin/codex", overrides: Record<string, unknown> = {}) {
     if (process.platform !== "linux") throw new Error("导演 Codex 仅支持 Linux 隔离环境");
     for (const path of [workspace, home, policyDir, resolve(workspace, ".cache/codex-images")]) mkdirSync(path, { recursive: true, mode: 0o700 });
     writeFileSync(resolve(policyDir, "requirements.toml"), permissionRequirements, { mode: 0o600 });
-    const config: Record<string, unknown> = { "features.image_generation": true, "features.network_proxy": false, approval_policy: "never", cli_auth_credentials_store: "file", default_permissions: "director", check_for_update_on_startup: false, ...overrides };
+    const config: Record<string, unknown> = { "features.image_generation": true, "features.network_proxy": false, approval_policy: "never", cli_auth_credentials_store: "file", default_permissions: "director", check_for_update_on_startup: false, ...codexTransportConfig, ...overrides };
     const flags = Object.entries(config).flatMap(([key, value]) => ["-c", `${key}=${tomlValue(value)}`]);
     return new CodexRpc(spawn("/usr/bin/bwrap", [...sandboxArguments(workspace, home, policyDir, binary), "--", binary, "app-server", "--listen", "stdio://", ...flags], { stdio: "pipe", env: { PATH: "/usr/bin:/bin" } }));
 }

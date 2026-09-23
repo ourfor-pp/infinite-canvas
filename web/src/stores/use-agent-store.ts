@@ -28,6 +28,8 @@ type AgentStore = {
     seenEventSeqs: Record<string, number>;
     entityReferences: Record<string, AgentEntityReference[]>;
     focusRequests: Record<string, number>;
+    hoveredCanvasReference: { projectId: string; nodeId: string } | null;
+    hoverCanvasReference: (reference: { projectId: string; nodeId: string } | null) => void;
     setAgentState: (patch: Partial<Pick<AgentStore, "width" | "connected" | "enabled" | "activity">>) => void;
     openPanel: (projectId: string) => void;
     closePanel: (projectId: string) => void;
@@ -69,6 +71,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     seenEventSeqs: saved<Record<string, number>>("agent-seen-events"),
     entityReferences: {},
     focusRequests: {},
+    hoveredCanvasReference: null,
+    hoverCanvasReference: hoveredCanvasReference => set({ hoveredCanvasReference }),
     setAgentState: (patch) => set(patch),
     openPanel: (projectId) => set((state) => {
         const panelOpen = { ...state.panelOpen, [projectId]: true };

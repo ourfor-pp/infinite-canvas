@@ -14,6 +14,7 @@ export type CanvasProject = {
     updatedAt: string;
     revision: number;
     nodes: CanvasNodeData[];
+    agentNodeNumbers?: Record<string, { kind: string; index: number }>; 
     connections: CanvasConnection[];
     chatSessions: CanvasAssistantSession[];
     activeChatId: string | null;
@@ -34,7 +35,7 @@ type CanvasStore = {
     replaceProjects: (projects: CanvasProject[]) => void;
     applyServerProject: (project: CanvasProject) => boolean;
     resolveConflict: (id: string, strategy: "reload" | "overwrite") => Promise<void>;
-    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
+    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "agentNodeNumbers" | "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
@@ -54,7 +55,7 @@ const pendingSaves = hotState?.pendingSaves ?? new Map<string, Promise<void>>();
 const savedProjects = hotState?.savedProjects ?? new Map<string, CanvasProject>();
 const deferredProjects = hotState?.deferredProjects ?? new Map<string, CanvasProject>();
 const conflictedProjects = hotState?.conflictedProjects ?? new Set<string>();
-const editableFields = ["title", "nodes", "connections", "chatSessions", "activeChatId", "backgroundMode", "showImageInfo", "viewport"] as const;
+const editableFields = ["agentNodeNumbers", "title", "nodes", "connections", "chatSessions", "activeChatId", "backgroundMode", "showImageInfo", "viewport"] as const;
 const sameValue = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
 const createCanvasState: StateCreator<CanvasStore> = (set, get) => ({
@@ -92,6 +93,7 @@ const createCanvasState: StateCreator<CanvasStore> = (set, get) => ({
             updatedAt: now,
             revision: 1,
             nodes: source.nodes || [],
+            agentNodeNumbers: source.agentNodeNumbers,
             connections: source.connections || [],
             chatSessions: source.chatSessions || [],
             activeChatId: source.activeChatId || null,

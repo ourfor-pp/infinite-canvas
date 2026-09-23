@@ -1,3 +1,8 @@
+import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { useAgentStore } from "@/stores/use-agent-store";
+import { canvasNodeReferenceLabel, focusCanvasReference } from "@/lib/canvas/canvas-agent-reference";
+import { segmentLabel } from "./agent-composer-model";
+import type { AgentComposerDocument } from "@/services/api/agent";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentRef, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Button, Checkbox, Empty, Image, Input, Modal, Popconfirm, Popover, Select, Tooltip } from "antd";
 import {
@@ -148,7 +153,7 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
         <div className="flex w-full scroll-mt-4 justify-end pl-10" data-agent-user-seq={event.seq}>
             <article className="group relative flex min-w-0 max-w-[88%] flex-col items-end">
                 <div className="agent-user-bubble w-fit max-w-full rounded-[18px_18px_5px_18px] px-3.5 py-2.5 text-sm leading-6">
-                {text ? <div className={`whitespace-pre-wrap break-words ${long && !expanded ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_75%,transparent)]" : ""}`}>{visibleText}</div> : null}
+                {text ? <div className={`whitespace-pre-wrap break-words ${long && !expanded ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_75%,transparent)]" : ""}`}>{recordOf(event.payload.content)?.version === 1 ? <SentMessageContent content={event.payload.content as AgentComposerDocument} limit={visibleLimit} /> : visibleText}</div> : null}
                 {long ? <div className="mt-1 flex gap-3 text-xs font-medium opacity-55">{!expanded || text.length > visibleLimit ? <button type="button" className="hover:opacity-80" onClick={() => { setExpanded(true); setVisibleLimit((value) => Math.min(text.length, value + 12_000)); }}>{expanded ? "继续展开" : "展开全文"}</button> : null}{expanded ? <button type="button" className="hover:opacity-80" onClick={() => { setExpanded(false); setVisibleLimit(4_000); }}>收起</button> : null}</div> : null}
                 {images.length ? <Image.PreviewGroup><div className="mt-2 grid grid-cols-3 gap-1.5">{images.map((item, index) => <div key={String(item.fileId || index)} draggable onDragStart={(event) => startCanvasImageDrag(event, String(item.fileId), String(item.name || "图片附件"))}><Image src={fileUrl(String(item.fileId))} alt={String(item.name || "图片附件")} className="!h-20 !w-full rounded-lg object-cover" /></div>)}</div></Image.PreviewGroup> : null}
                 {files.length || references.length || assetReferences.length || styleReferences.length || skill ? (
@@ -170,6 +175,27 @@ export const UserMessage = memo(function UserMessage({ event, theme, restarting,
         </div>
     );
 }, (previous, next) => previous.theme === next.theme && previous.event.seq === next.event.seq && previous.event.payload === next.event.payload && previous.restarting === next.restarting && previous.onRestart === next.onRestart);
+
+function SentMessageContent({ content, limit }: { content: AgentComposerDocument; limit: number }) {
+    const projects = useCanvasStore(state => state.projects);
+    const snapshot = useAgentStore(state => state.canvasContext?.snapshot);
+    let remaining = limit;
+    return content.segments.map((segment, index) => {
+        if (remaining <= 0) return null;
+        const text = segment.type === "text" ? segment.text : segmentLabel(segment);
+        const visible = text.slice(0, remaining);
+        remaining -= text.length;
+        if (segment.type === "text") return <span key={index}>{visible}{remaining < 0 ? "\n…" : ""}</span>;
+        const project = segment.type === "canvas" ? projects.find(item => item.id === segment.projectId) : undefined;
+        const node = segment.type === "canvas" ? (snapshot?.projectId === segment.projectId ? snapshot.nodes : project?.nodes)?.find(item => item.id === segment.nodeId) : undefined;
+        const label = node && segment.type === "canvas" ? `@${canvasNodeReferenceLabel(node, segment.projectId)}` : text;
+        return <button key={index} type="button" data-agent-sent-reference className="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 align-middle text-[13px] leading-5" style={{ margin: "2px 4px", color: "inherit", background: "color-mix(in srgb, currentColor 14%, transparent)" }} title={node?.title || label}
+            onClick={() => { if (node && segment.type === "canvas") focusCanvasReference(segment.projectId, segment.nodeId); }}>
+            {node?.type === "image" && node.metadata?.content ? <img src={node.metadata.content} alt="" className="size-5 shrink-0 rounded object-cover" /> : null}
+            <span className="truncate">{label}</span>
+        </button>;
+    });
+}
 
 export const AssistantRound = memo(function AssistantRound({ events, theme, status, pendingDecision, onBeforeProcessCollapse }: { events: ProjectedEvent[]; theme: CanvasTheme; status?: AgentSession["status"]; pendingDecision?: AgentPendingDecision | null; onBeforeProcessCollapse?: (element: HTMLElement) => void }) {
     const process = events.filter((event) => event.kind === "thinking" || event.kind === "tool_call");
