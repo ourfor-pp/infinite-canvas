@@ -1,3 +1,4 @@
+import { isImeComposing } from "@/lib/keyboard-event";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
@@ -48,6 +49,7 @@ type CanvasNodeProps = {
     onResize: (nodeId: string, width: number, height: number, position?: Position) => void;
     onResizeEnd: (nodeId: string) => void;
     onContentChange: (nodeId: string, content: string) => void;
+    onTitleChange?: (nodeId: string, title: string) => void;
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (nodeId: string, imageId: string) => void;
     onDuplicateBatchImage?: (node: CanvasNodeData, imageId: string) => void;
@@ -72,6 +74,7 @@ type NodeContentRendererProps = {
     renderNodeContent?: (node: CanvasNodeData) => ReactNode;
     pluginContext?: CanvasNodeContext | null;
     onContentChange: (nodeId: string, content: string) => void;
+    onTitleChange?: (nodeId: string, title: string) => void;
     onStopEditing: () => void;
     mentionReferences: CanvasResourceReference[];
     onRetry?: (node: CanvasNodeData) => void;
@@ -112,6 +115,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onResize,
     onResizeEnd,
     onContentChange,
+    onTitleChange,
     onToggleBatch,
     onSetBatchPrimary,
     onDuplicateBatchImage,
@@ -336,6 +340,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         pluginContext={pluginContext}
                         mentionReferences={mentionReferences}
                         onContentChange={onContentChange}
+                        onTitleChange={onTitleChange}
                         onStopEditing={() => setIsEditingContent(false)}
                         onRetry={onRetry}
                         onToggleBatch={() => onToggleBatch?.(data.id)}
@@ -398,15 +403,25 @@ const nodeContentRenderers = {
     [CanvasNodeType.Group]: GroupNodeContent,
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
 
-function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererProps) {
+function GroupNodeContent({ node, theme, groupChildCount, onTitleChange }: NodeContentRendererProps) {
     const { t } = useTranslation();
+    const [editing, setEditing] = useState(false);
+    const [title, setTitle] = useState(node.title);
+    const save = () => { onTitleChange?.(node.id, title.trim() || node.title); setEditing(false); };
     return (
         <div className="pointer-events-none flex h-full w-full flex-col p-4">
             <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: theme.node.text }}>
                 <span className="grid size-8 place-items-center rounded-xl" style={{ background: theme.toolbar.activeBg, color: theme.node.muted }}>
                     <Group className="size-4" />
                 </span>
-                <span>{t("canvas.node.group")}</span>
+                <div className="pointer-events-auto min-w-0 flex-1" data-canvas-no-pan onMouseDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}>
+                    {editing ? <input autoFocus aria-label="分组名称" value={title} onChange={event => setTitle(event.target.value)} onBlur={save} onFocus={event => event.target.select()} onKeyDown={event => {
+                        event.stopPropagation();
+                        if (isImeComposing(event)) return;
+                        if (event.key === "Enter") event.currentTarget.blur();
+                        if (event.key === "Escape") setEditing(false);
+                    }} className="w-full rounded border bg-transparent px-1 py-0.5 outline-none" style={{ borderColor: theme.node.stroke }} /> : <button type="button" title="修改分组名称" className="max-w-full truncate text-left" onClick={() => { setTitle(node.title); setEditing(true); }}>{node.title || t("canvas.node.group")}</button>}
+                </div>
                 <span className="ml-auto rounded-full px-2 py-1 text-[11px] font-medium" style={{ background: theme.node.fill, color: theme.node.muted }}>
                     {t("canvas.node.nodeCount", { count: groupChildCount })}
                 </span>

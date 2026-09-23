@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { App, Modal, Segmented, Tooltip } from "antd";
-import { Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Pencil, Plus, RefreshCw, Settings2, Trash2, Upload, Video } from "lucide-react";
+import { AtSign, Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Pencil, Plus, RefreshCw, Settings2, Trash2, Upload, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { getNodeToolbarLayout } from "@/lib/canvas/canvas-node-toolbar-layout";
@@ -19,6 +19,7 @@ type CanvasNodeHoverToolbarProps = {
     viewport: ViewportTransform;
     onKeep: (nodeId: string) => void;
     onLeave: () => void;
+    onReference: (node: CanvasNodeData) => void;
     onInfo: (node: CanvasNodeData) => void;
     onEditText: (node: CanvasNodeData) => void;
     onDecreaseFont: (node: CanvasNodeData) => void;
@@ -58,6 +59,7 @@ export function CanvasNodeHoverToolbar({
     onKeep,
     onLeave,
     onInfo,
+    onReference,
     onEditText,
     onDecreaseFont,
     onIncreaseFont,
@@ -158,6 +160,7 @@ export function CanvasNodeHoverToolbar({
         ...(hasImage ? imageTools.map((tool) => ({ id: tool.id, title: tool.title, label: tool.label, icon: tool.icon, active: tool.active, onClick: tool.onClick })) : []),
     ];
     const toolbarTools = hasImage ? [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => quickImageToolIdSet.has(tool.id as ImageQuickToolId)) : [...baseToolbarTools, ...nodeToolbarTools, ...extraTools];
+    toolbarTools.push({ id: "agentReference", title: "引用到 Agent", label: "引用", icon: <AtSign className="size-4" />, onClick: () => onReference(node) });
     const selectableImageToolbarTools = [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => tool.id !== "retry") as ImageToolbarSettingsTool[];
 
     const closeImageToolSettings = () => {

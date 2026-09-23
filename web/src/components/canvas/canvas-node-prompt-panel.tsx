@@ -1,9 +1,9 @@
 import { videoDefaults, videoRequestParams, videoReferenceRole, validateVideoInput } from "../../../../server/src/video-contract";
 import { imageContractForMode, imageDefaults } from "../../../../server/src/image-contract";
 import { audioDefaults } from "../../../../server/src/audio-contract";
-import { useEffect, useState } from "react";
-import { ArrowUp, LoaderCircle, Maximize2, Square } from "lucide-react";
-import { Button, Modal, Tooltip } from "antd";
+import { useEffect, useRef, useState } from "react";
+import { ArrowUp, Plus, LoaderCircle, Maximize2, Square } from "lucide-react";
+import { App, Button, Modal, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -11,13 +11,13 @@ import { defaultConfig, getAvailableModel, resolveModelForCapability, useEffecti
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
-import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
+import { CanvasPromptChipInput, type CanvasPromptInputHandle } from "./canvas-prompt-chip-input";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { useMissingModelNotice } from "@/hooks/use-missing-model-notice";
-import { MediaEditor } from "./media-editor/media-editor";
+import { MediaEditor, ReferenceShelf } from "./media-editor/media-editor";
 import type { MediaEditorTarget } from "./media-editor/types";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
@@ -41,6 +41,9 @@ type CanvasNodePromptPanelProps = {
 
 export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onPromptChange, onConfigChange, onGenerate, onStop, onUploadReference, onRemoveReference, onActivateReference, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
     const { t } = useTranslation();
+    const { message } = App.useApp();
+    const promptRef = useRef<CanvasPromptInputHandle>(null);
+    const uploadRef = useRef<HTMLInputElement>(null);
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useMissingModelNotice();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -68,6 +71,22 @@ export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onP
     const videoContract = mode === "video" ? getAvailableModel(config.model)?.videoContract : undefined;
     let imageIndex = 0;
     const videoErrors = mode === "video" ? videoContract ? validateVideoInput(videoContract, prompt, videoRequestParams(videoContract, config), mentionReferences.filter(r => r.active && r.kind !== "text").map(r => ({ kind: r.kind, role: videoReferenceRole(videoContract, r.kind, r.kind === "image" ? imageIndex++ : 0) }))) : ["当前模型缺少视频输入定义"] : [];
+    const videoMentions = mentionReferences.map(item => ({ ...item, label: `@${item.label}` }));
+    const videoReferences = videoMentions.filter(item => item.active && item.kind !== "text");
+    const removeVideoReference = (id: string) => {
+        const removed = videoReferences.find(item => item.id === id);
+        if (!removed?.connectionId) return;
+        const counts = new Map<string, number>();
+        const labels = new Map(videoReferences.map(item => {
+            if (item.id === id) return [item.label, ""];
+            const index = (counts.get(item.kind) || 0) + 1;
+            counts.set(item.kind, index);
+            return [item.label, item.label.replace(/\d+$/, String(index))];
+        }));
+        const escaped = [...labels.keys()].sort((a, b) => b.length - a.length).map(label => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+        updatePrompt(prompt.replace(new RegExp(`(?:${escaped.join("|")})(?!\\d)`, "g"), label => labels.get(label)!));
+        onRemoveReference?.(removed.connectionId);
+    };
     const submit = () => {
         const text = prompt.trim();
         if (!text || isRunning || videoErrors.length) return;
@@ -122,9 +141,20 @@ export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onP
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
         >
+            {mode === "video" ? <ReferenceShelf flat references={videoReferences.map(item => ({ id: item.id, nodeId: item.nodeId, kind: item.kind as "image" | "video" | "audio", label: item.label, url: item.previewUrl, source: "canvas", removable: Boolean(item.connectionId) }))}
+                onInsert={reference => { const mention = videoMentions.find(item => item.id === reference.id); if (mention) promptRef.current?.insertReference(mention); }}
+                onRemove={reference => removeVideoReference(reference.id)}
+                uploadControl={onUploadReference && (!videoContract || videoContract.maxImages > 0) ? <button type="button" aria-label="上传参考图" className="grid size-11 shrink-0 place-items-center rounded-lg border border-dashed border-current/20 opacity-60 hover:opacity-100" onClick={() => uploadRef.current?.click()}><Plus className="size-5" /></button> : null} /> : null}
+            <input ref={uploadRef} type="file" accept="image/*" multiple hidden onChange={event => {
+                const files = Array.from(event.target.files || []); event.currentTarget.value = "";
+                void (async () => { try { for (const file of files) await onUploadReference?.(node.id, "image", file); } catch (error) { message.error(error instanceof Error ? error.message : "上传参考图失败"); } })();
+            }} />
             <CanvasPromptChipInput
+                ref={promptRef}
+                textReferences={mode === "video"}
+                onActivateReference={onActivateReference}
                 value={prompt}
-                references={mentionReferences}
+                references={mode === "video" ? videoMentions : mentionReferences}
                 onChange={updatePrompt}
                 onSubmit={submit}
                 className="thin-scrollbar h-40 w-full cursor-text resize-none rounded-xl px-3 py-2 text-sm leading-5 outline-none"
@@ -175,8 +205,10 @@ export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onP
             <Modal title={t("canvas.promptPanel.editorTitle")} open={expanded} centered width={760} footer={null} onCancel={() => setExpanded(false)} destroyOnHidden>
                 <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
                     <CanvasPromptChipInput
+                        textReferences={mode === "video"}
+                        onActivateReference={onActivateReference}
                         value={prompt}
-                        references={mentionReferences}
+                        references={mode === "video" ? videoMentions : mentionReferences}
                         onChange={updatePrompt}
                         className="thin-scrollbar h-[52dvh] min-h-80 w-full cursor-text overflow-y-auto rounded-xl border p-4 text-[15px] leading-6 outline-none"
                         style={{ background: "transparent", borderColor: theme.toolbar.border, color: theme.node.text }}

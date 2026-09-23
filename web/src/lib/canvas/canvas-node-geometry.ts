@@ -50,13 +50,16 @@ export function snapNodesIntoGroup(movedIds: Set<string>, nodes: CanvasNodeData[
     if (!movingNodes.length) return nodes;
     const pad = 24;
     const bounds = nodeBounds(movingNodes);
+    const width = Math.max(group.width, bounds.right - bounds.left + pad * 2);
+    const height = Math.max(group.height, bounds.bottom - bounds.top + 64 + pad);
     const left = group.position.x + pad;
-    const top = group.position.y + pad;
-    const right = group.position.x + group.width - pad;
-    const bottom = group.position.y + group.height - pad;
+    const top = group.position.y + 64;
+    const right = group.position.x + width - pad;
+    const bottom = group.position.y + height - pad;
     const dx = bounds.right - bounds.left > right - left ? left - bounds.left : bounds.left < left ? left - bounds.left : bounds.right > right ? right - bounds.right : 0;
     const dy = bounds.bottom - bounds.top > bottom - top ? top - bounds.top : bounds.top < top ? top - bounds.top : bounds.bottom > bottom ? bottom - bounds.bottom : 0;
     return nodes.map((node) => {
+        if (node.id === group.id) return { ...node, width, height };
         if (!movedIds.has(node.id) || node.type === CanvasNodeType.Group) return node;
         return { ...node, position: { x: node.position.x + dx, y: node.position.y + dy }, metadata: { ...node.metadata, groupId: group.id } };
     });

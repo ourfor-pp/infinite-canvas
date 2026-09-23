@@ -670,7 +670,7 @@ function InfiniteCanvasPage() {
         const map = new Map<string, CanvasResourceReference[]>();
         nodes.forEach((node) => {
             const linked = buildNodeMentionReferences(node, nodes, connections);
-            const candidates = node.type === CanvasNodeType.Image ? buildCanvasResourceReferences([
+            const candidates = (node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video) ? buildCanvasResourceReferences([
                 ...linked.map((reference) => nodes.find((item) => item.id === reference.nodeId)!).filter(Boolean),
                 ...nodes.filter((item) => item.id !== node.id && item.type === CanvasNodeType.Image && !linked.some((reference) => reference.nodeId === item.id)),
             ]).filter((reference) => !linked.some((item) => item.nodeId === reference.nodeId)).map((reference) => ({ ...reference, active: false })) : [];
@@ -1078,6 +1078,7 @@ function InfiniteCanvasPage() {
         setSelectedNodeIds(nextSelected);
         const soloId = nextSelected.size === 1 && nextSelected.has(nodeId) ? nodeId : null;
         setToolbarNodeId(soloId);
+        setDialogNodeId(current => current === soloId ? current : null);
         return { nextSelected, soloId };
     }, []);
 
@@ -2825,6 +2826,12 @@ function InfiniteCanvasPage() {
     }, []);
     const handleNodeViewImage = useCallback((node: CanvasNodeData) => setPreviewNodeId(node.id), []);
     const handleNodeRetry = useCallback((node: CanvasNodeData) => void handleRetryNode(node), [handleRetryNode]);
+    const referenceNodeInAgent = useCallback((node: CanvasNodeData) => {
+        useAgentStore.getState().prepareComposer(projectId, { kind: "canvas", projectId, nodeId: node.id, title: node.title, subtitle: "画布节点" });
+        setDialogNodeId(null);
+        setContextMenu(null);
+    }, [projectId]);
+
     const handleNodeContextMenu = useCallback((event: ReactMouseEvent, nodeId: string) => {
         event.preventDefault();
         event.stopPropagation();
@@ -2991,6 +2998,7 @@ function InfiniteCanvasPage() {
                             onResize={handleNodeResize}
                             onResizeEnd={handleNodeResizeEnd}
                             onContentChange={handleNodeContentChange}
+                            onTitleChange={(nodeId, title) => setNodes(prev => prev.map(node => node.id === nodeId ? { ...node, title } : node))}
                             onToggleBatch={toggleBatchExpanded}
                             onSetBatchPrimary={setBatchPrimary}
                             onDuplicateBatchImage={duplicateBatchImage}
@@ -3034,6 +3042,7 @@ function InfiniteCanvasPage() {
                     node={isNodeDragging || isNodeResizing || nodeImageSettingsOpen || expandedImageNodeId ? null : toolbarNode}
                     viewport={viewport}
                     extraTools={toolbarNode ? buildNodeToolbarItems(toolbarNode) : undefined}
+                    onReference={referenceNodeInAgent}
                     onKeep={keepNodeToolbar}
                     onLeave={hideNodeToolbar}
                     onInfo={(node) => setInfoNodeId(node.id)}
@@ -3089,6 +3098,11 @@ function InfiniteCanvasPage() {
                 {contextMenu ? (
                     <CanvasNodeContextMenu
                         menu={contextMenu}
+                        onReference={() => {
+                            if (contextMenu.type !== "node") return;
+                            const node = nodesRef.current.find(item => item.id === contextMenu.nodeId);
+                            if (node) referenceNodeInAgent(node);
+                        }}
                         onClose={() => setContextMenu(null)}
                         onDuplicate={() => {
                             if (contextMenu.type !== "node") return;

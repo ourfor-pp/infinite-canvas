@@ -9,6 +9,7 @@ export type AgentCanvasContext = {
     canUndo: boolean;
 };
 export type AgentEntityReference = { instruction?: string } & (
+    | { kind: "canvas"; projectId: string; nodeId: string; title: string; subtitle: string }
     | { kind: "asset"; projectId: string; assetId: string; nodeId?: string; path?: string; title: string; subtitle: string }
     | { kind: "style"; projectId: string; styleId: string; nodeId?: string; title: string; subtitle: string }
     | { kind: "director"; projectId: string; entityKind: "story" | "script" | "directing-plan" | "sequence" | "segment-design" | "production-task" | "video-segment" | "timeline"; entityId: string; timeSeconds?: number; objectId?: string; title: string; subtitle: string });
@@ -99,7 +100,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }),
     prepareComposer: (projectId, reference) => set((state) => {
         const current = state.entityReferences[projectId] || [];
-        const identity = (item: AgentEntityReference) => item.kind === "asset" ? item.assetId : item.kind === "style" ? item.styleId : `${item.entityKind}:${item.entityId}`;
+        const identity = (item: AgentEntityReference) => item.kind === "canvas" ? item.nodeId : item.kind === "asset" ? item.assetId : item.kind === "style" ? item.styleId : `${item.entityKind}:${item.entityId}`;
         const same = (item: AgentEntityReference) => item.kind === reference.kind && identity(item) === identity(reference);
         const panelOpen = { ...state.panelOpen, [projectId]: true };
         persist("agent-panel-open-by-project", panelOpen);
