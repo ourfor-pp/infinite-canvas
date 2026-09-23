@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -23,6 +23,27 @@ function context(projectId: string, requireDecision = async (..._args: unknown[]
 }
 function tool(projectId: string, name: string, requireDecision?: (...args: unknown[]) => Promise<{}>) { return buildAgentToolDefinitions(context(projectId, requireDecision), agentScenes.canvas).find((item) => item.name === name)!; }
 function output(result: Awaited<ReturnType<ReturnType<typeof tool>["handler"]>>) { return JSON.parse((result.content[0] as { text: string }).text).data; }
+
+test("原生生图 Skill 示例通过 MCP 同时保存图片、编辑提示词与参考连线", async () => {
+    project("native-image", [{ id: "reference-image", type: "image", metadata: { content: "/reference.png" } }]);
+    const skill = readFileSync(new URL("./scenes/canvas/skills/canvas-edit/SKILL.md", import.meta.url), "utf8");
+    const example = [...skill.matchAll(/```json\n([^`]+)\n```/g)].map((match) => JSON.parse(match[1]))
+        .find((input) => input.ops.some((op: { nodeType?: string }) => op.nodeType === "image"));
+    assert.ok(example);
+    const result = await tool("native-image", "canvas_apply_ops").handler({ ...example, expectedRevision: 1 });
+    assert.equal(result.isError, undefined);
+    const saved = canvas.getCanvasState("u", "native-image");
+    const image = saved.nodes.find((node) => node.id === "generated-image")!;
+    assert.equal(image.metadata?.content, "/api/files/generated-file");
+    assert.equal(image.metadata?.storageKey, "server:generated-file");
+    assert.ok(image.metadata?.prompt);
+    assert.equal(image.metadata?.composerContent, image.metadata?.prompt);
+    assert.equal(saved.connections.length, 1);
+    assert.equal(saved.connections[0].fromNodeId, "reference-image");
+    assert.equal(saved.connections[0].toNodeId, image.id);
+    assert.equal(saved.connections[0].fromPortId, "output");
+    assert.equal(saved.connections[0].toPortId, "input");
+});
 
 test("分页画布读取不泄漏长正文，指定节点逐段读取并拒绝跨版本分页", () => {
     project("pages", Array.from({ length: 55 }, (_, i) => ({ id: `n${i}`, type: "text", metadata: { content: "x".repeat(30_000), hidden: "private" } })));

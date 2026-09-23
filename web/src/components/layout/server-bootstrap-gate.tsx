@@ -54,8 +54,8 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
             if (conflictOpenRef.current.has(id)) return;
             conflictOpenRef.current.add(id);
             modal.confirm({
-                title: "画布已在其他页面更新",
-                content: "重新加载会放弃当前页面尚未保存的修改；覆盖保存会以当前页面内容为准。",
+                title: "画布版本冲突",
+                content: "当前编辑与服务端的新内容有冲突。重新加载会放弃未保存的修改；覆盖保存会以当前页面内容为准。",
                 okText: "重新加载",
                 cancelText: "覆盖保存",
                 keyboard: false,
@@ -81,7 +81,7 @@ export function ServerBootstrapGate({ children }: { children: ReactNode }) {
         (delta) => window.dispatchEvent(new CustomEvent("infinite-canvas:generation-delta", { detail: delta })),
         (project) => {
             if (useCanvasStore.getState().applyServerProject(project as unknown as import("@/stores/canvas/use-canvas-store").CanvasProject)) {
-                window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: project }));
+                window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: useCanvasStore.getState().openProject(String(project.id)) }));
             }
         },
         (asset) => {

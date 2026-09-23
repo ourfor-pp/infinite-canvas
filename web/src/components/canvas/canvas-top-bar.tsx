@@ -73,17 +73,15 @@ export function CanvasTopBar({
         <>
             <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-16 items-center justify-between pl-1 pr-4">
                 <div className="pointer-events-auto flex min-w-0 items-center gap-2">
-                    <Tooltip title={agentOpen ? t("canvas.collapseAgent") : t("canvas.openAgent")}>
-                        <button
-                            type="button"
-                            onClick={onToggleAgent}
-                            aria-label={agentOpen ? t("canvas.collapseAgent") : t("canvas.openAgent")}
-                            className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10"
-                            style={{ color: theme.node.text }}
-                        >
-                            {agentOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
-                        </button>
-                    </Tooltip>
+                    <Button
+                        type="text"
+                        className="!h-10 !rounded-xl !px-3 !font-medium"
+                        style={{ background: sidePanelOpen ? theme.toolbar.activeBg : theme.toolbar.panel, color: theme.node.text, boxShadow: "0 10px 30px rgba(28,25,23,.10)" }}
+                        icon={sidePanelOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
+                        onClick={toggleSidePanel}
+                    >
+                        {t("canvas.sidePanel.title")}
+                    </Button>
                     <Dropdown
                         trigger={["click"]}
                         menu={{
@@ -138,15 +136,17 @@ export function CanvasTopBar({
                 <div className="pointer-events-auto flex items-center gap-1.5">
                     <UserStatusActions variant="canvas" onOpenShortcuts={() => setShortcutsOpen(true)} onOpenPlugins={onOpenPlugins} />
                     <span className="h-6 w-px" style={{ background: theme.toolbar.border }} />
-                    <Button
-                        type="text"
-                        className="!h-10 !rounded-xl !px-3 !font-medium"
-                        style={{ background: sidePanelOpen ? theme.toolbar.activeBg : theme.toolbar.panel, color: theme.node.text, boxShadow: "0 10px 30px rgba(28,25,23,.10)" }}
-                        icon={sidePanelOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
-                        onClick={toggleSidePanel}
-                    >
-                        {t("canvas.sidePanel.title")}
-                    </Button>
+                    <Tooltip title={agentOpen ? t("canvas.collapseAgent") : t("canvas.openAgent")}>
+                        <button
+                            type="button"
+                            onClick={onToggleAgent}
+                            aria-label={agentOpen ? t("canvas.collapseAgent") : t("canvas.openAgent")}
+                            className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10"
+                            style={{ color: theme.node.text }}
+                        >
+                            {agentOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
             <Modal title={t("canvas.shortcuts")} open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>

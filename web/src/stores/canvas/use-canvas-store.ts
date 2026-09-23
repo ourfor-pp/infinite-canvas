@@ -39,8 +39,12 @@ type CanvasStore = {
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const serverMutationProjects = new Set<string>();
 const pendingSaves = new Map<string, Promise<void>>();
+const savedProjects = new Map<string, CanvasProject>();
+const deferredProjects = new Map<string, CanvasProject>();
+const conflictedProjects = new Set<string>();
+const editableFields = ["title", "nodes", "connections", "chatSessions", "activeChatId", "backgroundMode", "showImageInfo", "viewport"] as const;
+const sameValue = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
 export const useCanvasStore = create<CanvasStore>()((set, get) => ({
     hydrated: false,
@@ -102,36 +106,47 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
         set((state) => ({ projects: state.projects.filter((project) => !ids.includes(project.id)) }));
         void Promise.all(ids.map((id) => serverApi.deleteProject(id))).catch(reportServerError);
     },
-    replaceProjects: (projects) => set({ projects }),
+    replaceProjects: (projects) => {
+        savedProjects.clear();
+        projects.forEach((project) => savedProjects.set(project.id, project));
+        set({ projects });
+    },
     applyServerProject: (project) => {
         if (project.kind !== "canvas") return false;
         const current = get().projects.find((item) => item.id === project.id);
         if (current && current.revision >= project.revision) return false;
-        if (serverMutationProjects.delete(project.id)) {
-            replaceSavedProject(project);
-            return true;
-        }
-        if (saveTimers.has(project.id) || pendingSaves.has(project.id)) {
-            window.dispatchEvent(new CustomEvent("infinite-canvas:project-conflict", { detail: { id: project.id } }));
+        if (pendingSaves.has(project.id)) {
+            const deferred = deferredProjects.get(project.id);
+            if (!deferred || deferred.revision < project.revision) deferredProjects.set(project.id, project);
             return false;
         }
-        replaceSavedProject(project);
-        return true;
+        return reconcileServerProject(project);
     },
     resolveConflict: async (id, strategy) => {
+        conflictedProjects.add(id);
         clearProjectSaveTimer(id);
         await pendingSaves.get(id)?.catch(() => {});
         clearProjectSaveTimer(id);
         if (strategy === "reload") {
             const current = (await serverApi.project(id)) as unknown as CanvasProject;
+            deferredProjects.delete(id);
+            savedProjects.set(id, current);
             replaceSavedProject(current);
+            conflictedProjects.delete(id);
+            publishProjectUpdate(current);
             return;
         }
         const project = get().projects.find((item) => item.id === id);
         if (!project) return;
-        replaceSavedProject((await serverApi.updateProject(id, project as unknown as Record<string, unknown>, true)) as unknown as CanvasProject);
+        await trackProjectSave(id, serverApi.updateProject(id, project as unknown as Record<string, unknown>, true)
+            .then((saved) => mergeSavedProject(saved as unknown as CanvasProject, project)));
+        conflictedProjects.delete(id);
+        if (get().projects.find((item) => item.id === id) !== savedProjects.get(id)) queueProjectSave(id);
     },
     updateProject: (id, patch) => {
+        const current = get().projects.find((project) => project.id === id);
+        if (!current || Object.entries(patch).every(([key, value]) => sameValue(current[key as keyof CanvasProject], value))) return;
+        if (!savedProjects.has(id)) savedProjects.set(id, current);
         set((state) => ({ projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)) }));
         queueProjectSave(id);
     },
@@ -139,12 +154,6 @@ export const useCanvasStore = create<CanvasStore>()((set, get) => ({
 
 export async function prepareProjectServerMutation(id: string) {
     await flushProjectSave(id);
-    serverMutationProjects.add(id);
-    window.setTimeout(() => serverMutationProjects.delete(id), 5_000);
-}
-
-export function cancelProjectServerMutation(id: string) {
-    serverMutationProjects.delete(id);
 }
 
 function clearProjectSaveTimer(id: string) {
@@ -156,6 +165,11 @@ function clearProjectSaveTimer(id: string) {
 function trackProjectSave(id: string, save: Promise<void>) {
     const pending = save.finally(() => {
         if (pendingSaves.get(id) === pending) pendingSaves.delete(id);
+        const deferred = deferredProjects.get(id);
+        deferredProjects.delete(id);
+        if (deferred && useCanvasStore.getState().applyServerProject(deferred)) {
+            publishProjectUpdate(useCanvasStore.getState().openProject(id)!);
+        }
     });
     pendingSaves.set(id, pending);
     return pending;
@@ -164,7 +178,7 @@ function trackProjectSave(id: string, save: Promise<void>) {
 async function flushProjectSave(id: string): Promise<void> {
     // A later save must read the revision returned by the previous request.
     while (pendingSaves.has(id)) await pendingSaves.get(id);
-    if (!saveTimers.has(id)) return;
+    if (conflictedProjects.has(id) || !saveTimers.has(id)) return;
     clearProjectSaveTimer(id);
     const project = useCanvasStore.getState().projects.find((item) => item.id === id);
     if (!project) return;
@@ -175,11 +189,17 @@ async function flushProjectSave(id: string): Promise<void> {
 
 function queueProjectSave(id: string) {
     clearProjectSaveTimer(id);
+    if (conflictedProjects.has(id)) return;
     saveTimers.set(id, setTimeout(() => {
         void flushProjectSave(id).catch((error) => {
             clearProjectSaveTimer(id);
             if (error instanceof ServerApiError && error.code === "PROJECT_CONFLICT") {
-                window.dispatchEvent(new CustomEvent("infinite-canvas:project-conflict", { detail: { id } }));
+                const remote = (error.details as { current?: CanvasProject } | undefined)?.current;
+                if (remote && reconcileServerProject(remote)) {
+                    publishProjectUpdate(useCanvasStore.getState().openProject(id)!);
+                    return;
+                }
+                reportProjectConflict(id);
                 return;
             }
             reportServerError(error);
@@ -192,6 +212,7 @@ function replaceSavedProject(project: CanvasProject) {
 }
 
 function mergeSavedProject(project: CanvasProject, submitted: CanvasProject) {
+    savedProjects.set(project.id, project);
     const current = useCanvasStore.getState().projects.find((item) => item.id === project.id);
     if (!current || current === submitted) {
         replaceSavedProject(project);
@@ -203,4 +224,38 @@ function mergeSavedProject(project: CanvasProject, submitted: CanvasProject) {
 
 function reportServerError(error: unknown) {
     window.dispatchEvent(new CustomEvent("infinite-canvas:server-error", { detail: error instanceof Error ? error.message : "服务保存失败" }));
+}
+
+function publishProjectUpdate(project: CanvasProject) {
+    window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: project }));
+}
+
+function reportProjectConflict(id: string) {
+    clearProjectSaveTimer(id);
+    if (conflictedProjects.has(id)) return;
+    conflictedProjects.add(id);
+    window.dispatchEvent(new CustomEvent("infinite-canvas:project-conflict", { detail: { id } }));
+}
+
+function reconcileServerProject(remote: CanvasProject) {
+    if (conflictedProjects.has(remote.id)) return false;
+    const local = useCanvasStore.getState().openProject(remote.id);
+    const base = savedProjects.get(remote.id);
+    if (base && base.revision > remote.revision) remote = base;
+    const merged = { ...remote };
+    let dirty = false;
+    if (local && (saveTimers.has(remote.id) || base && editableFields.some((key) => !sameValue(local[key], base[key])))) {
+        if (!base) { reportProjectConflict(remote.id); return false; }
+        for (const key of editableFields) {
+            if (sameValue(local[key], base[key]) || sameValue(local[key], remote[key])) continue;
+            if (!sameValue(remote[key], base[key])) { reportProjectConflict(remote.id); return false; }
+            Object.assign(merged, { [key]: local[key] });
+            dirty = true;
+        }
+    }
+    savedProjects.set(remote.id, remote);
+    clearProjectSaveTimer(remote.id);
+    replaceSavedProject(dirty ? merged : remote);
+    if (dirty) queueProjectSave(remote.id);
+    return true;
 }

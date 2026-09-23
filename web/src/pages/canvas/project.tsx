@@ -46,7 +46,7 @@ import { CanvasSidePanel } from "@/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
 import { AgentPanel } from "@/components/agent/agent-panel";
 import { useAgentStore } from "@/stores/use-agent-store";
-import { cancelProjectServerMutation, prepareProjectServerMutation, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
+import { prepareProjectServerMutation, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -434,7 +434,7 @@ function InfiniteCanvasPage() {
     }, [activeChatId, backgroundMode, chatSessions, connections, createHistoryEntry, nodes, projectLoaded, showImageInfo]);
 
     useEffect(() => {
-        if (!projectLoaded || historyPausedRef.current) return;
+        if (!projectLoaded || historyPausedRef.current || applyingHistoryRef.current) return;
         updateProject(projectId, { nodes, connections, chatSessions, activeChatId, backgroundMode, showImageInfo });
     }, [activeChatId, backgroundMode, chatSessions, connections, nodes, projectId, projectLoaded, showImageInfo, updateProject]);
 
@@ -754,10 +754,9 @@ function InfiniteCanvasPage() {
                 const current = useCanvasStore.getState().projects.find((item) => item.id === projectId);
                 if (!current) return;
                 const saved = await serverApi.deleteProjectNodes(projectId, [...ids], current.revision) as unknown as CanvasProject;
-                if (useCanvasStore.getState().applyServerProject(saved)) window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: saved }));
+                if (useCanvasStore.getState().applyServerProject(saved)) window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: useCanvasStore.getState().openProject(projectId) }));
                 cleanupCanvasFiles({ projectId, nodes: saved.nodes, chatSessions: saved.chatSessions || [] });
             }).catch((error) => {
-                cancelProjectServerMutation(projectId);
                 message.error(error instanceof Error ? error.message : "删除节点失败");
             });
         },
@@ -2862,7 +2861,7 @@ function InfiniteCanvasPage() {
 
     return (
         <main className="flex h-full min-h-0 overflow-hidden" style={{ background: theme.canvas.background, color: theme.node.text }}>
-            <AgentPanel projectId={projectId} />
+            <CanvasSidePanel nodes={nodes} selectedNodeIds={selectedNodeIds} onFocusNode={focusNode} onPreviewNode={setPreviewNodeId} onInsertAsset={handleAssetInsert} />
             <section className="relative min-w-0 flex-1 overflow-hidden">
                 <CanvasTopBar
                     title={currentProject?.title || t("canvas.projectPage.untitledCanvas")}
@@ -3133,7 +3132,7 @@ function InfiniteCanvasPage() {
 
                 <AssetPickerModal open={assetPickerOpen} onInsert={handleAssetInsert} onClose={() => setAssetPickerOpen(false)} />
             </section>
-            <CanvasSidePanel nodes={nodes} selectedNodeIds={selectedNodeIds} onFocusNode={focusNode} onPreviewNode={setPreviewNodeId} onInsertAsset={handleAssetInsert} />
+            <AgentPanel projectId={projectId} side="right" />
         </main>
     );
 }

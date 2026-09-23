@@ -25,11 +25,24 @@ allowed-tools: [mcp__infinite_canvas__canvas_get_state, mcp__infinite_canvas__ca
 
 ## 生成与采用
 
-1. 使用 media-generation Skill 的领域规则。`media_list_capabilities` 同时返回 channels 和 executor；先选择可用能力。
+1. Codex 原生图片生成与编辑使用下方“原生图片入画布”流程；其他生成使用 media-generation Skill 的领域规则。`media_list_capabilities` 同时返回 channels 和 executor；先选择可用能力。
 2. 画布的 `media_validate_generation` / `media_generate` 接收 `{request: {source, ...}}`。管理员模型用 source=channel，字段为 kind、model、prompt、references；中立媒体用 source=executor，字段为 kind、model、mode、operation、prompt、params、references、continuation。不能用 channel 绕过执行器参数校验。
 3. 记录任务 ID，以 `media_get_generation_status` 查询；不要重复提交。成功后用 `canvas_adopt_result` 传 generationId、fileId 和最新 expectedRevision，创建节点或用 nodeId 替换同类型节点；文本结果不传 fileId。生成成功不会自动改变节点。
-4. 使用 `media_import_reference` 登记工程内媒体，再作为显式 fileId 引用。原生生图或其他本地图片可登记后用 `canvas_apply_ops` 创建 image 节点，metadata.content 使用返回的 url、storageKey 使用 server:<fileId>。
+4. 使用 `media_import_reference` 登记工程内媒体，再作为显式 fileId 引用。原生生图采用遵循下方流程；普通本地图片登记后用 `canvas_apply_ops` 创建 image 节点，metadata.content 使用返回的 url、storageKey 使用 server:<fileId>。
 5. Codex 使用原生文件工具和原生提问；内置 Agent 保留 workspace_write_text 与 ask_user。媒体质量须实际看图、观看或试听后判断。
+
+## 原生图片入画布
+
+- 调用原生生图前记录实际提交的完整提示词与实际参考图片路径对应的节点 ID / fileId；不要用事后摘要替代提示词，也不要把仅查看但未传入生图的图片当作输入。
+- 成功后将输出复制到工作区并用 `media_import_reference` 登记。通过 `canvas_apply_ops` 写入 `metadata.content=url`、`storageKey=server:<fileId>`、`status=success`，并将本次完整提示词同时写入 `metadata.prompt` 和 `metadata.composerContent`；编辑框优先读取后者，只写 prompt 可能仍显示旧草稿或空白。
+- 读取当前节点和连线，复用实际参考图已有节点；附件或本地参考没有画布节点时先登记并创建参考图片节点。将每张外部参考图的 `output` 连接到结果的 `input`，复用已有连线，不重复创建。无参考的文生图只填提示词，不编造连线。
+- 新图节点、提示词与缺少的参考连线尽量携带最新 revision 一次提交。用户要求修改当前图片时更新原节点，失败保留旧图；当前节点自身作为编辑输入时不创建自连线。提交后重新读取节点和连线，核对提示词、图片和实际外部参考均已保存，才报告完成。
+
+已有参考节点 `reference-image` 的新图示例（url、fileId、提示词、revision 和节点 ID 均替换为本次实际值）：
+
+```json
+{"expectedRevision":12,"ops":[{"type":"add_node","id":"generated-image","nodeType":"image","title":"生成图片","position":{"x":840,"y":0},"metadata":{"content":"/api/files/generated-file","storageKey":"server:generated-file","prompt":"使用参考图中的同一只猫，绘制它坐在窗边的画面。","composerContent":"使用参考图中的同一只猫，绘制它坐在窗边的画面。","status":"success"}},{"type":"connect_nodes","fromNodeId":"reference-image","fromPortId":"output","toNodeId":"generated-image","toPortId":"input"}]}
+```
 
 ## 视频制作与参考复刻
 

@@ -66,7 +66,7 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
         const startWidth = width;
         let nextWidth = startWidth;
         const onMove = (moveEvent: PointerEvent) => {
-            nextWidth = Math.min(CANVAS_SIDE_PANEL_MAX_WIDTH, Math.max(CANVAS_SIDE_PANEL_MIN_WIDTH, startWidth + startX - moveEvent.clientX));
+            nextWidth = Math.min(CANVAS_SIDE_PANEL_MAX_WIDTH, Math.max(CANVAS_SIDE_PANEL_MIN_WIDTH, startWidth + moveEvent.clientX - startX));
             setWidth(nextWidth);
         };
         const onUp = () => {
@@ -91,9 +91,9 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
             style={{ overflow: "clip", pointerEvents: panelClosing ? "none" : undefined }}
         >
             <motion.aside
-                className="relative flex h-full shrink-0 flex-col overflow-hidden border-l"
-                initial={{ x: 48 }}
-                animate={{ x: panelClosing ? 28 : 0 }}
+                className="relative flex h-full shrink-0 flex-col overflow-hidden border-r"
+                initial={{ x: -48 }}
+                animate={{ x: panelClosing ? -28 : 0 }}
                 transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: PANEL_EASE }}
                 style={{ width, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
                 data-canvas-no-zoom
@@ -112,7 +112,7 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
                         <CanvasPromptsTab onInsert={onInsertAsset} theme={theme} />
                     )}
                 </div>
-                <button type="button" className="absolute inset-y-0 left-0 z-40 w-4 -translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label={t("canvas.sidePanel.resize")} />
+                <button type="button" className="absolute inset-y-0 right-0 z-40 w-4 translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label={t("canvas.sidePanel.resize")} />
             </motion.aside>
         </motion.div>
     );

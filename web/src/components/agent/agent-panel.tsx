@@ -9,7 +9,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
 
-export function AgentPanel({ projectId, themeMode }: { projectId: string; themeMode?: "light" | "dark" }) {
+export function AgentPanel({ projectId, themeMode, side = "left" }: { projectId: string; themeMode?: "light" | "dark"; side?: "left" | "right" }) {
     const { t } = useTranslation();
     const currentTheme = useThemeStore((state) => state.theme);
     const theme = themeMode === "light" ? sxhAgentLightTheme : canvasThemes[themeMode || currentTheme];
@@ -24,7 +24,7 @@ export function AgentPanel({ projectId, themeMode }: { projectId: string; themeM
         const startWidth = width;
         let nextWidth = startWidth;
         const onMove = (moveEvent: PointerEvent) => {
-            nextWidth = Math.min(760, Math.max(360, startWidth + moveEvent.clientX - startX));
+            nextWidth = Math.min(760, Math.max(360, startWidth + (moveEvent.clientX - startX) * (side === "left" ? 1 : -1)));
             setAgentState({ width: nextWidth });
         };
         const onUp = () => {
@@ -47,14 +47,14 @@ export function AgentPanel({ projectId, themeMode }: { projectId: string; themeM
             style={{ overflow: "clip", pointerEvents: panelOpen && !panelClosing ? undefined : "none" }}
         >
             <motion.aside
-                className="relative flex h-full shrink-0 flex-col border-r"
+                className={`relative flex h-full shrink-0 flex-col ${side === "left" ? "border-r" : "border-l"}`}
                 data-canvas-shortcuts-ignore
-                initial={{ x: -48 }}
-                animate={{ x: panelClosing ? -28 : 0 }}
+                initial={{ x: side === "left" ? -48 : 48 }}
+                animate={{ x: panelClosing ? (side === "left" ? -28 : 28) : 0 }}
                 transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: [0.22, 1, 0.36, 1] }}
                 style={{ width, background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             >
-                <button type="button" className="absolute inset-y-0 right-0 z-40 w-4 translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label={t("agent.panel.resize")} />
+                <button type="button" className={`absolute inset-y-0 z-40 w-4 cursor-col-resize ${side === "left" ? "right-0 translate-x-1/2" : "left-0 -translate-x-1/2"}`} onPointerDown={startResize} aria-label={t("agent.panel.resize")} />
                 <LocalAgentPanel projectId={projectId} themeMode={themeMode} />
             </motion.aside>
         </motion.div>
