@@ -50,7 +50,7 @@ import { useAgentStore } from "@/stores/use-agent-store";
 import { prepareProjectServerMutation, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
-import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { buildCanvasResourceReferences, buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, normalizeConnection, snapNodesIntoGroup, viewportForCanvasBounds } from "@/lib/canvas/canvas-node-geometry";
@@ -217,6 +217,7 @@ function InfiniteCanvasPage() {
     const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
     const [nodeCreatePosition, setNodeCreatePosition] = useState<Position | null>(null);
+    const [imageProgress, setImageProgress] = useState<{ status: string; progress?: number }>();
     const [runningNodeId, setRunningNodeId] = useState<string | null>(null);
     const [isMiniMapOpen, setIsMiniMapOpen] = useState(false);
     const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>("lines");
@@ -368,7 +369,7 @@ function InfiniteCanvasPage() {
             const project = (event as CustomEvent<CanvasProject>).detail;
             if (!projectLoaded || project.id !== projectId) return;
             applyingHistoryRef.current = true;
-            void Promise.all([hydrateCanvasImages(resetInterruptedGeneration(project.nodes)), hydrateAssistantImages(project.chatSessions || [])]).then(([restoredNodes, restoredSessions]) => {
+            void Promise.all([hydrateCanvasImages(project.nodes), hydrateAssistantImages(project.chatSessions || [])]).then(([restoredNodes, restoredSessions]) => {
                 const availableNodeIds = new Set(restoredNodes.map((node) => node.id));
                 const preservedSelection = new Set(Array.from(selectedNodeIdsRef.current).filter((id) => availableNodeIds.has(id)));
                 nodesRef.current = restoredNodes;
@@ -666,8 +667,15 @@ function InfiniteCanvasPage() {
         return map;
     }, [connections, nodes]);
     const mentionReferencesByNodeId = useMemo(() => {
-        const map = new Map<string, ReturnType<typeof buildNodeMentionReferences>>();
-        nodes.forEach((node) => map.set(node.id, buildNodeMentionReferences(node, nodes, connections)));
+        const map = new Map<string, CanvasResourceReference[]>();
+        nodes.forEach((node) => {
+            const linked = buildNodeMentionReferences(node, nodes, connections);
+            const candidates = node.type === CanvasNodeType.Image ? buildCanvasResourceReferences([
+                ...linked.map((reference) => nodes.find((item) => item.id === reference.nodeId)!).filter(Boolean),
+                ...nodes.filter((item) => item.id !== node.id && item.type === CanvasNodeType.Image && !linked.some((reference) => reference.nodeId === item.id)),
+            ]).filter((reference) => !linked.some((item) => item.nodeId === reference.nodeId)).map((reference) => ({ ...reference, active: false })) : [];
+            map.set(node.id, [...linked, ...candidates]);
+        });
         return map;
     }, [connections, nodes]);
     const { applyAgentOps } = useAgentBridge({
@@ -2205,6 +2213,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
                 return;
             }
+            setImageProgress(undefined);
             const markSourceStatus = sourceNode?.type !== CanvasNodeType.Image && !editingTextNode;
             if (!effectivePrompt && (mode === "text" || mode === "audio")) {
                 finishGenerationRequest(nodeId, runController);
@@ -2216,7 +2225,7 @@ function InfiniteCanvasPage() {
 
             try {
                 if (mode === "image") {
-                    const count = getGenerationCount(generationConfig.count);
+                    const count = 1;
                     const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
                     const isImageNode = sourceNode?.type === CanvasNodeType.Image;
                     const referenceImages = generationContext.referenceImages;
@@ -2283,15 +2292,24 @@ function InfiniteCanvasPage() {
                     setDialogNodeId(nodeId);
 
                     const controller = rootId === nodeId ? runController : startGenerationRequest(rootId, nodeId, nodeId, runController);
+                    setImageProgress({ status: "queued" });
+                    const progressByImage = new Map<string, number>();
                     let hasSuccess = false;
                     let hasFailure = false;
                     let firstError = "";
                     await Promise.all(
                         imageIds.map(async (imageId) => {
                             try {
+                                const options = { signal: controller.signal, onProgress: (generation: import("@/services/api/server").ServerGeneration) => {
+                                    if (controller.signal.aborted) return;
+                                    progressByImage.set(imageId, generation.progress || 0);
+                                    const phase = generation.diagnostics?.phase;
+                                    const status = generation.status === "succeeded" ? "loading-result" : generation.status === "queued" ? "queued" : (phase === "saving" || phase === "completed") ? "saving" : phase === "sampling" ? "sampling" : phase === "processing" ? "processing" : "running";
+                                    setImageProgress({ status, progress: status === "sampling" || status === "running" && generation.progress > 0.02 ? [...progressByImage.values()].reduce((sum, value) => sum + value, 0) / count : undefined });
+                                } };
                                 const image = referenceImages.length
-                                    ? await requestEdit({ ...imageGenerationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0])
-                                    : await requestGeneration({ ...imageGenerationConfig, count: "1" }, effectivePrompt, { signal: controller.signal }).then((items) => items[0]);
+                                    ? await requestEdit({ ...imageGenerationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, options).then((items) => items[0])
+                                    : await requestGeneration({ ...imageGenerationConfig, count: "1" }, effectivePrompt, options).then((items) => items[0]);
                                 const uploaded = await uploadImage(image.dataUrl);
                                 if (controller.signal.aborted) return false;
                                 const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
@@ -2828,6 +2846,7 @@ function InfiniteCanvasPage() {
                 <CanvasNodePromptPanel
                     node={panelNode}
                     isRunning={runningNodeId === panelNode.id}
+                    generationProgress={imageProgress}
                     mentionReferences={mentionReferencesByNodeId.get(panelNode.id) || EMPTY_REFERENCES}
                     onPromptChange={handleNodePromptChange}
                     onConfigChange={handleConfigNodeChange}
@@ -2835,6 +2854,7 @@ function InfiniteCanvasPage() {
                     onStop={confirmStopGeneration}
                     onUploadReference={uploadNodeReference}
                     onRemoveReference={deleteConnection}
+                    onActivateReference={(reference) => connectNodes({ nodeId: reference.nodeId, handleType: "source", portId: "output" }, panelNode.id)}
                     modeOverride={panelNode.type === CanvasNodeType.Config ? "audio" : getNodeDefinition(panelNode.type)?.useBuiltinPanel?.mode}
                     onImageSettingsOpenChange={(open) => {
                         setNodeImageSettingsOpen(open);
@@ -2842,7 +2862,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, deleteConnection, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId, uploadNodeReference],
+        [configInputsById, confirmStopGeneration, connectNodes, deleteConnection, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId, imageProgress, uploadNodeReference],
     );
 
     const renderNodeContentPanel = useCallback(

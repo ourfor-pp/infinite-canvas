@@ -34,6 +34,11 @@ for (const theme of ["light", "dark"]) test(`对话图片拖入画布保留原�
     await expect(generated).toBeVisible();
     await generated.click();
     await expect(page.locator(".ant-image-preview" )).toBeVisible();
+    await expect(page.locator(".ant-image-preview-mask")).toHaveCSS("backdrop-filter", "blur(8px)");
+    await expect(page.locator(".ant-image-preview-mask")).toHaveCSS("background-color", "rgba(0, 0, 0, 0.72)");
+    await expect(page.locator(".ant-image-preview-mask")).toHaveCSS("opacity", "1");
+    await expect(page.locator(".ant-image-preview")).not.toHaveClass(/zoom-enter|zoom-appear/);
+    await page.screenshot({ path: `../.tmp/agent-image-preview-${theme}.png`, animations: "disabled" });
     await page.keyboard.press("Escape");
     await expect(page.locator(".ant-image-preview")).toBeHidden();
     const canvas = page.locator("div.relative.h-full.w-full.select-none.overflow-hidden");
@@ -41,6 +46,7 @@ for (const theme of ["light", "dark"]) test(`对话图片拖入画布保留原�
     await page.mouse.wheel(0, -180);
     await page.waitForTimeout(300);
     for (const [index, title] of ["生成的沙发", "参考沙发"].entries()) {
+        await canvas.click({ position: { x: 30, y: 70 } });
         const targetPosition = { x: 330 + index * 200, y: 280 + index * 200 };
         await page.getByRole("img", { name: title, exact: true }).first().dragTo(canvas, { targetPosition });
         const nodes = page.locator('[data-node-id^="image-"]');

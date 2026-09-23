@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import type { CSSProperties, Ref, KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Image } from "antd";
 import { ChevronRight, FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
 
 import i18n from "@/i18n";
+import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isImeComposing, isPlainEnterKey } from "@/lib/keyboard-event";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 
+export type CanvasPromptInputHandle = { insertReference: (reference: CanvasResourceReference) => void };
+
 type Props = {
+    ref?: Ref<CanvasPromptInputHandle>;
+    textReferences?: boolean;
     value: string;
     references: CanvasResourceReference[];
     onActivateReference?: (reference: CanvasResourceReference) => Promise<void> | void;
@@ -30,12 +35,18 @@ type Token =
     | { type: "text"; value: string }
     | { type: "reference"; label: string };
 
-// Prompt-panel contentEditable input: @ references embed thumbnail chips instead of plain label text.
+// Atomic references can render as identifiers or thumbnail chips.
 // Serialization converts chips back to reference labels so the generated value matches the former textarea semantics.
-export function CanvasPromptChipInput({ value, references, onActivateReference, onChange, onSubmit, className, style, placeholder }: Props) {
+export function CanvasPromptChipInput({ ref, textReferences = false, value, references, onActivateReference, onChange, onSubmit, className, style, placeholder }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
+    const [composing, setComposing] = useState(false);
+    const savedRangeRef = useRef<Range | null>(null);
+    const rememberCaret = () => {
+        const selection = window.getSelection();
+        if (selection?.rangeCount && editorRef.current?.contains(selection.anchorNode)) savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+    };
     // Track the last value emitted to the parent. An identical focused value is this component's own echo,
     // so skip rebuilding to preserve the caret and IME. Rebuild external changes even while focused.
     const lastEmittedRef = useRef(value);
@@ -71,11 +82,11 @@ export function CanvasPromptChipInput({ value, references, onActivateReference, 
                 return;
             }
             const reference = referenceByLabel.get(token.label);
-            if (reference) editor.append(createReferenceChip(reference, theme, setImagePreview));
+            if (reference) editor.append(createReferenceChip(reference, theme, setImagePreview, textReferences));
             else editor.append(document.createTextNode(token.label));
         });
         lastEmittedRef.current = value;
-    }, [tokens, referenceByLabel, theme, value]);
+    }, [tokens, referenceByLabel, theme, value, textReferences]);
 
     const emit = (next: string) => {
         lastEmittedRef.current = next;
@@ -106,12 +117,22 @@ export function CanvasPromptChipInput({ value, references, onActivateReference, 
         setShowCanvasReferences(false);
     };
 
-    const insertReference = (reference: CanvasResourceReference) => {
+    const insertReference = (reference: CanvasResourceReference, fromMenu = true) => {
         const editor = editorRef.current;
         if (!editor) return;
-        if (!reference.active) void onActivateReference?.(reference);
-        removeActiveMention();
-        const chip = createReferenceChip(reference, theme, setImagePreview);
+        editor.focus();
+        if (!fromMenu) {
+            const selection = window.getSelection();
+            const saved = savedRangeRef.current;
+            if (saved && editor.contains(saved.startContainer)) { selection?.removeAllRanges(); selection?.addRange(saved); }
+            else placeCaretAtEnd(editor);
+        }
+        if (!reference.active) {
+            void onActivateReference?.(reference);
+            if (textReferences && reference.kind === "image") reference = { ...reference, label: `@${imageReferenceLabel(activeReferences.filter((item) => item.kind === "image").length)}` };
+        }
+        if (fromMenu) removeActiveMention();
+        const chip = createReferenceChip(reference, theme, setImagePreview, textReferences);
         const space = document.createTextNode(" ");
         const selection = window.getSelection();
         const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
@@ -128,9 +149,11 @@ export function CanvasPromptChipInput({ value, references, onActivateReference, 
         }
         closeMention();
         emit(serializeEditor(editor));
+        rememberCaret();
     };
+    useImperativeHandle(ref, () => ({ insertReference: (reference) => insertReference(reference, false) }));
 
-    const showPlaceholder = !value.trim();
+    const showPlaceholder = !composing && !value.trim();
 
     return (
         <div className="relative w-full">
@@ -152,9 +175,11 @@ export function CanvasPromptChipInput({ value, references, onActivateReference, 
                 }}
                 onCompositionStart={() => {
                     composingRef.current = true;
+                    setComposing(true);
                 }}
                 onCompositionEnd={() => {
                     composingRef.current = false;
+                    setComposing(false);
                     syncFromEditor();
                 }}
                 onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
@@ -194,81 +219,67 @@ export function CanvasPromptChipInput({ value, references, onActivateReference, 
                     }
                     requestAnimationFrame(syncMention);
                 }}
-                onBlur={() => window.setTimeout(closeMention, 120)}
+                onKeyUp={rememberCaret}
+                onMouseUp={rememberCaret}
+                onBlur={() => { rememberCaret(); window.setTimeout(closeMention, 120); }}
             />
             {mention && (candidates.length || references.some((item) => !item.active)) ? (
-                <MentionMenu rect={mention.rect} references={candidates} activeCount={candidates.filter((item) => item.active).length} hasMore={references.some((item) => !item.active)} expanded={showCanvasReferences || Boolean(mention.query.trim())} activeIndex={Math.min(activeIndex, Math.max(0, candidates.length - 1))} theme={theme} onExpand={() => { setShowCanvasReferences((value) => !value); setActiveIndex(0); }} onSelect={insertReference} />
+                <MentionMenu rect={mention.rect} references={candidates} activeCount={candidates.filter((item) => item.active).length} hasMore={references.some((item) => !item.active)} expanded={showCanvasReferences || Boolean(mention.query.trim())} activeIndex={Math.min(activeIndex, Math.max(0, candidates.length - 1))} theme={theme} onExpand={(open) => { setShowCanvasReferences(open); setActiveIndex(0); }} onSelect={insertReference} />
             ) : null}
             {imagePreview ? <Image src={imagePreview} alt={i18n.t("canvas.composer.imagePreview")} style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
     );
 }
 
-function MentionMenu({ rect, references, activeCount, hasMore, expanded, activeIndex, theme, onExpand, onSelect }: { rect: DOMRect | null; references: CanvasResourceReference[]; activeCount: number; hasMore: boolean; expanded: boolean; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onExpand: () => void; onSelect: (reference: CanvasResourceReference) => void }) {
+function MentionMenu({ rect, references, activeCount, hasMore, expanded, activeIndex, theme, onExpand, onSelect }: { rect: DOMRect | null; references: CanvasResourceReference[]; activeCount: number; hasMore: boolean; expanded: boolean; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onExpand: (open: boolean) => void; onSelect: (reference: CanvasResourceReference) => void }) {
     const selectedRef = useRef(false);
     const activeItemRef = useRef<HTMLButtonElement | null>(null);
-
-    useEffect(() => {
-        activeItemRef.current?.scrollIntoView({ block: "nearest" });
-    }, [activeIndex, references]);
-
+    const [hovered, setHovered] = useState<{ reference: CanvasResourceReference; rect: DOMRect } | null>(null);
+    useEffect(() => { activeItemRef.current?.scrollIntoView({ block: "nearest" }); }, [activeIndex, references]);
     const selectReference = (reference: CanvasResourceReference) => {
         if (selectedRef.current) return;
         selectedRef.current = true;
         onSelect(reference);
     };
-
-    const stopCanvasInteraction = (event: PointerEvent | MouseEvent) => event.stopPropagation();
-
     const menuWidth = 256;
-    const maxMenuHeight = 224;
-    const gap = 6;
     const anchor = rect || new DOMRect(16, 16, 0, 0);
     const left = clamp(anchor.left, 8, window.innerWidth - menuWidth - 8);
-    const showAbove = anchor.bottom + gap + maxMenuHeight > window.innerHeight && anchor.top - gap - maxMenuHeight >= 0;
-    const top = showAbove ? anchor.top - gap - maxMenuHeight : anchor.bottom + gap;
-
-    return createPortal(
-        <div
-            data-canvas-resource-mention-menu="true"
-            className="fixed z-[1290] max-h-64 w-72 overflow-y-auto rounded-xl border p-1.5 shadow-2xl"
-            style={{ left, top, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
-            onPointerDown={stopCanvasInteraction}
-            onMouseDown={stopCanvasInteraction}
-            onClick={(event) => event.stopPropagation()}
-        >
-            {activeCount ? <div className="px-2 pb-1 pt-1 text-[11px] opacity-45">素材引用</div> : null}
-            {references.map((reference, index) => (
-                <span key={reference.id}>
-                {index === activeCount && hasMore && expanded ? <div className="px-2 pb-1 pt-2 text-[11px] opacity-45">画布图片</div> : null}
-                <button
-                    ref={index === activeIndex ? activeItemRef : undefined}
-                    type="button"
-                    className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition"
-                    style={{ background: index === activeIndex ? theme.toolbar.activeBg : "transparent", color: index === activeIndex ? theme.toolbar.activeText : theme.node.text }}
-                    onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        selectReference(reference);
-                    }}
-                    onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        selectReference(reference);
-                    }}
-                >
-                    <ReferencePreview reference={reference} />
-                    <span className="min-w-0 flex-1">
-                        <span className="block font-medium">{reference.label}</span>
-                        <span className="block truncate opacity-65">{reference.text || reference.title}</span>
-                    </span>
-                </button>
-                </span>
-            ))}
-            {hasMore && !expanded ? <button type="button" className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition hover:bg-black/5 dark:hover:bg-white/10" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); onExpand(); }}><ImageIcon className="size-4" /><span className="min-w-0 flex-1">图片</span><span className="opacity-40">展开</span><ChevronRight className="size-3.5 opacity-40" /></button> : null}
-        </div>,
-        document.body,
-    );
+    const top = clamp(anchor.bottom + 6, 8, window.innerHeight - 264);
+    const submenuLeft = left + menuWidth * 2 + 8 <= window.innerWidth ? menuWidth - 1 : -menuWidth + 1;
+    const panelStyle = { background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text };
+    const renderReference = (reference: CanvasResourceReference) => {
+        const index = references.indexOf(reference);
+        return <button key={reference.id} ref={index === activeIndex ? activeItemRef : undefined} type="button"
+            className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition"
+            style={{ background: (hovered ? hovered.reference.id === reference.id : index === activeIndex) ? theme.toolbar.activeBg : "transparent" }}
+            onMouseEnter={(event) => setHovered({ reference, rect: event.currentTarget.parentElement!.getBoundingClientRect() })}
+            onFocus={(event) => setHovered({ reference, rect: event.currentTarget.parentElement!.getBoundingClientRect() })}
+            onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); selectReference(reference); }}
+            onClick={(event) => { event.preventDefault(); event.stopPropagation(); selectReference(reference); }}>
+            <ReferencePreview reference={reference} />
+            <span className="min-w-0 flex-1 truncate">{reference.title}</span>
+        </button>;
+    };
+    return createPortal(<>
+        <div data-canvas-no-zoom data-canvas-resource-mention-menu="true" className="fixed z-[1290] w-64 rounded-xl border p-1.5 shadow-xl"
+            style={{ ...panelStyle, left, top }} onMouseLeave={() => setHovered(null)}
+            onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+            {activeCount ? <div className="px-2 py-1 text-[11px] opacity-45">素材引用</div> : null}
+            <div className="thin-scrollbar max-h-48 overflow-y-auto">{references.filter((item) => item.active).map(renderReference)}</div>
+            {hasMore ? <button type="button" aria-expanded={expanded} className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); setHovered(null); onExpand(!expanded); }}>
+                <ImageIcon className="size-4" /><span className="flex-1">图片</span><span className="opacity-40">{expanded ? "收起" : "展开"}</span><ChevronRight className="size-3.5 opacity-40" />
+            </button> : null}
+            {hasMore && expanded ? <div data-canvas-reference-group="image" className="absolute top-0 w-64 rounded-xl border p-1.5 shadow-xl" style={{ ...panelStyle, left: submenuLeft }}>
+                <div className="flex items-center gap-1 px-2 py-1 text-[11px] opacity-45"><ImageIcon className="size-3" />图片</div>
+                <div className="thin-scrollbar max-h-60 overflow-y-auto">{references.filter((item) => !item.active).map(renderReference)}</div>
+            </div> : null}
+        </div>
+        {hovered?.reference.kind === "image" && hovered.reference.previewUrl ? <div data-canvas-reference-hover-preview className="pointer-events-none fixed z-[1291] w-64 overflow-hidden rounded-xl border p-2 shadow-xl"
+            style={{ ...panelStyle, left: hovered.rect.right + 264 <= window.innerWidth ? hovered.rect.right + 8 : Math.max(8, hovered.rect.left - 264), top: clamp(hovered.rect.top, 8, window.innerHeight - 300) }}>
+            <div className="truncate px-1 pb-2 text-xs">{hovered.reference.title}</div><img src={hovered.reference.previewUrl} alt={hovered.reference.title} className="max-h-60 w-full rounded-lg object-contain" />
+        </div> : null}
+    </>, document.body);
 }
 
 function ReferencePreview({ reference }: { reference: CanvasResourceReference }) {
@@ -282,11 +293,16 @@ function ReferencePreview({ reference }: { reference: CanvasResourceReference })
     );
 }
 
-function createReferenceChip(reference: CanvasResourceReference, theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void) {
+function createReferenceChip(reference: CanvasResourceReference, theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void, textReferences = false) {
     const wrapper = document.createElement("span");
     wrapper.contentEditable = "false";
     wrapper.dataset.refLabel = reference.label;
-    if (reference.kind === "image" && reference.previewUrl) {
+    if (textReferences) {
+        wrapper.className = "mx-px inline font-medium";
+        wrapper.style.color = theme.node.text;
+        wrapper.textContent = reference.label;
+        wrapper.title = reference.title;
+    } else if (reference.kind === "image" && reference.previewUrl) {
         const image = document.createElement("img");
         image.src = reference.previewUrl;
         image.alt = reference.title;

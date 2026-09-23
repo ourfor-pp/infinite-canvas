@@ -16,7 +16,7 @@ export type GenerationInput = {
     references?: Array<{ fileId: string; kind: "image" | "video" | "audio"; role?: "reference" | "emotion" | "first-frame" | "last-frame"; transcript?: string }>;
 };
 
-export async function runServerGeneration(input: GenerationInput, options?: { signal?: AbortSignal; onDelta?: (text: string) => void }) {
+export async function runServerGeneration(input: GenerationInput, options?: { signal?: AbortSignal; onDelta?: (text: string) => void; onProgress?: (generation: ServerGeneration) => void }) {
     const generation = await serverApi.createGeneration(input);
     let streamedText = "";
     const onDelta = (event: Event) => {
@@ -25,6 +25,11 @@ export async function runServerGeneration(input: GenerationInput, options?: { si
         streamedText += detail.delta;
         options?.onDelta?.(streamedText);
     };
+    const onProgress = (event: Event) => {
+        const current = (event as CustomEvent<ServerGeneration>).detail;
+        if (current?.id === generation.id) options?.onProgress?.(current);
+    };
+    window.addEventListener("infinite-canvas:generation-updated", onProgress);
     window.addEventListener("infinite-canvas:generation-delta", onDelta);
     const abort = () => void serverApi.cancelGeneration(generation.id).catch(() => undefined);
     options?.signal?.addEventListener("abort", abort, { once: true });
@@ -32,6 +37,7 @@ export async function runServerGeneration(input: GenerationInput, options?: { si
         for (;;) {
             if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
             const current = await serverApi.generation(generation.id);
+            options?.onProgress?.(current);
             if (current.status === "succeeded") return current;
             if (current.status === "canceled") throw new DOMException("Aborted", "AbortError");
             if (current.status === "failed") throw Object.assign(new Error(current.error || "生成任务失败"), { code: current.errorCode });
@@ -39,6 +45,7 @@ export async function runServerGeneration(input: GenerationInput, options?: { si
         }
     } finally {
         window.removeEventListener("infinite-canvas:generation-delta", onDelta);
+        window.removeEventListener("infinite-canvas:generation-updated", onProgress);
         options?.signal?.removeEventListener("abort", abort);
     }
 }

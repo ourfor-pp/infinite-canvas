@@ -17,6 +17,7 @@ export function imageContractFor(model: { id: string; endpoint?: string; imageMo
         if (model.id.startsWith("hidream-")) { parameters.sizes = ratios; sizeLabel = "画面比例（匹配原生尺寸）"; }
     } else if (model.id === "dall-e-2") parameters = { sizes: ["1024x1024", "512x512", "256x256"], qualities: [], backgrounds: [], maxCount: 10 };
     else if (model.id === "dall-e-3") parameters = { sizes: ["1024x1024", "1792x1024", "1024x1792"], qualities: ["standard", "hd"], backgrounds: [], maxCount: 1 };
+    else if (["sxh-image", "cec-image"].includes(model.id) && model.endpoint?.startsWith("openai-images")) parameters = { sizes: ["auto", "1024x1024", "1536x1024", "1024x1536", "2048x2048", "2560x1440", "1440x2560", "3840x2160", "2160x3840"], qualities: ["auto", "low", "medium", "high"], backgrounds: ["auto", "opaque", "transparent"], maxCount: 1 };
     else if (model.endpoint?.startsWith("openai-images")) parameters = { sizes: ["auto", "1024x1024", "1536x1024", "1024x1536"], qualities: ["auto", "low", "medium", "high"], backgrounds: ["auto", "opaque", "transparent"], maxCount: 10 };
     else return undefined;
     return { version: 1, modes: model.imageModes, maxReferenceImages: model.imageModes.includes("edit") ? model.maxReferenceImages || 1 : 0, ...parameters, ...model.imageParameters, sizeLabel, ...(model.id === "qwen-image-2.1-local" ? { editSizes: qwen21Pixels, editSizeLabel: "输出尺寸（自动跟随参考图）" } : {}) };

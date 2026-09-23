@@ -54,6 +54,9 @@ for (const theme of ["light", "dark"]) {
 test("图片节点首次生成与重做均原地回填，失败保留旧图", async ({ page }) => {
     let attempt = 0;
     let fail = false;
+    let hold = false;
+    let progress = 0.45;
+    let phase = "sampling";
     const prompts: string[] = [];
     const references: unknown[][] = [];
     const image = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="blue"/></svg>');
@@ -69,7 +72,7 @@ test("图片节点首次生成与重做均原地回填，失败保留旧图", as
             references.push(request.postDataJSON().references || []);
             data = { id: `gen-${attempt}` };
         } else if (/\/generations\/gen-/.test(path)) {
-            data = { id: `gen-${attempt}`, status: fail ? "failed" : "succeeded", error: "测试失败", result: { files: [{ fileId: `result-${attempt}`, mimeType: "image/svg+xml", bytes: image.length }] } };
+            data = { id: `gen-${attempt}`, status: fail ? "failed" : hold ? "running" : "succeeded", progress: hold ? progress : 1, diagnostics: { phase }, error: "测试失败", result: { files: [{ fileId: `result-${attempt}`, mimeType: "image/svg+xml", bytes: image.length }] } };
         } else if (/\/files\//.test(path)) data = { fileId: path.split("/").at(-1), mimeType: "image/svg+xml", bytes: image.length };
         else if (path === "/api/agent/config") data = { ready: false, protocolVersion: 4, storageVersion: 2 };
         else if (path.endsWith("/capabilities")) data = { sceneId: "canvas", engines: [], skills: [], referenceKinds: ["canvas"], composer: { suggestions: [] } };
@@ -100,8 +103,33 @@ test("图片节点首次生成与重做均原地回填，失败保留旧图", as
     await expect(page.locator("[data-node-id]")).toHaveCount(1);
     await expect(node.locator('img.pointer-events-none[src*="result-1"]').first()).toBeVisible();
     fail = false;
+    hold = true;
     await generate.click();
+    await expect(node.getByRole("status", { name: "生成中", exact: true })).toBeVisible();
+    await page.evaluate(async () => {
+        const path = "/src/stores/canvas/use-canvas-store.ts";
+        const { useCanvasStore } = await import(/* @vite-ignore */ path);
+        const project = useCanvasStore.getState().openProject("canvas-e2e");
+        window.dispatchEvent(new CustomEvent("infinite-canvas:project-updated", { detail: { ...project, viewport: { ...project.viewport, k: 0.75 } } }));
+    });
+    await expect(page.getByText("75%", { exact: true })).toBeVisible();
+    await expect(node.getByRole("status", { name: "生成中", exact: true })).toBeVisible();
+    await expect(node.locator('img.pointer-events-none[src*="result-1"]').first()).toBeVisible();
+    await expect(node.getByRole("button", { name: "重试", exact: true })).toHaveCount(0);
+    await expect(page.locator('[data-canvas-node-panel]')).not.toContainText("生成中 0%");
+    await expect(page.locator('[data-canvas-node-panel]')).toContainText("采样中 45%");
+    progress = 0.75;
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("infinite-canvas:generation-updated", { detail: { id: "gen-3", status: "running", progress: 0.75, diagnostics: { phase: "sampling" } } })));
+    await expect(page.locator('[data-canvas-node-panel]')).toContainText("采样中 75%");
+    progress = 1;
+    phase = "processing";
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("infinite-canvas:generation-updated", { detail: { id: "gen-3", status: "running", progress: 1, diagnostics: { phase: "processing" } } })));
+    await expect(page.locator('[data-canvas-node-panel]')).toContainText("处理图片中");
+    await expect(node.getByRole("status", { name: "生成中", exact: true })).toBeVisible();
+    await expect(node.locator('img.pointer-events-none[src*="result-1"]').first()).toBeVisible();
+    hold = false;
     await expect(node.locator('img.pointer-events-none[src*="result-3"]').first()).toBeVisible();
+    await expect(node.getByRole("status", { name: "生成中", exact: true })).toHaveCount(0);
     await expect(page.locator("[data-node-id]")).toHaveCount(1);
     expect(await node.getAttribute("data-node-id")).toBe(id);
     expect(prompts).toHaveLength(3);

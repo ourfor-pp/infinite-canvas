@@ -9,7 +9,7 @@ import type { ReferenceImage } from "@/types/image";
 type TextContent = string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
 type TextPart = Exclude<TextContent, string>[number];
 export type AiTextMessage = { role: "system" | "user" | "assistant"; content: TextContent };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = Parameters<typeof runServerGeneration>[1];
 
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const generation = await runServerGeneration({

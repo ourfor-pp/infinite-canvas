@@ -9,7 +9,7 @@ export type MediaEditorSnapshot = {
     draft: MediaEditorDraft;
     references: MediaEditorReference[];
     variants: MediaEditorVariant[];
-    running?: { status: string; progress: number };
+    running?: { status: string; progress?: number };
 };
 
 export type MediaEditorTarget = {

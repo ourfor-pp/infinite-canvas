@@ -1,5 +1,9 @@
-import type { ThemeConfig } from "antd";
+import type { ConfigProviderProps, ThemeConfig } from "antd";
 import { theme as antdTheme } from "antd";
+
+export const imagePreviewConfig: ConfigProviderProps["image"] = {
+    styles: { popup: { mask: { background: "rgba(0,0,0,.72)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" } } },
+};
 
 export const directorAntTheme: ThemeConfig = {
     inherit: false,

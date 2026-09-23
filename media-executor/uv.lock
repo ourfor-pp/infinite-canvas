@@ -159,6 +159,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "safetensors" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -178,6 +179,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "safetensors", specifier = ">=0.5,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35,<1" },
+    { name = "websockets", specifier = ">=15,<18" },
 ]
 provides-extras = ["test"]
 

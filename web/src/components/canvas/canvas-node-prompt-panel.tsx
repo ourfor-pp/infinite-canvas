@@ -25,6 +25,7 @@ export type CanvasNodeGenerationMode = CanvasGenerationMode;
 type CanvasNodePromptPanelProps = {
     node: CanvasNodeData;
     isRunning: boolean;
+    generationProgress?: MediaEditorTarget["snapshot"]["running"];
     onPromptChange: (nodeId: string, prompt: string) => void;
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => void;
     onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, audioConfig?: Partial<AiConfig>) => void;
@@ -32,12 +33,13 @@ type CanvasNodePromptPanelProps = {
     onUploadReference?: (nodeId: string, kind: "image" | "audio", file: File) => Promise<void>;
     onRemoveReference?: (connectionId: string) => void;
     mentionReferences?: CanvasResourceReference[];
+    onActivateReference?: (reference: CanvasResourceReference) => void;
     onImageSettingsOpenChange?: (open: boolean) => void;
     modeOverride?: CanvasNodeGenerationMode; // Plugin nodes set their generation type through useBuiltinPanel.mode.
     projectId?: string;
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, onUploadReference, onRemoveReference, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onPromptChange, onConfigChange, onGenerate, onStop, onUploadReference, onRemoveReference, onActivateReference, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
     const { t } = useTranslation();
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useMissingModelNotice();
@@ -88,18 +90,19 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             semanticLabel: mode === "image" ? (hasImageContent ? "调整图片" : "生成图片") : "生成音频",
             imageMode: mode === "image" ? imageMode : undefined,
             config,
-            mentionReferences,
+            mentionReferences: mode === "image" ? mentionReferences.map((item) => ({ ...item, label: `@${item.label}` })) : mentionReferences,
+            activateReference: onActivateReference,
             snapshot: {
-                draft: { prompt, model: config.model, params: mode === "audio" ? node.metadata?.audioParams || (audioContract ? audioDefaults(audioContract) : {}) : { ...(imageContract ? { ...imageDefaults(imageContract), count: Math.min(Number(config.count) || 1, imageContract.maxCount) } : {}), ...metadataParams(node) }, operation: node.metadata?.audioOperation || audioContract?.operations[0], referenceInputs: node.metadata?.audioReferenceInputs },
-                references: mentionReferences.filter((item) => item.kind === mode).map((item) => ({ id: item.id, nodeId: item.nodeId, label: item.title, kind: mode, url: item.previewUrl, durationMs: item.durationMs, source: "canvas", removable: Boolean(item.connectionId) })),
+                draft: { prompt, model: config.model, params: mode === "audio" ? node.metadata?.audioParams || (audioContract ? audioDefaults(audioContract) : {}) : { ...(imageContract ? { ...imageDefaults(imageContract), count: Math.min(Number(config.count) || 1, imageContract.maxCount) } : {}), ...metadataParams(node), count: 1 }, operation: node.metadata?.audioOperation || audioContract?.operations[0], referenceInputs: node.metadata?.audioReferenceInputs },
+                references: mentionReferences.filter((item) => item.active && item.kind === mode).map((item) => ({ id: item.id, nodeId: item.nodeId, label: mode === "image" ? `@${item.label}` : item.title, kind: mode, url: item.previewUrl, durationMs: item.durationMs, source: "canvas", removable: Boolean(item.connectionId) })),
                 variants: mode === "image" ? (node.metadata?.images || []).filter((item) => item.content).map((item) => ({ id: item.id, label: item.prompt || node.title, kind: "image", url: item.content, prompt: item.prompt, primary: item.id === primaryImageId })) : node.metadata?.content ? [{ id: node.id, label: node.title, kind: "audio", url: node.metadata.content, primary: true }] : [],
-                running: isRunning ? { status: "running", progress: 0 } : undefined,
+                running: isRunning ? generationProgress || { status: "running" } : undefined,
             },
             saveDraft: (draft) => {
                 setPrompt(draft.prompt);
                 onConfigChange(node.id, { composerContent: draft.prompt, model: draft.model, ...(mode === "audio" ? { audioParams: draft.params, audioOperation: draft.operation, audioReferenceInputs: draft.referenceInputs } : draft.params) });
             },
-            generate: (draft) => onGenerate(node.id, mode, draft.prompt, mode === "audio" ? { model: draft.model, audioParams: draft.params, audioOperation: draft.operation, audioReferenceInputs: draft.referenceInputs } : { model: draft.model, size: String(draft.params.size ?? config.size), quality: String(draft.params.quality ?? config.quality), background: String(draft.params.background ?? config.background), count: String(draft.params.count ?? config.count) }),
+            generate: (draft) => onGenerate(node.id, mode, draft.prompt, mode === "audio" ? { model: draft.model, audioParams: draft.params, audioOperation: draft.operation, audioReferenceInputs: draft.referenceInputs } : { model: draft.model, size: String(draft.params.size ?? config.size), quality: String(draft.params.quality ?? config.quality), background: String(draft.params.background ?? config.background), count: "1" }),
             stop: () => onStop(node.id),
             removeReference: onRemoveReference ? (reference) => {
                 const connectionId = mentionReferences.find((item) => item.id === reference.id)?.connectionId;

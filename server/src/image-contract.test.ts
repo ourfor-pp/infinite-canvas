@@ -39,3 +39,14 @@ test("Qwen 原生 2K 横竖预设通过文生图和编辑校验", () => {
         for (const refs of [0, 1]) assert.deepEqual(validateImageInput(contract, "茶杯", { size }, refs), []);
     }
 });
+
+for (const id of ["sxh-image", "cec-image"]) test(`${id} 独立开放 2K/4K 文生图和参考编辑尺寸`, () => {
+    const contract = imageContractFor({ id, endpoint: "openai-images", imageModes: ["generate", "edit"], maxReferenceImages: 6 })!;
+    for (const size of ["2048x2048", "2560x1440", "3840x2160", "2160x3840"]) {
+        for (const refs of [0, 1]) assert.deepEqual(validateImageInput(contract, "茶杯", { size, count: 1 }, refs), []);
+    }
+    const generic = imageContractFor({ id: "other", endpoint: "openai-images", imageModes: ["generate"] })!;
+    assert.ok(validateImageInput(generic, "茶杯", { size: "3840x2160" }, 0).length);
+    const custom = imageContractFor({ id, endpoint: "openai-images", imageModes: ["generate"], imageParameters: { sizes: ["1024x1024"] } })!;
+    assert.deepEqual(custom.sizes, ["1024x1024"]);
+});

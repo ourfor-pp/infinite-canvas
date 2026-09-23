@@ -37,3 +37,17 @@ test("GPT 图片请求不带不支持的 response_format，透明背景保留", 
     assert.equal(body.size, "1536x1024");
     assert.equal(body.n, 1);
 });
+
+test("云端 4K 像素尺寸原样发送到生成及编辑接口", async (t) => {
+    const bodies: (string | FormData)[] = [];
+    t.mock.method(globalThis, "fetch", async (_url: string, init: RequestInit) => { bodies.push(init.body as string | FormData); return Response.json({ data: [{ b64_json: png }] }); });
+    for (const id of ["sxh-image", "cec-image"]) {
+        const ctx = context("openai-images", { size: "3840x2160", count: 1 });
+        ctx.model.id = id;
+        const generated = await adapterFor("openai-images").generateImage!(ctx);
+        assert.equal(JSON.parse(bodies.at(-1) as string).size, "3840x2160");
+        ctx.request.references = [{ fileId: (generated.files as { fileId: string }[])[0].fileId, kind: "image" }];
+        await adapterFor("openai-images").generateImage!(ctx);
+        assert.equal((bodies.at(-1) as FormData).get("size"), "3840x2160");
+    }
+});

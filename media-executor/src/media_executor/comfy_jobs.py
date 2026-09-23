@@ -10,6 +10,7 @@ import httpx
 
 from .capabilities import h3, music, qwen_image
 from .capabilities.catalog import input_path
+from .comfy_progress import ComfyProgress
 
 
 def _json(client, method, path, **kwargs):
@@ -63,7 +64,7 @@ def run(app, job_id, request):
     root = app.RESULTS / job_id
     root.mkdir(parents=True, exist_ok=True)
     url = app.COMFY_URL
-    with httpx.Client(base_url=url, timeout=120, trust_env=False) as client:
+    with httpx.Client(base_url=url, timeout=120, trust_env=False) as client, ComfyProgress(app, job_id) as progress:
         prompt_id = record["prompt_id"]
         if not prompt_id:
             if record["submitted"]:
@@ -98,6 +99,7 @@ def run(app, job_id, request):
             with app.connect() as db:
                 db.execute("UPDATE comfy_executions SET prompt_id=? WHERE job_id=?", (prompt_id, job_id))
         while True:
+            progress.poll(prompt_id)
             with app.connect() as db:
                 canceled = db.execute("SELECT cancel_requested FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
             if canceled:
@@ -127,6 +129,7 @@ def run(app, job_id, request):
             time.sleep(1)
         if history["status"]["status_str"] != "success":
             raise RuntimeError(str(history["status"].get("messages", []))[:2000])
+        app.report(job_id, {"phase": "saving"})
         result = {"files": [], "continuationStates": [], "cumulativeVideos": [], "execution": {**plan, "promptId": prompt_id}}
         for node_id, output in history.get("outputs", {}).items():
             for key, items in output.items():
