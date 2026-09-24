@@ -43,9 +43,15 @@ export type CanvasNodeImage = {
 export type CanvasNodeMetadata = {
     content?: string;
     composerContent?: string;
+    productionMethod?: "agent-edit";
+    editInstructions?: string;
+    editRecord?: string;
     prompt?: string;
     status?: CanvasNodeStatus;
     errorDetails?: string;
+    agentGenerationId?: string;
+    agentGenerationStatus?: string;
+    agentGenerationProgress?: number;
     fontSize?: number;
     generationMode?: CanvasGenerationMode;
     generationType?: CanvasImageGenerationType;

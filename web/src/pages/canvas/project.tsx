@@ -2871,6 +2871,7 @@ function InfiniteCanvasPage() {
                 />
             ) : (
                 <CanvasNodePromptPanel
+                    projectId={projectId}
                     node={panelNode}
                     isRunning={runningNodeId === panelNode.id}
                     generationProgress={imageProgress}
@@ -2889,7 +2890,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, connectNodes, deleteConnection, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId, imageProgress, uploadNodeReference],
+        [projectId, configInputsById, confirmStopGeneration, connectNodes, deleteConnection, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId, imageProgress, uploadNodeReference],
     );
 
     const renderNodeContentPanel = useCallback(

@@ -6,7 +6,13 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
-- 画布 Codex 模型目录缺少 GPT-6 Sol：实查磁盘 CLI 为 0.156.1，管理进程仍运行已替换的 0.153.0；仅回收旧管理进程后，实际接口已返回 GPT-6 Sol／Luna，未中断视频 Agent。首答慢的最近样本为 WebSocket 连续 5 次断流重试后才回退 HTTP；独立 HTTP 临时会话使用 GPT-6 Sol 约 7.7 秒首字、8.5 秒完成。自动检测 CLI 文件变更、HTTP provider 及续聊配置补丁位于 `.tmp/codex-runtime-fix/verified.patch`，独立目录类型检查和 21 项 Codex 测试通过；当前视频 Agent 仍运行，为避免 tsx watch 重启中断任务，补丁尚未应用，应用时机等待用户选择。正式画布连续会话延迟与原生生图仍待验收。
+- 剪辑成片通过 `productionMethod: agent-edit` 区分模型生成，编辑底栏显示「Agent 剪辑」并隐藏模型参数；剪辑要求独立保存，信息面板展示实际执行记录，修改按钮将节点引用和要求带入 Agent 草稿，不自动发送。当前成片已通过带 revision 的 API 更新并保留视频与音频连线，原记录备份在 `.tmp/codex-runtime-fix/canvas-before-agent-edit.json`。前后端类型检查及浅深主题 2 项浏览器交接测试通过；已检查 TODO，无对应待办需迁移。用户实际剪辑修订与观感待验收。
+
+- 四个 MiniMax 分段节点曾缺失宽高，被前端可见区域判断过滤；已通过带 revision 的项目 API 补齐 320×560 尺寸并排到角色参考上方，保留来源连线。新增节点缺省尺寸统一补齐且拒绝非正数；服务端类型检查、10 项画布工具回归通过，独立浏览器读取真实项目及四个视频文件，验证四节点可见且视频元数据成功加载；截图 `/tmp/canvas-four-videos/canvas-video-visibility-四个-MiniMax-分段视频可见-chromium/four-minimax-videos.png`。原画布备份 `.tmp/codex-runtime-fix/canvas-before-video-sizes.json`；已检查 TODO，无范围变化，用户当前页面刷新后观感待确认。
+
+- 画布 Agent 的渠道／执行器媒体任务提交后自动创建过程节点，显示排队、生成百分比、失败原因与实际输入连线，成功回填同一节点；采用时复用任务节点并保存原提示词、模型和完整请求。缺少的参考媒体节点由实际 fileId 创建，导演任务隔离，已删除的任务节点不被进度通知重建。补充 Skill 要求旁白、配乐与原生命令剪辑产物可见并连接实际来源。本次已完成作品通过带 revision 校验的项目 API 补回 2 个音频节点、10 条连线和四段视频提示词，配乐标注仅使用前 8 秒，原画布备份在 `.tmp/codex-runtime-fix/canvas-before-provenance.json`。前后端类型检查、30 项后端回归和深浅主题 2 项浏览器测试通过；未来真实生成完整流程及成片来源观感待用户确认，已检查 TODO，无额外待办范围。
+
+- 画布 Codex 模型目录缺少 GPT-6 Sol：实查磁盘 CLI 为 0.156.1，管理进程仍运行已替换的 0.153.0；仅回收旧管理进程后，实际接口已返回 GPT-6 Sol／Luna，未中断视频 Agent。首答慢的最近样本为 WebSocket 连续 5 次断流重试后才回退 HTTP；独立 HTTP 临时会话使用 GPT-6 Sol 约 7.7 秒首字、8.5 秒完成。自动检测 CLI 文件变更、HTTP provider 及续聊配置补丁位于 `.tmp/codex-runtime-fix/verified.patch`，独立目录类型检查和 21 项 Codex 测试通过；视频 Agent 完成后已应用到开发服务，未中断原任务。正式画布连续会话延迟与原生生图仍待验收。
 
 - 已发送用户气泡按消息中的结构化 content 渲染引用，画布引用统一显示当前编号和图片缩略图，标签与正文保留间距，原名作为悬浮提示，点击定位节点；纯文本消息保持原样。类型检查、25 项对话组件测试及深浅主题 2 项浏览器测试通过，覆盖旧名称引用显示统一编号、缩略图及实际计算间距；已检查 TODO，无范围变化，真实历史消息观感待用户确认。
 

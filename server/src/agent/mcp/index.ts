@@ -233,7 +233,7 @@ export function buildAgentToolDefinitions(
     })),
     call("media_validate_generation", "校验生成请求；request.source=channel 使用管理员模型，executor 使用中立能力参数。不会创建任务。", canvasGenerationShape,
       async ({ request }: CanvasGenerationInput) => request.source === "executor" ? { valid: true, plan: (await prepareMediaGeneration(run.userId, request)).plan } : { valid: true, request: checkChannel(request) }),
-    call("media_generate", "提交当前画布生成任务。request.source 区分 channel 与 executor；查询统一用 media_get_generation_status，成功后用 canvas_adopt_result 显式采用。", canvasGenerationShape,
+    call("media_generate", "提交当前画布生成任务并自动显示过程节点、实际参考连线及进度。request.source 区分 channel 与 executor；查询统一用 media_get_generation_status，检查成功结果后用 canvas_adopt_result 采用同一节点，不另建重复节点。", canvasGenerationShape,
       ({ request }: CanvasGenerationInput) => request.source === "executor" ? createMediaGeneration(run.userId, request, projectId) : createAgentGeneration(run.userId, checkChannel(request), projectId)),
   ];
   const sharedMediaTools = engine === "codex" && scene.id === "director" ? [

@@ -129,3 +129,81 @@ test("工具注册与 schema 同步，Codex 去重且生成校验失败不会创
     assert.equal(selected.name, "canvas_select_nodes");
     assert.equal((await tool("tools", "canvas_view").handler({ action: "focus", ids: [] })).isError, true);
 });
+
+test("媒体过程节点显示进度和实际输入，采用复用节点并保留提示与引用角色", async () => {
+    const { syncAgentGenerationCanvas } = await import("./generation-canvas.js");
+    const path = join(root, "process-input.png"); writeFileSync(path, "image");
+    const reference = storeLocalFile("u", path, "reference.png", "image/png");
+    const videoPath = join(root, "process-output.mp4"); writeFileSync(videoPath, "video");
+    const video = storeLocalFile("u", videoPath, "output.mp4", "video/mp4");
+    project("process", [{ id: "source", type: "image", metadata: { storageKey: `server:${reference.id}` } }]);
+    generation("process-job", "process", { files: [video] }, "executor", "queued");
+    const request = { kind: "video", model: "test-model", prompt: "真实提交的提示词", references: [{ fileId: reference.id, kind: "image", role: "first-frame" }], metadata: { mediaProjectId: "process" } };
+    db.prepare("UPDATE generations SET kind='video',request=?,progress=0 WHERE id='process-job'").run(JSON.stringify(request));
+    const row = () => db.prepare("SELECT * FROM generations WHERE id='process-job'").get() as Parameters<typeof syncAgentGenerationCanvas>[0];
+    syncAgentGenerationCanvas(row());
+    let state = canvas.getCanvasState("u", "process");
+    const node = state.nodes.find(node => node.metadata?.agentGenerationId === "process-job")!;
+    assert.equal(node.metadata?.status, "loading");
+    assert.equal(node.metadata?.composerContent, request.prompt);
+    assert.equal(state.connections[0].fromNodeId, "source");
+    db.prepare("UPDATE generations SET status='running',progress=0.45 WHERE id='process-job'").run();
+    syncAgentGenerationCanvas(row());
+    assert.equal(canvas.getCanvasState("u", "process").nodes.find(item => item.id === node.id)?.metadata?.agentGenerationProgress, 0.45);
+    db.prepare("UPDATE generations SET status='succeeded',progress=1 WHERE id='process-job'").run();
+    syncAgentGenerationCanvas(row());
+    state = canvas.getCanvasState("u", "process");
+    const adopted = canvas.adoptCanvasResult("u", "process", { generationId: "process-job", fileId: video.id, expectedRevision: state.revision });
+    assert.equal(adopted.nodeId, node.id);
+    state = canvas.getCanvasState("u", "process");
+    assert.equal(state.nodes.length, 2);
+    assert.equal(state.connections.length, 1);
+    assert.equal(state.nodes.find(item => item.id === node.id)?.metadata?.content, video.url);
+    assert.deepEqual((state.nodes.find(item => item.id === node.id)?.metadata?.generationRequest as typeof request).references, request.references);
+    canvas.applyCanvasOps("u", "process", [{ type: "delete_node", id: node.id }], state.revision);
+    syncAgentGenerationCanvas(row());
+    assert.equal(canvas.getCanvasState("u", "process").nodes.length, 1);
+});
+
+test("过程音频自动出现且失败可见；导演任务不写入画布", async () => {
+    const { syncAgentGenerationCanvas } = await import("./generation-canvas.js");
+    project("audio-process");
+    generation("audio-job", "audio-process", {}, "executor", "queued");
+    db.prepare("UPDATE generations SET kind='audio' WHERE id='audio-job'").run();
+    const row = () => db.prepare("SELECT * FROM generations WHERE id='audio-job'").get() as Parameters<typeof syncAgentGenerationCanvas>[0];
+    syncAgentGenerationCanvas(row());
+    assert.equal(canvas.getCanvasState("u", "audio-process").nodes[0].type, "audio");
+    db.prepare("UPDATE generations SET status='failed',error='测试失败' WHERE id='audio-job'").run();
+    syncAgentGenerationCanvas(row());
+    assert.equal(canvas.getCanvasState("u", "audio-process").nodes[0].metadata?.errorDetails, "测试失败");
+    project("director-process");
+    db.prepare("UPDATE projects SET kind='director' WHERE id='director-process'").run();
+    generation("director-job", "director-process", {}, "executor", "queued");
+    syncAgentGenerationCanvas(db.prepare("SELECT * FROM generations WHERE id='director-job'").get() as Parameters<typeof syncAgentGenerationCanvas>[0]);
+    assert.equal(canvas.getCanvasState("u", "director-process").nodes.length, 0);
+});
+
+
+test("外部参考尚无节点时补建，续接视频同样保留来源连线", () => {
+    const path = join(root, "continuation.mp4"); writeFileSync(path, "video");
+    const file = storeLocalFile("u", path, "continuation.mp4", "video/mp4");
+    project("continuation-input", [{ id: "target", type: "video" }]);
+    const ops = canvas.generationReferenceOps("u", { kind: "video", model: "test", prompt: "继续", continuation: { generationId: "previous", fileId: file.id } }, "target", [], { x: 500, y: 0 });
+    canvas.applyCanvasOps("u", "continuation-input", ops, 1);
+    const state = canvas.getCanvasState("u", "continuation-input");
+    assert.equal(state.nodes.length, 2);
+    assert.equal(state.nodes[1].metadata?.storageKey, `server:${file.id}`);
+    assert.equal(state.connections[0].fromNodeId, state.nodes[1].id);
+    assert.equal(state.connections[0].toNodeId, "target");
+});
+
+
+test("Agent 新增未指定尺寸的媒体节点仍有可见边界", () => {
+    project("node-dimensions");
+    canvas.applyCanvasOps("u", "node-dimensions", [{ type: "add_node", id: "clip", nodeType: "video" }, { type: "add_node", id: "voice", nodeType: "audio" }], 1);
+    const state = canvas.getCanvasState("u", "node-dimensions");
+    assert.equal(state.nodes[0].width, 320);
+    assert.equal(state.nodes[0].height, 200);
+    assert.equal(state.nodes[1].height, 120);
+    assert.equal(canvas.canvasToolSchemas.canvas_apply_ops.safeParse({ expectedRevision: 2, ops: [{ type: "add_node", nodeType: "video", width: 0 }] }).success, false);
+});

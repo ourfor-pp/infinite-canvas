@@ -1,3 +1,4 @@
+import type { AiGenerationRequest } from "../ai-adapters.js";
 import { config } from "../config.js";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -24,14 +25,14 @@ type CanvasPayload = Record<string, unknown> & { id: string; title: string; node
 const record = z.record(z.string(), z.unknown());
 export const canvasNodeTypeSchema = z.string().refine((type) => ["text", "image", "video", "audio", "config", "group"].includes(type) || /^[^:]+:[^:]+$/.test(type), "画布只支持通用节点和已命名的插件节点");
 const canvasOp = z.discriminatedUnion("type", [
-    z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: canvasNodeTypeSchema.optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().optional(), height: z.number().optional(), metadata: record.optional() }).passthrough(),
+    z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: canvasNodeTypeSchema.optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("update_node"), id: z.string(), patch: record.optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("delete_node"), id: z.string().optional(), ids: z.array(z.string()).optional() }).passthrough(),
     z.object({ type: z.literal("delete_connections"), id: z.string().optional(), ids: z.array(z.string()).optional(), all: z.boolean().optional() }).passthrough(),
     z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), fromPortId: z.string(), toNodeId: z.string(), toPortId: z.string() }).passthrough(),
 ]);
 const canvasSafeOp = z.discriminatedUnion("type", [
-    z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: canvasNodeTypeSchema.optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().optional(), height: z.number().optional(), metadata: record.optional() }).passthrough(),
+    z.object({ type: z.literal("add_node"), id: z.string().optional(), nodeType: canvasNodeTypeSchema.optional(), title: z.string().optional(), position: z.object({ x: z.number(), y: z.number() }).optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("update_node"), id: z.string(), patch: record.optional(), metadata: record.optional() }).passthrough(),
     z.object({ type: z.literal("connect_nodes"), id: z.string().optional(), fromNodeId: z.string(), fromPortId: z.string(), toNodeId: z.string(), toPortId: z.string() }).passthrough(),
 ]);
@@ -109,12 +110,37 @@ export function adoptCanvasResult(userId: string, projectId: string, input: z.in
     const kind = file ? file.mime_type.split("/")[0] : "text";
     if (!["text", "image", "video", "audio"].includes(kind) || (!file && !result.text)) throw agentToolError("RESULT_UNSUPPORTED", "请选择图片、视频、音频结果文件或文本结果");
     const state = getCanvasState(userId, projectId);
-    const node = input.nodeId ? state.nodes.find((item) => item.id === input.nodeId) : undefined;
+    const node = input.nodeId ? state.nodes.find((item) => item.id === input.nodeId) : state.nodes.find(item => item.metadata?.agentGenerationId === row.id);
     if (input.nodeId && (!node || node.type !== kind)) throw agentToolError("NODE_TYPE_MISMATCH", "目标节点不存在或类型与结果不匹配");
-    const id = input.nodeId || `${kind}-${nanoid()}`;
-    const metadata = { content: file ? `${config.basePath}/api/files/${file.id}/content` : result.text, ...(file ? { storageKey: `server:${file.id}`, mimeType: file.mime_type, bytes: file.bytes } : {}), status: "success", agentGenerationId: row.id, agentGenerationStatus: row.status, errorDetails: null };
-    const mutation = applyCanvasOps(userId, projectId, [node ? { type: "update_node", id, metadata } : { type: "add_node", id, nodeType: kind, title: input.title || "生成结果", position: input.position, metadata }], input.expectedRevision);
+    const id = node?.id || `${kind}-${nanoid()}`;
+    const request = parseJson<AiGenerationRequest>(row.request, {} as AiGenerationRequest);
+    const metadata = { ...generationNodeInputs(request), agentGenerationAdopted: true, content: file ? `${config.basePath}/api/files/${file.id}/content` : result.text, ...(file ? { storageKey: `server:${file.id}`, mimeType: file.mime_type, bytes: file.bytes } : {}), status: "success", agentGenerationId: row.id, agentGenerationStatus: row.status, errorDetails: null };
+    const mutation = applyCanvasOps(userId, projectId, [node ? { type: "update_node", id, metadata, patch: { ...(input.title ? { title: input.title } : {}), ...(input.position ? { position: input.position } : {}) } } : { type: "add_node", id, nodeType: kind, title: input.title || "生成结果", position: input.position, width: 320, height: kind === "audio" ? 120 : 200, metadata }, ...generationReferenceOps(userId, request, id, state.nodes, input.position || { x: Number(node?.position?.x || 0), y: Number(node?.position?.y || 0) })], input.expectedRevision);
     return { ...canvasMutationSummary(mutation), nodeId: id };
+}
+
+export function generationNodeInputs(request: AiGenerationRequest) {
+    return { prompt: request.prompt || "", composerContent: request.prompt || "", model: request.model,
+        generationRequest: request, ...(request.kind === "audio" ? { audioParams: request.params, audioOperation: request.operation } : {}),
+        ...(request.params?.seconds !== undefined ? { seconds: String(request.params.seconds) } : {}) };
+}
+
+export function generationReferenceOps(userId: string, request: AiGenerationRequest, targetId: string, nodes: CanvasNode[], position: { x: number; y: number }) {
+    const ops: unknown[] = [];
+    const inputs = [...(request.references || []), ...(request.continuation ? [{ fileId: request.continuation.fileId, kind: "video" as const, role: "continuation" as const }] : [])];
+    const references = new Map(inputs.map(ref => [ref.fileId, ref]));
+    for (const [fileId, reference] of references) {
+        let source = nodes.find(node => node.id !== targetId && node.type === (reference.kind || "image") && (node.metadata?.storageKey === `server:${fileId}` || node.metadata?.content === `${config.basePath}/api/files/${fileId}/content`));
+        if (!source) {
+            const file = getStoredFile(userId, fileId);
+            if (!file) throw agentToolError("REFERENCE_NOT_FOUND", "生成参考文件不存在或无权访问");
+            const id = `reference-${nanoid()}`;
+            source = { id };
+            ops.push({ type: "add_node", id, nodeType: reference.kind || "image", title: file.original_name, position: { x: position.x - 380, y: position.y + ops.length * 120 }, width: 280, height: reference.kind === "audio" ? 120 : 200, metadata: { content: `${config.basePath}/api/files/${fileId}/content`, storageKey: `server:${fileId}`, mimeType: file.mime_type, status: "success" } });
+        }
+        ops.push({ type: "connect_nodes", fromNodeId: source.id, fromPortId: "output", toNodeId: targetId, toPortId: "input" });
+    }
+    return ops;
 }
 
 export function applyCanvasOps(userId: string, projectId: string, ops: unknown[], expectedRevision?: number) {
@@ -252,7 +278,7 @@ function applyOp(payload: CanvasPayload, op: z.infer<typeof canvasOp>) {
     if (op.type === "add_node") {
         const id = op.id || `${op.nodeType || "node"}-${nanoid()}`;
         if (payload.nodes.some((node) => node.id === id)) throw agentToolError("NODE_EXISTS", `节点 ${id} 已存在`);
-        payload.nodes.push({ id, type: op.nodeType || "text", title: op.title, position: op.position || { x: 0, y: 0 }, width: op.width, height: op.height, metadata: op.metadata || {} });
+        payload.nodes.push({ id, type: op.nodeType || "text", title: op.title, position: op.position || { x: 0, y: 0 }, width: op.width || 320, height: op.height || (op.nodeType === "audio" ? 120 : 200), metadata: op.metadata || {} });
         return;
     }
     if (op.type === "update_node") {

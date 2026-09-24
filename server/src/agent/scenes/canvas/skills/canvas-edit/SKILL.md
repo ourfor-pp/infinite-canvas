@@ -27,7 +27,7 @@ allowed-tools: [mcp__infinite_canvas__canvas_get_state, mcp__infinite_canvas__ca
 
 1. Codex 原生图片生成与编辑使用下方“原生图片入画布”流程；其他生成使用 media-generation Skill 的领域规则。`media_list_capabilities` 同时返回 channels 和 executor；先选择可用能力。
 2. 画布的 `media_validate_generation` / `media_generate` 接收 `{request: {source, ...}}`。管理员模型用 source=channel，字段为 kind、model、prompt、references；中立媒体用 source=executor，字段为 kind、model、mode、operation、prompt、params、references、continuation。不能用 channel 绕过执行器参数校验。
-3. 记录任务 ID，以 `media_get_generation_status` 查询；不要重复提交。成功后用 `canvas_adopt_result` 传 generationId、fileId 和最新 expectedRevision，创建节点或用 nodeId 替换同类型节点；文本结果不传 fileId。生成成功不会自动改变节点。
+3. 记录任务 ID，以 `media_get_generation_status` 查询；不要重复提交。成功后用 `canvas_adopt_result` 传 generationId、fileId 和最新 expectedRevision，复用任务过程节点或用 nodeId 替换同类型节点；文本结果不传 fileId。提交后自动显示过程节点、实际输入连线和排队／生成进度，完成后回填该节点供检查；显示结果不等于已检查或已采用，不重复新增结果节点。
 4. 使用 `media_import_reference` 登记工程内媒体，再作为显式 fileId 引用。原生生图采用遵循下方流程；普通本地图片登记后用 `canvas_apply_ops` 创建 image 节点，metadata.content 使用返回的 url、storageKey 使用 server:<fileId>。
 5. Codex 使用原生文件工具和原生提问；内置 Agent 保留 workspace_write_text 与 ask_user。媒体质量须实际看图、观看或试听后判断。
 
@@ -60,4 +60,8 @@ allowed-tools: [mcp__infinite_canvas__canvas_get_state, mcp__infinite_canvas__ca
 
 续聊或中断恢复时，先读取制作计划；任务 ID 不全时，用 `media_get_generation_status` 不传 generationId，按 offset/limit 与 nextOffset 找回当前项目任务摘要，再按 ID 读取结果。结合 `canvas_get_state` 中 agentGenerationId 和 storageKey 核对已采用媒体，避免重复提交或重复建节点。服务端状态是权威，计划中的状态只是检查记录。
 
+旁白、配乐、音效、分段视频等中间产物都必须在画布可见。原生命令裁切、混音或剪辑生成的媒体通过 media_import_reference 登记并新增对应节点，同时把实际使用的输入素材节点 output 连接到产物 input；已有来源节点直接复用，未使用的候选素材不连到成片。
+
 已完成媒体检查后，用 `canvas_adopt_result` 显式采用，随后把返回 nodeId 更新到计划。请求结果不明确或 revision 冲突时重新读取画布再决定是否重试。需要结束当前回合时，准确报告已检查、待检查、已采用和仍排队的部分，不把排队任务当成已交付。
+
+剪辑合成的视频节点必须设置 metadata.productionMethod="agent-edit"，metadata.editInstructions 仅保存用户或任务明确的剪辑要求，metadata.editRecord 保存实际裁切、拼接、混音等执行记录；不得把来源视频的模型写成成片模型，也不得将执行记录伪装成原始要求。

@@ -379,7 +379,7 @@ function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot || (props.node.type === CanvasNodeType.Image && props.node.metadata?.content)) return <ImageNodeContent {...props} />;
     if (props.node.type === CanvasNodeType.Audio && props.node.metadata?.content) return <AudioNodeContent {...props} />;
-    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
+    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} node={props.node} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 
     const Renderer = nodeContentRenderers[props.node.type as CanvasNodeType];
@@ -431,12 +431,12 @@ function GroupNodeContent({ node, theme, groupChildCount, onTitleChange }: NodeC
     );
 }
 
-function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
+function LoadingContent({ theme, node }: Pick<NodeContentRendererProps, "theme"> & { node?: NodeContentRendererProps["node"] }) {
     const { t } = useTranslation();
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
             <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
-            <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span>
+            <span className="text-[10px] tracking-[0.2em]">{node?.metadata?.agentGenerationStatus === "queued" ? "排队中" : t("canvas.node.generating")}{typeof node?.metadata?.agentGenerationProgress === "number" ? ` ${Math.round(node.metadata.agentGenerationProgress * 100)}%` : ""}</span>
         </div>
     );
 }
