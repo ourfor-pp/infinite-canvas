@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>视频实验放映室 · 红岸</title>
+  <meta name="description" content="红岸视频实验审片：原生生成、修脸、4K提质与声音的实际输出。">
+  <link rel="stylesheet" href="./review.css">
+  <script defer src="./vendor/localforage.min.js"></script>
+  <script type="module" src="./review.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="#generation-candidates" aria-label="视频实验放映室首页"><span class="brand-mark" aria-hidden="true">▣</span><span>红岸 <small>视频测试</small></span></a>
+    <div class="masthead-right"><span class="quiet">已完成的真实输出</span><button id="export" class="text-button">导出我的判断 <span id="review-count">0</span></button></div>
+  </header>
+  <main>
+    <section class="intro"><div><p class="eyebrow">实际样本 · 自己比较</p><h1>先看画面，再做判断。</h1><p>比较生成方法、修脸、清晰度和声音。每个名字都说明改了什么；模型原名与参数可以展开查看。</p></div><div class="intro-meta"><strong id="sample-count">—</strong><span>份可播放样本</span><small>点击只播放已有结果</small></div></section>
+    <nav id="categories" class="categories" aria-label="实验分类"></nav>
+    <div id="load-error" class="load-error" role="alert" hidden></div>
+    <div id="workspace" class="workspace">
+      <aside class="experiment-list"><p class="eyebrow">实验组</p><div id="experiment-list"></div></aside>
+      <section class="screening">
+        <div class="screening-heading"><div><h2 id="experiment-title">正在准备样本…</h2><p id="experiment-summary"></p></div><div id="view-modes" class="segmented" aria-label="播放布局"><button data-view="overview">同屏对比</button><button data-view="pair">左右对比</button><button data-view="single">只看一条</button></div></div>
+        <div id="video-area">
+          <div id="players" class="players"></div>
+          <div class="transport">
+            <div class="transport-top"><button id="play" class="play-button" aria-label="播放">▶ <span>播放</span></button><button id="previous" title="上一帧">−1 帧</button><button id="next" title="下一帧">+1 帧</button><output id="time" class="time">00:00.000 / 00:00.000</output><span class="spacer"></span><label class="compact-label">速度 <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option></select></label><label class="check"><input id="loop" type="checkbox" checked>循环</label></div>
+            <input id="timeline" class="timeline" aria-label="播放时间" type="range" min="0" max="1" step="0.001" value="0">
+            <div class="transport-bottom"><span id="frame-info">按左侧帧率逐帧</span><div><button id="jump" hidden>跳到雪景 49 秒</button><span class="keyboard-tip">空格播放 · ← → 逐帧</span></div></div>
+          </div>
+          <p id="player-status" class="player-status" role="status" aria-live="polite"></p>
+        </div>
+        <div id="audio-area" class="audio-area" hidden></div>
+        <p id="limits" class="limits"></p>
+        <details id="technical"><summary>查看模型原名、参数与文件位置</summary><div id="technical-content"></div></details>
+      </section>
+      <aside class="review-pane">
+        <section class="reference"><div class="panel-heading"><h3>角色身份参考</h3><button id="reference-toggle">查看原图 ↗</button></div><img id="identity" alt="原角色的清晰正面身份参考，仅供观察对比"><p>静态身份参考。侧脸、表情和年龄也需要结合整段判断。</p></section>
+        <section class="your-review"><p class="eyebrow">看完再决定</p><h3>你的判断</h3><label for="review-target" class="field-label">正在评价哪一版</label><select id="review-target"></select><div class="verdicts" role="group" aria-label="可用程度"><button data-verdict="usable">可用</button><button data-verdict="consider">可改进</button><button data-verdict="reject">不采用</button></div><label for="note" class="field-label">观察笔记</label><textarea id="note" rows="4" placeholder="比如：这一版眼睛更稳，但看起来换了个人…"></textarea><p id="save-status" class="save-status" role="status">保存在本机，可导出评价文件</p></section>
+        <details id="observations" class="observations"><summary>查看已有观察</summary><div id="observation-content"></div></details>
+      </aside>
+    </div>
+    <section id="research-area" class="research-area" hidden><div class="research-header"><div><p class="eyebrow">制作方法与公开案例</p><h2>别人究竟怎么做。</h2><p>先看做法和依据，需要时再展开模型原名、参数和验证限制。</p></div><button id="refresh-research" class="text-button">刷新调研结果 ↻</button></div><div id="research-content"></div></section>
+    <footer><span>红岸 · 视频质量实验审片</span><span>解码与生成成功不代表身份或声音通过。采用由你决定。</span></footer>
+  </main>
+  <dialog id="identity-dialog"><button id="close-identity" aria-label="关闭身份参考">关闭 ×</button><img alt="原角色身份参考大图"></dialog>
+</body>
+</html>

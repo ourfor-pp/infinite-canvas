@@ -1,4 +1,4 @@
-import { videoContractFor, validateVideoInput } from "./video-contract.js";
+import { videoContractFor, validateVideoInput, videoEnhancementModels } from "./video-contract.js";
 import { imageContractFor, validateImageInput } from "./image-contract.js";
 import { audioContractFor, validateAudioInput } from "./audio-contract.js";
 import { openAsBlob } from "node:fs";
@@ -102,7 +102,7 @@ export function validateGenerationRequest(userId: string, input: AiGenerationReq
         if (audioModel.audioOperations?.length && !audioModel.audioOperations.includes(operation as AudioOperation)) throw generationError("AI_MODEL_AUDIO_OPERATION_UNSUPPORTED", "所选模型不支持当前声音操作");
         if (audioModel.maxReferenceAudios && audioReferenceCount > audioModel.maxReferenceAudios) throw generationError("AI_MODEL_REFERENCE_LIMIT", `所选模型最多支持 ${audioModel.maxReferenceAudios} 段参考音频`);
     }
-    if (input.kind === "video" && input.videoInputVersion === 1) {
+    if (input.kind === "video" && (input.videoInputVersion === 1 || videoEnhancementModels.includes(selection.modelId))) {
         const contract = videoContractFor(selection.model);
         if (!contract) throw generationError("AI_VIDEO_CONTRACT_MISSING", "当前模型缺少视频输入定义");
         const errors = validateVideoInput(contract, input.prompt || "", input.params || {}, input.references || []);

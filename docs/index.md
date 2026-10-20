@@ -29,6 +29,10 @@
 - [Director Realtime Sync Version Plan](./research/director-realtime-sync-plan.md)
 - [Local ComfyUI Integration Handoff](./COMFYUI_HANDOFF.md)
 - [MiniMax H3 Ecosystem and Iteration Research](./research/minimax-h3-ecosystem-iteration.md)
+- [H3 高清视频与高帧率制作链调研](./research/h3-4k-high-frame-rate-pipeline.md)
+- [H3 视频提质本机对照](./research/h3-video-quality-local-evaluation.md)
+- [《三体》红岸两分钟制作实测](./research/threebody-red-coast-production.md)：480p 原片、独立声音、完整 4K／60fps 交付、切镜补帧修正与归档边界。
+- [红岸小脸、分辨率与声音复核](./research/threebody-quality-followup.md)：480p／768p成本、KEEP／VACE／LTX后期对照、九组生成实测；附14组／47媒体审片Demo及三路社区调研入口。
 - [OpenVDN Single-GPU Reproduction Research](./research/openvdn-single-gpu-reproduction.md)
 - [MiniMax H3 First-batch Validation](./research/minimax-h3-first-batch-validation.md)
 - [MiniMax H3 Multi-scenario Validation](./research/minimax-h3-second-batch-validation.md)
@@ -78,3 +82,5 @@
 - `content/docs/development/qwen-voice-design.mdx`：Qwen VoiceDesign、CustomVoice、Base 参数边界与参考声音保存复用协议示例。
 
 - `research/qwen-v0153-acceptance.md`：Qwen 节奏配对、真实重启复用、正式应用传输及试听边界。
+
+- [画布视频提质接入](research/video-quality-canvas-integration.md)：两个组合提质模型、参数与源选择、正式运行时、真实调用和验收边界。

@@ -120,6 +120,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         ...(node?.metadata?.vquality ? { vquality: node.metadata.vquality } : {}),
         ...(node?.metadata?.generateAudio ? { videoGenerateAudio: node.metadata.generateAudio } : {}),
         ...(node?.metadata?.watermark ? { videoWatermark: node.metadata.watermark } : {}),
+        ...(node?.metadata?.videoFps ? { videoFps: node.metadata.videoFps } : {}),
     } : result;
 }
 

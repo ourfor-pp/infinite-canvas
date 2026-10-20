@@ -3,9 +3,9 @@ import { Cpu } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectLabel, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type AudioMode, type ImageMode, type ModelCapability } from "@/stores/use-config-store";
+import { getAvailableModel, modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type AudioMode, type ImageMode, type ModelCapability } from "@/stores/use-config-store";
 
 type ModelPickerProps = {
     config: AiConfig;
@@ -28,6 +28,7 @@ export function ModelPicker({ config, value, onChange, capability, audioMode, im
     const options = useMemo(() => selectableModelsByCapability(config, capability, audioMode, imageMode), [audioMode, capability, config, imageMode]);
     const current = value && options.includes(value) ? value : "";
     const pickerPlaceholder = placeholder || t("settingsPanels.model.select");
+    const currentLabel = current ? capability === "video" && appearance === "toolbar" ? getAvailableModel(current)?.name || modelOptionName(current) : modelOptionLabel(config, current) : pickerPlaceholder;
 
     useEffect(() => {
         const closeOtherPicker = (event: Event) => {
@@ -63,7 +64,7 @@ export function ModelPicker({ config, value, onChange, capability, audioMode, im
                 title={current ? modelOptionLabel(config, current) : pickerPlaceholder}
             >
                 <ModelIcon model={current} />
-                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{current ? modelOptionLabel(config, current) : pickerPlaceholder}</span>
+                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{currentLabel}</span>
             </SelectTrigger>
             <SelectContent
                 data-canvas-no-zoom
@@ -76,11 +77,10 @@ export function ModelPicker({ config, value, onChange, capability, audioMode, im
                 onMouseDown={(event) => event.stopPropagation()}
             >
                 {options.length ? (
-                    options.map((model) => (
-                        <SelectItem key={model} value={model} textValue={modelOptionLabel(config, model)}>
-                            <ModelLabel config={config} model={model} />
-                        </SelectItem>
-                    ))
+                    (capability === "video" ? ["视频生成", "视频提质"] : [""]).map(group => {
+                        const models = options.filter(model => !group || (getAvailableModel(model)?.videoContract?.family === "enhance" ? "视频提质" : "视频生成") === group);
+                        return models.length ? <SelectGroup key={group}>{group ? <SelectLabel>{group}</SelectLabel> : null}{models.map(model => <SelectItem key={model} value={model} textValue={modelOptionLabel(config, model)}><ModelLabel config={config} model={model} /></SelectItem>)}</SelectGroup> : null;
+                    })
                 ) : (
                     <SelectItem value="__empty__" disabled>
                         {emptyModelLabel(config, capability)}

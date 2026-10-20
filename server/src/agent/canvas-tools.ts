@@ -122,6 +122,7 @@ export function adoptCanvasResult(userId: string, projectId: string, input: z.in
 export function generationNodeInputs(request: AiGenerationRequest) {
     return { prompt: request.prompt || "", composerContent: request.prompt || "", model: request.model,
         generationRequest: request, ...(request.kind === "audio" ? { audioParams: request.params, audioOperation: request.operation } : {}),
+        ...(request.kind === "video" && request.mode === "enhance" ? { vquality: String(request.params?.resolution || "1080p"), videoFps: String(request.params?.fps || 48) } : {}),
         ...(request.params?.seconds !== undefined ? { seconds: String(request.params.seconds) } : {}) };
 }
 

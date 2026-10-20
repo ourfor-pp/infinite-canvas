@@ -9,7 +9,8 @@ import { useTranslation } from "react-i18next";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { canvasNodeReferenceLabel } from "@/lib/canvas/canvas-agent-reference";
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, getAvailableModel, resolveModelForCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, getAvailableModel, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { serverApi } from "@/services/api/server";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
@@ -60,6 +61,17 @@ export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onP
     const [prompt, setPrompt] = useState(initialPrompt);
     const [expanded, setExpanded] = useState(false);
 
+    useEffect(() => {
+        if (mode !== "video" || isAgentEdit) return;
+        let active = true;
+        void serverApi.aiModels().then(models => {
+            if (active) useConfigStore.getState().hydrateModels(models);
+        }).catch(error => {
+            if (active) message.error(error instanceof Error ? error.message : "刷新视频模型能力失败");
+        });
+        return () => { active = false; };
+    }, [mode, isAgentEdit, config.model, message]);
+
     // Restore prompts only when switching nodes; preserve the current input after generation on the same node.
     useEffect(() => {
         setPrompt(initialPrompt);
@@ -74,8 +86,11 @@ export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onP
     };
 
     const videoContract = mode === "video" ? getAvailableModel(config.model)?.videoContract : undefined;
+    const enhancing = !isAgentEdit && videoContract?.family === "enhance";
+    const externalVideos = mentionReferences.filter(r => r.active && r.kind === "video");
+    const enhancementReferences = externalVideos.length ? externalVideos : node.metadata?.content ? [{ id: `source:${node.id}`, nodeId: node.id, kind: "video" as const, label: "当前视频 · 待提质", previewUrl: node.metadata.content, active: true, connectionId: undefined }] : [];
     let imageIndex = 0;
-    const videoErrors = mode === "video" && !isAgentEdit ? videoContract ? validateVideoInput(videoContract, prompt, videoRequestParams(videoContract, config), mentionReferences.filter(r => r.active && r.kind !== "text").map(r => ({ kind: r.kind, role: videoReferenceRole(videoContract, r.kind, r.kind === "image" ? imageIndex++ : 0) }))) : ["当前模型缺少视频输入定义"] : [];
+    const videoErrors = mode === "video" && !isAgentEdit ? videoContract ? validateVideoInput(videoContract, enhancing ? "" : prompt, videoRequestParams(videoContract, config), (enhancing ? enhancementReferences : mentionReferences.filter(r => r.active && r.kind !== "text")).map(r => ({ kind: r.kind, role: videoReferenceRole(videoContract, r.kind, r.kind === "image" ? imageIndex++ : 0) }))) : ["当前模型缺少视频输入定义"] : [];
     const videoMentions = mentionReferences.map(item => ({ ...item, label: `@${item.label}` }));
     const videoReferences = videoMentions.filter(item => item.active && item.kind !== "text");
     const removeVideoReference = (id: string) => {
@@ -94,12 +109,12 @@ export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onP
     };
     const submit = () => {
         const text = prompt.trim();
-        if (!text || isRunning || videoErrors.length) return;
+        if ((!text && !enhancing) || isRunning || videoErrors.length) return;
         if (isAgentEdit) {
             if (projectId) useAgentStore.getState().prepareComposer(projectId, { kind: "canvas", projectId, nodeId: node.id, title: canvasNodeReferenceLabel(node, projectId), subtitle: "Agent 剪辑", instruction: `请修改这个剪辑成片，复用实际输入素材并原地更新结果。剪辑要求：${text}` });
             return;
         }
-        onGenerate(node.id, mode, text, mode === "video" ? config : undefined);
+        onGenerate(node.id, mode, enhancing ? "" : text, mode === "video" ? config : undefined);
     };
 
     const openExpandedEditor = () => {
@@ -150,15 +165,15 @@ export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onP
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
         >
-            {mode === "video" ? <ReferenceShelf flat references={videoReferences.map(item => ({ id: item.id, nodeId: item.nodeId, kind: item.kind as "image" | "video" | "audio", label: item.label, url: item.previewUrl, source: "canvas", removable: Boolean(item.connectionId) }))}
-                onInsert={reference => { const mention = videoMentions.find(item => item.id === reference.id); if (mention) promptRef.current?.insertReference(mention); }}
+            {mode === "video" ? <ReferenceShelf flat references={(enhancing ? enhancementReferences : videoReferences).map(item => ({ id: item.id, nodeId: item.nodeId, kind: item.kind as "image" | "video" | "audio", label: item.label, url: item.previewUrl, source: "canvas", removable: Boolean(item.connectionId) }))}
+                onInsert={enhancing ? undefined : reference => { const mention = videoMentions.find(item => item.id === reference.id); if (mention) promptRef.current?.insertReference(mention); }}
                 onRemove={reference => removeVideoReference(reference.id)}
                 uploadControl={onUploadReference && (isAgentEdit || !videoContract || videoContract.maxImages > 0) ? <button type="button" aria-label="上传参考图" className="grid size-11 shrink-0 place-items-center rounded-lg border border-dashed border-current/20 opacity-60 hover:opacity-100" onClick={() => uploadRef.current?.click()}><Plus className="size-5" /></button> : null} /> : null}
             <input ref={uploadRef} type="file" accept="image/*" multiple hidden onChange={event => {
                 const files = Array.from(event.target.files || []); event.currentTarget.value = "";
                 void (async () => { try { for (const file of files) await onUploadReference?.(node.id, "image", file); } catch (error) { message.error(error instanceof Error ? error.message : "上传参考图失败"); } })();
             }} />
-            <CanvasPromptChipInput
+            {enhancing ? <div className="px-1 py-2 text-xs opacity-65">对上方源视频超分并补帧，完成后替换当前节点视频。</div> : <CanvasPromptChipInput
                 ref={promptRef}
                 textReferences={mode === "video"}
                 onActivateReference={onActivateReference}
@@ -169,17 +184,17 @@ export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onP
                 className="thin-scrollbar h-40 w-full cursor-text resize-none rounded-xl px-3 py-2 text-sm leading-5 outline-none"
                 style={{ background: "transparent", color: theme.node.text }}
                 placeholder={isAgentEdit ? "描述剪辑要求，例如调整顺序、节奏、旁白或配乐" : t(`canvas.promptPanel.${mode === "text" && hasTextContent ? "editText" : mode}`)}
-            />
+            />}
 
             <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
-                    <Tooltip title={t("canvas.promptPanel.expandEditor")}>
+                    {!enhancing ? <Tooltip title={t("canvas.promptPanel.expandEditor")}>
                         <Button type="text" className="!h-8 !w-8 !min-w-8 shrink-0 !rounded-full !bg-transparent !p-0" style={{ color: theme.node.text }} icon={<Maximize2 className="size-3.5" />} onClick={openExpandedEditor} aria-label={t("canvas.promptPanel.expandEditor")} />
-                    </Tooltip>
-                    <CanvasPromptLibrary onSelect={updatePrompt} />
+                    </Tooltip> : null}
+                    {!enhancing ? <CanvasPromptLibrary onSelect={updatePrompt} /> : null}
                     {isAgentEdit ? <span className="flex h-9 items-center gap-2 px-2.5 text-xs"><Scissors className="size-3.5" />Agent 剪辑</span> : mode === "video" ? (
                         <>
-                            <ModelPicker config={config} value={config.model} onChange={(model) => { const c = getAvailableModel(model)?.videoContract; const d = c ? videoDefaults(c) : undefined; onConfigChange(node.id, { model, ...(d ? { size: d.size, seconds: d.videoSeconds, vquality: d.vquality, generateAudio: d.videoGenerateAudio, watermark: d.videoWatermark } : {}) }); }} capability="video" appearance="toolbar" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
+                            <ModelPicker config={config} value={config.model} onChange={(model) => { const c = getAvailableModel(model)?.videoContract; const d = c ? videoDefaults(c) : undefined; onConfigChange(node.id, { model, ...(d ? { size: d.size, seconds: d.videoSeconds, vquality: d.vquality, generateAudio: d.videoGenerateAudio, watermark: d.videoWatermark, videoFps: d.videoFps } : {}) }); }} capability="video" appearance="toolbar" onMissingConfig={() => openConfigDialog(true)} className="max-w-[320px]" />
                             <CanvasVideoSettingsPopover config={config} buttonClassName="!h-9 !max-w-[240px] !justify-start !rounded-lg !px-2.5" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
                         </>
                     ) : (
@@ -193,7 +208,7 @@ export function CanvasNodePromptPanel({ node, isRunning, generationProgress, onP
                     type="primary"
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
                     danger={isRunning}
-                    disabled={!isRunning && (!prompt.trim() || videoErrors.length > 0)}
+                    disabled={!isRunning && ((!prompt.trim() && !enhancing) || videoErrors.length > 0)}
                     onClick={() => (isRunning ? onStop(node.id) : submit())}
                     aria-label={isAgentEdit ? "交给 Agent 修改" : t(isRunning ? "canvas.promptPanel.stopGeneration" : "canvas.promptPanel.generate")}
                 >
@@ -263,6 +278,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         ...(node?.metadata?.vquality ? { vquality: node.metadata.vquality } : {}),
         ...(node?.metadata?.generateAudio ? { videoGenerateAudio: node.metadata.generateAudio } : {}),
         ...(node?.metadata?.watermark ? { videoWatermark: node.metadata.watermark } : {}),
+        ...(node?.metadata?.videoFps ? { videoFps: node.metadata.videoFps } : {}),
     } : result;
 }
 

@@ -1,0 +1,267 @@
+{
+  "summary": "公开案例通常是先设计镜头和人物参考，再反复生成、选片、剪辑并制作声音。下面列出可借鉴的方法、查到的依据，以及还没有验证的部分。这里的新组合尚未在本机测试，不能当作已经解决小脸变形的方案。",
+  "groups": [
+    {
+      "title": "生成之前和生成过程中怎么改善",
+      "findings": [
+        {
+          "title": "换社区模型时，也试作者推荐的加速组合",
+          "evidence": "作者讨论＋原始工作流已核；实际检查作者12.33秒武打展示 · 我们还没有实际测试这套组合",
+          "summary": "作者强调要搭配4步加速补丁；公开展示还用了多张参考图和第二轮生成。Demo里目前测的是不加速20步，尚未测作者推荐的组合。",
+          "recipe": "可取得的社区最小图：Ref2V Turbo4 v0.1，强度1，Euler／simple4，视频／音频shift12／3，1344×768、124帧。该图不是Singularity作者完整原图。",
+          "limits": "作者RunningHub usedModels不证明实际启用的基座/补丁；完整INT8列在其中但未证其用于展示。；作者完整graph未取得；访问标记granted/encrypted=false，不据此声称gated。；视频为编辑后的多切镜风格化武打，没有身份参考和匹配control。",
+          "next": "同输入/提示/尺寸/seed73412，官方INT8与现有Singularity pruned INT8都使用同Turbo4；不加Realism/PDD/后期，先原生审查。",
+          "sources": [
+            {
+              "url": "https://huggingface.co/WarmBloodAban/Minimax-h3_Singularity/blob/af671d9214a6e41ab8c2f43e9f871ea56246115f/README.md",
+              "label": "原始来源 1"
+            },
+            {
+              "url": "https://huggingface.co/WarmBloodAban/Minimax-h3_Singularity/discussions/7",
+              "label": "作者讨论 2"
+            },
+            {
+              "url": "https://www.runninghub.ai/post/2096339589492432897/",
+              "label": "原始来源 3"
+            }
+          ],
+          "technicalName": "Singularity：补齐作者推荐的工作点"
+        },
+        {
+          "title": "先生成小画面，再继续生成大画面",
+          "evidence": "作者原始图与四格展示已取得、解码并抽看画面 · 我们还没有实际测试这套组合",
+          "summary": "先生成较小的画面，在生成过程的中间放大，再继续生成细节；第二阶段继续使用原参考图。它与成片导出后再放大是不同路线。",
+          "recipe": "原图为full INT8＋FL Turbo4：低段取simple8的前4步，learned latent放大后用[0.9035,0.6316,0.3158,0]三步高段；保留首段音频。",
+          "limits": "四格展示中人物是较大正脸，不是小侧脸身份评测。；模板指旧upscaler文件名，需选v1对应文件并验证schema。；另有KJNodes preview、ResolutionSelector辅助依赖。；目标分辨率高段显存仍需承担，作者并未保证节约峰值显存。",
+          "next": "同一低段latent，普通插值与learned upscale使用同高段sigma/noise/参考，先1MP以内比较；换pruned或LoRA必须记为适配。",
+          "sources": [
+            {
+              "url": "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/tree/3f941d5d182014dd5c0a5e16330420ee2d4aa0c6",
+              "label": "原始来源 1"
+            },
+            {
+              "url": "https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler/tree/40316cf008b2fd8663263270669eb4da23f89d2c",
+              "label": "作者工作流／源码 2"
+            }
+          ],
+          "technicalName": "H3 latent放大：保留参考，再做高段采样"
+        },
+        {
+          "title": "人物参考图分开提供：脸、身体、衣服",
+          "evidence": "原始原始工作流已核；两份实际展示均为半身或大脸 · 我们还没有实际测试这套组合",
+          "summary": "把不同角度的脸、身体和衣服分别作为参考，明确每张图的用途。它是一种组织参考图的方法，不是在训练专属人物模型。",
+          "recipe": "展示图使用pruned FP8、50步、768×1024、141帧；不是当前ComfyUI／INT8／PDD链路直接可用的模板。",
+          "limits": "实取两片均为半身/大脸，不能证明远景身份。；不能直接导入当前ComfyUI或假定已兼容本机INT8/PDD。；前脸身份板不提供真实侧脸真值；合成角度可能固化错误身份。",
+          "next": "只把同一身份板拆成脸/无脸身体/服装参考，与原板比较，其余固定；match/max另设单变量。无需安装Inline Studio。",
+          "sources": [
+            {
+              "url": "https://www.omnichar.org/workflows/minimax-h3-guided-consistent-characters-via-reference-identity-face-body-cloths",
+              "label": "原始来源 1"
+            },
+            {
+              "url": "https://github.com/omnichar/OmniChar/tree/ee646fba219a2325cfe15bad42af05f0d06b7fcd",
+              "label": "作者工作流／源码 2"
+            }
+          ],
+          "technicalName": "参考图分工：脸、身体与服装分开组织"
+        },
+        {
+          "title": "用多张人物参考，再做第二轮细化",
+          "evidence": "已取得89节点完整图并实际检查身份展示GIF · 我们还没有实际测试这套组合",
+          "summary": "教程同时更换了模型、参考图处理方式和第二轮生成设置；展示效果来自一整套组合，不能只归功于其中一个补丁。",
+          "recipe": "公开图RefMod0.9；首段ER-SDE／simple8，二采Euler／simple4、denoise0.2，并存在可选稀疏attention。参考提取分组默认bypass，需逐节点核对。",
+          "limits": "帖子本身有面貌改变反馈，作者承认需调strength/更多参考。；合成8视角不是8张真实身份照片。；未知融合权重作者来源与多扩展整体兼容未核实，不能直接安装/下载。；原作者GIF为多个近景/风格变化，非小脸受控基准。；RefMod是VAE参考token保存/压缩，原作者明确不保证语义属性分离或身份。",
+          "next": "若继续，只比较FullReference encode真实角度参考与原生多图Ref2VA，先strength1；不同时换融合底座/编码器/attention。",
+          "sources": [
+            {
+              "url": "https://www.reddit.com/r/comfyui/comments/1x38n4c/comfyui_tutorial_consistent_ai_characters_in/",
+              "label": "原始来源 1"
+            },
+            {
+              "url": "https://drive.google.com/file/d/1Em2zTlhFMbpeO2WBTN08Qpu0dP6oUBTD/view",
+              "label": "原始来源 2"
+            },
+            {
+              "url": "https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod/blob/517e8c419a8584fbf69fceb487bc39d83e6a6ec8/README.md",
+              "label": "作者工作流／源码 3"
+            }
+          ],
+          "technicalName": "RefMod演示：实际是一整套组合"
+        }
+      ]
+    },
+    {
+      "title": "完整剧情视频是怎么做出来的",
+      "findings": [
+        {
+          "title": "案例一：反复生成、选片和剪辑完成一部短片",
+          "evidence": "创作者自述，未取得完整原片",
+          "summary": "角色、场景、道具与每镜起始帧先确定；受伤、湿发等剧情状态变化同步更新参考。生成与剪辑交替进行，通过挑选和裁切把镜头衔接起来。作者自报每镜15–40次生成，未取得独立日志核验。",
+          "recipe": "原生视频对白、单独音乐，以及手工音效编辑与混音；其角色音色ID内部实现未披露。低清草稿后重新高质量生成，不是证明低清最终超分即可。",
+          "limits": "完整成片未在本轮取得并验收。",
+          "next": "Agent可以管理状态参考、拼装镜头输入、记录重做与成本；表演、身份、相邻镜头关系和最终声音仍须审片。",
+          "sources": [
+            {
+              "url": "https://www.ecoledesvideastes.com/blog/catacombes-court-metrage-ia",
+              "label": "原始来源 1"
+            },
+            {
+              "url": "https://www.creativebloq.com/ai/how-a-filmmaker-turned-a-10-year-old-unmakeable-movie-idea-into-reality-with-ai",
+              "label": "原始来源 2"
+            }
+          ],
+          "technicalName": "CATACOMBES · Kévin Mendiboure"
+        },
+        {
+          "title": "案例二：先用三维预演安排走位和镜头",
+          "evidence": "供应商平台上的创作者拆解；完整原片获取受限",
+          "summary": "先分镜，再用Character Creator／iClone安排走位、机位和镜头进展，然后生成图像与视频。空间关系与摄影设计在生成前已有明确依据。",
+          "recipe": "用三维预演控制镜头，并重复使用人物素材。公开资料没有完整graph、重做分布或最终声音流程。",
+          "limits": "完整成片未在本轮取得并验收。YouTube要求登录确认，未按分享标题推断原片。",
+          "next": "值得验证的是明确机位和动作的参考是否被遵循；不能把三维工具存在当作视频一定遵循它的证明。",
+          "sources": [
+            {
+              "url": "https://magazine.reallusion.com/2026/06/26/ai-studio-storytellers-heist-previz-to-production-the-3d-to-ai-workflow/",
+              "label": "原始来源"
+            }
+          ],
+          "technicalName": "HEIST · James C. Martin"
+        },
+        {
+          "title": "开源工具：分镜逐段生成，再放入时间线",
+          "evidence": "固定源码已读，未运行该工程",
+          "summary": "把故事拆成场景和镜头，重复使用人物与地点参考，逐镜生成后剪辑。已读到的代码默认没有开启上一镜头画面的自动延续，与说明文档的一部分描述不同。",
+          "recipe": "每角色先做H3音色试音，提取最多5秒声音作为音色参考；最终台词重新生成。可选latent精修／RTX提质存在于源码，但这不构成质量验收。",
+          "limits": "完整成片未在本轮取得并验收。",
+          "next": "可以借鉴计划、缓存、单镜重做与剪辑导出；它没有交付可审核的自动长片，也主动限制含人物的远景。",
+          "sources": [
+            {
+              "url": "https://github.com/lumosai8/MinimaxStoryBuilder/blob/47b6ceb55fb096f766d04c2ef0adde6973264216/README.md",
+              "label": "作者工作流／源码 1"
+            },
+            {
+              "url": "https://github.com/lumosai8/MinimaxStoryBuilder/blob/47b6ceb55fb096f766d04c2ef0adde6973264216/director.py",
+              "label": "作者工作流／源码 2"
+            },
+            {
+              "url": "https://github.com/lumosai8/MinimaxStoryBuilder/blob/47b6ceb55fb096f766d04c2ef0adde6973264216/voices.py",
+              "label": "作者工作流／源码 3"
+            },
+            {
+              "url": "https://github.com/lumosai8/MinimaxStoryBuilder/blob/47b6ceb55fb096f766d04c2ef0adde6973264216/example_workflows/story_to_film.json",
+              "label": "作者工作流／源码 4"
+            }
+          ],
+          "technicalName": "MinimaxStoryBuilder · lumosai8"
+        },
+        {
+          "title": "案例三：实拍、AI画面和专业后期共同完成",
+          "evidence": "官方制作拆解＋实际检查两段过程视频",
+          "summary": "剧本、分镜、历史照片、概念设计、三维运动参考，与真人拍摄、视觉特效合成共同构成最终作品。实际查看的过程展示能看到分层合成与动作参考对照。",
+          "recipe": "这类完成度包含定制模型协作、传统合成／调色和专业声音制作；官方自述团队超过200人，不能等同普通本地模型流水线。",
+          "limits": "已实际抽查两段官方制作视频，而非整部成片；过程样本24fps不能证明最终交付帧率。",
+          "next": "可以复用分层素材管理、预演与镜头审查方法；本轮只审查无音轨的制作片段，未验收整片声音或最终帧率。",
+          "sources": [
+            {
+              "url": "https://blog.google/innovation-and-ai/models-and-research/google-deepmind/ancestra-behind-the-scenes/",
+              "label": "原始来源"
+            }
+          ],
+          "technicalName": "ANCESTRA · Eliza McNitt / Primordial Soup / Google DeepMind"
+        },
+        {
+          "title": "案例四：一边改故事，一边选图和补镜头",
+          "evidence": "创作者访谈；原片YouTube获取受限",
+          "summary": "图像探索带动故事与分镜持续修订，选图、手工修正、动画、剪辑和补镜共同形成叙事。分镜在这个案例中仍是持续工作的工具。",
+          "recipe": "第一部的采访明确提到试过并放弃AI声音；第二部的配音实验属于另一项目，不能混为第一部已采用。",
+          "limits": "完整成片未在本轮取得并验收。YouTube要求登录确认，未按分享标题推断原片。",
+          "next": "可以参考选片与持续修订的组织方式；这是较早的有限动画案例，不能当成今天写实短剧的质量上限。",
+          "sources": [
+            {
+              "url": "https://www.thefrost.ai/",
+              "label": "原始来源 1"
+            },
+            {
+              "url": "https://www.cognitiverevolution.ai/ai-powered-filmmaking-with-waymarks-stephen-parker-and-josh-rubin/",
+              "label": "原始来源 2"
+            }
+          ],
+          "technicalName": "The Frost, Part 1 · Waymark / Josh Rubin / Stephen Parker"
+        }
+      ]
+    },
+    {
+      "title": "生成之后怎么修脸和提高清晰度",
+      "findings": [
+        {
+          "title": "先局部修脸，再加一轮细节处理",
+          "evidence": "作者工作流已核；原片和最终片均124帧并完整解码",
+          "summary": "把修好的脸再做一轮细节增强，然后贴回原画面。作者示例是脸比较大的缓慢转头，尚不能证明对雪景远处的小脸有效。",
+          "recipe": "Singularity Pruned v1.3 INT8＋Turbo4权重，实际Euler／Beta8步、全局denoise0.4、768 crop；VOSR2 scale1。",
+          "limits": "实际展示是大头或上半身轻转头，不能证明雪景小脸保真。VOSR2按图像批次逐帧运行，仍可能改五官和闪烁。",
+          "next": "冻结同一份现有局部输出，仅比较VOSR2 1x开／关，检查身份与时序后再考虑4K。",
+          "sources": [
+            {
+              "url": "https://www.techno-edge.net/article/2026/09/20/5510.html",
+              "label": "原始来源 1"
+            },
+            {
+              "url": "https://github.com/amao2001/ganloss-latent-space/tree/df4dc8fdefcb46f31fa6c3b8e03641c4520fad97/workflow/2026-09-11%20face%20refine",
+              "label": "作者工作流／源码 2"
+            },
+            {
+              "url": "https://github.com/ylchen333/ComfyUI-VOSR2/tree/6a21810b3f4f1a0ffc477c55330db0ac03c671f0",
+              "label": "作者工作流／源码 3"
+            }
+          ],
+          "technicalName": "局部H3精修 → VOSR2 1x → 贴回"
+        },
+        {
+          "title": "先固定关键画面，再逐个角色修脸",
+          "evidence": "固定工作流与程序编排源码已核；未看到同一套方案的严格前后对照",
+          "summary": "先用关键画面确定人物和场景，再根据每个人的照片分别修脸、贴回，最后提高分辨率和补帧。",
+          "recipe": "半宽半高4步草稿＋高段三步；SAM temporal_smooth9／feather6；FILM2x后RTX2x，24→48fps。",
+          "limits": "作者明确避开极远景和远景叠快运镜；动作快时建议先关FILM、修脸denoise降至0.30–0.35。",
+          "next": "先单独验证真实角度参考与关键帧锚定，再比较SAM贴回；不要同时换整套模型和应用。",
+          "sources": [
+            {
+              "url": "https://github.com/bongobongo2020/flippix/blob/ca016afa54ae4de4440b866dc4ea8fbf3dceacef/workflow/video/h3-minimax/h3-cast-hybrid.json",
+              "label": "作者工作流／源码"
+            }
+          ],
+          "technicalName": "FlipPix：关键帧＋每角色修脸＋SAM"
+        },
+        {
+          "title": "换小一些的脸部处理区域再试",
+          "evidence": "当前工作流文件与作者记录已读；未独立看其验收输出",
+          "summary": "改变裁出来处理的脸部区域大小，并让重画强度随片段尺寸调整。这可能影响五官和动作保留程度，需要同一段原片比较。",
+          "recipe": "manual512、crop_factor2.5、相对去噪、ER-SDE／simple8、全局0.45、LoRA0.75、两张参考。",
+          "limits": "作者较早的4步时间数据与当前8步图不同；多角色SAM阶段还需要额外资源。",
+          "next": "同一合法帧数片段，对比512／relative与现有768／absolute，固定原始时间区间和身份参考。",
+          "sources": [
+            {
+              "url": "https://github.com/T8mars/comfyui-minimax-h3-audio-T8/blob/c1d5726ea09ca26ef0d7604f575bca1377d8bec1/examples/workflows/06-face-refine/2026-08-09_H3_Face_Refine_Parity_Advanced_EXP.json",
+              "label": "作者工作流／源码"
+            }
+          ],
+          "technicalName": "T8：512裁框与相对去噪"
+        },
+        {
+          "title": "修脸时保留原来的嘴部动作",
+          "evidence": "作者图和说明已读；本机未运行，执行前还需固定源码版本",
+          "summary": "重画脸部时保护嘴巴，尽量保留原来的说话动作。太小的脸或侧脸可能找不到可靠的嘴部位置。",
+          "recipe": "Euler20、denoise0.4、整体2x；MouthGuard grow8、temporal_dilation1、feather0.5，保留源音频。",
+          "limits": "极小脸或侧脸可能无法可靠找到嘴；音频保留不等于嘴型保留。整帧2x的资源开销也更大。",
+          "next": "同一对白输入下只切换MouthGuard，核对嘴型、原音轨与整段时序；保留源嘴像素合成对照。",
+          "sources": [
+            {
+              "url": "https://github.com/dagthomas/comfyui_dagthomas/blob/master/examples/h3/h3_face_refine_mouthguard.json",
+              "label": "作者工作流／源码"
+            }
+          ],
+          "technicalName": "说话镜头：修脸同时保护嘴部"
+        }
+      ]
+    }
+  ]
+}

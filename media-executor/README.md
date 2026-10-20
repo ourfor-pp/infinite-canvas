@@ -4,6 +4,8 @@
 
 中立接口为 `GET /v1/capabilities`、`POST /v1/jobs/validate`、`POST /v1/jobs`、`GET/DELETE /v1/jobs/:id` 及结果下载/ACK。请求包含 model、mode、operation、prompt、params、references，可选 continuation={fileId,sha256}；应用私有参数不得发送。H3 返回本次新增 `files`、累计 `cumulativeVideos`、原生 `continuationStates` 和执行快照 `execution`。上传输入是临时文件，任务回收后需要重新上传；应用保存结果后才 ACK。
 
+视频提质提供 `flashvsr-turbo-local`、`seedvr2-local` 两种超分与 RIFE 补帧组合模型，参数见 [视频提质](src/media_executor/skills/media-generation/references/video-quality.md)。固定评测资产经 `scripts/install-video-quality.py` 校验后安装到同一个 ComfyUI，来源清单随稳定运行时保留；维护排空后用 `scripts/qualify-video-quality.py` 做真实推理、下载和 ACK 验证，详见 [接入与验收](../docs/research/video-quality-canvas-integration.md)。
+
 统一的 `media-generation` Skill 列出服务能力并按需引用模型说明，与实现一起位于 `src/media_executor/skills/`，构建 wheel 时随包发布。应用通过 `MEDIA_CAPABILITY_SKILLS_DIR` 读取同版本 Skill；仓库部署默认读取这一目录，独立部署应用时需复制对应版本的目录并配置路径。协议版本不匹配时预检拒绝提交。完整边界与验收见 [中立媒体能力](../docs/content/docs/development/media-capabilities.mdx)。
 
 ```bash

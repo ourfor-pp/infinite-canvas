@@ -55,6 +55,15 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     };
 }
 
+export function buildVideoEnhancementContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]): NodeGenerationContext {
+    const inputs = buildNodeGenerationInputs(nodeId, nodes, connections);
+    const videos = inputs.map(input => input.video).filter((video): video is ReferenceVideo => Boolean(video));
+    const self = nodes.find(node => node.id === nodeId);
+    const source = self ? readReferenceVideo(self) : null;
+    const selected = videos.length ? videos : source ? [source] : [];
+    return { prompt: "", referenceImages: [], referenceVideos: selected, referenceAudios: [], textCount: 0, imageCount: 0, videoCount: selected.length, audioCount: 0 };
+}
+
 function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string): NodeGenerationContext {
     const inputByNodeId = new Map(inputs.map((input) => [input.nodeId, input]));
     const selectedInputs: NodeGenerationInput[] = [];

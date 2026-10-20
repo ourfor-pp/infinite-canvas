@@ -1,3 +1,4 @@
+import { videoEnhancementModels } from "./video-contract.js";
 import { canvasNodeTypeSchema } from "./agent/canvas-tools.js";
 import { createDirectorLookFrame, readDirectorPrevis, updateDirectorLookFrame } from "./director-previs.js";
 import { cancelPrevisRender, createPrevisRender, getPrevisRender, listPrevisRenders, retryPrevisRender } from "./director-previs-render.js";
@@ -82,7 +83,7 @@ const generationSchema = z.object({
     references: z.array(z.object({ fileId: idSchema, kind: z.enum(["image", "video", "audio"]).optional(), role: z.enum(["reference", "first-frame", "last-frame", "continuation", "emotion"]).optional(), transcript: z.string().max(20_000).optional(), frameIndex: z.number().int().min(-1).optional(), includeAudio: z.boolean().optional() })).optional(),
 }).superRefine((value, context) => {
     if (value.purpose === "default" && !value.model) context.addIssue({ code: "custom", path: ["model"], message: "普通生成必须指定模型" });
-    if (value.kind !== "transcription" && !value.prompt?.trim() && !value.messages?.length && !value.purpose.startsWith("image-upscale-")) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });
+    if (value.kind !== "transcription" && !(value.kind === "video" && videoEnhancementModels.includes(value.model?.split("::")[1] || "")) && !value.prompt?.trim() && !value.messages?.length && !value.purpose.startsWith("image-upscale-")) context.addIssue({ code: "custom", path: ["prompt"], message: "提示词或消息不能为空" });
     if (value.purpose !== "default" && value.kind !== "image") context.addIssue({ code: "custom", path: ["purpose"], message: "专用图片工具只支持图片任务" });
     if (value.purpose === "image-inpaint" && !String(value.params?.maskFileId || "")) context.addIssue({ code: "custom", path: ["params", "maskFileId"], message: "局部编辑缺少蒙版" });
     if (value.purpose.startsWith("image-upscale-") && ![1024, 2048, 4096].includes(Number(value.params?.targetLongEdge))) context.addIssue({ code: "custom", path: ["params", "targetLongEdge"], message: "超分目标只支持 1024、2048 或 4096" });

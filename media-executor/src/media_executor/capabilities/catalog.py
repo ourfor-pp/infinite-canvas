@@ -2,15 +2,16 @@
 import hashlib
 from pathlib import Path
 
-from . import h3, music, qwen_image
+from . import h3, music, qwen_image, video_quality
 from .. import qwen, indextts
 
-COMFY_MODELS = {*h3.MODELS, music.MODEL, qwen_image.MODEL}
+COMFY_MODELS = {*h3.MODELS, music.MODEL, qwen_image.MODEL, *video_quality.MODELS}
 
 
 def describe(runtime):
     features = runtime.get("comfyFeatures", {})
     items = [qwen_image.describe(bool(features.get("qwenImage21")))]
+    items.extend(video_quality.describe(features))
     for model, mode in h3.MODELS.items():
         available = features.get("h3Ref2va" if mode == "ref2va" else "h3Fl2va", False)
         native = mode == "ref2va" and bool(runtime.get("h3Runtime"))
@@ -60,6 +61,8 @@ def prepare(request, runtime, files: Path):
             raise ValueError("temporal guides are unavailable")
     elif request["model"] == qwen_image.MODEL:
         plan = qwen_image.prepare(request, files)
+    elif request["model"] in video_quality.MODELS:
+        plan = video_quality.prepare(request, files)
     elif request["model"] == music.MODEL:
         plan = music.prepare(request)
     else:

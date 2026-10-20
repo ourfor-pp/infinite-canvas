@@ -1,9 +1,11 @@
 /** Canvas video inputs. Native Director continuation/guide requests have their own contract. */
 export type VideoParameters = { sizes?: string[]; resolutions?: string[]; seconds?: number[]; generateAudio?: boolean; watermark?: boolean; maxImages?: number; maxVideos?: number; maxAudios?: number; maxTotal?: number };
-export type VideoContract = { version: 1; sizes: string[]; resolutions: string[]; seconds: number[]; generateAudio: boolean; watermark: boolean; imageRoles: string[]; minImages: number; maxImages: number; maxVideos: number; maxAudios: number; maxTotal: number; family: "openai" | "gemini" | "ark" | "h3"; mode?: string };
+export type VideoContract = { version: 1; sizes: string[]; resolutions: string[]; seconds: number[]; generateAudio: boolean; watermark: boolean; imageRoles: string[]; minImages: number; maxImages: number; maxVideos: number; maxAudios: number; maxTotal: number; family: "openai" | "gemini" | "ark" | "h3" | "enhance"; mode?: string; frameRates?: string[] };
+export const videoEnhancementModels = ["flashvsr-turbo-local", "seedvr2-local"];
 export function videoContractFor(model: { id: string; endpoint?: string; videoParameters?: VideoParameters; maxReferenceImages?: number; videoReferenceRoles?: string[] }): VideoContract | undefined {
     let c: VideoContract;
     const base = { version: 1 as const, generateAudio: false, watermark: false, minImages: 0, maxVideos: 0, maxAudios: 0 };
+    if (videoEnhancementModels.includes(model.id)) return { ...base, family: "enhance", mode: "enhance", sizes: [], resolutions: ["1080p", "4k"], seconds: [], imageRoles: [], maxImages: 0, maxVideos: 1, maxTotal: 1, frameRates: ["source", "48", "60"] };
     if (model.id.startsWith("minimax-h3-")) {
         const firstLast = model.id.includes("fl2va");
         c = { ...base, family: "h3", mode: firstLast ? "fl2va" : "ref2va", sizes: ["16:9", "9:16", "1:1", "4:3", "3:4"], resolutions: ["480p", "768p"], seconds: Array.from({ length: 12 }, (_, i) => i + 4), imageRoles: firstLast ? ["first-frame", "last-frame"] : ["reference"], minImages: firstLast ? 1 : 0, maxImages: firstLast ? 2 : 9, maxVideos: firstLast ? 0 : 3, maxAudios: firstLast ? 0 : 3, maxTotal: firstLast ? 2 : 12 };
@@ -15,9 +17,10 @@ export function videoContractFor(model: { id: string; endpoint?: string; videoPa
     return { ...c, ...model.videoParameters };
 }
 export function videoDefaults(c: VideoContract) {
-    return { size: c.sizes[0], vquality: c.resolutions[0] || "", videoSeconds: String(c.family === "gemini" && c.imageRoles.includes("reference") && c.seconds.includes(8) ? 8 : c.seconds[0]), videoGenerateAudio: "true", videoWatermark: "false" };
+    return { size: c.sizes[0] || "", vquality: c.resolutions[0] || "", videoSeconds: c.seconds.length ? String(c.family === "gemini" && c.imageRoles.includes("reference") && c.seconds.includes(8) ? 8 : c.seconds[0]) : "", videoGenerateAudio: "true", videoWatermark: "false", videoFps: "48" };
 }
 export function videoRequestParams(c: VideoContract, config: Record<string, unknown>) {
+    if (c.family === "enhance") return { resolution: config.vquality, fps: config.videoFps === "source" ? "source" : Number(config.videoFps || 48) };
     return { seconds: Number(config.videoSeconds), ...(c.family === "openai" ? { size: config.size } : { ratio: config.size }), ...(c.resolutions.length ? { resolution: config.vquality } : {}), ...(c.generateAudio ? { generateAudio: config.videoGenerateAudio !== "false" } : {}), ...(c.watermark ? { watermark: config.videoWatermark === "true" } : {}) };
 }
 export function videoReferenceRole(c: VideoContract, kind: string, imageIndex: number) {
@@ -25,6 +28,14 @@ export function videoReferenceRole(c: VideoContract, kind: string, imageIndex: n
 }
 export function validateVideoInput(c: VideoContract, prompt: string, params: Record<string, unknown>, refs: Array<{ kind?: string; role?: string }>) {
     const errors: string[] = [];
+    if (c.family === "enhance") {
+        if (prompt.trim()) errors.push("视频提质不使用创作提示词");
+        if (!c.resolutions.includes(String(params.resolution))) errors.push("请选择提质目标分辨率");
+        if (!(params.fps === "source" || typeof params.fps === "number" && c.frameRates?.includes(String(params.fps)))) errors.push("请选择目标帧率");
+        if (Object.keys(params).some(key => !["resolution", "fps", "seed", "recipe"].includes(key))) errors.push("包含当前提质模型不支持的参数");
+        if (refs.length !== 1 || refs[0].kind !== "video" || (refs[0].role || "reference") !== "reference") errors.push("视频提质需要一个待处理视频，请连接视频节点");
+        return errors;
+    }
     if (!prompt.trim()) errors.push("请填写视频描述");
     if (!c.sizes.includes(String(params[c.family === "openai" ? "size" : "ratio"]))) errors.push("画面尺寸不受当前模型支持");
     if (!c.seconds.includes(Number(params.seconds)) || typeof params.seconds !== "number") errors.push("时长不受当前模型支持");

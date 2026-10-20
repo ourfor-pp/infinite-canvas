@@ -5,6 +5,7 @@ import { db, parseJson } from "./database.js";
 import { getStoredFile } from "./file-store.js";
 import { getMediaExecutorSettings, MEDIA_PROTOCOL } from "./media-executor-settings.js";
 import { dimensions } from "./comfy-workflows.js";
+import { videoEnhancementModels } from "./video-contract.js";
 
 export type MediaCapability = { id: string; version: string; output: "image" | "video" | "audio" | "text"; available: boolean; modes: string[]; operations: string[]; inputs: string[]; [key: string]: unknown };
 export type MediaPlan = { capabilityVersion: string; mode: string; recipe?: string; qualityPreset?: string; width?: number; height?: number; fps?: number; outputFrames?: number; outputSeconds?: number; overlapFrames?: number; context?: Record<string, unknown> | null; previous?: Record<string, unknown> | null; seed: number };
@@ -69,8 +70,8 @@ export async function prepareExecutorRequest(userId: string, id: string, model: 
         return { id, model, mode: request.mode || (refs.length ? "image-edit" : "text-to-image"), operation: request.operation || "generate", prompt, params: imageParams, references, continuation };
     }
     if (request.videoInputVersion === 1 && model.startsWith("minimax-h3-")) params.qualityPreset = params.resolution === "768p" ? "final" : "preview";
-    const mode = request.mode || (request.kind === "transcription" ? "transcription" : model.includes("ref2va") ? "ref2va" : model.includes("fl2va") ? "fl2va" : model === "minimax-music3-local" ? "music" : String(params.audioMode || "speech"));
-    const operation = request.operation || (request.kind === "transcription" ? "transcribe" : state ? "extend" : String(params.audioOperation || (mode === "speech" && refs.length ? "clone" : "generate")));
+    const mode = request.mode || (videoEnhancementModels.includes(model) ? "enhance" : request.kind === "transcription" ? "transcription" : model.includes("ref2va") ? "ref2va" : model.includes("fl2va") ? "fl2va" : model === "minimax-music3-local" ? "music" : String(params.audioMode || "speech"));
+    const operation = request.operation || (videoEnhancementModels.includes(model) ? "enhance" : request.kind === "transcription" ? "transcribe" : state ? "extend" : String(params.audioOperation || (mode === "speech" && refs.length ? "clone" : "generate")));
     return { id, model, mode, operation, prompt: request.prompt || "", params, references, continuation };
 }
 

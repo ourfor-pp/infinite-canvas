@@ -123,5 +123,5 @@ def test_all_service_capabilities_share_one_skill():
     info["models"] = {"qwen3-tts-1.7b-base-local": {"engine": "qwen", "modes": ["speech"], "operations": ["clone"], "inputs": ["text", "audio"]}}
     info["runtimes"] = {"qwen": True}
     capabilities = describe(info)["capabilities"]
-    assert len(capabilities) == 5
+    assert len(capabilities) == 7
     assert {item["skill"] for item in capabilities} == {"media-generation"}

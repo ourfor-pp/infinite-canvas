@@ -103,7 +103,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
             </div>
 
             <div className="mb-2 grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_148px] items-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
-                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => { const vc = mode === "video" ? getAvailableModel(model)?.videoContract : undefined; const vd = vc ? videoDefaults(vc) : undefined; const contract = getAvailableModel(model)?.audioContract; const imageContract = getAvailableModel(model)?.imageContract; onConfigChange(node.id, { model, ...(vd ? { size: vd.size, seconds: vd.videoSeconds, vquality: vd.vquality, generateAudio: vd.videoGenerateAudio, watermark: vd.videoWatermark } : {}), ...(mode === "image" && imageContract ? imageDefaults(imageContractForMode(imageContract, imageMode === "edit")) : {}), ...(mode === "audio" ? { audioParams: contract ? audioDefaults(contract) : {}, audioOperation: contract?.operations[0], audioReferenceInputs: {} } : {}) }); }} capability={mode} imageMode={mode === "image" ? imageMode : undefined} onMissingConfig={() => openConfigDialog(true)} fullWidth />
+                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => { const vc = mode === "video" ? getAvailableModel(model)?.videoContract : undefined; const vd = vc ? videoDefaults(vc) : undefined; const contract = getAvailableModel(model)?.audioContract; const imageContract = getAvailableModel(model)?.imageContract; onConfigChange(node.id, { model, ...(vd ? { size: vd.size, seconds: vd.videoSeconds, vquality: vd.vquality, generateAudio: vd.videoGenerateAudio, watermark: vd.videoWatermark, videoFps: vd.videoFps } : {}), ...(mode === "image" && imageContract ? imageDefaults(imageContractForMode(imageContract, imageMode === "edit")) : {}), ...(mode === "audio" ? { audioParams: contract ? audioDefaults(contract) : {}, audioOperation: contract?.operations[0], audioReferenceInputs: {} } : {}) }); }} capability={mode} imageMode={mode === "image" ? imageMode : undefined} onMissingConfig={() => openConfigDialog(true)} fullWidth />
                 {mode === "video" ? (
                     <CanvasVideoSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
                 ) : mode === "image" ? (
@@ -176,6 +176,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         ...(node.metadata?.vquality ? { vquality: node.metadata.vquality } : {}),
         ...(node.metadata?.generateAudio ? { videoGenerateAudio: node.metadata.generateAudio } : {}),
         ...(node.metadata?.watermark ? { videoWatermark: node.metadata.watermark } : {}),
+        ...(node.metadata?.videoFps ? { videoFps: node.metadata.videoFps } : {}),
     } : result;
 }
 

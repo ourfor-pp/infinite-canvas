@@ -44,7 +44,8 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
         ...audioReferences.map((reference) => ensureServerReference(reference, "audio")),
     ]);
     const generation = await serverApi.createGeneration({
-        kind: "video", videoInputVersion: 1, model, prompt, params,
+        kind: "video", videoInputVersion: 1, model, prompt: contract.family === "enhance" ? "" : prompt, params,
+        ...(contract.family === "enhance" ? { mode: "enhance", operation: "enhance" } : {}),
         references: allReferences.map((ref, i) => ({ ...ref, role: roles[i].role as "reference" | "first-frame" | "last-frame" })),
     });
     const abort = () => void serverApi.cancelGeneration(generation.id).catch(() => undefined);

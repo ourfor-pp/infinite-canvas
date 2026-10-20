@@ -1,3 +1,4 @@
+import { videoEnhancementModels } from "./video-contract.js";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { createGeneration } from "./generation-service.js";
@@ -14,7 +15,7 @@ export const mediaGenerationShape = {
     references: z.array(z.object({ fileId: z.string().min(1), kind: z.enum(["image", "video", "audio"]), role: z.enum(["reference", "first-frame", "last-frame", "continuation", "emotion"]).optional(), frameIndex: z.number().int().min(-1).optional(), includeAudio: z.boolean().optional(), transcript: z.string().max(20_000).optional() })).max(12).default([]),
     continuation: z.object({ generationId: z.string().min(1), fileId: z.string().min(1) }).optional(),
 };
-export const mediaGenerationSchema = z.object(mediaGenerationShape).refine((value) => value.kind === "transcription" || value.prompt.trim().length > 0, { path: ["prompt"], message: "提示词不能为空" });
+export const mediaGenerationSchema = z.object(mediaGenerationShape).refine((value) => value.kind === "transcription" || value.kind === "video" && videoEnhancementModels.includes(value.model.split("::")[1]) || value.prompt.trim().length > 0, { path: ["prompt"], message: "提示词不能为空" });
 
 export async function prepareMediaGeneration(userId: string, input: unknown) {
     const request = mediaGenerationSchema.parse(input);

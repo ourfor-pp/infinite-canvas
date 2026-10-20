@@ -1,3 +1,4 @@
+from fractions import Fraction
 """Durable execution of executor-owned Comfy capabilities."""
 import hashlib
 import json
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import httpx
 
-from .capabilities import h3, music, qwen_image
+from .capabilities import h3, music, qwen_image, video_quality
 from .capabilities.catalog import input_path
 from .comfy_progress import ComfyProgress
 
@@ -72,7 +73,7 @@ def run(app, job_id, request):
             else:
                 # Runtime facts may have changed since preflight; fail before submitting.
                 current = app.prepare_capability(request)
-                if any(current.get(k) != plan.get(k) for k in ("context", "recipe", "width", "height", "outputFrames")):
+                if any(current.get(k) != plan.get(k) for k in ("context", "recipe", "width", "height", "outputFrames", "fps", "source")):
                     raise RuntimeError("capability changed while queued; validate and submit a new task")
                 uploads = {}
                 inputs = request.get("references", []) + ([request["continuation"]] if request.get("continuation") else [])
@@ -83,6 +84,8 @@ def run(app, job_id, request):
                     uploads[ref["fileId"]] = "/".join(filter(None, [value.get("subfolder"), value["name"]]))
                 if request["model"] == qwen_image.MODEL:
                     graph = qwen_image.graph(request, plan, uploads)
+                elif request["model"] in video_quality.MODELS:
+                    graph = video_quality.graph(request, plan, uploads)
                 else:
                     graph = h3.graph(request, plan, uploads, uploads.get((request.get("continuation") or {}).get("fileId"))) if request["model"] in h3.MODELS else music.graph(request, plan)
                 with app.connect() as db:
@@ -152,6 +155,10 @@ def run(app, job_id, request):
                     else:
                         info = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-count_frames", "-show_entries", "stream=codec_type,width,height,nb_read_frames,r_frame_rate,duration:format=duration", "-of", "json", str(path)], text=True))
                         saved["media"] = info
+                        if request["model"] in video_quality.MODELS:
+                            video = next(s for s in info["streams"] if s["codec_type"] == "video")
+                            if int(video["nb_read_frames"]) != plan["outputFrames"] or video["width"] != plan["width"] or video["height"] != plan["height"] or Fraction(video["r_frame_rate"]) != Fraction(plan["fps"]):
+                                raise RuntimeError("enhanced video does not match execution plan")
                         if request["model"] == qwen_image.MODEL:
                             image = next(s for s in info["streams"] if s["codec_type"] == "video")
                             if path.suffix.lower() != ".png" or image["width"] != plan["width"] or image["height"] != plan["height"]:

@@ -2,6 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { videoContractFor, videoDefaults, videoRequestParams, videoReferenceRole, validateVideoInput } from "./video-contract.js";
 const contract = (id: string, endpoint?: string) => videoContractFor({ id, endpoint })!;
+test("两个提质模型共用分辨率和帧率输入，不要求提示词或生成时长", () => {
+    for (const id of ["flashvsr-turbo-local", "seedvr2-local"]) {
+        const c = contract(id), params = videoRequestParams(c, videoDefaults(c));
+        assert.deepEqual(params, { resolution: "1080p", fps: 48 });
+        assert.deepEqual(validateVideoInput(c, "", params, [{ kind: "video" }]), []);
+        assert.ok(validateVideoInput(c, "", params, []).length);
+        assert.ok(validateVideoInput(c, "", params, [{ kind: "image" }]).length);
+        assert.ok(validateVideoInput(c, "", { ...params, seconds: 5 }, [{ kind: "video" }]).length);
+        assert.ok(validateVideoInput(c, "change content", params, [{ kind: "video" }]).length);
+        assert.deepEqual(videoRequestParams(c, { vquality: "4k", videoFps: "source" }), { resolution: "4k", fps: "source" });
+    }
+});
 test("H3 首尾帧与多参考模型分别校验输入，不夹带云端开关", () => {
     const c = contract("minimax-h3-fl2va-local"), params = videoRequestParams(c, videoDefaults(c));
     assert.deepEqual(params, { seconds: 4, ratio: "16:9", resolution: "480p" });

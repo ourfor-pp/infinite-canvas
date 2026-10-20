@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from .capabilities.catalog import COMFY_MODELS as CAPABILITY_COMFY_MODELS, describe as describe_capabilities, prepare as prepare_model
 from . import comfy_jobs, native_jobs
-from .capabilities import qwen_image
+from .capabilities import qwen_image, video_quality
 from .gpu import Nvml, Scheduler, PeakMonitor, profile_key
 from .lifecycle import ManagedRuntime
 from .worker_runtime import WorkerRuntime, RUNTIME_FOLDERS, RUNTIME_ROOT
@@ -364,6 +364,15 @@ def health(_: None = Depends(authorize)):
         music_models = (("UNETLoader", "unet_name", "minimax_music3_dit_fp16.safetensors"), ("CLIPLoader", "clip_name", "minimax_music3_text_encoder_pruned_int8_convrot.safetensors"), ("VAELoader", "vae_name", "minimax_music3_dav.safetensors"))
         comfy_features["music3"] = {"MiniMaxMusic3TextEncode", "EmptyMiniMaxMusic3LatentAudio", "ConditioningZeroOut", "KSampler", "VAEDecodeAudio", "SaveAudio"}.issubset(info) and all(name in info.get(loader, {}).get("input", {}).get("required", {}).get(field, [[]])[0] for loader, field, name in music_models)
         comfy_features["qwenImage21"] = qwen_image.available(info)
+        if "InfiniteVideoEnhance" in info:
+            try:
+                with httpx.Client(timeout=httpx.Timeout(2, connect=.5), trust_env=False) as client:
+                    quality = client.get(f"{COMFY_URL}/infinite/video-quality").json()
+                for model in video_quality.MODELS:
+                    comfy_features[model] = quality.get("recipe") == video_quality.RECIPE and quality.get("models", {}).get(model) is True
+                comfy_features["videoQuality"] = {model: comfy_features[model] for model in video_quality.MODELS}
+            except (httpx.HTTPError, ValueError):
+                pass  # A quality-extension outage must not hide the original H3 runtime.
         required = {"H3SaveContinuationState", "H3LoadContinuationState", "H3NewAVSegment", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "MiniMaxH3AppendContinuation"}
         comfy_features["nativeState"] = required.issubset(info)
         if comfy_features["nativeState"]:

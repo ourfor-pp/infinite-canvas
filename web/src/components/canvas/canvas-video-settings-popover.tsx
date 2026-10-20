@@ -51,7 +51,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
             <span ref={buttonRef} className="inline-flex min-w-0">
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: "transparent", color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
                     <span className="truncate">
-                        {contract ? [contract.resolutions.length ? config.vquality : "", config.size, videoSecondsLabel(config.videoSeconds)].filter(Boolean).join(" · ") : `${videoResolutionLabel(config.vquality)} · ${videoSizeLabel(config.size)} · ${videoSecondsLabel(config.videoSeconds)}`}
+                        {contract?.family === "enhance" ? `${config.vquality === "4k" ? "4K" : config.vquality} · ${config.videoFps === "source" ? "原帧率" : `${config.videoFps || "48"} FPS`}` : contract ? [contract.resolutions.length ? config.vquality : "", contract.sizes.length ? config.size : "", contract.seconds.length ? videoSecondsLabel(config.videoSeconds) : ""].filter(Boolean).join(" · ") : [videoResolutionLabel(config.vquality), videoSizeLabel(config.size), videoSecondsLabel(config.videoSeconds)].filter(Boolean).join(" · ")}
                     </span>
                 </Button>
             </span>

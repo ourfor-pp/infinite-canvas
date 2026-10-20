@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { decryptJson, encryptJson } from "./crypto.js";
 import { db } from "./database.js";
 import { COMFY_MODELS } from "./comfy-workflows.js";
+import { videoEnhancementModels } from "./video-contract.js";
 
 const schema = z.object({
     url: z.string().trim().url().or(z.literal("")),
@@ -13,7 +14,7 @@ const schema = z.object({
 export type MediaExecutorSettings = z.infer<typeof schema>;
 export type MediaExecutorModel = { engine?: string; [key: string]: unknown };
 export const MEDIA_PROTOCOL = "2";
-export type MediaExecutorHealth = { modelReadiness?: Record<string, boolean>; protocolVersion?: string; configuredRuntimes?: Record<string, boolean>; h3Runtime?: H3RuntimeCatalog; h3PddRuntime?: H3RuntimeCatalog; available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean; nativeState?: boolean; pddRef8?: boolean; music3?: boolean; qwenImage21?: boolean } };
+export type MediaExecutorHealth = { modelReadiness?: Record<string, boolean>; protocolVersion?: string; configuredRuntimes?: Record<string, boolean>; h3Runtime?: H3RuntimeCatalog; h3PddRuntime?: H3RuntimeCatalog; available: boolean; models: Record<string, MediaExecutorModel>; runtimes: Record<string, boolean>; comfyFeatures: { temporalGuides: boolean; turboPreview: boolean; nativeState?: boolean; pddRef8?: boolean; music3?: boolean; qwenImage21?: boolean; videoQuality?: Record<string, boolean> } };
 
 const emptyCatalog = (): MediaExecutorHealth => ({ available: false, models: {}, runtimes: {}, comfyFeatures: { temporalGuides: false, turboPreview: false } });
 let catalog: MediaExecutorHealth = emptyCatalog();
@@ -40,6 +41,7 @@ export function getMediaExecutorCatalog() {
 }
 
 export function isMediaExecutorModelAvailable(id: string) {
+    if (videoEnhancementModels.includes(id)) return catalog.available && catalog.comfyFeatures.videoQuality?.[id] === true;
     if (id === "qwen-image-2.1-local") return catalog.available && catalog.comfyFeatures.qwenImage21 === true;
     const model = catalog.models[id];
     return Boolean(model && (model.engine === "qwen" || !model.engine || (catalog.runtimes[model.engine] || catalog.configuredRuntimes?.[model.engine])));
@@ -58,7 +60,7 @@ export async function refreshMediaExecutorCatalog(value = getMediaExecutorSettin
         const features = health.comfyFeatures && typeof health.comfyFeatures === "object" ? health.comfyFeatures : { temporalGuides: false, turboPreview: false };
         const h3Runtime = h3RuntimeCatalogSchema.safeParse(health.h3Runtime);
         const h3PddRuntime = h3RuntimeCatalogSchema.safeParse(health.h3PddRuntime);
-        return catalog = { ...(h3Runtime.success && !h3Runtime.data.modelRevision.includes(":pdd-ref8:") ? { h3Runtime: h3Runtime.data } : {}), ...(h3PddRuntime.success && h3PddRuntime.data.modelRevision.includes(":pdd-ref8:") ? { h3PddRuntime: h3PddRuntime.data } : {}), available: true, models, runtimes, configuredRuntimes, protocolVersion: MEDIA_PROTOCOL, comfyFeatures: { temporalGuides: Boolean(features.temporalGuides), turboPreview: Boolean(features.turboPreview), nativeState: Boolean(features.nativeState), pddRef8: Boolean(features.pddRef8), music3: Boolean(features.music3), qwenImage21: Boolean(features.qwenImage21) } };
+        return catalog = { ...(h3Runtime.success && !h3Runtime.data.modelRevision.includes(":pdd-ref8:") ? { h3Runtime: h3Runtime.data } : {}), ...(h3PddRuntime.success && h3PddRuntime.data.modelRevision.includes(":pdd-ref8:") ? { h3PddRuntime: h3PddRuntime.data } : {}), available: true, models, runtimes, configuredRuntimes, protocolVersion: MEDIA_PROTOCOL, comfyFeatures: { temporalGuides: Boolean(features.temporalGuides), turboPreview: Boolean(features.turboPreview), nativeState: Boolean(features.nativeState), pddRef8: Boolean(features.pddRef8), music3: Boolean(features.music3), qwenImage21: Boolean(features.qwenImage21), videoQuality: Object.fromEntries(videoEnhancementModels.map(id => [id, features.videoQuality?.[id] === true])) } };
     } catch {
         return catalog = emptyCatalog();
     }

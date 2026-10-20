@@ -33,7 +33,7 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
+    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoFps", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -185,9 +185,10 @@ export function videoSizeLabel(value: string) {
     return option ? i18n.t(`settingsPanels.video.sizes.${option.labelKey}`) : size;
 }
 
-export function videoSecondsLabel(value: string) {
-    if (String(value).trim() === "-1") return i18n.t("settingsPanels.video.smart");
-    return `${value || "6"}s`;
+export function videoSecondsLabel(value?: string) {
+    const seconds = Number(value);
+    if (seconds === -1) return i18n.t("settingsPanels.video.smart");
+    return Number.isFinite(seconds) && seconds > 0 ? `${seconds}s` : "";
 }
 
 export function normalizeVideoSizeValue(value: string) {
@@ -286,6 +287,7 @@ function readSizeDimensions(size: string) {
 
 
 function ModelVideoSettings({ contract: c, config, onConfigChange, className }: { contract: VideoContract } & Pick<VideoSettingsPanelProps, "config" | "onConfigChange" | "className">) {
-    const select = (key: "size" | "vquality" | "videoSeconds", label: string, values: string[]) => values.length ? <label className="flex flex-col gap-2 text-xs"><span className="opacity-65">{label}</span><select aria-label={label} className="h-9 rounded-lg border border-current/15 bg-transparent px-2" value={config[key]} onChange={e => onConfigChange(key, e.target.value)}>{values.map(value => <option key={value} value={value}>{value === "adaptive" ? "自动" : key === "videoSeconds" ? `${value} 秒` : value}</option>)}</select></label> : null;
+    const select = (key: "size" | "vquality" | "videoSeconds" | "videoFps", label: string, values: string[]) => values.length ? <label className="flex flex-col gap-2 text-xs"><span className="opacity-65">{label}</span><select aria-label={label} className="h-9 rounded-lg border border-current/15 bg-transparent px-2" value={config[key]} onChange={e => onConfigChange(key, e.target.value)}>{values.map(value => <option key={value} value={value}>{value === "source" ? "保持原帧率" : value === "4k" ? "4K" : key === "videoFps" ? `${value} FPS` : value === "adaptive" ? "自动" : key === "videoSeconds" ? `${value} 秒` : value}</option>)}</select></label> : null;
+    if (c.family === "enhance") return <div className={className}>{select("vquality", "目标分辨率", c.resolutions)}{select("videoFps", "目标帧率", c.frameRates || [])}<p className="text-xs opacity-55">保持比例、时长和原声音；原帧率达到目标时跳过补帧。支持最长 15 秒、1080p 以内的恒定帧率源视频。</p></div>;
     return <div className={className}>{select("size", c.family === "openai" ? "输出尺寸" : "画面比例", c.sizes)}{select("vquality", "分辨率", c.resolutions)}{select("videoSeconds", "时长", c.seconds.map(String))}{c.generateAudio ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={config.videoGenerateAudio !== "false"} onChange={e => onConfigChange("videoGenerateAudio", String(e.target.checked))} />生成声音</label> : null}{c.watermark ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={config.videoWatermark === "true"} onChange={e => onConfigChange("videoWatermark", String(e.target.checked))} />水印</label> : null}<div className="text-xs opacity-55">{c.imageRoles.includes("first-frame") ? "参考图按顺序用作首帧" + (c.maxImages > 1 ? "、尾帧" : "") : "参考素材用于内容引导"}；最多 {c.maxImages} 张图、{c.maxVideos} 段视频、{c.maxAudios} 段音频{c.family === "h3" ? "；实际时长按模型支持的帧数对齐" : ""}</div></div>;
 }
