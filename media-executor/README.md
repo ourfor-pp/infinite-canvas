@@ -55,6 +55,14 @@ ComfyUI 的 `custom_nodes/` 需链接仓库 `comfy-runtime/` 状态扩展，保�
 
 当前 v0.15.2 已在本机完成正式切换、应用 ASR/Vox 落库、旧 H3 状态续接及固定输入模型对照，证据与听审边界见 [部署验收](../docs/research/audio-v0152-acceptance.md)。
 
+## 本地多模态 LLM
+
+`qwen3.5-4b-q4-local` 支持文字与单张图片输入、文本或 JSON 输出，复用 `/v1/jobs`、结果下载与 ACK。它使用固定版本的 Unsloth Q4_K_M GGUF 和 llama.cpp；参数及质量边界见 [LLM 任务说明](src/media_executor/skills/media-generation/references/llm.md)。
+
+运行 `bash scripts/install-qwen-llm.sh` 安装独立工作进程及固定引擎；`scripts/download-qwen-llm.py --ssd-root <SSD目录>` 校验固定权重并建立稳定入口。安装要求 CUDA 编译环境，默认计算架构为 RTX 5090 的 `120`，其他显卡通过 `LLAMA_CUDA_ARCHITECTURES` 显式设置。可用 `LLAMA_CPP_SOURCE` 和 `LLAMA_CPP_BUILD` 复用同一固定 revision 的干净源码与构建。
+
+备份配置，设置 maintenance 并排空任务后，加载执行器环境，在验收进程中设置 `QWEN_LLM_ENABLED=1` 和绑定代码、模型及依赖的 `MEDIA_EXECUTOR_LLM_REVISION`，执行 `PYTHONPATH=src .venv/bin/python scripts/qualify-qwen-llm.py --reference <图片>`。该命令进行真实看图、长上下文、1K/2K 校准与串行共存测试；成功后才将两个环境变量写入正式配置、重启执行器并解除 maintenance。实际接口验收还需覆盖提交、查询、下载和 ACK。不会新增模型 TCP 端口或独立服务。
+
 ## IndexTTS 2.5
 
 `indextts-2.5-local` 提供 `speech/clone`，音色参考为 `role: reference`，可选情绪参考为 `role: emotion`；每段音频不超过 15 秒。支持 `language`、`durationFactor`、`intervalSilence`、`emotionVector`、`emotionStrength` 和 `seed`，参数边界见 [使用说明](src/media_executor/skills/media-generation/references/indextts.md)。不内置演示音色、不加载 QwenEmotion、不做后期变速。

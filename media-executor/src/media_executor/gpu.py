@@ -62,7 +62,7 @@ class Scheduler:
                 raise RuntimeError("GPU lease owner mismatch")
             self.owner = None
 
-    def prepare(self, job_id, target, key, canceled=lambda: False, report=lambda _: None, force=False):
+    def prepare(self, job_id, target, key, canceled=lambda: False, report=lambda _: None, force=False, budget=None):
         if self.owner != job_id:
             raise RuntimeError("GPU admission requires lease")
         with self.connect() as db:
@@ -84,14 +84,15 @@ class Scheduler:
             # Unknown shapes get the whole device budget, minus fixed foreign usage.
             managed = {pid for state in states.values() for pid in state.get("pids", [])}
             foreign = sum(size for pid, size in memory.processes.items() if pid not in managed)
-            reusable = resident if target == "comfy" or row and json.dumps(states[target].get("loaded"), sort_keys=True) == row[2] else 0
-            required = max(0, row[0] - reusable) + reserve if row else max(0, memory.total - foreign - resident - reserve)
+            reusable = resident if target == "comfy" or budget is not None or row and json.dumps(states[target].get("loaded"), sort_keys=True) == row[2] else 0
+            peak = max(row[0] if row else 0, budget or 0)
+            required = max(0, peak - reusable) + reserve if row or budget is not None else max(0, memory.total - foreign - resident - reserve)
             candidates = [name for name, state in states.items() if name != target and not state.get("busy") and (state.get("loaded") or any(memory.processes.get(pid, 0) for pid in state.get("pids", [])))]
             candidates.sort(key=lambda name: used.get(name, 0))
-            must_evict = (force or row is None) and any(name not in evicted for name in candidates)
+            must_evict = (force or row is None and budget is None) and any(name not in evicted for name in candidates)
             busy = [name for name, state in states.items() if name != target and state.get("busy")]
             report({"phase": "reclaiming" if memory.free < required or must_evict else "loading", "freeBytes": memory.free,
-                    "requiredBytes": required, "foreignBytes": foreign, "profileKnown": row is not None, "events": events})
+                    "requiredBytes": required, "foreignBytes": foreign, "profileKnown": row is not None, "qualifiedBudgetBytes": budget, "events": events})
             if memory.free >= required and not must_evict and not busy:
                 return events
             cache = next((name for name in candidates if name not in cleared), None)

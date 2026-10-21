@@ -6,6 +6,8 @@ from pathlib import Path
 
 import httpx
 
+from . import llm
+
 
 def run(app, job_id, request, runtime):
     root = (app.RESULTS / job_id).resolve()
@@ -64,5 +66,8 @@ def run(app, job_id, request, runtime):
         files.append({"name": path.name, "mimeType": value.get("mimeType", "audio/wav")})
     if not files:
         raise RuntimeError("runtime returned no output files")
+    output = {"files": files}
+    if request.get("model") == llm.MODEL:
+        output.update({key: result[key] for key in ("text", "usage", "finishReason")})
     with app.connect() as db:
-        db.execute("UPDATE jobs SET result=?,progress=1,updated_at=? WHERE id=? AND cancel_requested=0", (json.dumps({"files": files}), time.time(), job_id))
+        db.execute("UPDATE jobs SET result=?,progress=1,updated_at=? WHERE id=? AND cancel_requested=0", (json.dumps(output), time.time(), job_id))

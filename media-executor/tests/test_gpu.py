@@ -37,6 +37,14 @@ def test_enough_memory_retains_idle_models(tmp_path):
     assert not runtimes["old"].actions
 
 
+def test_qualified_budget_retains_models_for_new_prompt_but_oom_still_evicts(tmp_path):
+    scheduler, runtimes = setup(tmp_path, {1: 4 * GIB, 2: 18 * GIB})
+    scheduler.prepare("job", "target", "new-prompt", budget=6 * GIB)
+    assert not runtimes["old"].actions
+    scheduler.prepare("job", "target", "new-prompt", budget=6 * GIB, force=True)
+    assert "unload" in runtimes["old"].actions
+
+
 def test_pressure_evicts_lru_only_until_budget_fits(tmp_path):
     scheduler, runtimes = setup(tmp_path, {1: 3 * GIB, 2: 10 * GIB, 3: 8 * GIB})
     scheduler.record("old", "other", 10 * GIB)

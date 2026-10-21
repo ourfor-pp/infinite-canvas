@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- [新增] 中立 AI 服务支持本地 Qwen3.5 Q4 的文字与图片理解、文本及 JSON 输出，并按实测显存预算与 Qwen Image 复用已加载模型。
+
 - [新增] 视频审片 Demo 补充抖音 Star7 修脸／高清、VEDA 加速和 LTX 参考放大的本机对照，展示实际耗时与身份变化。
 
 - [新增] 视频审片 Demo 补充原生768p的 PDD8、Larry6／8步与 Singularity 指定4步加速配方对照，展示真实耗时和身份局限。

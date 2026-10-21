@@ -24,7 +24,7 @@ from .capabilities import qwen_image, video_quality
 from .gpu import Nvml, Scheduler, PeakMonitor, profile_key
 from .lifecycle import ManagedRuntime
 from .worker_runtime import WorkerRuntime, RUNTIME_FOLDERS, RUNTIME_ROOT
-from . import qwen, indextts
+from . import qwen, indextts, llm, coexistence
 
 ROOT = Path(os.getenv("MEDIA_EXECUTOR_DATA_DIR", "./data")).resolve()
 FILES = ROOT / "files"
@@ -46,6 +46,8 @@ MODELS = {
     "moss-soundeffect-v2-local": {"engine": "moss", "modes": ["ambient", "sfx"], "operations": ["generate"], "inputs": ["text"], "maxDurationSeconds": 30},
 }
 MODELS.update({model: qwen.describe(model) for model in qwen.MODELS})
+if os.getenv("QWEN_LLM_ENABLED") == "1":
+    MODELS[llm.MODEL] = llm.describe()
 if os.getenv("INDEX_TTS_ENABLED") == "1":
     MODELS[indextts.MODEL] = indextts.describe()
 if os.getenv("ACE_STEP_ENABLED") == "1":
@@ -241,7 +243,8 @@ def run_job(job_id: str, request: dict[str, Any]) -> None:
         recovering = bool(upstream and upstream[0])
         for attempt in range(2):
             if not recovering:
-                gpu.prepare(job_id, target, key, lambda: canceled(job_id), lambda detail: report(job_id, detail), force=attempt == 1)
+                gpu.prepare(job_id, target, key, lambda: canceled(job_id), lambda detail: report(job_id, detail), force=attempt == 1,
+                            budget=coexistence.budget(ROOT, request, plan))
             try:
                 with PeakMonitor(gpu.memory, runtime.pids) as monitor:
                     report(job_id, {"phase": "inference", "attempt": attempt + 1})

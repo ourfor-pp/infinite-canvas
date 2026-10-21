@@ -3,7 +3,7 @@ import hashlib
 from pathlib import Path
 
 from . import h3, music, qwen_image, video_quality
-from .. import qwen, indextts
+from .. import qwen, indextts, llm
 
 COMFY_MODELS = {*h3.MODELS, music.MODEL, qwen_image.MODEL, *video_quality.MODELS}
 
@@ -65,6 +65,8 @@ def prepare(request, runtime, files: Path):
         plan = video_quality.prepare(request, files)
     elif request["model"] == music.MODEL:
         plan = music.prepare(request)
+    elif request["model"] == llm.MODEL:
+        plan = llm.validate(request)
     else:
         if request["mode"] not in definition["modes"] or request["operation"] not in definition["operations"] or request.get("continuation"):
             raise ValueError("model capability mismatch")

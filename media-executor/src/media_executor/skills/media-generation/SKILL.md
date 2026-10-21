@@ -14,6 +14,7 @@ allowed-tools: [mcp__infinite_canvas__media_list_capabilities, mcp__infinite_can
 
 | 能力 | 服务实现 | 需要读取的说明 |
 | --- | --- | --- |
+| 文字与图片输入、文本或 JSON 输出（服务 API） | Qwen3.5-4B Q4_K_M | [LLM 任务与参数](references/llm.md)；宿主是否提供文本生成工具以实际 schema 为准 |
 | 文生图、多参考编辑和透明 PNG（服务 API） | Qwen Image 2.1 | [图片输入与参数](references/qwen-image21.md)；宿主是否开放图片调用以工具 schema 为准，Codex 普通生图仍遵循原生能力约定 |
 | 参考视频生成、首尾帧、时间锚点、原生续接 | H3 | [视频输入与提示](references/h3.md)；编写或重做前读取其链接的完整官方指南与示例、动作与参考检查，不能沿用旧摘要 |
 | 视频超分与补帧组合提质 | FlashVSR Turbo、SeedVR2 | [源视频与提质参数](references/video-quality.md)；不需要创作提示词，不单列补帧模型 |

@@ -6,6 +6,10 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- 中立 AI 服务已启用 `qwen3.5-4b-q4-local`：文字与单张图片输入、普通文本/JSON 输出，复用任务查询、下载与 ACK，保留输出截断标记；工作进程及 llama.cpp 子进程使用私有 Unix Socket。实测预算绑定运行时版本，只在已验收的 LLM 和 Qwen Image 1K/2K 文生图规格内复用，其他规格保持保守调度。1K/2K 共存实测 LLM 加载次数不增加，正式 API 的需求整理→1K 生图→看图、幂等、下载和 ACK 通过；执行器 137 项测试通过。服务端 193 项中仍有两项节点数量断言失败，独立复现，本次未修改对应代码。复杂需求保真度与长期运行仍待用户验证；说明见 `media-executor/src/media_executor/skills/media-generation/references/llm.md`，本机证据位于 `.tmp/llm-integration/`。
+
+- 本地多模态 LLM 共存评测：官方 Qwen3-VL-4B-Instruct-FP8（固定 revision `a8337bdd00ec`，SGLang，8K 上下文）保持加载时，现有 Qwen Image 2.1 完成 1K 生图、1K 改色与 2K 海报，分别约 8.01／12.01／46.03 秒；LLM 进程合计峰值 9.78 GiB，整卡峰值 31.81 GiB。明确编辑指令生效，但“先描述再编辑”仍会漏写最终 prompt 的修改要求。仅验证串行任务下共存，ComfyUI 保留动态显存加载，未验证并行推理或长期稳定性，未接入正式服务；先前磁盘写满失败单独保留。原始结果与摘要位于 `.tmp/llm-official-fp8-evaluation/`，质量及采用方案待确认。
+
 - 抖音方案本机实测新增9原片＋5同屏，Demo累计98条／30组。Star7只修脸额外92.4秒有重影，高清二采132.95秒会改动作，高清后修脸再122.09秒；VEDA普通H3路线171.51→104.72秒但热度不同且有构图变化，完整Star7分块因核心接口不兼容未通过。LTX三组49帧1536p为49.95／40.50／29.51秒，均有身份或年龄偏移，未追加4K。891帧完整解码、五段同屏浏览器播放和手机布局通过，临时节点清理、正式指纹及原片SHA不变；是否采用仍待用户审片。详见 `docs/research/threebody-quality-followup.md`。
 
 - 红岸生成阶段新增同参考／提示／种子的PDD8、Larry v4 6／8步、Singularity＋指定LightX2V4步四组原生768p实测，分别186.133／142.199／179.893／92.754秒。加速有效但未证明小脸身份改善，Larry仍有嘴部开合，Singularity偏软、偏年轻且脸更小；不追加第二种子或4K，不改变默认配方。4原片＋2同屏已加入Demo，累计84条／25组；496帧完整解码与接触表检查、两段比较片和双路原生浏览器完整播放、手机布局通过。声音和最终视觉采用待用户验收。见 `docs/research/threebody-quality-followup.md`。
