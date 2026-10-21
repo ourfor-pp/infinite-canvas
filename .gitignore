@@ -19,3 +19,4 @@ web/public/plugins
 .tmp/
 .playwright-mcp
 media-executor/examples
+web/public/demos/
